@@ -99,3 +99,7 @@ Task 5: review 1 (opus) = spec ✅, quality Needs fixes — Important: `\` path 
 Task 5: minor (deferred): request body fully buffered (large /v1/files upload → heap); settle in finally can mask the original exception if onCostAlert/record throws; every SSE data line JSON-parsed (pre-filter message_start/delta); start() twice leaks first server, server not @Volatile; tests don't assert hop-by-hop drop / Accept-Encoding identity, client-cancel test can't show upstream cancel; AndroidKeyVault.get doesn't catch ProviderException
 Task 5: fix round 1/5 dispatched (resume implementer)
 Task 5: fix round 1 implementer DONE (52e06ad); confinement check untested on its own (textual check catches all forms first); re-review dispatched (haiku)
+Task 5: fix round 1/5 (4 addressed, 0 open; commits 1d926b7..52e06ad)
+Task 5: complete (commits 0ad5c78..52e06ad, review clean)
+Task 5: minor (deferred, FINAL REVIEW MUST TRIAGE — recommended fix before merge): `%2f`/`%2F` in the rest path is not rejected; OkHttp keeps it encoded so encodedPath stays under base, but an upstream that decodes %2f before normalising could reach /v1/...; fix = reject %2f case-insensitively + `..%2fv1` test. Also: KDoc above isDroppedRequestHeader belongs to isUnsafePath; task-5-report concern 4 / test count stale after fix round.
+Task 6: dispatched (base BASE6, sonnet)
