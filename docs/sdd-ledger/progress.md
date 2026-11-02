@@ -188,3 +188,4 @@ Task 11b: review 1 = spec ❌ (update/rollback skip supervise), quality Needs fi
 - Ruling: Task 11b Minor 3 (applyAgentTeams edits dsh's package.json while dsh still runs, before stop) joins round 1 — same function.
 Task 11b: minor (deferred): vault/versions/store read on main thread inside remember; hasClaudeKey read twice per start (patch vs env); budget alert > hard cap accepted; agent-default-model full-row replace resets reasoningEffort (document); update/rollback outcomes tested with fakes only; "every role works with DeepSeek only" not verified against full --dump-config (Task 13 / final review)
 Task 11b: fix round 1/5 dispatched (resume implementer)
+CI: run 41525416366 (3c71375, through Task 11a incl. @dshm/ui staging) = SUCCESS (android, plugins, rootfs arm64+x86_64)
