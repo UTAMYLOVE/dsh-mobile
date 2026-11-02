@@ -178,3 +178,4 @@ Task 11a: fix round 3 implementer DONE (6fdc10b): give-up survives re-entry, onl
 Task 11a: fix round 3/5 (1 addressed, 1 new open — rollback that switches nothing (NoPrevious / Failed) while dsh runs leaves the screen on Error; commits 0a44894..6fdc10b)
 - Ruling: the re-review's Minor "RolledBack with running == false clears the flag while dsh is down" joins round 4 (same handler).
 Task 11a: fix round 4/5 dispatched (fresh implementer, opus, per fix-loop escalation)
+Task 11a: fix round 4 implementer DONE_WITH_CONCERNS (bd28e4a): single reconcile step after rollback/retry; test hook internal var rollbackStep; 409 tests; re-review dispatched (sonnet — round 4 scope is subtle)
