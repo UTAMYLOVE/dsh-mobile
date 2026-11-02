@@ -117,4 +117,4 @@ Task 7: dispatched (base 9d8783d, sonnet)
 Task 7: implementer DONE (5bc869b): live health 401/ok; sessionId from exec.agent?.id (ToolRunContext); notify_user returns error strings (not isError); review dispatched (sonnet)
 Task 7: complete (commits 0612c9b..5bc869b, review clean)
 Task 7: minor (deferred): code-point (not grapheme) truncation can split ZWJ/flag clusters (plan-conformant); untested: tool "unexpected error" branch, timeout string from tool, real-timer abort vs hanging server; tests assume 127.0.0.1:1 refuses; build script duplicates esbuild command per plugin; notify_user returns error strings (not isError) per brief
-Task 8: dispatched (base BASE8, sonnet)
+Task 8: dispatched (base 3f56b8b, sonnet)
