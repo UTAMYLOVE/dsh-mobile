@@ -136,4 +136,4 @@ Task 9: fix round 1 implementer DONE (e3fd117): 3-phase rollback (NonCancellable
 Task 9: fix round 1/5 (2 addressed, 0 open; commits 8c2a78c..e3fd117)
 Task 9: complete (commits 4b3d2b5..e3fd117, review clean)
 Task 9: minor (deferred): RolledBack KDoc/reason don't say dsh is stopped on the switch-back-failed path (Task 11b UI must show dsh status after any outcome — carried into 11b brief); non-IO exception from cleanup after flip misreported as switch-back failure; caller cancellation during NonCancellable block discards switchError; lateinit job read in cancellation test; cancel branch (:171-176) has unguarded stop() and silently swallowed switchTo failure
-Task 10: dispatched (base BASE10, sonnet)
+Task 10: dispatched (base 38f6111, sonnet)
