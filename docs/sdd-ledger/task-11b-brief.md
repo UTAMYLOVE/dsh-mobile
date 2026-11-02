@@ -40,3 +40,5 @@
 - [ ] **Step 3:** 實作。
 - [ ] **Step 4:** 全套單元測試綠燈、輸出乾淨（`ManifestPermissionsTest` 仍通過）；`assembleDebug` 成功；scratch dsh 的 `--dump-config` 實測結果貼進報告。
 - [ ] **Step 5:** Commit `feat: settings screen and agent config writer`。
+
+**附加（Task 9 審查遺留）：** `UpdateOutcome.RolledBack` 在「切回舊版失敗」時 dsh 是停止狀態（reason 含 `switching back to … failed`）。設定頁顯示任何更新結果後，都要依 `controller.isRunning` 顯示 dsh 目前是否在跑，停止時提供「重新啟動」按鈕。
