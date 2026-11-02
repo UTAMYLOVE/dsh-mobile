@@ -158,4 +158,42 @@ class RootfsInstallerTest {
         assertTrue(Files.isSymbolicLink(File(filesDir, "rootfs/link").toPath()))
         assertTrue(Files.exists(File(filesDir, "rootfs/link").toPath(), LinkOption.NOFOLLOW_LINKS))
     }
+
+    @Test fun leftoverRootfsOldIsRemovedWithoutFollowingSymlinks() {
+        assumeTrue(symlinksSupported())
+        val outside = tmpDir.newFolder("outside-old").also { File(it, "keep.txt").writeText("keep") }
+        val old = File(filesDir, "rootfs.old")
+        File(old, "etc").mkdirs()
+        File(old, "etc/stale").writeText("x")
+        Files.createSymbolicLink(File(old, "link").toPath(), outside.toPath())
+        val inst = installer(tarXz())
+        inst.install {}
+        assertFalse(old.exists())
+        assertTrue(File(outside, "keep.txt").exists())
+        assertTrue(inst.isInstalled())
+    }
+
+    @Test fun upgradeSwapsInNewRootfsAndLeavesNoOldOrTmp() {
+        installer(tarXz(version = "1", build = { file("only-in-v1", "a".toByteArray()) }), "1").install {}
+        assertTrue(File(filesDir, "rootfs/only-in-v1").exists())
+        val v2 = installer(tarXz(version = "2", build = { file("only-in-v2", "b".toByteArray()) }), "2")
+        assertFalse(v2.isInstalled())
+        v2.install {}
+        assertTrue(v2.isInstalled())
+        assertEquals("2", File(filesDir, "rootfs/etc/dshm-rootfs-version").readText().trim())
+        assertTrue(File(filesDir, "rootfs/only-in-v2").exists())
+        assertFalse(File(filesDir, "rootfs/only-in-v1").exists())
+        assertFalse(File(filesDir, "rootfs.old").exists())
+        assertFalse(File(filesDir, "rootfs.tmp").exists())
+        assertEquals(setOf("rootfs"), filesDir.list()!!.toSet())
+    }
+
+    @Test fun failedUpgradeKeepsOldRootfsUsable() {
+        installer(tarXz(version = "1"), "1").install {}
+        val bad = installer(tarXz(version = "3"), "2") // archive marker mismatches expected
+        try { bad.install {}; fail("expected IOException") } catch (_: IOException) {}
+        assertTrue(installer(tarXz(version = "1"), "1").isInstalled())
+        assertFalse(File(filesDir, "rootfs.old").exists())
+        assertFalse(File(filesDir, "rootfs.tmp").exists())
+    }
 }

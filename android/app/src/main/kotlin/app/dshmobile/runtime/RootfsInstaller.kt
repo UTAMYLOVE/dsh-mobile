@@ -28,6 +28,7 @@ class RootfsInstaller(
 ) {
     private val rootfs = File(filesDir, "rootfs")
     private val tmp = File(filesDir, "rootfs.tmp")
+    private val old = File(filesDir, "rootfs.old")
 
     fun isInstalled(): Boolean {
         val marker = File(rootfs, VERSION_MARKER)
@@ -40,6 +41,7 @@ class RootfsInstaller(
 
     fun install(onProgress: (percent: Int) -> Unit) {
         deleteTree(tmp)
+        deleteTree(old) // leftover from an install that was killed mid-swap
         filesDir.mkdirs()
         try {
             open(ASSET_NAME).use { raw ->
@@ -64,13 +66,37 @@ class RootfsInstaller(
             if (!marker.isFile || marker.readText().trim() != expectedVersion) {
                 throw IOException("rootfs version marker missing or not $expectedVersion")
             }
-            deleteTree(rootfs)
-            Files.move(tmp.toPath(), rootfs.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            swapIn()
             onProgress(100)
         } catch (t: Throwable) {
             deleteTree(tmp)
             throw t
         }
+    }
+
+    /**
+     * Replaces `rootfs` with `rootfs.tmp` using renames only, so `rootfs` is always either the
+     * complete old tree or the complete new one (never a partly deleted tree). The old tree is
+     * set aside as `rootfs.old` and deleted last; if that delete is cut short, the next
+     * [install] removes the leftover.
+     */
+    private fun swapIn() {
+        val hadOld = Files.exists(rootfs.toPath(), LinkOption.NOFOLLOW_LINKS)
+        if (hadOld) Files.move(rootfs.toPath(), old.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        try {
+            Files.move(tmp.toPath(), rootfs.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        } catch (t: Throwable) {
+            if (hadOld) {
+                try {
+                    Files.move(old.toPath(), rootfs.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                } catch (restore: Throwable) {
+                    t.addSuppressed(restore)
+                }
+            }
+            throw t
+        }
+        // The new rootfs is already live; a failed cleanup is retried by the next install.
+        try { deleteTree(old) } catch (_: IOException) {}
     }
 
     /** Resolves an archive path under [tmp], rejecting anything that escapes it (tar-slip). */
