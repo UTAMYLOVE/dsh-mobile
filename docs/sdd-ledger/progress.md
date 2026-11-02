@@ -200,3 +200,7 @@ Task 12: review 1 = spec ❌ (Ruling 4 order), quality Needs fixes — Important
 Task 12: minor (deferred): final redirect host not checked (signature check backstops); DailyUpdateCheck logs "no newer release" daily into the error log; latest() null conflates no-update and unusable release; download in lifecycleScope, installer started after long download may be blocked in background; gh release create not --draft (half-published release blocks rerun), no versionCode monotonic check; actions pinned by tag; foreign app can trigger install_update (user still approves); Gradle configuration cache vs System.getenv signing values unverified
 Task 12: fix round 1/5 dispatched (resume implementer)
 Task 12: fix round 1 implementer DONE (64fdf99): permission before download, PendingUpdate resume on onResume, update-ready notification; 556 tests; re-review dispatched (haiku)
+Task 12: fix round 1/5 (1 addressed, 0 open; commits a5cef18..64fdf99)
+Task 12: complete (commits 4848e71..64fdf99, review clean)
+Task 12: minor (deferred): failed resume (download/hash/network) toasts only — next notice next day (re-post a notice); exported intent can arm pending_install → later unrequested 130 MB download on resume (installer still asks); ApkInstaller members `open` (prefer internal open); weak/no-RED evidence on some new tests; ready-notice retry needs network for latest() even with verified APK on disk
+Task 13: dispatched (base BASE13, opus — first whole-stack run on Android, CI iteration; implementer may push to this branch only)
