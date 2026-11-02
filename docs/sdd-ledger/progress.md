@@ -204,3 +204,4 @@ Task 12: fix round 1/5 (1 addressed, 0 open; commits a5cef18..64fdf99)
 Task 12: complete (commits 4848e71..64fdf99, review clean)
 Task 12: minor (deferred): failed resume (download/hash/network) toasts only — next notice next day (re-post a notice); exported intent can arm pending_install → later unrequested 130 MB download on resume (installer still asks); ApkInstaller members `open` (prefer internal open); weak/no-RED evidence on some new tests; ready-notice retry needs network for latest() even with verified APK on disk
 Task 13: dispatched (base 1ca9ec7, opus — first whole-stack run on Android, CI iteration; implementer may push to this branch only)
+- Superpowers skills installed into this cloud session (~/.claude/skills from github.com/obra/superpowers @2ce8aa1) at the boss's request; subagent-driven-development now runs as the loaded skill. Repo .claude/settings.json (c1df03f) enables superpowers@superpowers-marketplace for future sessions.
