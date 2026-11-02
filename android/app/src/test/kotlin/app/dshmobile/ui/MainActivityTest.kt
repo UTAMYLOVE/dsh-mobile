@@ -45,6 +45,8 @@ import java.nio.file.Path
 
 private const val LAUNCH_URL = "http://127.0.0.1:45678/?token=abc"
 
+private fun launchUrl(n: Int) = "http://127.0.0.1:${45678 + n}/?token=abc"
+
 @RunWith(RobolectricTestRunner::class)
 class MainActivityTest {
     private val app = ApplicationProvider.getApplicationContext<Context>() as DshMobileApp
@@ -60,6 +62,8 @@ class MainActivityTest {
     }
 
     @After fun tearDown() {
+        // End the activities first: their collectors and timers must not outlive the test.
+        activities.forEach { runCatching { it.pause().stop().destroy() } }
         controller?.stop()
         processes.forEach { it.destroyForcibly() }
         tmp.deleteRecursively()
@@ -87,7 +91,9 @@ class MainActivityTest {
         val c = DshController(
             filesDir = tmp, isRootfsInstalled = { true },
             launcher = { _, _ ->
-                ProcessBuilder("sh", "-c", """echo "dsh web: $LAUNCH_URL"; sleep 60""").start().also { processes.add(it) }
+                // every start prints its own launch URL (port 45678, 45679, ...), so a restart is visible in the WebView
+                val url = launchUrl(processes.size)
+                ProcessBuilder("sh", "-c", """echo "dsh web: $url"; exec sleep 60""").start().also { processes.add(it) }
             },
             vault = object : KeyVault {
                 override fun get(p: Provider): String? = null
@@ -102,8 +108,11 @@ class MainActivityTest {
         swap("controller", c)
     }
 
+    private val activities = mutableListOf<org.robolectric.android.controller.ActivityController<MainActivity>>()
+
     private fun build(intent: Intent = Intent()) =
         Robolectric.buildActivity(MainActivity::class.java, intent.setComponent(ComponentName(app, MainActivity::class.java)))
+            .also { activities += it }
 
     private fun waitUntil(timeoutMs: Long = 30_000, cond: () -> Boolean) {
         val end = System.currentTimeMillis() + timeoutMs
@@ -206,6 +215,64 @@ class MainActivityTest {
         completeSetup()
         val activity = build().create().get()
         assertTrue(shadowOf(activity.webView).getJavascriptInterface("anything") == null)
+    }
+
+    // --- the activity never starts dsh on its own ---
+
+    private fun idleFor(ms: Long) {
+        val end = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < end) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(20)
+        }
+    }
+
+    @Test fun afterAStopTheActivityDoesNotStartDshAgain() {
+        completeSetup()
+        val c = controller!!
+        val activity = build().create().start().resume().get()
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        assertEquals(1, processes.size)
+
+        c.stop() // what DshService does on GIVE_UP (or anyone on a deliberate stop)
+        waitUntil { !c.isRunning.value }
+        idleFor(1_500)
+
+        assertFalse(c.isRunning.value)
+        assertEquals("no new dsh was started", 1, processes.size)
+        assertEquals(launchUrl(0), shadowOf(activity.webView).lastLoadedUrl)
+    }
+
+    @Test fun afterTheServiceGaveUpTheActivityShowsTheErrorScreenAndStaysStopped() {
+        completeSetup()
+        val c = controller!!
+        val activity = build().create().start().resume().get()
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+
+        app.serviceGaveUp.value = true // DshService sets this before its controller.stop() on GIVE_UP
+        c.stop()
+        waitUntil { activity.uiStateForTest.value == MainUiState.Error }
+        idleFor(1_000)
+
+        assertEquals(1, processes.size)
+        assertFalse(c.isRunning.value)
+        assertEquals(MainUiState.Error, activity.uiStateForTest.value)
+    }
+
+    @Test fun whenDshComesBackElsewhereTheActivityReloadsTheNewLaunchUrl() {
+        completeSetup()
+        val c = controller!!
+        val activity = build().create().start().resume().get()
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+
+        c.stop()
+        waitUntil { !c.isRunning.value }
+        idleFor(300)
+        kotlinx.coroutines.runBlocking { c.ensureRunning() } // e.g. the service's delayed restart after a crash
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(1) }
+
+        assertEquals(2, processes.size)
+        assertEquals(MainUiState.Loading, activity.uiStateForTest.value) // Ready only follows onPageFinished
     }
 
     // --- intent dispatch ---

@@ -27,6 +27,7 @@ import app.dshmobile.service.DshController
 import app.dshmobile.service.DshLauncher
 import app.dshmobile.service.DshService
 import app.dshmobile.ui.UiHolder
+import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
 import java.io.File
 import java.time.Clock
@@ -44,6 +45,12 @@ class DshMobileApp : Application(), Configuration.Provider {
         RootfsInstaller({ assets.open(it) }, filesDir, BuildConfig.ROOTFS_VERSION)
     }
     val crashPolicy: CrashPolicy by lazy { CrashPolicy(clock = System::currentTimeMillis) }
+
+    /**
+     * True from the moment [app.dshmobile.service.DshService] gives up on a crash-looping dsh until the next start. The main
+     * screen shows its error screen for it and never restarts dsh by itself (Retry is the user's explicit action).
+     */
+    val serviceGaveUp = MutableStateFlow(false)
 
     private val proot: ProotRunner by lazy {
         ProotRunner(File(applicationInfo.nativeLibraryDir), File(filesDir, "rootfs"), File(cacheDir, "proot"))

@@ -44,6 +44,7 @@ class DshService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
         app.controller.retain(HOLDER)
+        app.serviceGaveUp.value = false // a new start (the user opened the app) begins a fresh attempt
         startDsh()
         return START_STICKY
     }
@@ -86,6 +87,7 @@ class DshService : Service() {
                 startDsh()
             }
             CrashPolicy.Decision.GIVE_UP -> {
+                app.serviceGaveUp.value = true // before stop(): whoever sees dsh stop must already know why
                 app.notifier.showCrashGiveUp()
                 app.controller.stop() // dsh is dead or crash-looping: the one place that stops it whoever holds it
                 app.crashPolicy.reset() // a manual restart by the user counts from zero again

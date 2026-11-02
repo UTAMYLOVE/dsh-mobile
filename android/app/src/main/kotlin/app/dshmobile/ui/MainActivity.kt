@@ -38,6 +38,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
     private var rollingBack = false
 
     internal val webViewForTest: WebView get() = webView
+    internal val uiStateForTest: kotlinx.coroutines.flow.StateFlow<MainUiState> get() = uiState
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,12 +89,18 @@ class MainActivity : ComponentActivity() {
             }
         })
         // Collects only while the activity is started (repeatOnLifecycle restarts it on every start; launch it once).
+        // The activity only follows dsh, it never starts it on its own: restarts belong to DshService and its CrashPolicy,
+        // and a stop (GIVE_UP included) must stay a stop. Retry on the error screen is the explicit user action.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                app.controller.isRunning.collect { running ->
+                combine(app.controller.isRunning, app.serviceGaveUp) { running, gaveUp -> running to gaveUp }.collect { (running, gaveUp) ->
                     if (rollingBack) return@collect // the rollback restarts dsh itself, after switching versions
-                    if (!running && uiState.value == MainUiState.Ready) uiState.value = MainUiState.Loading
-                    startDsh() // dsh went away (crash, restart by the service): bring it back and reload when it is a new one
+                    when {
+                        // Dsh is up (maybe a new instance after a restart by the service): ensureRunning just returns it.
+                        running -> startDsh()
+                        gaveUp -> uiState.value = MainUiState.Error
+                        uiState.value == MainUiState.Ready -> uiState.value = MainUiState.Loading
+                    }
                 }
             }
         }
@@ -230,6 +238,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun retry() {
+        app.serviceGaveUp.value = false
         loadedLaunchUrl = null
         loadFailed = false
         uiState.value = MainUiState.Loading
