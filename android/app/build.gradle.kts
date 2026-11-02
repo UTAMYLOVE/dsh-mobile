@@ -19,6 +19,11 @@ android {
         buildConfigField("String", "RELEASES_REPO", "\"$releasesRepo\"")
     }
 
+    packaging {
+        // Android only execs files from nativeLibraryDir; proot ships as lib*.so and must be extracted to disk.
+        jniLibs.useLegacyPackaging = true
+    }
+
     buildFeatures {
         buildConfig = true
     }
@@ -44,8 +49,12 @@ android {
 
 dependencies {
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.commons.compress)
+    implementation(libs.xz)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
 }
+
+apply(from = "proot.gradle.kts")
