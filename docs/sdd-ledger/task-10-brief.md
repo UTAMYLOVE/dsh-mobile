@@ -31,3 +31,9 @@
 - [ ] **Step 3:** 實作。
 - [ ] **Step 4:** PASS；全套單元測試綠燈、輸出乾淨；`assembleDebug` 成功。
 - [ ] **Step 5:** Commit `feat: heartbeat worker`。
+
+**附加（Task 8 審查的 minor，帳本 Ruling 併入本任務，因為本任務本來就改這兩個檔）：**
+- (a) `DshController`：`launcher.start` 丟例外時（`run` 尚為 null）也要刪掉含通行碼的 `dshm.cordis.yml`；補測試。
+- (b) `DshService`：rootfs 未安裝（`IllegalStateException("rootfs not installed")`，建議改成專用例外型別 `RootfsNotInstalledException`）**不算當掉**：不經 `CrashPolicy`、不發「多次當掉／退版」通知，直接記 ErrorLog 並停止服務。
+- (c) `DshService`：`GIVE_UP` 後 `CrashPolicy.reset()`，讓使用者手動重啟時重新計數。
+- (d) `DshController`：`stop()` 落在啟動途中（`current` 尚未設定）時要生效：設 `stopRequested`，啟動流程在發布 running 狀態前檢查，若已要求停止則清理並丟 `CancellationException`；`_isRunning` 的更新放在同一把鎖內。補一個「啟動途中 stop」測試。
