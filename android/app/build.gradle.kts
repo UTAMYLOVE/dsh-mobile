@@ -44,7 +44,8 @@ android {
         targetSdk = 37
         versionCode = providers.gradleProperty("dshm.versionCode").map(String::toInt).getOrElse(1)
         versionName = providers.gradleProperty("dshm.versionName").getOrElse("0.1.0")
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Starts the fake model and points the gateway at it before the app's onCreate (see src/androidTest/.../E2eRunner.kt).
+        testInstrumentationRunner = "app.dshmobile.E2eRunner"
 
         buildConfigField("String", "ROOTFS_VERSION", "\"1\"")
         buildConfigField("String", "DSH_PINNED_VERSION", "\"0.2.1-rc.5\"")
@@ -141,6 +142,9 @@ dependencies {
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.core)
+    // The end-to-end suite: an in-process fake model (Anthropic Messages over SSE) and the heartbeat worker run by hand.
+    androidTestImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation(libs.androidx.work.testing)
 }
 
 // The rootfs becomes assets/rootfs.tar.xz through a generated directory under build/ (never in the source tree).

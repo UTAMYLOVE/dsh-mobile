@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import androidx.annotation.VisibleForTesting
 import androidx.work.Configuration
 import app.dshmobile.config.AgentConfigWriter
 import app.dshmobile.config.AgentPatchProvider
@@ -11,6 +12,7 @@ import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.PriceTable
+import app.dshmobile.gateway.Provider
 import app.dshmobile.heartbeat.HeartbeatDeps
 import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.heartbeat.HeartbeatWorker
@@ -39,6 +41,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.io.File
 import java.time.Clock
@@ -79,6 +82,14 @@ class DshMobileApp : Application(), Configuration.Provider {
     /** dsh's own home on the host side of the rootfs (guest `/root/.dsh`). */
     val agentConfigWriter: AgentConfigWriter by lazy { AgentConfigWriter(File(filesDir, "rootfs/root/.dsh")) }
 
+    /**
+     * Test-only: the model upstreams the gateway forwards to (the emulator end-to-end test points them at an in-process fake
+     * model on 127.0.0.1). Must be set before [controller] is first used; null (always, in production) means the real providers.
+     */
+    @VisibleForTesting
+    @Volatile
+    var upstreamsOverride: Map<Provider, HttpUrl>? = null
+
     val controller: DshController by lazy {
         val health = HealthCheck(OkHttpClient())
         DshController(
@@ -99,6 +110,7 @@ class DshMobileApp : Application(), Configuration.Provider {
                 writer = agentConfigWriter,
                 phantom = PhantomProcessDetector(contentResolver)::state,
             ),
+            upstreams = upstreamsOverride ?: DshController.DEFAULT_UPSTREAMS,
         )
     }
 

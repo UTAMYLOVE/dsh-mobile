@@ -52,28 +52,43 @@ jobs:
         arch: [arm64, x86_64]
     steps:
       - uses: actions/checkout@v4
+      # The rootfs only depends on rootfs/ and plugins/: an unchanged pair reuses the last build (saves ~15 min per push).
+      - name: Restore a rootfs built from the same sources
+        id: rootfs-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            out/dshm-rootfs-${{ matrix.arch }}.tar.xz
+            out/dshm-rootfs-${{ matrix.arch }}.package-lock.json
+            out/dshm-rootfs-${{ matrix.arch }}.npm-ls.txt
+          key: rootfs-${{ matrix.arch }}-${{ hashFiles('rootfs/**', 'plugins/**') }}
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - uses: pnpm/action-setup@v4
+        if: steps.rootfs-cache.outputs.cache-hit != 'true'
         with:
           version: 11.28.10
       - uses: actions/setup-node@v4
+        if: steps.rootfs-cache.outputs.cache-hit != 'true'
         with:
           node-version: "24"
           cache: pnpm
           cache-dependency-path: plugins/pnpm-lock.yaml
       - name: Build plugins
+        if: steps.rootfs-cache.outputs.cache-hit != 'true'
         run: |
           pnpm -C plugins install --frozen-lockfile
           pnpm -C plugins build
       - name: Stage plugins for the rootfs
+        if: steps.rootfs-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p out/staging/plugins/memory out/staging/plugins/notify out/staging/plugins/ui
           cp plugins/packages/memory/dist/index.js out/staging/plugins/memory/index.js
           cp plugins/packages/notify/dist/index.js out/staging/plugins/notify/index.js
           cp plugins/packages/ui/dist/index.js out/staging/plugins/ui/index.js
       - name: Build rootfs
+        if: steps.rootfs-cache.outputs.cache-hit != 'true'
         run: bash rootfs/build-rootfs.sh ${{ matrix.arch }} out/dshm-rootfs-${{ matrix.arch }}.tar.xz out/staging
       - name: Smoke test
         run: bash rootfs/smoke-test.sh out/dshm-rootfs-${{ matrix.arch }}.tar.xz
@@ -88,4 +103,61 @@ jobs:
             out/dshm-rootfs-${{ matrix.arch }}.tar.xz
             out/dshm-rootfs-${{ matrix.arch }}.package-lock.json
             out/dshm-rootfs-${{ matrix.arch }}.npm-ls.txt
+          retention-days: 7
+
+  # Spec §9 end to end on a real Android (x86_64 emulator): proot + Debian + Node 24 + the official dsh + our plugins + the app.
+  # The model is an in-process fake (src/androidTest/.../FakeModel.kt) with a fake key: no real key, no cost.
+  e2e:
+    needs: rootfs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ROOTFS_FILE: ${{ github.workspace }}/rootfs-artifact/dshm-rootfs-x86_64.tar.xz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/download-artifact@v4
+        with:
+          name: dshm-rootfs-x86_64
+          path: rootfs-artifact
+      - name: Build the app and test APKs (x86_64 rootfs bundled)
+        working-directory: android
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE"
+      - name: Run the instrumentation tests on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disk-size: 8G
+          ram-size: 4096M
+          cores: 4
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          working-directory: android
+          script: |
+            adb logcat -c
+            adb logcat -v threadtime > "$GITHUB_WORKSPACE/logcat.txt" 2>&1 < /dev/null &
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE"
+      - name: Upload test reports and logcat
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-reports
+          path: |
+            android/app/build/reports/androidTests
+            android/app/build/outputs/androidTest-results
+            logcat.txt
           retention-days: 7
