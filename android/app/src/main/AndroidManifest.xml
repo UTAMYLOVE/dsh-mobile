@@ -21,7 +21,19 @@
         tools:node="remove" />
 
     <application
+        android:name=".DshMobileApp"
         android:label="DSH Mobile"
-        android:allowBackup="false" />
+        android:allowBackup="false">
+
+        <service
+            android:name=".service.DshService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="runs the local AI agent runtime the user is chatting with" />
+        </service>
+
+    </application>
 
 </manifest>
