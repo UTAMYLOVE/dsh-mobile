@@ -42,3 +42,5 @@
 - [ ] **Step 5:** Commit `feat: settings screen and agent config writer`。
 
 **附加（Task 9 審查遺留）：** `UpdateOutcome.RolledBack` 在「切回舊版失敗」時 dsh 是停止狀態（reason 含 `switching back to … failed`）。設定頁顯示任何更新結果後，都要依 `controller.isRunning` 顯示 dsh 目前是否在跑，停止時提供「重新啟動」按鈕。
+
+**附加（Task 11d 經驗）：** `DshMobileApp` 沒有 Exporter 單例；用 `Exporter(context, File(filesDir, "rootfs/root/workspace"), errorLog)` 建構（或在 DshMobileApp 加一個 lazy 單例）。測試若呼叫 `Exporter.share`，要比照 `ExporterTest` 重設 FileProvider 的路徑快取。
