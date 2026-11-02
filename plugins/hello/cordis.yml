@@ -1,7 +1,0 @@
-# Overlay for: dsh web --patch <abs path to this file>
-# The plugin path must be absolute. NOTE: C:/dsh-mobile/... is THIS dev machine's path,
-# for Task 0 recon only. The real app generates this patch at runtime from its own
-# install path inside the rootfs (e.g. /opt/dshm/plugins/...); never copy this path.
-- insert:
-    - id: dshm-hello
-      name: 'C:/dsh-mobile/plugins/hello/index.js'

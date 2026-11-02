@@ -12,3 +12,6 @@ local.properties
 # proot binaries are downloaded by the fetchProot Gradle task, never committed
 android/app/src/main/jniLibs/
 android/.kotlin/
+
+# plugin build output
+dist/

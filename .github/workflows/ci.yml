@@ -49,8 +49,24 @@ jobs:
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: plugins/pnpm-lock.yaml
+      - name: Build plugins
+        run: |
+          pnpm -C plugins install --frozen-lockfile
+          pnpm -C plugins build
+      - name: Stage plugins for the rootfs
+        run: |
+          mkdir -p out/staging/plugins/memory
+          cp plugins/packages/memory/dist/index.js out/staging/plugins/memory/index.js
       - name: Build rootfs
-        run: bash rootfs/build-rootfs.sh ${{ matrix.arch }} out/dshm-rootfs-${{ matrix.arch }}.tar.xz
+        run: bash rootfs/build-rootfs.sh ${{ matrix.arch }} out/dshm-rootfs-${{ matrix.arch }}.tar.xz out/staging
       - name: Smoke test
         run: bash rootfs/smoke-test.sh out/dshm-rootfs-${{ matrix.arch }}.tar.xz
       - name: Size summary

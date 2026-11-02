@@ -4,10 +4,12 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "esbuild packages/memory/src/index.ts --bundle --platform=node --target=node24 --format=esm --outfile=packages/memory/dist/index.js --banner:js=\"import { createRequire as __dshmCreateRequire } from 'node:module'; const require = __dshmCreateRequire(import.meta.url);\""
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   },
