@@ -63,8 +63,9 @@ jobs:
           pnpm -C plugins build
       - name: Stage plugins for the rootfs
         run: |
-          mkdir -p out/staging/plugins/memory
+          mkdir -p out/staging/plugins/memory out/staging/plugins/notify
           cp plugins/packages/memory/dist/index.js out/staging/plugins/memory/index.js
+          cp plugins/packages/notify/dist/index.js out/staging/plugins/notify/index.js
       - name: Build rootfs
         run: bash rootfs/build-rootfs.sh ${{ matrix.arch }} out/dshm-rootfs-${{ matrix.arch }}.tar.xz out/staging
       - name: Smoke test

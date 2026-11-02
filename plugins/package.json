@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
-    "build": "esbuild packages/memory/src/index.ts --bundle --platform=node --target=node24 --format=esm --outfile=packages/memory/dist/index.js --banner:js=\"import { createRequire as __dshmCreateRequire } from 'node:module'; const require = __dshmCreateRequire(import.meta.url);\""
+    "build": "esbuild packages/memory/src/index.ts --bundle --platform=node --target=node24 --format=esm --outfile=packages/memory/dist/index.js --banner:js=\"import { createRequire as __dshmCreateRequire } from 'node:module'; const require = __dshmCreateRequire(import.meta.url);\" && esbuild packages/notify/src/index.ts --bundle --platform=node --target=node24 --format=esm --outfile=packages/notify/dist/index.js --banner:js=\"import { createRequire as __dshmCreateRequire } from 'node:module'; const require = __dshmCreateRequire(import.meta.url);\""
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

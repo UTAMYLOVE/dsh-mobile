@@ -52,6 +52,7 @@ esac
 [ -d "$DIR/opt/dshm/plugins" ] && ok "/opt/dshm/plugins exists" || bad "/opt/dshm/plugins missing"
 
 [ -f "$DIR/opt/dshm/plugins/memory/index.js" ] && ok "/opt/dshm/plugins/memory/index.js exists" || bad "/opt/dshm/plugins/memory/index.js missing"
+[ -f "$DIR/opt/dshm/plugins/notify/index.js" ] && ok "/opt/dshm/plugins/notify/index.js exists" || bad "/opt/dshm/plugins/notify/index.js missing"
 
 for t in git rg bash; do
   p="$(run sh -c "command -v $t" 2>&1)"
