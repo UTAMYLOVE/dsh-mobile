@@ -9,6 +9,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import app.dshmobile.R
 import app.dshmobile.gateway.NotifyRequest
 import app.dshmobile.gateway.Provider
 import java.util.Locale
@@ -80,7 +81,7 @@ class Notifier(private val context: Context) {
 
     private fun builder(channel: String, title: String, text: String): Notification.Builder =
         Notification.Builder(context, channel)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(text)
 
@@ -120,6 +121,6 @@ class Notifier(private val context: Context) {
         const val ID_HEARTBEAT = 5 // the heartbeat's foreground notification; not ID_SERVICE, whose notification WorkManager would cancel when the heartbeat ends
         private const val ID_CRASH = 10 // 10..12: notification and its two actions' request codes
         private const val FIRST_DYNAMIC_ID = 100
-        private const val MAIN_ACTIVITY = "app.dshmobile.ui.MainActivity"
+        const val MAIN_ACTIVITY = "app.dshmobile.ui.MainActivity"
     }
 }

@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -26,6 +27,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        compose = true
     }
 
     compileOptions {
@@ -58,6 +60,19 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     // Ktor logs through SLF4J; the no-op binding keeps request URLs (which carry the session token) out of any log.
     implementation(libs.slf4j.nop)
+
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.activity.compose)
+
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    // Compose UI tests idle through Espresso; 3.5.0 (what ui-test pulls in) reflects on InputManager.getInstance(), which Android 17 no longer has.
+    testImplementation(libs.androidx.test.espresso.core)
+    // Declares the ComponentActivity that createComposeRule launches; debug only, so it never reaches release.
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

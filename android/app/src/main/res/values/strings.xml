@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">DSH Mobile</string>
+
+    <string name="onb_step_counter">第 %1$d 步，共 %2$d 步</string>
+    <string name="onb_skip">略過</string>
+
+    <string name="onb_notif_title">通知權限</string>
+    <string name="onb_notif_body">代理人完成工作、發生錯誤或費用超標時，需要通知你。</string>
+    <string name="onb_notif_button">允許通知</string>
+    <string name="onb_notif_denied">尚未允許通知。可以略過，之後到系統設定開啟。</string>
+
+    <string name="onb_battery_title">忽略電池最佳化</string>
+    <string name="onb_battery_body">不然系統可能在你離開 App 後把背景運作的代理人凍結或結束。</string>
+    <string name="onb_battery_button">前往設定</string>
+
+    <string name="onb_phantom_title">子行程限制</string>
+    <string name="onb_phantom_body">多個代理人同時工作時會產生許多子行程，Android 的「幽靈行程限制」會把它們強制結束。建議在開發人員選項中關閉這項限制（本 App 不會自行修改系統設定）。</string>
+    <string name="onb_phantom_tutorial">尚未開啟開發人員選項。請到「設定 → 關於手機 → 軟體資訊」，連點「版本號碼」7 次，再回到這裡。</string>
+    <string name="onb_phantom_open_about">開啟「軟體資訊」</string>
+    <string name="onb_phantom_open_dev">開啟開發人員選項</string>
+    <string name="onb_phantom_state_label">目前狀態</string>
+    <string name="onb_phantom_state_disabled">已關閉限制</string>
+    <string name="onb_phantom_state_enabled">限制仍開啟</string>
+    <string name="onb_phantom_state_unknown">無法判斷</string>
+    <string name="onb_phantom_continue">繼續</string>
+
+    <string name="onb_key_title">DeepSeek 金鑰</string>
+    <string name="onb_key_body">金鑰只會加密存放在這支手機上，不會顯示或上傳。</string>
+    <string name="onb_key_label">DeepSeek API 金鑰</string>
+    <string name="onb_key_save">儲存並繼續</string>
+    <string name="onb_key_error">無法儲存金鑰，請再試一次。</string>
+
+    <string name="onb_rootfs_title">準備執行環境</string>
+    <string name="onb_rootfs_body">正在解壓縮內建的執行環境，只需要做一次。</string>
+    <string name="onb_rootfs_progress">解壓縮中 %1$d%%</string>
+    <string name="onb_rootfs_failed">解壓縮失敗：%1$s</string>
+    <string name="onb_rootfs_missing">找不到內建的執行環境檔案，這個版本的安裝包可能不完整。</string>
+    <string name="onb_rootfs_retry">重試</string>
+</resources>

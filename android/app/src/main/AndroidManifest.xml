@@ -22,8 +22,17 @@
 
     <application
         android:name=".DshMobileApp"
-        android:label="DSH Mobile"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.DshMobile"
         android:allowBackup="false">
+
+        <!-- configChanges: a rotation or font change must not restart the rootfs extraction that runs inside this screen. -->
+        <activity
+            android:name=".ui.OnboardingActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection" />
 
         <service
             android:name=".service.DshService"

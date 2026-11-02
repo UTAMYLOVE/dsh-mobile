@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Framework Material theme without an ActionBar; the Compose screens draw everything themselves. -->
+    <style name="Theme.DshMobile" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/sakura_primary</item>
+        <item name="android:colorAccent">@color/sakura_primary</item>
+        <item name="android:windowBackground">@color/sakura_background</item>
+        <item name="android:statusBarColor">@color/sakura_background</item>
+        <item name="android:navigationBarColor">@color/sakura_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>
