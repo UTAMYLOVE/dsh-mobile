@@ -92,4 +92,4 @@ Task 4: dispatched (base cf45696, sonnet)
 Task 4: implementer DONE (e1d9de3); LaunchUrl(url, port) data class from DshLaunchLine.parse; @types/node added; review dispatched (sonnet, base 009c1d9)
 Task 4: complete (commits 009c1d9..e1d9de3, review clean)
 Task 4: minor (deferred): requireAuth lets exceptions from ctx.get/requestRejection escape (still fail-closed); writeHead RangeError on out-of-range status (theoretical); ANSI strip covers CSI only; token regex \S+ lenient; no tests for IPv6/port 0/https/trailing text; redundant main in common/package.json
-Task 5: dispatched (base 2b?, sonnet implementer; review on opus per lean Ruling)
+Task 5: dispatched (base 4b70c10, sonnet implementer; review on opus per lean Ruling)
