@@ -144,3 +144,4 @@ Task 10: review 1 = spec ❌, quality Needs fixes — CRITICAL: default WorkMana
 - Ruling: Task 10 Minor 1 (stopIfUnretained doesn't mark stopPending when holders empty during an in-flight start → dsh may finish starting with no holder) joins fix round 1 — Review Focus 3 territory.
 Task 10: minor (deferred): race test never exercises the empty-holder window; DshServiceTest swaps controller via reflection on controller$delegate; GIVE_UP stop/reset untested (CrashPolicy not injectable); sleep/wall-clock based tests; heartbeat logs every run while rootfs missing (skip quietly); heartbeat FGS notification reuses service text; task-10-report top half stale on onDestroy; import order in DshMobileApp
 Task 10: fix round 1/5 dispatched (resume implementer)
+Task 10: fix round 1 implementer DONE (a5a9664): WorkManagerInitializer removed + guard test; holderless in-flight start cancelled; 242 tests; re-review dispatched (haiku)
