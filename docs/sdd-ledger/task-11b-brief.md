@@ -6,7 +6,7 @@
 - Create: `android/app/src/main/kotlin/app/dshmobile/config/AgentSettings.kt`、`AgentSettingsStore.kt`、`AgentConfigWriter.kt`
 - Create: `android/app/src/main/kotlin/app/dshmobile/ui/SettingsActivity.kt`、`ui/SettingsScreen.kt`
 - Modify: `config/DshPatch.kt`（加代理人段落；Anthropic 列只在有 Claude 金鑰時輸出）、`service/DshController.kt`（patch 內容改由可注入的 `patchProvider: (gatewayBase: String) -> String` 產生；正式版由 `DshMobileApp` 組合 `AgentConfigWriter`）、`DshMobileApp.kt`、`AndroidManifest.xml`（宣告 `SettingsActivity`，`exported=false`；**不得新增 uses-permission**）
-- Test: `AgentConfigWriterTest.kt`、`AgentSettingsTest.kt`、`AgentSettingsStoreTest.kt`、`ui/SettingsScreenTest.kt`（Robolectric + Compose）；`DshPatchTest`／`DshControllerTest` 跟著調整
+- Test: `AgentConfigWriterTest.kt`、`AgentSettingsTest.kt`、`AgentSettingsStoreTest.kt`、`ui/SettingsScreenTest.kt`（Robolectric + Compose；Compose 測試要加 `@Config(sdk = [36])`，見 task-11c-report）；`DshPatchTest`／`DshControllerTest` 跟著調整
 
 **Consumes（先讀）：** `config/DshPatch.kt`、`service/DshController.kt`、`security/KeyVault.kt`、`gateway/CostMeter.kt`（`todayUsd()`、`alertUsd`、`hardCapUsd`）、`runtime/DshVersions.kt`（Task 9）、`system/PhantomProcessDetector.kt`、`ui/theme/SakuraTheme.kt`（Task 11c）、`heartbeat/HeartbeatScheduler.kt`（Task 10）、`export/Exporter.kt`（Task 11d）、`docs/dsh-findings.md` §Config「子代理人同時數、深度、團隊人數」與「設定產生器要輸出的 patch」第 2、3 點、§Providers。
 
