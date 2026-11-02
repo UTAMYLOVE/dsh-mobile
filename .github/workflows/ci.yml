@@ -36,3 +36,28 @@ jobs:
           cache-dependency-path: plugins/pnpm-lock.yaml
       - run: pnpm -C plugins install --frozen-lockfile
       - run: pnpm -C plugins test
+
+  rootfs:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Build rootfs
+        run: bash rootfs/build-rootfs.sh ${{ matrix.arch }} out/dshm-rootfs-${{ matrix.arch }}.tar.xz
+      - name: Smoke test
+        run: bash rootfs/smoke-test.sh out/dshm-rootfs-${{ matrix.arch }}.tar.xz
+      - name: Size summary
+        run: |
+          f=out/dshm-rootfs-${{ matrix.arch }}.tar.xz
+          echo "### rootfs ${{ matrix.arch }}: $(du -h $f | cut -f1) ($(stat -c %s $f) bytes)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dshm-rootfs-${{ matrix.arch }}
+          path: out/dshm-rootfs-${{ matrix.arch }}.tar.xz
+          retention-days: 7
