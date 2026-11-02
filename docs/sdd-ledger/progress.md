@@ -158,4 +158,4 @@ CI: run 41494708361-series superseded; run 41506965326 (caef868, through Task 10
 Task 11d: implementer DONE (2a03174): 313 tests; FileProvider sCache reset by reflection in tests (11a too); no exporter singleton — construct Exporter(ctx, filesDir/rootfs/root/workspace, errorLog); review dispatched (sonnet)
 Task 11d: complete (commits ae677cd..2a03174, review clean)
 Task 11d: minor (deferred): share copy follows a final-component symlink swapped after the realpath check (negligible race; use newInputStream NOFOLLOW); absolute-guest-path symlinks fail closed (document); scrubber `token=` case-sensitive / JSON "token":"…" not masked; clock-stamp test weak; no test for workspace/memory itself symlinked out; sCache reset should be a shared test helper; androidx.core used directly but only transitive dependency; share does synchronous I/O (callers off main thread); empty/partial zips not signalled
-Task 11a: dispatched (base BASE11A, sonnet)
+Task 11a: dispatched (base 000cb24, sonnet)
