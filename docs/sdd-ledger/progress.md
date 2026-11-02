@@ -109,3 +109,7 @@ Task 6: review 1 = spec ❌ (guard misses backslash form), quality Needs fixes �
 Task 6: minor (deferred): TOCTOU between realpath check and read/append (agent-shell only); dream state .tmp not path-checked; fence regex rejects preamble+fence replies; oversize single note sent whole / unreadable notes advance state; chunked backlog returns first chunk only; loadStartupContext uncapped (needs a cap eventually); test gaps (failed MEMORY append keeps state, stale-lock takeover, append via symlinked memory/, HEAD without auth); build script hard-codes memory entry (Task 7 generalises); index.ts logs provider e.message
 Task 6: fix round 1/5 dispatched (resume implementer)
 Task 6: fix round 1 implementer DONE (ac08c53): guard uses WHATWG pathname + legacy fold, refuses \ and %5c under /api; live 403 confirmed; re-review dispatched (haiku)
+Task 6: fix round 1/5 (1 addressed, 0 open; commits 0735334..ac08c53)
+Task 6: complete (commits e4c3baa..ac08c53, review clean)
+Task 6: minor (deferred): isApiBackslashForm misses absolute-form targets `http://h/api%5c…` (not reachable: dsh doesn't route %5c); any /api URL with `\`/%5c anywhere (incl. query) is refused — documented trade-off; task-6-report narrative lines 9/28 stale after fix
+Task 7: dispatched (base BASE7, sonnet)
