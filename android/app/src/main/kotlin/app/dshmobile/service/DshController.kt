@@ -47,6 +47,20 @@ interface DshRuntime {
     suspend fun ensureRunning(): RunningDsh
 }
 
+/** [ensureRunning] found no installed rootfs. Not a crash: starting again cannot help until the rootfs is installed. */
+class RootfsNotInstalledException : IllegalStateException("rootfs not installed")
+
+/**
+ * A [DshRuntime] that several parties share. Each party that needs dsh to stay up [retain]s it under its own name and
+ * [release]s it when done; [stopIfUnretained] only stops dsh when nobody holds it, so a background job can never end
+ * a dsh somebody else is using. [stop] stays the forced stop.
+ */
+interface DshHolderRuntime : DshRuntime {
+    fun retain(owner: String)
+    fun release(owner: String)
+    fun stopIfUnretained(): Boolean
+}
+
 /**
  * Owns the dsh process and the local gateway for the whole app. [ensureRunning] starts everything exactly once
  * however many callers ask; [stop] tears it all down. The real API keys stay in [vault] and are only ever used by
@@ -67,7 +81,7 @@ class DshController(
     private val upstreams: Map<Provider, HttpUrl> = DEFAULT_UPSTREAMS,
     private val launchTimeoutMs: Long = 60_000,
     private val stopGraceMs: Long = 2_000,
-) : DshRuntime {
+) : DshHolderRuntime {
     private class Run(val process: Process, val gateway: LocalGateway, val patch: File) {
         @Volatile var info: RunningDsh? = null
         var tornDown = false // guarded by the run itself
@@ -80,23 +94,62 @@ class DshController(
     private val startLock = Mutex()
     private val stateLock = Any()
     private var current: Run? = null
+    private val holderSet = LinkedHashSet<String>() // guarded by stateLock
+    private var starting = false // guarded by stateLock
+    private var stopPending = false // a stop() that arrived while a start had not published its Run yet; guarded by stateLock
     private val exitListeners = CopyOnWriteArrayList<(Int) -> Unit>()
     private val _isRunning = MutableStateFlow(false)
 
     val isRunning: StateFlow<Boolean> = _isRunning
 
+    /** Read-only snapshot of who currently holds dsh (see [retain]). */
+    val holders: Set<String> get() = synchronized(stateLock) { holderSet.toSet() }
+
     override suspend fun ensureRunning(): RunningDsh = startLock.withLock {
         runningInfo()?.let { return it }
         synchronized(stateLock) { current }?.let { teardown(it) } // a dead leftover
-        if (!isRootfsInstalled()) throw IllegalStateException("rootfs not installed")
-        withContext(Dispatchers.IO) { start() }
+        if (!isRootfsInstalled()) throw RootfsNotInstalledException()
+        synchronized(stateLock) { starting = true; stopPending = false }
+        try {
+            withContext(Dispatchers.IO) { start() }
+        } finally {
+            synchronized(stateLock) { starting = false; stopPending = false }
+        }
     }
 
-    /** Ends dsh and the gateway. Safe to call at any time, any number of times. */
+    /** Ends dsh and the gateway, whoever holds it. Safe to call at any time, any number of times, also while a start is under way. */
     override fun stop() {
-        val run = synchronized(stateLock) { current } ?: return
-        run.stopRequested = true
-        teardown(run)
+        val active = synchronized(stateLock) {
+            val c = current
+            if (c == null && starting) stopPending = true // start() sees this before it publishes anything
+            c
+        } ?: return
+        active.stopRequested = true
+        teardown(active)
+    }
+
+    /** Registers [owner] as needing dsh to keep running. Holding twice under one name is the same as once. Thread-safe. */
+    override fun retain(owner: String) {
+        synchronized(stateLock) { holderSet.add(owner) }
+    }
+
+    /** Drops [owner]'s hold. Releasing a name that holds nothing is harmless. Thread-safe. */
+    override fun release(owner: String) {
+        synchronized(stateLock) { holderSet.remove(owner) }
+    }
+
+    /**
+     * Stops dsh only if nobody holds it; returns whether it did (true also when nothing was running). The decision and
+     * the marking of the run as stopping are one atomic step, so a holder arriving later gets a fresh dsh from
+     * [ensureRunning], never the one being shut down.
+     */
+    override fun stopIfUnretained(): Boolean {
+        val run = synchronized(stateLock) {
+            if (holderSet.isNotEmpty()) return false
+            current?.also { it.stopRequested = true }
+        }
+        if (run != null) teardown(run)
+        return true
     }
 
     /** [listener] gets the exit code when dsh dies without [stop] having been called. Close the result to unregister. */
@@ -105,7 +158,8 @@ class DshController(
         return AutoCloseable { exitListeners.remove(listener) }
     }
 
-    private fun runningInfo(): RunningDsh? = synchronized(stateLock) { current }?.takeIf { it.process.isAlive }?.info
+    private fun runningInfo(): RunningDsh? =
+        synchronized(stateLock) { current }?.takeIf { it.process.isAlive && !it.stopRequested }?.info
 
     private suspend fun start(): RunningDsh {
         File(filesDir, "rootfs.old").deleteRecursively()
@@ -117,6 +171,7 @@ class DshController(
         )
         val gatewayPort = gateway.start()
         var run: Run? = null
+        val patchFile = File(rootfs, PATCH_PATH)
         try {
             val gatewayBase = "http://127.0.0.1:$gatewayPort/${token.value}"
             GuestNetworkFiles.write(rootfs, dnsServers())
@@ -124,25 +179,36 @@ class DshController(
             val patch = writePatch(DshPatch.render(gatewayBase))
             val process = launcher.start(guestEnv(gatewayBase), DSH_ARGS)
             run = Run(process, gateway, patch)
-            synchronized(stateLock) { current = run }
+            val cancelled = synchronized(stateLock) {
+                current = run
+                stopPending.also { if (it) run.stopRequested = true }
+            }
+            if (cancelled) throw CancellationException("dsh start cancelled by stop()")
             watch(run)
 
             val launch = withTimeoutOrNull(launchTimeoutMs) { run.launched.await() }
                 ?: throw IllegalStateException("dsh did not print its launch line within $launchTimeoutMs ms")
             if (!healthCheck(launch)) throw IllegalStateException("dsh health check failed")
             val info = RunningDsh(launch.port, gatewayPort, token, launch)
-            run.info = info
-            _isRunning.value = true
+            synchronized(stateLock) {
+                // A stop() that raced with this start wins: nothing is published for a dsh somebody asked to end.
+                if (stopPending || run.stopRequested) throw CancellationException("dsh start cancelled by stop()")
+                run.info = info
+                _isRunning.value = true
+            }
             return info
         } catch (t: Throwable) {
-            if (t !is CancellationException) errorLog.append("controller", "start failed: ${t.message}")
+            val stopped = run?.stopRequested == true
+            if (t !is CancellationException && !stopped) errorLog.append("controller", "start failed: ${t.message}")
             if (run != null) {
                 run.stopRequested = true
                 teardown(run)
             } else {
                 gateway.stop()
+                patchFile.delete() // the launcher failed after the patch (with the session token in it) was written
             }
-            throw t
+            // stop() made the launch fail on purpose: report it as the cancellation it is, not as a crash.
+            throw if (stopped && t !is CancellationException) CancellationException("dsh start cancelled by stop()").also { it.initCause(t) } else t
         }
     }
 
@@ -213,7 +279,7 @@ class DshController(
 
     /** Owner-only, created fresh (an existing file or link at that path is removed, never written through). */
     private fun writePatch(yaml: String): File {
-        val file = File(rootfs, "opt/dshm/dshm.cordis.yml")
+        val file = File(rootfs, PATCH_PATH)
         file.parentFile?.mkdirs()
         Files.deleteIfExists(file.toPath())
         Files.createFile(file.toPath(), PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
@@ -245,6 +311,7 @@ class DshController(
             "--no-open", "--host", "127.0.0.1", "--port", "0",
         )
 
+        private const val PATCH_PATH = "opt/dshm/dshm.cordis.yml"
         private const val FAKE_KEY = "dshm-proxy"
         private const val LOG_TAG = "dsh"
     }

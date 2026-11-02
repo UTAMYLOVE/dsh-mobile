@@ -117,6 +117,7 @@ class Notifier(private val context: Context) {
         const val ID_SERVICE = 1
         private const val ID_COST = 2
         private const val ID_RATE_GUARD = 3 // 3 and 4: one per provider
+        const val ID_HEARTBEAT = 5 // the heartbeat's foreground notification; not ID_SERVICE, whose notification WorkManager would cancel when the heartbeat ends
         private const val ID_CRASH = 10 // 10..12: notification and its two actions' request codes
         private const val FIRST_DYNAMIC_ID = 100
         private const val MAIN_ACTIVITY = "app.dshmobile.ui.MainActivity"

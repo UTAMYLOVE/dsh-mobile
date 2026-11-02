@@ -38,6 +38,24 @@ class DshClientTest {
         assertTrue(sent.getHeader("Content-Type")!!.startsWith("application/json"))
     }
 
+    @Test fun postJsonForTextReturnsCodeAndBody() = runBlocking {
+        val client = DshClient(OkHttpClient(), dsh.launch)
+        client.login()
+        val r = client.postJsonForText("/echo", """{"a":1}""")
+        assertEquals(DshClient.TextResponse(200, """{"a":1}"""), r)
+    }
+
+    @Test fun postJsonForTextIsCancelledPromptlyWhileTheBodyDribbles() = runBlocking {
+        FakeDshServer(heartbeat = { MockResponse().setBody("slow").setBodyDelay(4, java.util.concurrent.TimeUnit.SECONDS) }).use { slow ->
+            val client = DshClient(OkHttpClient(), slow.launch)
+            client.login()
+            val started = System.currentTimeMillis()
+            val result = kotlinx.coroutines.withTimeoutOrNull(500) { client.postJsonForText("/dshm/heartbeat", "{}") }
+            assertEquals(null, result)
+            assertTrue("took ${System.currentTimeMillis() - started} ms", System.currentTimeMillis() - started < 2_500)
+        }
+    }
+
     @Test fun loginFailsWhenTheServerRefusesTheToken() = runBlocking {
         FakeDshServer(tokenValid = { false }).use { refusing ->
             try {

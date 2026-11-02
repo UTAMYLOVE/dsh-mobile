@@ -13,6 +13,7 @@ serializationJson = "1.9.0"
 slf4j = "2.0.17"
 
 [libraries]
+androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "workRuntime" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workRuntime" }
 commons-compress = { module = "org.apache.commons:commons-compress", version.ref = "commonsCompress" }
 xz = { module = "org.tukaani:xz", version.ref = "xz" }

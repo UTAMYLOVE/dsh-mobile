@@ -1,5 +1,9 @@
 package app.dshmobile.runtime
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -58,6 +62,33 @@ class DshClient(base: OkHttpClient, private val launch: LaunchUrl) {
     suspend fun postJson(path: String, json: String): Response =
         client.newCall(request(path).post(json.toRequestBody(JSON)).build()).await()
 
+    /**
+     * POST [json] and read the answer as text (at most [MAX_TEXT_BYTES] of it) without leaving anything open. Unlike
+     * [postJson] the whole exchange, body included, is cancelled with the calling coroutine, so a timeout around it
+     * also holds while the server dribbles its body.
+     */
+    suspend fun postJsonForText(path: String, json: String): TextResponse = coroutineScope {
+        val call = client.newCall(request(path).post(json.toRequestBody(JSON)).build())
+        val exchange = async(Dispatchers.IO) {
+            try {
+                call.execute().use { TextResponse(it.code, it.peekBody(MAX_TEXT_BYTES).string()) }
+            } catch (e: IOException) {
+                // Our own cancel() surfaces as an IOException; it must not outrank the cancellation that caused it.
+                if (call.isCanceled()) throw CancellationException("dsh request cancelled").also { it.initCause(e) }
+                throw e
+            }
+        }
+        try {
+            exchange.await()
+        } catch (e: CancellationException) {
+            call.cancel() // unblocks the thread reading the body
+            throw e
+        }
+    }
+
+    /** Status code and (bounded) body text of a finished exchange. */
+    data class TextResponse(val code: Int, val body: String)
+
     private fun request(path: String): Request.Builder {
         require(path.startsWith("/") && !path.startsWith("//") && !path.contains('\\')) { "path must be absolute on dsh" }
         val url = origin.resolve(path)
@@ -94,6 +125,7 @@ class DshClient(base: OkHttpClient, private val launch: LaunchUrl) {
 
     private companion object {
         const val MAX_REDIRECTS = 5
+        const val MAX_TEXT_BYTES = 1L shl 20
         val JSON = "application/json; charset=utf-8".toMediaType()
     }
 }

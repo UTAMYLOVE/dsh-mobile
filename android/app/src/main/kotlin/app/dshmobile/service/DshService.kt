@@ -43,6 +43,7 @@ class DshService : Service() {
             this, Notifier.ID_SERVICE, app.notifier.serviceNotification(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
+        app.controller.retain(HOLDER)
         startDsh()
         return START_STICKY
     }
@@ -52,6 +53,7 @@ class DshService : Service() {
         scope.cancel()
         // Stopping waits for the process to die; keep that off the main thread.
         val controller = app.controller
+        controller.release(HOLDER)
         Thread({ controller.stop() }, "dshm-stop").start()
         super.onDestroy()
     }
@@ -64,6 +66,10 @@ class DshService : Service() {
                 scheduleCrashPolicyReset()
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: RootfsNotInstalledException) {
+                // Not a crash: restarting cannot help, and a "crashed repeatedly" notice would be misleading.
+                app.errorLog.append("service", "could not start dsh: rootfs not installed")
+                stopSelf()
             } catch (e: Exception) {
                 app.errorLog.append("service", "could not start dsh: ${e.message}")
                 handleCrash()
@@ -80,6 +86,7 @@ class DshService : Service() {
             }
             CrashPolicy.Decision.GIVE_UP -> {
                 app.notifier.showCrashGiveUp()
+                app.crashPolicy.reset() // a manual restart by the user counts from zero again
                 stopSelf()
             }
         }
@@ -95,6 +102,8 @@ class DshService : Service() {
     }
 
     companion object {
+        /** The holder name this service uses with [DshController.retain]. */
+        const val HOLDER = "service"
         private const val RESTART_DELAY_MS = 2_000L
         private const val STABLE_AFTER_MS = 5 * 60_000L
 

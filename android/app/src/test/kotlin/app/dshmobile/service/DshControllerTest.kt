@@ -8,6 +8,8 @@ import app.dshmobile.gateway.Provider
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.runtime.LaunchUrl
 import app.dshmobile.security.KeyVault
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -24,6 +26,7 @@ import java.net.Socket
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermission
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -47,12 +50,14 @@ class DshControllerTest {
     private var healthy = true
     private val healthChecked = CopyOnWriteArrayList<LaunchUrl>()
     private var launchTimeoutMs = 10_000L
+    private var beforeLaunch: () -> Unit = {}
 
     private fun controller() = DshController(
         filesDir = filesDir,
         isRootfsInstalled = { installed },
         launcher = { env, args ->
             starts.incrementAndGet()
+            beforeLaunch()
             envs.add(env)
             argLists.add(args)
             ProcessBuilder("sh", "-c", script).start().also { processes.add(it) }
@@ -171,6 +176,7 @@ class DshControllerTest {
             runBlocking { newController().ensureRunning() }
             fail("expected IllegalStateException")
         } catch (e: IllegalStateException) {
+            assertTrue(e is RootfsNotInstalledException)
             assertEquals("rootfs not installed", e.message)
         }
         assertEquals(0, starts.get())
@@ -306,5 +312,193 @@ class DshControllerTest {
         waitUntil { !c.isRunning.value }
         assertTrue(exits.isEmpty())
         assertNotNull(c)
+    }
+
+    // ---- holders ----
+
+    @Test fun holdersStartEmptyAndRetainReleaseBehaveLikeASet() {
+        val c = newController()
+        assertTrue(c.holders.isEmpty())
+        c.retain("service")
+        c.retain("service") // same owner twice is still one hold
+        c.retain("heartbeat")
+        assertEquals(setOf("service", "heartbeat"), c.holders)
+        c.release("service")
+        assertEquals(setOf("heartbeat"), c.holders)
+        c.release("nobody") // harmless
+        c.release("heartbeat")
+        assertTrue(c.holders.isEmpty())
+    }
+
+    @Test fun holdersIsASnapshotNotALiveView() {
+        val c = newController()
+        c.retain("a")
+        val snapshot = c.holders
+        c.retain("b")
+        assertEquals(setOf("a"), snapshot)
+    }
+
+    @Test fun stopIfUnretainedStopsWhenNobodyHoldsDsh() = runBlocking {
+        val c = newController()
+        c.ensureRunning()
+        val process = processes.single()
+        assertTrue(c.stopIfUnretained())
+        assertFalse(c.isRunning.value)
+        assertFalse(process.isAlive)
+    }
+
+    @Test fun stopIfUnretainedLeavesDshAloneWhileHeldAndStopsAfterRelease() = runBlocking {
+        val c = newController()
+        val running = c.ensureRunning()
+        c.retain("service")
+        c.retain("heartbeat")
+        c.release("heartbeat")
+        assertFalse(c.stopIfUnretained())
+        assertTrue(c.isRunning.value)
+        assertTrue(processes.single().isAlive)
+        assertTrue(portIsOpen(running.gatewayPort))
+        c.release("service")
+        assertTrue(c.stopIfUnretained())
+        assertFalse(c.isRunning.value)
+        assertFalse(processes.single().isAlive)
+    }
+
+    @Test fun stopIfUnretainedWithNothingRunningIsHarmless() {
+        val c = newController()
+        assertTrue(c.stopIfUnretained())
+        c.retain("ui")
+        assertFalse(c.stopIfUnretained())
+        assertEquals(0, starts.get())
+    }
+
+    @Test fun stopStillForcesTheStopWhileHeld() = runBlocking {
+        val c = newController()
+        c.ensureRunning()
+        c.retain("service")
+        c.stop()
+        assertFalse(c.isRunning.value)
+        assertFalse(processes.single().isAlive)
+    }
+
+    @Test fun aHolderThatArrivesAfterStopIfUnretainedGetsAFreshDshNotADyingOne() = runBlocking {
+        val c = newController()
+        val first = c.ensureRunning()
+        assertTrue(c.stopIfUnretained())
+        c.retain("ui")
+        val second = c.ensureRunning()
+        assertEquals(2, starts.get())
+        assertTrue(second.token.value != first.token.value)
+        assertTrue(processes.last().isAlive)
+        assertTrue(c.isRunning.value)
+    }
+
+    @Test fun concurrentRetainAndReleaseFromManyThreadsEndsConsistent() {
+        val c = newController()
+        c.retain("service")
+        val threads = (1..8).map { t ->
+            Thread {
+                repeat(500) { i ->
+                    c.retain("t$t")
+                    c.retain("shared")
+                    c.holders // reading while others write must not throw
+                    c.release("t$t")
+                    if (i % 50 == 0) c.stopIfUnretained()
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join(20_000) }
+        assertTrue(threads.none { it.isAlive })
+        c.release("shared")
+        assertEquals(setOf("service"), c.holders)
+        c.release("service")
+        assertTrue(c.holders.isEmpty())
+    }
+
+    @Test fun stopIfUnretainedRacingWithRetainNeverStopsAHeldDsh() = runBlocking {
+        val c = newController()
+        c.ensureRunning()
+        c.retain("service")
+        val stoppers = (1..4).map { Thread { repeat(200) { c.stopIfUnretained() } } }
+        val churn = Thread { repeat(500) { c.retain("hb"); c.release("hb") } }
+        (stoppers + churn).forEach { it.start() }
+        (stoppers + churn).forEach { it.join(20_000) }
+        assertTrue(c.isRunning.value)
+        assertTrue(processes.single().isAlive)
+        assertEquals(1, starts.get())
+    }
+
+    // ---- carried-over fixes ----
+
+    @Test fun launcherFailureStillDeletesThePatchFileWithTheToken() {
+        val patch = File(rootfs, "opt/dshm/dshm.cordis.yml")
+        beforeLaunch = {
+            assertTrue("patch must exist when the launcher runs", patch.exists())
+            throw java.io.IOException("exec failed")
+        }
+        val c = newController()
+        try {
+            runBlocking { c.ensureRunning() }
+            fail("expected IOException")
+        } catch (e: java.io.IOException) {
+            assertEquals("exec failed", e.message)
+        }
+        assertFalse(patch.exists())
+        assertFalse(c.isRunning.value)
+        assertEquals(1, starts.get())
+    }
+
+    @Test fun stopDuringStartBeforeTheProcessExistsCancelsTheStart() = runBlocking {
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        beforeLaunch = { entered.countDown(); gate.await(10, TimeUnit.SECONDS) }
+        val c = newController()
+        val result = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        c.stop() // current is not set yet: this stop must not be lost
+        gate.countDown()
+        val failure = result.await().exceptionOrNull()
+        assertTrue("expected CancellationException, got $failure", failure is CancellationException)
+        assertFalse(c.isRunning.value)
+        waitUntil { !processes.single().isAlive }
+        assertFalse(portIsOpen(gatewayPortOf(envs.single())))
+        assertFalse(File(rootfs, "opt/dshm/dshm.cordis.yml").exists())
+    }
+
+    @Test fun stopWhileWaitingForTheLaunchLineCancelsTheStart() = runBlocking {
+        script = "echo starting; sleep 30"
+        val c = newController()
+        val result = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
+        waitUntil { processes.isNotEmpty() }
+        c.stop()
+        val failure = result.await().exceptionOrNull()
+        assertTrue("expected CancellationException, got $failure", failure is CancellationException)
+        assertFalse(c.isRunning.value)
+        waitUntil { !processes.single().isAlive }
+    }
+
+    @Test fun aStopWhileIdleDoesNotPoisonTheNextStart() = runBlocking {
+        val c = newController()
+        c.stop()
+        c.stop()
+        val running = c.ensureRunning()
+        assertTrue(c.isRunning.value)
+        assertEquals(45678, running.dshPort)
+    }
+
+    @Test fun startAfterACancelledStartWorks() = runBlocking {
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        beforeLaunch = { entered.countDown(); gate.await(10, TimeUnit.SECONDS) }
+        val c = newController()
+        val first = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        c.stop()
+        gate.countDown()
+        assertTrue(first.await().exceptionOrNull() is CancellationException)
+        beforeLaunch = {}
+        c.ensureRunning()
+        assertTrue(c.isRunning.value)
+        assertEquals(2, starts.get())
     }
 }

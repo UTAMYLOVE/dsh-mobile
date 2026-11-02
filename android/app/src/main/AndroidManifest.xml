@@ -34,6 +34,16 @@
                 android:value="runs the local AI agent runtime the user is chatting with" />
         </service>
 
+        <!-- WorkManager's own foreground service declares no type; the heartbeat goes foreground as specialUse (Android 14+ requires the type here). -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="specialUse"
+            tools:node="merge">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="periodic memory consolidation of the local AI agent runtime" />
+        </service>
+
     </application>
 
 </manifest>
