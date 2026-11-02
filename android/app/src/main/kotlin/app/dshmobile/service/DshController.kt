@@ -41,6 +41,12 @@ fun interface DshLauncher {
 /** A usable dsh: its own port, the local gateway's port, the session token and the launch URL (with its login token). */
 data class RunningDsh(val dshPort: Int, val gatewayPort: Int, val token: SessionToken, val launch: LaunchUrl)
 
+/** What `DshVersions` needs from the controller when it swaps versions (lets tests substitute a fake). */
+interface DshRuntime {
+    fun stop()
+    suspend fun ensureRunning(): RunningDsh
+}
+
 /**
  * Owns the dsh process and the local gateway for the whole app. [ensureRunning] starts everything exactly once
  * however many callers ask; [stop] tears it all down. The real API keys stay in [vault] and are only ever used by
@@ -61,7 +67,7 @@ class DshController(
     private val upstreams: Map<Provider, HttpUrl> = DEFAULT_UPSTREAMS,
     private val launchTimeoutMs: Long = 60_000,
     private val stopGraceMs: Long = 2_000,
-) {
+) : DshRuntime {
     private class Run(val process: Process, val gateway: LocalGateway, val patch: File) {
         @Volatile var info: RunningDsh? = null
         var tornDown = false // guarded by the run itself
@@ -79,7 +85,7 @@ class DshController(
 
     val isRunning: StateFlow<Boolean> = _isRunning
 
-    suspend fun ensureRunning(): RunningDsh = startLock.withLock {
+    override suspend fun ensureRunning(): RunningDsh = startLock.withLock {
         runningInfo()?.let { return it }
         synchronized(stateLock) { current }?.let { teardown(it) } // a dead leftover
         if (!isRootfsInstalled()) throw IllegalStateException("rootfs not installed")
@@ -87,7 +93,7 @@ class DshController(
     }
 
     /** Ends dsh and the gateway. Safe to call at any time, any number of times. */
-    fun stop() {
+    override fun stop() {
         val run = synchronized(stateLock) { current } ?: return
         run.stopRequested = true
         teardown(run)
