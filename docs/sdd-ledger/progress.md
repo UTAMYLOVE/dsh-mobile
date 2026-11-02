@@ -151,3 +151,6 @@ Task 10: minor (deferred): `starting = true` set after early checks in ensureRun
 Task 11c: dispatched (base 5c62ff0, sonnet)
 - Ruling: CI push trigger ignores docs/** — Why: ledger-only pushes kept cancelling the 20-min rootfs jobs (no full green run since Task 5) — Cost if wrong: a docs-only push isn't CI-checked (nothing to check).
 Task 11c: implementer DONE_WITH_CONCERNS (dcd9bf2): 279 tests; Compose BOM 2026.01.01, compiler plugin 2.2.10; Compose tests need @Config(sdk=[36]) (espresso vs Android 17 jar) — 11a/11b must do the same; isComplete(rootfsInstalled, keyStored) + clear(step); permission dialog/settings intents compile-only; review dispatched (sonnet)
+Task 11c: complete (commits e35411f..dcd9bf2, review clean)
+Task 11c: minor (deferred): blocking non-cancellable rootfs install can overlap a relaunched install (RootfsInstaller has no lock → spurious tmp wipe; retry recovers) — consider a process-level mutex; catch(Throwable) shows raw t.message; per-class @Config(sdk=[36]) (consider robolectric.properties); untested: notification-denied path, AndroidOnboardingPlatform, phantom continue button visibility; Step.values()→entries; onb_key_body "not uploaded" wording loose (key goes to DeepSeek via gateway)
+Task 11d: dispatched (base BASE11D, sonnet)
