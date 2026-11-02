@@ -104,3 +104,26 @@ GREEN: `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.u
 Flaky tests found and fixed (cause of the Concern 6 flake of the first round): the full suite failed intermittently (`MainActivityTest.rollbackWithNothingToGoBackTo...` twice, once `DshServiceTest.destroyStopsDshWhenNobodyElseHoldsIt`) although every class passed alone. Cause: my fake dsh was `sh -c 'echo ...; sleep 60'`; `destroyForcibly()` kills only `sh`, the orphaned `sleep` keeps the pipes open for 60 s, so the controller's blocking reader coroutines stay parked on `Dispatchers.IO` threads, and with enough of them later `withContext(Dispatchers.IO)` calls in other tests starve. Fix in `MainActivityTest`: `exec sleep 60` (killing the shell ends the process and the pipes), and the activities are paused/stopped/destroyed in `@After`. Not changed: the same `sleep 60` pattern in the older DshServiceTest/DshControllerTest/Heartbeat tests (not mine; fewer processes). After the fix, 3 consecutive full runs passed.
 
 Commands and counts: `./gradlew :app:testDebugUnitTest --no-daemon -q --rerun-tasks` x3 in a row: 395 tests, 0 failures, 0 errors, 0 skipped each (was 390; +5), pristine; `./gradlew :app:assembleDebug --no-daemon -q` and `./gradlew :app:assembleDebugAndroidTest --no-daemon -q`: exit 0, pristine. Plugins untouched.
+
+## Fix round 2
+Three findings from the scoped re-review fixed.
+
+1. **Retry runs under the service** (`ui/MainActivity.kt`): `retry()` (now `internal`) calls `DshService.start(this)` before `startDsh()`. After a GIVE_UP the service has stopped itself, so without this a dsh started by Retry had no `onExit` handler, no CrashPolicy decision, no notice and no restart.
+2. **GIVE_UP wiring is covered** (tests only; `DshService` unchanged): real GIVE_UP driven through `DshService` with a fake dsh that exits right after coming up, three times.
+3. **Stale flag on reopen** (`MainActivity.onStart`): `serviceGaveUp` is cleared at the top of `onStart`, before `super.onStart()` (that is where `repeatOnLifecycle` starts the collector, so clearing it after `DshService.start` was too late) and before the service starts.
+
+Covering tests (all new):
+- `DshServiceTest.threeQuickCrashesAreAGiveUpAndTheScreenIsToldAboutIt`: fresh start is not a give-up; three launches that die at once -> `serviceGaveUp == true`, service stopped by itself, exactly 3 processes, dsh stopped, give-up notification posted.
+- `DshServiceTest.aServiceStartClearsAStaleGiveUp`: flag preset to true, `startCommand` -> false.
+- `DshServiceTest.afterAGiveUpARetryRunsUnderTheServiceAgainAndALaterCrashIsHandled`: give up, destroy the old service, start a new one (what Retry does): flag false, `"service"` in `holders`; dsh #3 dies unexpectedly after 1 s and the new service's CrashPolicy path restarts it (#4 running, five processes, no second give-up, `"service"` still held). The fake controller helper now takes a per-launch script.
+- `MainActivityTest.retryAfterAGiveUpClearsTheFlagAndStartsTheServiceAgain`: gave-up -> Error screen, `retry()` clears the flag and a `DshService` start intent is issued.
+- `MainActivityTest.reopeningNeverFlashesAStaleGiveUpError`: stale flag preset; an Unconfined collector records every UI state through `create/start/resume`; the flag is false and `Error` was never seen.
+
+RED (all against the unfixed code or with the line deleted, then restored):
+- Retry without the service start: `retryAfterAGiveUp...` failed with `NullPointerException: Cannot invoke "android.content.Intent.getComponent()" because the return value of "ShadowApplication.getNextStartedService()" is null`.
+- Stale flag: `reopeningNeverFlashesAStaleGiveUpError` failed with `java.lang.AssertionError` (the `assertFalse(app.serviceGaveUp.value)` after start).
+- With `DshService`'s flag-set line (`serviceGaveUp.value = true // before stop()`) deleted: `threeQuickCrashesAreAGiveUp...` and `afterAGiveUpARetryRuns...` failed with `java.lang.AssertionError: condition not met in time` (the wait for `serviceGaveUp`).
+- With the flag-clear line in `onStartCommand` deleted: `aServiceStartClearsAStaleGiveUp` and `afterAGiveUpARetryRuns...` failed with `java.lang.AssertionError` (the flag was still true after the service start).
+GREEN: both lines restored (`git diff` of `DshService.kt` empty), the fixes above in place: `MainActivityTest` 21 and `DshServiceTest` 6 pass.
+
+Commands: `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.ui.MainActivityTest' --tests 'app.dshmobile.service.DshServiceTest'` (exit 0); `./gradlew :app:testDebugUnitTest --no-daemon -q --rerun-tasks` (exit 0, 400 tests, 0 failures, 0 errors, 0 skipped; was 395, +5); `./gradlew :app:assembleDebug --no-daemon -q` and `./gradlew :app:assembleDebugAndroidTest --no-daemon -q` (exit 0, pristine). Plugins untouched.

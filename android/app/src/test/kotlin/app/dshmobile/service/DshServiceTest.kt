@@ -17,6 +17,7 @@ import org.junit.After
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,12 +41,12 @@ class DshServiceTest {
     }
 
     /** Swaps the app's lazy `controller` for one with a fake `sh` dsh, the seam DshService reads (`app.controller`). */
-    private fun installFakeController(): DshController {
+    private fun installFakeController(script: (launch: Int) -> String = { """echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 60""" }): DshController {
         File(tmp, "rootfs/etc").mkdirs()
         val c = DshController(
             filesDir = tmp, isRootfsInstalled = { true },
             launcher = { _, _ ->
-                ProcessBuilder("sh", "-c", """echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 60""").start().also { processes.add(it) }
+                ProcessBuilder("sh", "-c", script(processes.size)).start().also { processes.add(it) }
             },
             vault = object : KeyVault {
                 override fun get(p: Provider): String? = null
@@ -89,6 +90,53 @@ class DshServiceTest {
         waitUntil { !c.isRunning.value }
         waitUntil { !processes.single().isAlive }
         assertTrue(c.holders.isEmpty())
+    }
+
+    private val line = """echo "dsh web: http://127.0.0.1:45678/?token=abc";"""
+
+    @Test fun threeQuickCrashesAreAGiveUpAndTheScreenIsToldAboutIt() {
+        shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val c = installFakeController { "$line exit 1" } // every dsh dies right after it came up
+        val service = Robolectric.buildService(DshService::class.java).create().startCommand(0, 0).get()
+        assertFalse("a fresh start is not a give-up", app.serviceGaveUp.value)
+
+        waitUntil(30_000) { app.serviceGaveUp.value }
+        waitUntil { shadowOf(service).isStoppedBySelf }
+        assertEquals(3, processes.size)
+        assertFalse(c.isRunning.value)
+        val manager = app.getSystemService(NotificationManager::class.java)
+        assertTrue(shadowOf(manager).allNotifications.any { it.extras.getCharSequence(android.app.Notification.EXTRA_TITLE) == "DSH Mobile 已停止" })
+    }
+
+    @Test fun aServiceStartClearsAStaleGiveUp() {
+        shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        installFakeController()
+        app.serviceGaveUp.value = true
+        Robolectric.buildService(DshService::class.java).create().startCommand(0, 0)
+        assertFalse(app.serviceGaveUp.value)
+    }
+
+    @Test fun afterAGiveUpARetryRunsUnderTheServiceAgainAndALaterCrashIsHandled() {
+        shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        // dsh #0-#2 crash at once (give up); #3 (the retry) runs for one second and then dies unexpectedly; #4 stays up.
+        val c = installFakeController { n -> if (n < 3) "$line exit 1" else if (n == 3) "$line exec sleep 1" else "$line exec sleep 60" }
+        val first = Robolectric.buildService(DshService::class.java)
+        val gaveUp = first.create().startCommand(0, 0).get()
+        waitUntil(30_000) { app.serviceGaveUp.value }
+        waitUntil { shadowOf(gaveUp).isStoppedBySelf }
+        first.destroy()
+
+        // What MainActivity.retry() does: start the service again.
+        val second = Robolectric.buildService(DshService::class.java)
+        second.create().startCommand(0, 0)
+        assertFalse(app.serviceGaveUp.value)
+        assertTrue("service" in c.holders)
+
+        // The crash of #3 goes through the new service's CrashPolicy path: a restart (#4), not a silent dead end.
+        waitUntil(30_000) { processes.size == 5 && c.isRunning.value }
+        assertFalse("not a second give-up", app.serviceGaveUp.value)
+        assertTrue("service" in c.holders)
+        second.destroy()
     }
 
     private fun waitUntil(timeoutMs: Long = 10_000, cond: () -> Boolean) {

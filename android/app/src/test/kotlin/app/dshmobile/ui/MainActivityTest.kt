@@ -26,6 +26,7 @@ import app.dshmobile.security.KeyVault
 import app.dshmobile.service.DshController
 import app.dshmobile.service.DshService
 import app.dshmobile.system.OnboardingState
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -257,6 +258,37 @@ class MainActivityTest {
         assertEquals(1, processes.size)
         assertFalse(c.isRunning.value)
         assertEquals(MainUiState.Error, activity.uiStateForTest.value)
+    }
+
+    @Test fun retryAfterAGiveUpClearsTheFlagAndStartsTheServiceAgain() {
+        completeSetup()
+        val c = controller!!
+        val activity = build().create().start().resume().get()
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        shadowOf(app as Application).clearStartedServices()
+        app.serviceGaveUp.value = true
+        c.stop()
+        waitUntil { activity.uiStateForTest.value == MainUiState.Error }
+
+        activity.retry() // the "重試" button
+
+        assertFalse(app.serviceGaveUp.value)
+        // Without the service nobody supervises the dsh the retry starts (no CrashPolicy, no notice, no restart).
+        assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
+    }
+
+    @Test fun reopeningNeverFlashesAStaleGiveUpError() {
+        completeSetup()
+        app.serviceGaveUp.value = true // left over from an earlier give-up
+        val ctl = build().create()
+        val seen = mutableListOf<MainUiState>()
+        val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined).launch {
+            ctl.get().uiStateForTest.collect { seen += it }
+        }
+        ctl.start().resume()
+        assertFalse(app.serviceGaveUp.value)
+        assertFalse("states seen: $seen", seen.contains(MainUiState.Error))
+        job.cancel()
     }
 
     @Test fun whenDshComesBackElsewhereTheActivityReloadsTheNewLaunchUrl() {

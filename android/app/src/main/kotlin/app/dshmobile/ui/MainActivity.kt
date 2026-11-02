@@ -115,6 +115,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() {
+        // Before super.onStart(): that is where the collector above starts, and it must not see a stale "gave up" from earlier.
+        if (ready) app.serviceGaveUp.value = false
         super.onStart()
         if (!ready) return
         // The hold comes before anything that can start dsh (Task 10 review note).
@@ -237,8 +239,11 @@ class MainActivity : ComponentActivity() {
         webView.loadUrl(url)
     }
 
-    private fun retry() {
+    internal fun retry() {
         app.serviceGaveUp.value = false
+        // The service supervises dsh (CrashPolicy, give-up notice, restarts); after a give-up it has stopped itself, so a dsh
+        // started here would otherwise run with nobody watching it.
+        DshService.start(this)
         loadedLaunchUrl = null
         loadFailed = false
         uiState.value = MainUiState.Loading
