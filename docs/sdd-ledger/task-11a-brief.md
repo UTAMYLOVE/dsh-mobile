@@ -42,3 +42,5 @@
 **附加（Task 11c 經驗）：** Robolectric 上的 Compose／Espresso 測試必須加 `@Config(sdk = [36])`（Android 17 jar 缺 `InputManager.getInstance()`），見 `docs/sdd-ledger/task-11c-report.md`。
 
 **附加（Task 11d 經驗）：** `DshMobileApp` 沒有 Exporter 單例；用 `Exporter(context, File(filesDir, "rootfs/root/workspace"), errorLog)` 建構（或在 DshMobileApp 加一個 lazy 單例）。測試若呼叫 `Exporter.share`，要比照 `ExporterTest` 重設 FileProvider 的路徑快取。
+
+**附加（Task 11d 審查）：** `Exporter.share`／`shareWorkspaceFile`／`errorLogZip` 會做同步檔案 I/O，MainActivity 要在 `Dispatchers.IO` 呼叫，再回主執行緒啟動分享 Intent（App 在前景時）。
