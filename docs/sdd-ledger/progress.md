@@ -179,3 +179,7 @@ Task 11a: fix round 3/5 (1 addressed, 1 new open — rollback that switches noth
 - Ruling: the re-review's Minor "RolledBack with running == false clears the flag while dsh is down" joins round 4 (same handler).
 Task 11a: fix round 4/5 dispatched (fresh implementer, opus, per fix-loop escalation)
 Task 11a: fix round 4 implementer DONE_WITH_CONCERNS (bd28e4a): single reconcile step after rollback/retry; test hook internal var rollbackStep; 409 tests; re-review dispatched (sonnet — round 4 scope is subtle)
+Task 11a: fix round 4/5 (2 addressed, 0 open; commits 95e7a80..bd28e4a)
+Task 11a: complete (commits 908fc6d..bd28e4a, review clean after 4 fix rounds)
+Task 11a: minor (deferred): rollback handler — if ops.rollback() throws, finally only resets rollingBack (no reconcile/toast); internal var rollbackStep test seam; rollback down-path without prior give-up leaves flag false (collector recovers on service restart)
+Task 11b: dispatched (base BASE11B, sonnet)
