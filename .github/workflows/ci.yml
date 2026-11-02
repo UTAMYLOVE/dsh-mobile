@@ -114,6 +114,14 @@ jobs:
     env:
       ROOTFS_FILE: ${{ github.workspace }}/rootfs-artifact/dshm-rootfs-x86_64.tar.xz
     steps:
+      # The emulator's userdata image needs 1.2 x disk-size free on the runner; the stock image leaves ~5 GB.
+      - name: Free runner disk space
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /usr/local/lib/android/sdk/ndk /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker image prune --all --force > /dev/null || true
+          df -h / | tail -1
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
         with:
@@ -141,9 +149,9 @@ jobs:
           api-level: 34
           arch: x86_64
           target: google_apis
-          disk-size: 8G
+          disk-size: 6G
           ram-size: 4096M
-          cores: 4
+          cores: 2
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
           working-directory: android
