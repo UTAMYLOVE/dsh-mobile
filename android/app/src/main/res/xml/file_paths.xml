@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only cache/export/ is reachable through the FileProvider; Task 12 adds cache/update/ here. -->
+<paths>
+    <cache-path name="export" path="export/" />
+</paths>

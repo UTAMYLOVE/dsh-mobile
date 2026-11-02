@@ -43,6 +43,17 @@
                 android:value="runs the local AI agent runtime the user is chatting with" />
         </service>
 
+        <!-- Exports go out as content:// URIs under cache/export/ only (res/xml/file_paths.xml); no storage permission needed. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.export"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- On-demand WorkManager init: the app is the Configuration.Provider (HeartbeatWorkerFactory), so the default startup initializer must go. -->
         <provider
             android:name="androidx.startup.InitializationProvider"
