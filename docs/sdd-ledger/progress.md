@@ -93,3 +93,4 @@ Task 4: implementer DONE (e1d9de3); LaunchUrl(url, port) data class from DshLaun
 Task 4: complete (commits 009c1d9..e1d9de3, review clean)
 Task 4: minor (deferred): requireAuth lets exceptions from ctx.get/requestRejection escape (still fail-closed); writeHead RangeError on out-of-range status (theoretical); ANSI strip covers CSI only; token regex \S+ lenient; no tests for IPv6/port 0/https/trailing text; redundant main in common/package.json
 Task 5: dispatched (base 4b70c10, sonnet implementer; review on opus per lean Ruling)
+Task 5: implementer DONE_WITH_CONCERNS (478642e): extras Provider.kt, 502 dshm_upstream_unreachable, 401 dshm_invalid_key, Accept-Encoding identity, 15-min read timeout, dot-segment 404, Ktor idle 3600s; AndroidKeyVault untested; review dispatched (opus)
