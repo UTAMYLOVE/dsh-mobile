@@ -148,4 +148,4 @@ Task 10: fix round 1 implementer DONE (a5a9664): WorkManagerInitializer removed 
 Task 10: fix round 1/5 (2 addressed, 0 open; commits 7b6b82c..a5a9664)
 Task 10: complete (commits f2bc370..a5a9664, review clean)
 Task 10: minor (deferred): `starting = true` set after early checks in ensureRunning (holderless stop in that sliver not recorded; unreachable today since callers retain first — 11a MainActivity must retain("ui") BEFORE ensureRunning); stopIfUnretained KDoc imprecise; fix report lacks exact RED command
-Task 11c: dispatched (base BASE11C, sonnet)
+Task 11c: dispatched (base 5c62ff0, sonnet)
