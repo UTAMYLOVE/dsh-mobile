@@ -180,7 +180,10 @@ class DshVersions(
         log.append(TAG, "$reason; rolling back to $old")
         try {
             runtime.stop()
-            withContext(Dispatchers.IO) { switchTo(old) }
+            withContext(Dispatchers.IO) {
+                switchTo(old)
+                dropFailedVersion(latest)
+            }
             runtime.ensureRunning()
         } catch (e: CancellationException) {
             throw e
@@ -189,6 +192,17 @@ class DshVersions(
             log.append(TAG, "rollback to $old failed: ${e.message}")
         }
         return UpdateOutcome.RolledBack(latest, reason)
+    }
+
+    /**
+     * After an automatic rollback: the failed [version] must not stay as a rollback target (the version before the
+     * update is already gone under the keep-two rule), so its directory is deleted (no symlink following) and
+     * `.previous` is cleared. Only acts when [version] is no longer current.
+     */
+    private fun dropFailedVersion(version: String) = synchronized(fsLock) {
+        if (currentOrNull() == version) return@synchronized
+        Files.deleteIfExists(File(optDsh, PREVIOUS).toPath())
+        RootfsInstaller.deleteTree(File(optDsh, version))
     }
 
     // ---------- helpers ----------

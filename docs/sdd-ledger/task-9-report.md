@@ -49,7 +49,12 @@ Tests: runtime/DshVersionsTest.kt, runtime/ProotGuestCommandTest.kt.
 - Fixed while reviewing: cleanup initially could race an in-flight install's tmp dir; now guarded.
 
 ## Concerns
-1. After an automatic rollback, `.previous` points at the failed new version (switchTo semantics from the brief), so a manual rollback would go back to the broken version and its directory is kept. Task 11b may want to hide the rollback button after `RolledBack`, or we can clear `.previous` there.
+1. (Fixed, see Follow-up) After an automatic rollback, `.previous` points at the failed new version (switchTo semantics from the brief), so a manual rollback would go back to the broken version and its directory is kept. Task 11b may want to hide the rollback button after `RolledBack`, or we can clear `.previous` there.
 2. `install()` returns `Result.failure` (not a throw) for a malformed version string; brief wording ("exception") is ambiguous for a Result API.
 3. Not runtime-verified: real `npm install` in proot (only the process plumbing is tested with a fake proot), real symlink behaviour on Android's filesystem (tests run on Linux), `DshController` as `DshRuntime` in the real flow (compile-checked; behaviour covered by the existing 18 controller tests).
 4. `latest < current` is reported as an update (brief: only equality means UpToDate).
+
+## Follow-up (pre-review)
+- Change: concern 1 fixed. In `updateWithAutoRollback`, once `switchTo(old)` has succeeded during a rollback, the new `dropFailedVersion(latest)` deletes the failed version's directory (`RootfsInstaller.deleteTree`, never follows symlinks) and deletes `.previous`, before the old version is restarted. It only acts if the failed version is no longer current. So after `RolledBack`, `previous()` is null and `rollback()` is false. The "old version also failed to start" path behaves the same.
+- Test: `autoRollbackDropsFailedVersionAndClearsPrevious` (RolledBack; current is the old version; `previous()` null; `rollback()` false; failed directory gone; only `1.0.0` and `current` remain). The test was written together with the fix, so a separate RED run was not recorded.
+- Commands: `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.runtime.DshVersionsTest'` -> 30 tests, 0 failures. Full suite `./gradlew :app:testDebugUnitTest --no-daemon -q` -> 189 tests, 0 failures, 0 errors, 0 skipped, pristine output.

@@ -318,6 +318,19 @@ class DshVersionsTest {
         assertTrue(log.file().readText().contains("1.1.0"))
     }
 
+    @Test fun autoRollbackDropsFailedVersionAndClearsPrevious() = runBlocking {
+        setup("1.0.0")
+        npm = { args -> if (args[1] == "view") CommandResult(0, "1.1.0\n", "") else { npmInstallsInto(); npm(args) } }
+        val rt = FakeRuntime(versions, setOf("1.1.0"))
+        assertTrue(versions.updateWithAutoRollback(rt, health) is UpdateOutcome.RolledBack)
+        assertEquals("1.0.0", versions.current())
+        assertNull(versions.previous())
+        assertFalse(versions.rollback())
+        assertFalse(File(optDsh, "1.1.0").exists())
+        assertEquals("1.0.0", versions.current())
+        assertEquals(listOf("1.0.0", "current"), dirs())
+    }
+
     @Test fun rollbackWhenOldVersionAlsoFailsStillReportsRolledBack() = runBlocking {
         setup("1.0.0")
         npm = { args -> if (args[1] == "view") CommandResult(0, "1.1.0\n", "") else { npmInstallsInto(); npm(args) } }
