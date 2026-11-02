@@ -114,3 +114,4 @@ Task 6: complete (commits e4c3baa..ac08c53, review clean)
 Task 6: minor (deferred): isApiBackslashForm misses absolute-form targets `http://h/api%5c…` (not reachable: dsh doesn't route %5c); any /api URL with `\`/%5c anywhere (incl. query) is refused — documented trade-off; task-6-report narrative lines 9/28 stale after fix
 Task 7: dispatched (base 9d8783d, sonnet)
 - Ruling: CI gets `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }` (controller infra commit after Task 7, which also edits ci.yml) and the controller pushes only at task boundaries — Why: every docs-only ledger push started a full 2-arch rootfs build; runs were piling up — Cost if wrong: a cancelled run hides one intermediate result.
+Task 7: implementer DONE (5bc869b): live health 401/ok; sessionId from exec.agent?.id (ToolRunContext); notify_user returns error strings (not isError); review dispatched (sonnet)
