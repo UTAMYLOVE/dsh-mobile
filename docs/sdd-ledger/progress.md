@@ -90,3 +90,6 @@ Task 3: complete (commits 3ef0c8b..0865470, review clean)
 Task 3: minor (deferred): killed during final deleteTree(rootfs.old) leaves a full-size stale rootfs.old that only a later install() reclaims → Task 8/11c caller should delete a leftover filesDir/rootfs.old at startup even when isInstalled(); stale-dir deletes at install start run outside try (pre-existing pattern); restore-on-failure branch untested (failedUpgrade test fails at marker check before swapIn)
 Task 4: dispatched (base cf45696, sonnet)
 Task 4: implementer DONE (e1d9de3); LaunchUrl(url, port) data class from DshLaunchLine.parse; @types/node added; review dispatched (sonnet, base 009c1d9)
+Task 4: complete (commits 009c1d9..e1d9de3, review clean)
+Task 4: minor (deferred): requireAuth lets exceptions from ctx.get/requestRejection escape (still fail-closed); writeHead RangeError on out-of-range status (theoretical); ANSI strip covers CSI only; token regex \S+ lenient; no tests for IPv6/port 0/https/trailing text; redundant main in common/package.json
+Task 5: dispatched (base 2b?, sonnet implementer; review on opus per lean Ruling)
