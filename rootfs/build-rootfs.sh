@@ -20,7 +20,7 @@ esac
 
 WORK="$(mktemp -d)"
 CTR="dshm-rootfs-$$"
-cleanup() { docker rm -f "$CTR" >/dev/null 2>&1 || true; rm -rf "$WORK"; }
+cleanup() { docker rm -f "$CTR" >/dev/null 2>&1 || true; sudo rm -rf "$WORK"; }
 trap cleanup EXIT
 
 mkdir -p "$WORK/staging"
@@ -35,9 +35,10 @@ docker cp "$WORK/inner-setup.sh" "$CTR:/inner-setup.sh"
 docker cp "$WORK/staging" "$CTR:/staging"
 docker start -a "$CTR"
 
-docker export "$CTR" > "$WORK/rootfs.tar"
+mkdir -p "$WORK/root"
+docker export "$CTR" | sudo tar -xp --numeric-owner -C "$WORK/root"
 # drop docker-only artifacts and the setup files
-tar --delete -f "$WORK/rootfs.tar" .dockerenv inner-setup.sh staging 2>/dev/null || true
+sudo rm -rf "$WORK/root/.dockerenv" "$WORK/root/inner-setup.sh" "$WORK/root/staging"
 mkdir -p "$(dirname "$OUT")"
-xz -9e -T0 -c "$WORK/rootfs.tar" > "$OUT"
+sudo tar -c --numeric-owner -C "$WORK/root" . | xz -9e -T0 -c > "$OUT"
 echo "rootfs: $OUT ($(du -h "$OUT" | cut -f1), $(stat -c %s "$OUT") bytes)"
