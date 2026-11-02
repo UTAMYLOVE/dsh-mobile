@@ -37,4 +37,23 @@
     <string name="onb_rootfs_failed">解壓縮失敗：%1$s</string>
     <string name="onb_rootfs_missing">找不到內建的執行環境檔案，這個版本的安裝包可能不完整。</string>
     <string name="onb_rootfs_retry">重試</string>
+
+    <string name="main_loading">正在啟動 DSH…</string>
+    <string name="main_error_title">無法啟動 DSH</string>
+    <string name="main_error_body">請再試一次。如果一直失敗，請匯出錯誤記錄回報。</string>
+    <string name="main_retry">重試</string>
+    <string name="main_export_log">匯出錯誤記錄</string>
+    <string name="main_settings_button" translatable="false">⚙</string>
+    <string name="main_settings_description">設定</string>
+    <string name="main_settings_missing">設定頁尚未提供</string>
+    <string name="main_rollback_title">退回上一個版本？</string>
+    <string name="main_rollback_message">會先停止目前執行中的代理人，退回 dsh 的上一個版本後重新啟動。</string>
+    <string name="main_rollback_confirm">退版</string>
+    <string name="main_cancel">取消</string>
+    <string name="main_rollback_done">已退回 dsh %1$s</string>
+    <string name="main_rollback_none">沒有可退回的版本</string>
+    <string name="main_rollback_failed">退版失敗，請查看錯誤記錄</string>
+    <string name="main_download_unsupported">無法下載此類型的檔案</string>
+    <string name="main_download_failed">下載失敗</string>
+    <string name="main_export_failed">無法匯出</string>
 </resources>

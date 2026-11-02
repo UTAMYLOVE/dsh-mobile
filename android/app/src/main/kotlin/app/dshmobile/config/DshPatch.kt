@@ -63,6 +63,8 @@ object DshPatch {
             |      name: ${q("$dir/memory/index.js")}
             |    - id: dshm-notify
             |      name: ${q("$dir/notify/index.js")}
+            |    - id: dshm-ui
+            |      name: ${q("$dir/ui/index.js")}
         """.trimMargin()
     }
 

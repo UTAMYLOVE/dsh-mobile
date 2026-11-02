@@ -28,6 +28,20 @@
         android:theme="@style/Theme.DshMobile"
         android:allowBackup="false">
 
+        <!-- configChanges: a rotation, font change or dark mode switch must not reload the WebView (it would lose the page state).
+             exported=true is required by the LAUNCHER filter; notification actions arrive as extras and are validated by LaunchRequest. -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- configChanges: a rotation or font change must not restart the rootfs extraction that runs inside this screen. -->
         <activity
             android:name=".ui.OnboardingActivity"

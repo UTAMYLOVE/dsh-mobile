@@ -32,17 +32,21 @@ class DshPatchTest {
         assertTrue(yaml.contains("name: \"@deepseek-ai/dsh-host-directory-picker-browse\""))
     }
 
-    @Test fun insertsBothPluginsByAbsolutePath() {
+    @Test fun insertsAllThreePluginsByAbsolutePath() {
         assertTrue(yaml.contains("- id: dshm-memory"))
         assertTrue(yaml.contains("name: \"/opt/dshm/plugins/memory/index.js\""))
         assertTrue(yaml.contains("- id: dshm-notify"))
         assertTrue(yaml.contains("name: \"/opt/dshm/plugins/notify/index.js\""))
+        assertTrue(yaml.contains("- id: dshm-ui"))
+        assertTrue(yaml.contains("name: \"/opt/dshm/plugins/ui/index.js\""))
+        assertEquals(3, Regex("- id: dshm-").findAll(yaml).count())
     }
 
     @Test fun pluginDirectoryIsConfigurable() {
         val custom = DshPatch.render(base, pluginDir = "/srv/p")
         assertTrue(custom.contains("name: \"/srv/p/memory/index.js\""))
         assertTrue(custom.contains("name: \"/srv/p/notify/index.js\""))
+        assertTrue(custom.contains("name: \"/srv/p/ui/index.js\""))
     }
 
     @Test fun neverContainsAnApiKey() {

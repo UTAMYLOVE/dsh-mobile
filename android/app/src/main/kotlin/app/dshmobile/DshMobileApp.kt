@@ -2,6 +2,7 @@ package app.dshmobile
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import androidx.work.Configuration
 import app.dshmobile.runtime.DshClient
@@ -13,7 +14,10 @@ import app.dshmobile.heartbeat.HeartbeatWorker
 import app.dshmobile.heartbeat.HeartbeatWorkerFactory
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.notify.Notifier
+import app.dshmobile.export.Exporter
+import app.dshmobile.runtime.DshVersions
 import app.dshmobile.runtime.HealthCheck
+import app.dshmobile.runtime.ProotGuestCommand
 import app.dshmobile.runtime.ProotRunner
 import app.dshmobile.runtime.RootfsInstaller
 import app.dshmobile.security.AndroidKeyVault
@@ -21,6 +25,8 @@ import app.dshmobile.security.KeyVault
 import app.dshmobile.service.CrashPolicy
 import app.dshmobile.service.DshController
 import app.dshmobile.service.DshLauncher
+import app.dshmobile.service.DshService
+import app.dshmobile.ui.UiHolder
 import okhttp3.OkHttpClient
 import java.io.File
 import java.time.Clock
@@ -39,8 +45,11 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
     val crashPolicy: CrashPolicy by lazy { CrashPolicy(clock = System::currentTimeMillis) }
 
+    private val proot: ProotRunner by lazy {
+        ProotRunner(File(applicationInfo.nativeLibraryDir), File(filesDir, "rootfs"), File(cacheDir, "proot"))
+    }
+
     val controller: DshController by lazy {
-        val proot = ProotRunner(File(applicationInfo.nativeLibraryDir), File(filesDir, "rootfs"), File(cacheDir, "proot"))
         val health = HealthCheck(OkHttpClient())
         DshController(
             filesDir = filesDir,
@@ -54,6 +63,26 @@ class DshMobileApp : Application(), Configuration.Provider {
             onNotify = notifier::show,
             onCostAlert = notifier::showCostAlert,
             onRateGuard = notifier::showRateGuard,
+        )
+    }
+
+    /** dsh versions under the rootfs' /opt/dsh (guest commands run through proot); the main screen's rollback uses it. */
+    val dshVersions: DshVersions by lazy {
+        val rootfs = File(filesDir, "rootfs")
+        DshVersions(File(rootfs, "opt/dsh"), ProotGuestCommand(proot, rootfs, ::activeNetworkDnsServers), errorLog)
+    }
+
+    val exporter: Exporter by lazy { Exporter(this, File(filesDir, "rootfs/root/workspace"), errorLog) }
+
+    /**
+     * The UI's hold on dsh and the ten-minute background grace. Process-level on purpose: the countdown must survive an
+     * Activity being recreated.
+     */
+    val uiHolder: UiHolder by lazy {
+        UiHolder(
+            runtime = controller,
+            holders = { controller.holders },
+            stopService = { stopService(Intent(this, DshService::class.java)) },
         )
     }
 

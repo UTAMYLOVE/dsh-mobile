@@ -13,7 +13,7 @@ import app.dshmobile.system.OnboardingState.Step
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.theme.SakuraTheme
 
-/** Hosts [OnboardingScreen] with the app's real singletons; once finished it opens MainActivity (Task 11a) and closes. */
+/** Hosts [OnboardingScreen] with the app's real singletons; once finished it opens MainActivity and closes. */
 class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,7 +44,7 @@ class OnboardingActivity : ComponentActivity() {
         try {
             startActivity(OnboardingIntents.mainActivity(packageName))
         } catch (_: ActivityNotFoundException) {
-            // MainActivity arrives with Task 11a; until then onboarding just closes.
+            // MainActivity is part of the manifest; if it cannot be resolved anyway, onboarding just closes.
         }
         finish()
     }
