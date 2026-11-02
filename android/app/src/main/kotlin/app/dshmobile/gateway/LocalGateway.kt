@@ -35,6 +35,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -71,12 +72,15 @@ class LocalGateway(
 ) {
     private val tokenBytes = token.value.toByteArray(Charsets.UTF_8)
     private val client = OkHttpClient.Builder()
+        // dsh may run 16 concurrent subagents; OkHttp's default of 5 per host would queue them silently.
+        .dispatcher(Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 32 })
         .followRedirects(false)
         .followSslRedirects(false)
         .retryOnConnectionFailure(false)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.MINUTES) // no overall call timeout: streams can run long, but a dead socket must not hang forever
         .build()
+    internal val upstreamDispatcher get() = client.dispatcher
     private val lastRateNotice = HashMap<Provider, Long>()
     private var server: EmbeddedServer<*, *>? = null
 
@@ -90,7 +94,6 @@ class LocalGateway(
                     host = LOOPBACK
                     port = 0
                 }
-                connectionIdleTimeoutSeconds = IDLE_TIMEOUT_SECONDS
             },
         ) {
             routing { route("{...}") { handle { handle(call) } } }
@@ -119,8 +122,8 @@ class LocalGateway(
         val rest = if (parts.size == 3) "/" + parts[2] else ""
         when {
             parts.getOrNull(1) == "notify" && parts.size == 2 && call.request.httpMethod == HttpMethod.Post -> notify(call)
-            parts.getOrNull(1) == "deepseek" && !hasDotSegment(rest) -> forward(call, Provider.DEEPSEEK, rest + query)
-            parts.getOrNull(1) == "anthropic" && !hasDotSegment(rest) -> forward(call, Provider.ANTHROPIC, rest + query)
+            parts.getOrNull(1) == "deepseek" && !isUnsafePath(rest) -> forward(call, Provider.DEEPSEEK, rest + query)
+            parts.getOrNull(1) == "anthropic" && !isUnsafePath(rest) -> forward(call, Provider.ANTHROPIC, rest + query)
             else -> call.respondJson(HttpStatusCode.NotFound, """{"error":"dshm_not_found"}""")
         }
     }
@@ -158,13 +161,14 @@ class LocalGateway(
         }
         val target = (upstream.toString().trimEnd('/') + restAndQuery).toHttpUrlOrNull()
             ?: return call.respondJson(HttpStatusCode.BadRequest, """{"error":"dshm_bad_request"}""")
+        if (!isConfinedTo(upstream, target)) return call.respondJson(HttpStatusCode.NotFound, """{"error":"dshm_not_found"}""")
 
         val prepared = prepareBody(call.receive<ByteArray>())
         val method = call.request.httpMethod.value
         val request = try {
             val builder = Request.Builder().url(target)
             call.request.headers.forEach { name, values ->
-                if (name.lowercase() !in DROPPED_REQUEST_HEADERS) values.forEach { builder.addHeader(name, it) }
+                if (!isDroppedRequestHeader(name)) values.forEach { builder.addHeader(name, it) }
             }
             builder.header("x-api-key", key)
             builder.header("Accept-Encoding", "identity") // keep bodies uncompressed so usage can be read from them
@@ -273,9 +277,25 @@ class LocalGateway(
         return PreparedBody(out, model)
     }
 
-    private fun hasDotSegment(rest: String) = rest.split('/').any {
-        val s = it.replace("%2e", ".", ignoreCase = true)
-        s == "." || s == ".."
+    /** Dot segments and backslashes (which OkHttp also treats as `/`) could climb out of the upstream base path. */
+    private fun isDroppedRequestHeader(name: String): Boolean {
+        val lower = name.lowercase()
+        return lower in DROPPED_REQUEST_HEADERS || lower.startsWith(HARNESS_HEADER_PREFIX)
+    }
+
+    private fun isUnsafePath(rest: String): Boolean {
+        if (rest.contains('\\') || rest.contains("%5c", ignoreCase = true)) return true
+        return rest.split('/').any {
+            val s = it.replace("%2e", ".", ignoreCase = true)
+            s == "." || s == ".."
+        }
+    }
+
+    /** True only if [target] is on the upstream's own origin and below its base path. */
+    private fun isConfinedTo(upstream: HttpUrl, target: HttpUrl): Boolean {
+        if (target.scheme != upstream.scheme || target.host != upstream.host || target.port != upstream.port) return false
+        val base = upstream.encodedPath.trimEnd('/')
+        return target.encodedPath == base || target.encodedPath.startsWith("$base/")
     }
 
     private fun parseObject(text: String): JsonObject? =
@@ -305,7 +325,6 @@ class LocalGateway(
 
     private companion object {
         const val LOOPBACK = "127.0.0.1"
-        const val IDLE_TIMEOUT_SECONDS = 3_600
         const val BUFFER_BYTES = 8 * 1024
         const val RATE_NOTICE_INTERVAL_MS = 10 * 60 * 1_000L
 
@@ -316,9 +335,10 @@ class LocalGateway(
             "te", "trailer", "transfer-encoding", "upgrade",
         )
         val DROPPED_REQUEST_HEADERS = HOP_BY_HOP + setOf(
-            "authorization", "x-api-key", "x-deepseek-harness-user-id", "x-deepseek-harness-session-id",
-            "host", "content-length", "accept-encoding",
+            "authorization", "x-api-key", "host", "content-length", "accept-encoding",
         )
+        // Privacy: dsh identifies user and session with x-deepseek-harness-* headers; none of them leave the device.
+        const val HARNESS_HEADER_PREFIX = "x-deepseek-harness-"
         // Content-Length and Content-Type are set by Ktor from the outgoing content.
         val DROPPED_RESPONSE_HEADERS = HOP_BY_HOP + setOf("content-length", "content-type")
     }

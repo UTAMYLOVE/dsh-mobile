@@ -40,3 +40,31 @@ Created (test): `gateway/{LocalGatewayTest,CostMeterTest,PriceTableTest,UsagePar
 3. The request body is buffered whole before forwarding (needed to strip fields); the response is streamed.
 4. Ktor CIO's `connectionIdleTimeoutSeconds` is raised to 3600 so long quiet streams are not cut; not verifiable on a real device from here.
 5. On Android, `AndroidKeyVault` and the actual Ktor-on-device run are untested in this environment.
+
+## Fix round 1
+
+### What changed (LocalGateway.kt)
+1. Target confinement (finding 1): any `\` or `%5c`/`%5C` in the rest of the path is rejected with 404 (together with the existing `.`/`..`/`%2e` segment check), and after building `target` the gateway requires the same scheme, host and port as the upstream and `encodedPath` equal to, or below, the upstream base path (`/anthropic` for DeepSeek, `/` for Anthropic); otherwise 404 `{"error":"dshm_not_found"}` and the upstream is never called.
+2. Removed `connectionIdleTimeoutSeconds = 3600` and its constant; Ktor's default is kept.
+3. Every incoming header whose lowercase name starts with `x-deepseek-harness-` is dropped (prefix rule replaces the two named headers).
+4. The OkHttp client uses `Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 32 }`; an `internal val upstreamDispatcher` exposes it for the test.
+
+### Covering tests (LocalGatewayTest, now 29)
+- `pathTraversalIsRejected`: raw-socket cases `..`, `%2e%2e`, `%2E%2E`, `.`, `..\v1`, `x\..\..\v1`, `..%5cv1`, `x%5C..%5C..%5Cv1`, `%2e%2e\v1`, `ok\file`; each must answer 404 and upstream request count stays 0 (socket read timeout 3 s so a leak fails instead of hanging).
+- `injectsDeepseekKeyAndStripsFake`: now also sends made-up `X-DeepSeek-Harness-Foo` and asserts no upstream header starts with `x-deepseek-harness-`.
+- `upstreamDispatcherAllowsSixteenConcurrentSubagentsAndMore` (new): asserts maxRequests 64 and maxRequestsPerHost 32.
+- Finding 2 (removing a setting) has no test; the setting is simply gone.
+
+### RED (tests changed first, production untouched)
+Command: `cd android && ./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.gateway.LocalGatewayTest'`
+Output: `29 tests completed, 3 failed`:
+- `pathTraversalIsRejected` failed with `java.net.SocketTimeoutException: Read timed out`: a backslash request was forwarded to the upstream (which never answers in the test) instead of being answered 404.
+- `upstreamDispatcherAllowsSixteenConcurrentSubagentsAndMore`: `expected:<32> but was:<5>`.
+- `injectsDeepseekKeyAndStripsFake`: AssertionError, the `x-deepseek-harness-foo` header reached the upstream.
+(A first attempt without the socket timeout hung on the same leaked request, which is the same RED.)
+
+### GREEN
+Focused: same command, 29 tests, 0 failures, 0 errors.
+Full: `cd android && ./gradlew :app:testDebugUnitTest --no-daemon -q`: no output; XML totals 87 tests, 0 failures, 0 errors (LocalGatewayTest 29, CostMeterTest 9, PriceTableTest 10, UsageParserTest 11, RateGuardTest 3, ManifestPermissionsTest 1, DshLaunchLineTest 6, ProotRunnerTest 3, RootfsInstallerTest 12, SessionTokenTest 3).
+
+Note: the post-build `isConfinedTo` check is defence in depth behind the textual path check; every traversal form tried is already stopped by the textual check, so it has no separate test.

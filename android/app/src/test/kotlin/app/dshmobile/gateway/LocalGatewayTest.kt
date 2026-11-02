@@ -134,6 +134,7 @@ class LocalGatewayTest {
                 "Authorization" to "Bearer dshm-proxy",
                 "x-deepseek-harness-user-id" to "u1",
                 "x-deepseek-harness-session-id" to "s1",
+                "X-DeepSeek-Harness-Foo" to "made-up",
                 "anthropic-version" to "2023-06-01",
             ),
         ).close()
@@ -143,6 +144,7 @@ class LocalGatewayTest {
         assertNull(seen.getHeader("Authorization"))
         assertNull(seen.getHeader("x-deepseek-harness-user-id"))
         assertNull(seen.getHeader("x-deepseek-harness-session-id"))
+        assertTrue(seen.headers.none { it.first.lowercase().startsWith("x-deepseek-harness-") })
         assertTrue(seen.headers.none { it.second.contains("dshm-proxy") })
         assertEquals("2023-06-01", seen.getHeader("anthropic-version"))
         assertEquals("${deepseekUpstream.hostName}:${deepseekUpstream.port}", seen.getHeader("Host"))
@@ -210,8 +212,13 @@ class LocalGatewayTest {
     @Test fun pathTraversalIsRejected() {
         startGateway()
         // OkHttp would normalise dot segments client-side, so send the raw request line ourselves.
-        for (segment in listOf("..", "%2e%2e", "%2E%2E", ".")) {
+        val segments = listOf(
+            "..", "%2e%2e", "%2E%2E", ".",
+            "..\\v1", "x\\..\\..\\v1", "..%5cv1", "x%5C..%5C..%5Cv1", "%2e%2e\\v1", "ok\\file",
+        )
+        for (segment in segments) {
             Socket("127.0.0.1", port).use { socket ->
+                socket.soTimeout = 3_000
                 socket.getOutputStream().write(
                     "GET /${token.value}/deepseek/$segment/secret HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".toByteArray(),
                 )
@@ -455,5 +462,11 @@ class LocalGatewayTest {
         g.stop()
         assertTrue(runCatching { Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 1_000) } }.isFailure)
         gateway = null
+    }
+
+    @Test fun upstreamDispatcherAllowsSixteenConcurrentSubagentsAndMore() {
+        val g = startGateway()
+        assertEquals(64, g.upstreamDispatcher.maxRequests)
+        assertEquals(32, g.upstreamDispatcher.maxRequestsPerHost)
     }
 }
