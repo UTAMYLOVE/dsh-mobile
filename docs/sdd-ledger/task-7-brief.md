@@ -7,7 +7,7 @@
 - Modify: `.github/workflows/ci.yml` rootfs job 的 staging 步驟，加複製到 `out/staging/plugins/notify/index.js`；`rootfs/smoke-test.sh` 加檢查 `/opt/dshm/plugins/notify/index.js`。
 - Modify: `plugins/pnpm-lock.yaml`（若需要）
 
-**Consumes:** 閘道 `POST {DSHM_GATEWAY}/notify`（Task 5；`DSHM_GATEWAY` 環境變數 = `http://127.0.0.1:<port>/<token>`，已含通行碼，**不可**寫進 log）；body JSON `{"title","body","sessionId"?}`，成功回 2xx `{"ok":true}`。`@dshm/common` 的 `requireAuth`（Task 4）。dsh 插件寫法照 `plugins/packages/memory/src/index.ts`（Task 6，先讀它：工具註冊、`webServer` 用 `ctx.get` 可選、路由第一行 `requireAuth`）。
+**Consumes:** 閘道 `POST {DSHM_GATEWAY}/notify`（Task 5；`DSHM_GATEWAY` 環境變數 = `http://127.0.0.1:<port>/<token>`，已含通行碼，**不可**寫進 log）；body JSON `{"title","body","sessionId"?}`，成功回 2xx `{"ok":true}`。`@dshm/common` 的 `requireAuth`（Task 4）。dsh 插件寫法照 `plugins/packages/memory/src/index.ts`（Task 6，先讀它：工具註冊、`webServer` 用 `ctx.get` 可選、路由第一行 `requireAuth`）。**注意（Task 6 實測）**：`webServer` 會比插件晚掛上，`apply` 當下 `ctx.get('webServer')` 是 undefined；要用 Task 6 的做法 `ctx.inject(['webServer'], (ctx) => …)` 延後註冊路由，否則路由 404。
 
 **Interfaces（Produces）:**
 - `sendNotify(gateway: string, req: { title: string; body: string; sessionId?: string }, fetchImpl = fetch): Promise<void>`：標題截到 60 個字元、內文截到 500 個字元（以 Unicode code point 計，不切斷代理對；被截時尾端加 `…` 並計入上限）；POST JSON、`content-type: application/json`；非 2xx 丟 `NotifyError`（訊息含狀態碼，**不含** gateway URL）；網路錯誤同樣包成 `NotifyError`；10 秒逾時。
