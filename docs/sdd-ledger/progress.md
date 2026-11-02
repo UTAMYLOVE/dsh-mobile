@@ -175,3 +175,6 @@ Task 11a: fix round 2/5 (3 addressed, 1 new open — onStart clear drops a give-
 Task 11a: minor (deferred): DshServiceTest default fake dsh still `sleep 60` without exec; retry() internal for tests; job.cancel() not in finally in MainActivityTest
 Task 11a: fix round 3/5 dispatched (resume implementer)
 Task 11a: fix round 3 implementer DONE (6fdc10b): give-up survives re-entry, only Retry/rollback restart; 403 tests; re-review dispatched (haiku)
+Task 11a: fix round 3/5 (1 addressed, 1 new open — rollback that switches nothing (NoPrevious / Failed) while dsh runs leaves the screen on Error; commits 0a44894..6fdc10b)
+- Ruling: the re-review's Minor "RolledBack with running == false clears the flag while dsh is down" joins round 4 (same handler).
+Task 11a: fix round 4/5 dispatched (fresh implementer, opus, per fix-loop escalation)
