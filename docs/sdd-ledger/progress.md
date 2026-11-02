@@ -193,4 +193,4 @@ Task 11b: fix round 1 implementer DONE (88abe11): SettingsJobs in applicationSco
 Task 11b: fix round 1/5 (3 addressed, 0 open; commits b7d9490..88abe11)
 Task 11b: complete (commits a158634..88abe11, review clean)
 Task 11b: minor (deferred): app-scoped job captures env → destroyed SettingsActivity reachable until job ends (platform built with Activity context); readCurrent/readPrevious on main in LaunchedEffect; applicationScope lacks CoroutineExceptionHandler; SettingsJobs exposes MutableStateFlows publicly; process kill between stop and start leaves dsh stopped with no marker; mutation evidence didn't cover scope move/BackHandler/supervise-when-down; DshControllerTest log-masking test flaked once
-Task 12: dispatched (base BASE12, sonnet)
+Task 12: dispatched (base 0d5abd1, sonnet)
