@@ -38,3 +38,5 @@
 - [ ] **Step 3:** 實作。
 - [ ] **Step 4:** `pnpm -C plugins test/typecheck/build`、`./gradlew :app:testDebugUnitTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 全部成功、輸出乾淨。
 - [ ] **Step 5:** Commit `feat: main webview with sakura theme`。
+
+**附加（Task 11c 經驗）：** Robolectric 上的 Compose／Espresso 測試必須加 `@Config(sdk = [36])`（Android 17 jar 缺 `InputManager.getInstance()`），見 `docs/sdd-ledger/task-11c-report.md`。
