@@ -5,6 +5,7 @@ import app.dshmobile.service.DshRuntime
 import app.dshmobile.service.RunningDsh
 import app.dshmobile.security.SessionToken
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -283,10 +284,14 @@ class DshVersionsTest {
 
     private class FakeRuntime(private val versions: DshVersions, private val unhealthy: Set<String>) : DshRuntime {
         val events = mutableListOf<String>()
-        override fun stop() { events.add("stop") }
+        var onStop: (callNumber: Int) -> Unit = {}
+        var onStart: (version: String) -> Unit = {}
+        private var stops = 0
+        override fun stop() { events.add("stop"); onStop(++stops) }
         override suspend fun ensureRunning(): RunningDsh {
             val v = versions.current()
             events.add("start:$v")
+            onStart(v)
             if (v in unhealthy) throw IllegalStateException("dsh $v failed its health check")
             return RunningDsh(1, 2, SessionToken("t"), LaunchUrl("http://127.0.0.1:1/?token=t", 1))
         }
@@ -329,6 +334,59 @@ class DshVersionsTest {
         assertFalse(File(optDsh, "1.1.0").exists())
         assertEquals("1.0.0", versions.current())
         assertEquals(listOf("1.0.0", "current"), dirs())
+    }
+
+    private fun updateTo11() {
+        npm = { args -> if (args[1] == "view") CommandResult(0, "1.1.0\n", "") else { npmInstallsInto(); npm(args) } }
+    }
+
+    @Test fun failingDropStillRestartsOldVersionAndIsNotReportedAsOldFailing() = runBlocking {
+        setup("1.0.0")
+        updateTo11()
+        versions.dropTree = { throw java.io.IOException("cannot delete") }
+        val rt = FakeRuntime(versions, setOf("1.1.0"))
+        val out = versions.updateWithAutoRollback(rt, health) as UpdateOutcome.RolledBack
+        assertEquals(listOf("stop", "start:1.1.0", "stop", "start:1.0.0"), rt.events)
+        assertFalse(out.reason, out.reason.contains("also failed"))
+        assertEquals("1.0.0", versions.current())
+        assertTrue(log.file().readText().contains("cannot delete"))
+    }
+
+    @Test fun throwingStopStillSwitchesBackAndRestarts() = runBlocking {
+        setup("1.0.0")
+        updateTo11()
+        val rt = FakeRuntime(versions, setOf("1.1.0"))
+        rt.onStop = { n -> if (n == 2) throw IllegalStateException("stop blew up") }
+        val out = versions.updateWithAutoRollback(rt, health) as UpdateOutcome.RolledBack
+        assertEquals(listOf("stop", "start:1.1.0", "stop", "start:1.0.0"), rt.events)
+        assertFalse(out.reason, out.reason.contains("also failed"))
+        assertEquals("1.0.0", versions.current())
+        assertTrue(log.file().readText().contains("stop blew up"))
+    }
+
+    @Test fun failedSwitchBackIsReportedExplicitlyAndNothingIsRestarted() = runBlocking {
+        setup("1.0.0")
+        updateTo11()
+        val rt = FakeRuntime(versions, setOf("1.1.0"))
+        // makes switchTo's write of .previous fail once the new version has been tried
+        rt.onStart = { v -> if (v == "1.1.0") File(optDsh, ".previous.tmp/x").mkdirs() }
+        val out = versions.updateWithAutoRollback(rt, health) as UpdateOutcome.RolledBack
+        assertTrue(out.reason, out.reason.contains("switching back to 1.0.0 failed"))
+        assertFalse(out.reason, out.reason.contains("also failed"))
+        assertEquals(listOf("stop", "start:1.1.0", "stop"), rt.events)
+        assertTrue(log.file().readText().contains("switching back to 1.0.0 failed"))
+    }
+
+    @Test fun cancellationDuringRollbackStillSwitchesBack() = runBlocking {
+        setup("1.0.0")
+        updateTo11()
+        val rt = FakeRuntime(versions, setOf("1.1.0"))
+        lateinit var job: kotlinx.coroutines.Job
+        rt.onStop = { n -> if (n == 2) job.cancel() }
+        job = launch(kotlinx.coroutines.Dispatchers.Default) { versions.updateWithAutoRollback(rt, health) }
+        job.join()
+        assertEquals("1.0.0", versions.current())
+        assertFalse(File(optDsh, "1.1.0").exists())
     }
 
     @Test fun rollbackWhenOldVersionAlsoFailsStillReportsRolledBack() = runBlocking {

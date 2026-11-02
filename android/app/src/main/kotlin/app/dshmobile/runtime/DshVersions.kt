@@ -179,19 +179,47 @@ class DshVersions(
         }
         log.append(TAG, "$reason; rolling back to $old")
         try {
-            runtime.stop()
-            withContext(Dispatchers.IO) {
-                switchTo(old)
-                dropFailedVersion(latest)
+            // 1. stop + switch back: never cancellable halfway, and a failing stop() does not prevent the switch.
+            val switchError = withContext(NonCancellable + Dispatchers.IO) {
+                try {
+                    runtime.stop()
+                } catch (e: Exception) {
+                    log.append(TAG, "stop before rollback failed: ${e.message}")
+                }
+                try {
+                    switchTo(old)
+                    null
+                } catch (e: Exception) {
+                    e.message ?: e.javaClass.simpleName
+                }
             }
-            runtime.ensureRunning()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            reason += "; the previous version $old also failed to start: ${e.message}"
-            log.append(TAG, "rollback to $old failed: ${e.message}")
+            if (switchError != null) {
+                log.append(TAG, "switching back to $old failed: $switchError")
+                return UpdateOutcome.RolledBack(latest, "$reason; switching back to $old failed: $switchError")
+            }
+            // 2. restart the old version; only a failure here means "the old version also failed".
+            try {
+                runtime.ensureRunning()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                reason += "; the previous version $old also failed to start: ${e.message}"
+                log.append(TAG, "restart of $old after rollback failed: ${e.message}")
+            }
+            return UpdateOutcome.RolledBack(latest, reason)
+        } finally {
+            // 3. best-effort cleanup, last, whatever happened above (also on cancellation). A no-op while
+            // `current` is still the failed version.
+            withContext(NonCancellable + Dispatchers.IO) { dropFailedVersionBestEffort(latest) }
         }
-        return UpdateOutcome.RolledBack(latest, reason)
+    }
+
+    private fun dropFailedVersionBestEffort(version: String) {
+        try {
+            dropFailedVersion(version)
+        } catch (e: Exception) {
+            log.append(TAG, "cannot drop failed version $version: ${e.message}")
+        }
     }
 
     /**
@@ -202,8 +230,11 @@ class DshVersions(
     private fun dropFailedVersion(version: String) = synchronized(fsLock) {
         if (currentOrNull() == version) return@synchronized
         Files.deleteIfExists(File(optDsh, PREVIOUS).toPath())
-        RootfsInstaller.deleteTree(File(optDsh, version))
+        dropTree(File(optDsh, version))
     }
+
+    /** Test seam: how the failed version's directory is deleted. */
+    internal var dropTree: (File) -> Unit = RootfsInstaller::deleteTree
 
     // ---------- helpers ----------
 
