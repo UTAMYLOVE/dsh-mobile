@@ -190,3 +190,7 @@ Task 11b: minor (deferred): vault/versions/store read on main thread inside reme
 Task 11b: fix round 1/5 dispatched (resume implementer)
 CI: run 41525416366 (3c71375, through Task 11a incl. @dshm/ui staging) = SUCCESS (android, plugins, rootfs arm64+x86_64)
 Task 11b: fix round 1 implementer DONE (88abe11): SettingsJobs in applicationScope + NonCancellable; Close/Back disabled while busy; supervise after update/rollback when running; teams after stop; 498 tests; one DshControllerTest log-masking flake seen once (timing) — deferred minor; re-review dispatched (haiku)
+Task 11b: fix round 1/5 (3 addressed, 0 open; commits b7d9490..88abe11)
+Task 11b: complete (commits a158634..88abe11, review clean)
+Task 11b: minor (deferred): app-scoped job captures env → destroyed SettingsActivity reachable until job ends (platform built with Activity context); readCurrent/readPrevious on main in LaunchedEffect; applicationScope lacks CoroutineExceptionHandler; SettingsJobs exposes MutableStateFlows publicly; process kill between stop and start leaves dsh stopped with no marker; mutation evidence didn't cover scope move/BackHandler/supervise-when-down; DshControllerTest log-masking test flaked once
+Task 12: dispatched (base BASE12, sonnet)
