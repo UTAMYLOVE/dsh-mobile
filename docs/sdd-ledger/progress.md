@@ -145,3 +145,7 @@ Task 10: review 1 = spec ❌, quality Needs fixes — CRITICAL: default WorkMana
 Task 10: minor (deferred): race test never exercises the empty-holder window; DshServiceTest swaps controller via reflection on controller$delegate; GIVE_UP stop/reset untested (CrashPolicy not injectable); sleep/wall-clock based tests; heartbeat logs every run while rootfs missing (skip quietly); heartbeat FGS notification reuses service text; task-10-report top half stale on onDestroy; import order in DshMobileApp
 Task 10: fix round 1/5 dispatched (resume implementer)
 Task 10: fix round 1 implementer DONE (a5a9664): WorkManagerInitializer removed + guard test; holderless in-flight start cancelled; 242 tests; re-review dispatched (haiku)
+Task 10: fix round 1/5 (2 addressed, 0 open; commits 7b6b82c..a5a9664)
+Task 10: complete (commits f2bc370..a5a9664, review clean)
+Task 10: minor (deferred): `starting = true` set after early checks in ensureRunning (holderless stop in that sliver not recorded; unreachable today since callers retain first — 11a MainActivity must retain("ui") BEFORE ensureRunning); stopIfUnretained KDoc imprecise; fix report lacks exact RED command
+Task 11c: dispatched (base BASE11C, sonnet)
