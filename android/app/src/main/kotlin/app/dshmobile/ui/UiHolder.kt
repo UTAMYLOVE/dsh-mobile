@@ -27,13 +27,19 @@ class UiHolder(
     var graceScheduled = false
         private set
 
+    // Screens that are started right now. Android starts a screen on top of another before the lower one stops (Main, then
+    // Settings.onStart, then Main.onStop), so the hold ends only when the last one stops.
+    private var startedScreens = 0
+
     /** The hold comes first (before anything starts or calls `ensureRunning`), then a pending countdown is dropped. */
     fun onUiStart() {
+        startedScreens++
         runtime.retain(HOLDER)
         cancelGrace()
     }
 
     fun onUiStop() {
+        if (startedScreens > 0 && --startedScreens > 0) return
         runtime.release(HOLDER)
         handler.removeCallbacks(check)
         handler.postDelayed(check, graceMs)

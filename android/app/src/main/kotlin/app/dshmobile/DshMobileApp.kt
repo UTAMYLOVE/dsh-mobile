@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import androidx.work.Configuration
+import app.dshmobile.config.AgentConfigWriter
+import app.dshmobile.config.AgentPatchProvider
+import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.PriceTable
@@ -26,6 +29,7 @@ import app.dshmobile.service.CrashPolicy
 import app.dshmobile.service.DshController
 import app.dshmobile.service.DshLauncher
 import app.dshmobile.service.DshService
+import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.UiHolder
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
@@ -56,6 +60,13 @@ class DshMobileApp : Application(), Configuration.Provider {
         ProotRunner(File(applicationInfo.nativeLibraryDir), File(filesDir, "rootfs"), File(cacheDir, "proot"))
     }
 
+    val agentSettingsStore: AgentSettingsStore by lazy {
+        AgentSettingsStore(getSharedPreferences(AgentSettingsStore.PREFS, Context.MODE_PRIVATE))
+    }
+
+    /** dsh's own home on the host side of the rootfs (guest `/root/.dsh`). */
+    val agentConfigWriter: AgentConfigWriter by lazy { AgentConfigWriter(File(filesDir, "rootfs/root/.dsh")) }
+
     val controller: DshController by lazy {
         val health = HealthCheck(OkHttpClient())
         DshController(
@@ -70,6 +81,12 @@ class DshMobileApp : Application(), Configuration.Provider {
             onNotify = notifier::show,
             onCostAlert = notifier::showCostAlert,
             onRateGuard = notifier::showRateGuard,
+            patchProvider = AgentPatchProvider(
+                vault = keyVault,
+                store = agentSettingsStore,
+                writer = agentConfigWriter,
+                phantom = PhantomProcessDetector(contentResolver)::state,
+            ),
         )
     }
 
@@ -111,8 +128,8 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        // The interval comes from settings in Task 11b; until then the default. UPDATE keeps an existing schedule's timing.
-        HeartbeatScheduler.schedule(this, HeartbeatScheduler.DEFAULT_INTERVAL_MIN)
+        // The interval is the user's setting (default 45). UPDATE keeps an existing schedule's timing.
+        HeartbeatScheduler.schedule(this, agentSettingsStore.heartbeatIntervalMin)
     }
 
     /** DNS servers of the active network as literals; link-local IPv6 ones are unusable in the guest without a scope id. */

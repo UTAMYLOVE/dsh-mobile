@@ -61,6 +61,7 @@ class HeartbeatWorkerTest {
     })
 
     private val controller = DshController(
+        patchProvider = { app.dshmobile.config.DshPatch.render(it) },
         filesDir = filesDir,
         isRootfsInstalled = { installed },
         launcher = { _, _ ->

@@ -7,7 +7,7 @@ import org.junit.Test
 
 class DshPatchTest {
     private val base = "http://127.0.0.1:41234/tok"
-    private val yaml = DshPatch.render(base)
+    private val yaml = DshPatch.render(base, includeAnthropic = true)
 
     @Test fun providerRowsPointAtTheGateway() {
         assertTrue(yaml.contains("- id: llm-deepseek"))
@@ -19,6 +19,35 @@ class DshPatchTest {
         assertEquals(2, Regex("apiKeyEnv: DEEPSEEK_API_KEY").findAll(yaml).count())
         assertEquals(1, Regex("apiKeyEnv: ANTHROPIC_API_KEY").findAll(yaml).count())
         assertEquals(3, Regex("baseURL:").findAll(yaml).count())
+    }
+
+    @Test fun anthropicRowIsOmittedWithoutAClaudeKey() {
+        val plain = DshPatch.render(base, includeAnthropic = false)
+        assertFalse(plain, plain.contains("anthropic", ignoreCase = true))
+        assertFalse(plain.contains("llm-pi-ai"))
+        assertFalse(plain.contains("ANTHROPIC_API_KEY"))
+        assertTrue(plain.contains("- id: llm-deepseek"))
+        assertEquals(2, Regex("baseURL:").findAll(plain).count())
+        assertEquals(plain, DshPatch.render(base)) // the default is "no Claude"
+    }
+
+    @Test fun agentSectionIsPlacedAfterTheProviders() {
+        val section = "- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: deepseek-flash\n"
+        val withAgent = DshPatch.render(base, agentSection = section, includeAnthropic = true)
+        assertTrue(withAgent.contains(section.trimEnd()))
+        val order = listOf("llm-deepseek", "agent-default-model", "session-telemetry-otel", "dshm-memory").map { withAgent.indexOf("id: $it") }
+        assertTrue(order.all { it >= 0 })
+        assertEquals(order.sorted(), order)
+        assertFalse(withAgent.contains("\n\n"))
+    }
+
+    @Test fun anAgentSectionThatNamesAnthropicIsRefusedWithoutAClaudeKey() {
+        try {
+            DshPatch.render(base, agentSection = "- id: agent-default-model\n  config:\n    provider: anthropic\n", includeAnthropic = false)
+            org.junit.Assert.fail("expected IllegalArgumentException")
+        } catch (_: IllegalArgumentException) {
+        }
+        DshPatch.render(base, agentSection = "- id: agent-default-model\n  config:\n    provider: anthropic\n", includeAnthropic = true)
     }
 
     @Test fun containsFullPrivacyPatch() {
@@ -43,7 +72,7 @@ class DshPatchTest {
     }
 
     @Test fun pluginDirectoryIsConfigurable() {
-        val custom = DshPatch.render(base, pluginDir = "/srv/p")
+        val custom = DshPatch.render(base, pluginDir = "/srv/p", includeAnthropic = true)
         assertTrue(custom.contains("name: \"/srv/p/memory/index.js\""))
         assertTrue(custom.contains("name: \"/srv/p/notify/index.js\""))
         assertTrue(custom.contains("name: \"/srv/p/ui/index.js\""))

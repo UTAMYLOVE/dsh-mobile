@@ -5,6 +5,7 @@ import android.app.Application
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import app.dshmobile.config.DshPatch
 import app.dshmobile.DshMobileApp
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
@@ -44,6 +45,7 @@ class DshServiceTest {
     private fun installFakeController(script: (launch: Int) -> String = { """echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 60""" }): DshController {
         File(tmp, "rootfs/etc").mkdirs()
         val c = DshController(
+            patchProvider = { DshPatch.render(it) },
             filesDir = tmp, isRootfsInstalled = { true },
             launcher = { _, _ ->
                 ProcessBuilder("sh", "-c", script(processes.size)).start().also { processes.add(it) }

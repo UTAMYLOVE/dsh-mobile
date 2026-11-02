@@ -123,6 +123,24 @@ class UiHolderTest {
         assertEquals(setOf("heartbeat"), runtime.held) // stopIfUnretained itself refuses while heartbeat holds
     }
 
+    @Test fun aSecondScreenOpenedOnTopKeepsTheHoldWhileTheFirstOneStops() {
+        // Android's order when Settings opens on top of Main: Main.onStart, Settings.onStart, Main.onStop (then the reverse on the way back).
+        val h = holder()
+        h.onUiStart()              // main
+        h.onUiStart()              // settings
+        h.onUiStop()               // main stops
+        assertEquals(setOf("ui"), runtime.held)
+        assertFalse(h.graceScheduled)
+        shadowOf(looper).idleFor(Duration.ofMillis(BACKGROUND_GRACE_MS))
+        assertFalse(runtime.events.contains("stopService"))
+        h.onUiStart()              // back to main
+        h.onUiStop()               // settings stops
+        assertEquals(setOf("ui"), runtime.held)
+        h.onUiStop()               // main goes to the background
+        assertTrue(runtime.held.isEmpty())
+        assertTrue(h.graceScheduled)
+    }
+
     @Test fun retainHappensBeforeAnythingElseOnStart() {
         val h = holder()
         h.onUiStart()

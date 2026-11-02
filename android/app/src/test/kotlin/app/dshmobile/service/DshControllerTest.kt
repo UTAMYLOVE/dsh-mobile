@@ -51,8 +51,11 @@ class DshControllerTest {
     private val healthChecked = CopyOnWriteArrayList<LaunchUrl>()
     private var launchTimeoutMs = 10_000L
     private var beforeLaunch: () -> Unit = {}
+    private var patchProvider: (String) -> String = { app.dshmobile.config.DshPatch.render(it) }
+    private var vault: KeyVault = FakeVault()
 
     private fun controller() = DshController(
+        patchProvider = { patchProvider(it) },
         filesDir = filesDir,
         isRootfsInstalled = { installed },
         launcher = { env, args ->
@@ -62,7 +65,7 @@ class DshControllerTest {
             argLists.add(args)
             ProcessBuilder("sh", "-c", script).start().also { processes.add(it) }
         },
-        vault = FakeVault(),
+        vault = vault,
         meter = CostMeter(InMemorySharedPreferences(), PriceTable(), clock = MutableClock()),
         errorLog = errorLog,
         healthCheck = { launch -> healthChecked.add(launch); healthy },
@@ -132,6 +135,49 @@ class DshControllerTest {
             env,
         )
         assertTrue(env.values.none { it.contains("sk-real") })
+    }
+
+    @Test fun environmentLeavesOutTheClaudeVariableWithoutAClaudeKey() = runBlocking {
+        // pi-ai discovers the anthropic provider from ANTHROPIC_API_KEY alone (direct to api.anthropic.com), so no key means no variable.
+        vault = object : KeyVault {
+            override fun get(p: Provider): String? = if (p == Provider.DEEPSEEK) "sk-real-deepseek" else null
+            override fun put(p: Provider, key: String) = Unit
+            override fun clear(p: Provider) = Unit
+        }
+        newController().ensureRunning()
+        val env = envs.single()
+        assertFalse(env.containsKey("ANTHROPIC_API_KEY"))
+        assertEquals("dshm-proxy", env["DEEPSEEK_API_KEY"])
+        assertEquals(6, env.size)
+    }
+
+    @Test fun patchProviderGetsTheGatewayBaseAndItsTextIsWritten() = runBlocking {
+        val bases = CopyOnWriteArrayList<String>()
+        patchProvider = { base -> bases.add(base); "- id: from-provider\n  base: $base\n" }
+        val running = newController().ensureRunning()
+        val expectedBase = "http://127.0.0.1:${running.gatewayPort}/${running.token.value}"
+        assertEquals(listOf(expectedBase), bases)
+        assertEquals("- id: from-provider\n  base: $expectedBase\n", File(rootfs, "opt/dshm/dshm.cordis.yml").readText())
+        val perms = Files.getPosixFilePermissions(File(rootfs, "opt/dshm/dshm.cordis.yml").toPath())
+        assertEquals(setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE), perms)
+    }
+
+    @Test fun aFailingPatchProviderFailsTheStartAndCleansUp() {
+        patchProvider = { throw IllegalStateException("provider broke") }
+        val c = newController()
+        try {
+            runBlocking { c.ensureRunning() }
+            fail("expected IllegalStateException")
+        } catch (e: IllegalStateException) {
+            assertEquals("provider broke", e.message)
+        }
+        assertEquals(0, starts.get())
+        assertFalse(c.isRunning.value)
+        assertFalse(File(rootfs, "opt/dshm/dshm.cordis.yml").exists())
+        // the next start asks the provider again
+        patchProvider = { app.dshmobile.config.DshPatch.render(it) }
+        runBlocking { c.ensureRunning() }
+        assertEquals(1, starts.get())
     }
 
     @Test fun launcherFlagsComeBeforeAppFlags() = runBlocking {

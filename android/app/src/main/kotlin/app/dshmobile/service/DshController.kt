@@ -1,6 +1,5 @@
 package app.dshmobile.service
 
-import app.dshmobile.config.DshPatch
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.LocalGateway
 import app.dshmobile.gateway.NotifyRequest
@@ -78,6 +77,8 @@ class DshController(
     private val onNotify: (NotifyRequest) -> Unit,
     private val onCostAlert: (usd: Double) -> Unit,
     private val onRateGuard: (Provider) -> Unit,
+    /** The dsh patch (YAML) for a start, given the gateway base URL `http://127.0.0.1:<port>/<token>`. Production: `AgentPatchProvider`. */
+    private val patchProvider: (gatewayBase: String) -> String,
     private val upstreams: Map<Provider, HttpUrl> = DEFAULT_UPSTREAMS,
     private val launchTimeoutMs: Long = 60_000,
     private val stopGraceMs: Long = 2_000,
@@ -178,7 +179,7 @@ class DshController(
             val gatewayBase = "http://127.0.0.1:$gatewayPort/${token.value}"
             GuestNetworkFiles.write(rootfs, dnsServers())
             File(rootfs, "root/workspace").mkdirs()
-            val patch = writePatch(DshPatch.render(gatewayBase))
+            val patch = writePatch(patchProvider(gatewayBase))
             val process = launcher.start(guestEnv(gatewayBase), DSH_ARGS)
             run = Run(process, gateway, patch)
             val cancelled = synchronized(stateLock) {
@@ -289,15 +290,20 @@ class DshController(
         return file
     }
 
+    /**
+     * The fake key only for providers that have a real key in the vault. pi-ai discovers the anthropic provider from
+     * `ANTHROPIC_API_KEY` alone (with its default endpoint, api.anthropic.com), so without a Claude key the variable stays out.
+     */
     private fun guestEnv(gatewayBase: String): Map<String, String> = linkedMapOf(
         "DSHM_GATEWAY" to gatewayBase,
         "DSHM_WORKSPACE" to "/root/workspace",
         "DSH_HOME" to "/root/.dsh",
         "DSH_TELEMETRY_MODE" to "DISABLED",
         "DEEPSEEK_API_KEY" to FAKE_KEY,
-        "ANTHROPIC_API_KEY" to FAKE_KEY,
-        "TZ" to "Asia/Taipei",
-    )
+    ).also { env ->
+        if (vault.get(Provider.ANTHROPIC) != null) env["ANTHROPIC_API_KEY"] = FAKE_KEY
+        env["TZ"] = "Asia/Taipei"
+    }
 
     companion object {
         val DEFAULT_UPSTREAMS: Map<Provider, HttpUrl> = mapOf(

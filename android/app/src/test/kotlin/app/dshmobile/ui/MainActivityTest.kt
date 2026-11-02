@@ -10,6 +10,7 @@ import android.os.Looper
 import android.webkit.WebView
 import androidx.core.content.FileProvider
 import androidx.test.core.app.ApplicationProvider
+import app.dshmobile.config.DshPatch
 import app.dshmobile.BuildConfig
 import app.dshmobile.DshMobileApp
 import app.dshmobile.R
@@ -92,6 +93,7 @@ class MainActivityTest {
         })
         File(tmp, "rootfs/etc").mkdirs()
         val c = DshController(
+            patchProvider = { DshPatch.render(it) },
             filesDir = tmp, isRootfsInstalled = { true },
             launcher = { _, _ ->
                 if (failLaunches) throw java.io.IOException("fake dsh does not start")
@@ -140,6 +142,7 @@ class MainActivityTest {
 
     @Test fun unfinishedOnboardingDoesNotHoldDshOrStartTheService() {
         val c = DshController(
+            patchProvider = { DshPatch.render(it) },
             filesDir = tmp, isRootfsInstalled = { false }, launcher = { _, _ -> error("never") },
             vault = object : KeyVault {
                 override fun get(p: Provider): String? = null

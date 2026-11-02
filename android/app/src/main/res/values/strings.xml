@@ -45,7 +45,7 @@
     <string name="main_export_log">匯出錯誤記錄</string>
     <string name="main_settings_button" translatable="false">⚙</string>
     <string name="main_settings_description">設定</string>
-    <string name="main_settings_missing">設定頁尚未提供</string>
+    <string name="main_settings_missing">無法開啟設定頁</string>
     <string name="main_rollback_title">退回上一個版本？</string>
     <string name="main_rollback_message">會先停止目前執行中的代理人，退回 dsh 的上一個版本後重新啟動。</string>
     <string name="main_rollback_confirm">退版</string>
@@ -56,4 +56,76 @@
     <string name="main_download_unsupported">無法下載此類型的檔案</string>
     <string name="main_download_failed">下載失敗</string>
     <string name="main_export_failed">無法匯出</string>
+    <string name="set_title">設定</string>
+    <string name="set_close">關閉</string>
+    <string name="set_busy">處理中…</string>
+
+    <string name="set_section_keys">金鑰</string>
+    <string name="set_key_deepseek">DeepSeek 金鑰</string>
+    <string name="set_key_claude">Claude 金鑰</string>
+    <string name="set_key_set">已設定</string>
+    <string name="set_key_unset">未設定</string>
+    <string name="set_key_replace">替換</string>
+    <string name="set_key_add">設定</string>
+    <string name="set_key_clear">清除</string>
+    <string name="set_key_field">新的金鑰</string>
+    <string name="set_key_save">儲存</string>
+    <string name="set_key_cancel">取消</string>
+    <string name="set_key_error">無法儲存金鑰，請再試一次。</string>
+    <string name="set_key_hint">金鑰只會加密存放在這支手機上，不會顯示或上傳。有了 Claude 金鑰，總指揮模型才會多出 Claude 選項。</string>
+
+    <string name="set_section_agent">代理人</string>
+    <string name="set_agent_concurrent">同時數</string>
+    <string name="set_agent_depth">委派深度</string>
+    <string name="set_agent_team">團隊人數</string>
+    <string name="set_agent_teams">啟用 Agent Teams</string>
+    <string name="set_agent_model">總指揮模型</string>
+    <string name="set_agent_worker_note">子代理人沿用總指揮模型</string>
+    <string name="set_agent_team_clamped">團隊人數實際上限為同時數（%1$d）</string>
+    <string name="set_agent_increase">增加%1$s</string>
+    <string name="set_agent_decrease">減少%1$s</string>
+
+    <string name="set_section_budget">預算</string>
+    <string name="set_budget_today">今日花費 US$%1$s</string>
+    <string name="set_budget_alert">通知門檻（US$）</string>
+    <string name="set_budget_cap_switch">啟用每日硬上限</string>
+    <string name="set_budget_cap">硬上限（US$）</string>
+    <string name="set_budget_save">儲存預算</string>
+    <string name="set_budget_saved">預算已儲存</string>
+    <string name="set_budget_invalid">請輸入大於 0 的數字</string>
+
+    <string name="set_section_heartbeat">心跳間隔</string>
+    <string name="set_heartbeat_value">每 %1$d 分鐘</string>
+    <string name="set_heartbeat_hint">代理人會定期在背景整理記憶並提醒你，間隔 30～60 分鐘。</string>
+
+    <string name="set_section_version">DSH 版本</string>
+    <string name="set_version_current">目前版本：%1$s</string>
+    <string name="set_version_previous">上一版：%1$s</string>
+    <string name="set_version_none">無</string>
+    <string name="set_version_unknown">未知</string>
+    <string name="set_version_check">檢查更新</string>
+    <string name="set_version_rollback">退回上一版</string>
+    <string name="set_version_updated">已更新到 %1$s</string>
+    <string name="set_version_uptodate">已是最新版</string>
+    <string name="set_version_rolled_back">更新到 %1$s 失敗：%2$s</string>
+    <string name="set_version_failed">更新失敗：%1$s</string>
+    <string name="set_dsh_running">DSH 執行中</string>
+    <string name="set_dsh_stopped">DSH 已停止</string>
+    <string name="set_dsh_restart">重新啟動</string>
+    <string name="set_rollback_done">已退回 dsh %1$s</string>
+    <string name="set_rollback_none">沒有可退回的版本</string>
+    <string name="set_rollback_failed">退版失敗，請查看錯誤記錄</string>
+
+    <string name="set_section_phantom">子行程限制</string>
+    <string name="set_phantom_state">目前狀態：%1$s</string>
+    <string name="set_phantom_open">開啟開發人員選項</string>
+
+    <string name="set_section_export">匯出</string>
+    <string name="set_export_memory">匯出記憶備份</string>
+
+    <string name="set_apply">套用並重啟</string>
+    <string name="set_apply_note">代理人設定要重新啟動 DSH 才會生效。</string>
+    <string name="set_apply_done">已套用，DSH 已重新啟動</string>
+    <string name="set_apply_failed">無法重新啟動 DSH，請查看錯誤記錄</string>
+    <string name="set_apply_teams_later">Agent Teams 會在 DSH 下次啟動後生效。</string>
 </resources>
