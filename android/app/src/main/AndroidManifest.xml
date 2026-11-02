@@ -34,6 +34,18 @@
                 android:value="runs the local AI agent runtime the user is chatting with" />
         </service>
 
+        <!-- On-demand WorkManager init: the app is the Configuration.Provider (HeartbeatWorkerFactory), so the default startup initializer must go. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
         <!-- WorkManager's own foreground service declares no type; the heartbeat goes foreground as specialUse (Android 14+ requires the type here). -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

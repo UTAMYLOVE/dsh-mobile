@@ -501,4 +501,48 @@ class DshControllerTest {
         assertTrue(c.isRunning.value)
         assertEquals(2, starts.get())
     }
+
+    @Test fun stopIfUnretainedMidStartWithNoHolderCancelsTheStartInsteadOfLeavingAHolderlessDsh() = runBlocking {
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        beforeLaunch = { entered.countDown(); gate.await(10, TimeUnit.SECONDS) }
+        val c = newController()
+        val result = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        assertTrue(c.holders.isEmpty())
+        assertTrue(c.stopIfUnretained()) // nobody holds the dsh that is being started
+        gate.countDown()
+        val failure = result.await().exceptionOrNull()
+        assertTrue("expected CancellationException, got $failure", failure is CancellationException)
+        assertFalse(c.isRunning.value)
+        waitUntil { !processes.single().isAlive }
+        assertFalse(portIsOpen(gatewayPortOf(envs.single())))
+        assertFalse(File(rootfs, "opt/dshm/dshm.cordis.yml").exists())
+    }
+
+    @Test fun stopIfUnretainedMidStartWhileHeldLeavesTheStartAlone() = runBlocking {
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        beforeLaunch = { entered.countDown(); gate.await(10, TimeUnit.SECONDS) }
+        val c = newController()
+        c.retain("ui")
+        val result = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        assertFalse(c.stopIfUnretained())
+        gate.countDown()
+        assertTrue(result.await().isSuccess)
+        assertTrue(c.isRunning.value)
+        assertTrue(processes.single().isAlive)
+    }
+
+    @Test fun stopIfUnretainedWhileWaitingForTheLaunchLineWithNoHolderCancelsTheStart() = runBlocking {
+        script = "echo starting; sleep 30"
+        val c = newController()
+        val result = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
+        waitUntil { processes.isNotEmpty() }
+        assertTrue(c.stopIfUnretained())
+        assertTrue(result.await().exceptionOrNull() is CancellationException)
+        assertFalse(c.isRunning.value)
+        waitUntil { !processes.single().isAlive }
+    }
 }

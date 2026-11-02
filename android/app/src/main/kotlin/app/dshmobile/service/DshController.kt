@@ -146,6 +146,8 @@ class DshController(
     override fun stopIfUnretained(): Boolean {
         val run = synchronized(stateLock) {
             if (holderSet.isNotEmpty()) return false
+            // A start still in flight must not publish a running dsh that nobody holds: it sees this and tears down.
+            if (current == null && starting) stopPending = true
             current?.also { it.stopRequested = true }
         }
         if (run != null) teardown(run)
