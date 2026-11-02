@@ -154,3 +154,4 @@ Task 11c: implementer DONE_WITH_CONCERNS (dcd9bf2): 279 tests; Compose BOM 2026.
 Task 11c: complete (commits e35411f..dcd9bf2, review clean)
 Task 11c: minor (deferred): blocking non-cancellable rootfs install can overlap a relaunched install (RootfsInstaller has no lock → spurious tmp wipe; retry recovers) — consider a process-level mutex; catch(Throwable) shows raw t.message; per-class @Config(sdk=[36]) (consider robolectric.properties); untested: notification-denied path, AndroidOnboardingPlatform, phantom continue button visibility; Step.values()→entries; onb_key_body "not uploaded" wording loose (key goes to DeepSeek via gateway)
 Task 11d: dispatched (base 7a349e9, sonnet)
+CI: run 41494708361-series superseded; run 41506965326 (caef868, through Task 10) = SUCCESS incl. rootfs arm64+x86_64 with memory+notify staged and smoke-tested
