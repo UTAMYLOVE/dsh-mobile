@@ -28,6 +28,8 @@ import app.dshmobile.security.KeyVault
 import app.dshmobile.service.DshController
 import app.dshmobile.service.DshService
 import app.dshmobile.system.OnboardingState
+import app.dshmobile.update.ApkInstaller
+import app.dshmobile.update.ApkUpdateChecker
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -563,6 +565,79 @@ class MainActivityTest {
         assertTrue(c.isRunning.value)
         assertEquals(1, processes.size)
         assertFalse(activity.isFinishing)
+    }
+
+    // --- shell app update ---
+
+    private val apkBytes = ByteArray(50_000) { (it * 7).toByte() }
+    private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+
+    /** A releases "repo" on a MockWebServer: the newest release is v0.9.0+9 whose hash file says [hash]. */
+    private fun serveRelease(server: okhttp3.mockwebserver.MockWebServer, hash: String) {
+        val base = server.url("/")
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) = when {
+                request.path == "/repos/o/r/releases/latest" -> okhttp3.mockwebserver.MockResponse().setBody(
+                    """{"tag_name":"v0.9.0+9","assets":[{"name":"a.apk","browser_download_url":"${base}a.apk"},{"name":"a.apk.sha256","browser_download_url":"${base}a.apk.sha256"}]}""",
+                )
+                request.path == "/a.apk.sha256" -> okhttp3.mockwebserver.MockResponse().setBody("$hash  a.apk")
+                request.path == "/a.apk" -> okhttp3.mockwebserver.MockResponse().setBody(okio.Buffer().write(apkBytes))
+                else -> okhttp3.mockwebserver.MockResponse().setResponseCode(404)
+            }
+        }
+        val prefixes = listOf(base.toString())
+        swap("updateChecker", ApkUpdateChecker(okhttp3.OkHttpClient(), "o/r", 1, base, prefixes))
+        swap("apkInstaller", ApkInstaller(app, okhttp3.OkHttpClient(), prefixes))
+    }
+
+    @Test fun theInstallUpdateActionDownloadsVerifiesAndOpensTheInstaller() {
+        completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            serveRelease(server, sha(apkBytes))
+            val activity = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_INSTALL_UPDATE)).create().get()
+            waitUntil { shadowOf(activity).peekNextStartedActivity()?.action == Intent.ACTION_VIEW }
+            val install = shadowOf(activity).nextStartedActivity
+            assertEquals("application/vnd.android.package-archive", install.type)
+            assertEquals("content", install.data!!.scheme)
+            assertTrue(File(app.cacheDir, "update/dsh-mobile-9.apk").isFile)
+            assertNull(activity.intent.getStringExtra(Notifier.EXTRA_ACTION))
+        } finally {
+            server.shutdown()
+            File(app.cacheDir, "update").deleteRecursively()
+        }
+    }
+
+    @Test fun aWrongHashNeverReachesTheInstallerAndLeavesNoApk() {
+        completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            serveRelease(server, "0".repeat(64))
+            val activity = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_INSTALL_UPDATE)).create().get()
+            waitUntil { errorLogText().contains("[update]") }
+            waitUntil { org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == activity.getString(R.string.main_update_failed) }
+            assertTrue(shadowOf(activity).nextStartedActivity == null)
+            assertTrue(File(app.cacheDir, "update").list().orEmpty().isEmpty())
+        } finally {
+            server.shutdown()
+            File(app.cacheDir, "update").deleteRecursively()
+        }
+    }
+
+    @Test fun whenThereIsNoNewerReleaseItSaysSoAndInstallsNothing() {
+        completeSetup()
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            serveRelease(server, sha(apkBytes))
+            swap("updateChecker", ApkUpdateChecker(okhttp3.OkHttpClient(), "o/r", 9, server.url("/"), listOf(server.url("/").toString())))
+            val activity = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_INSTALL_UPDATE)).create().get()
+            waitUntil { org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == activity.getString(R.string.main_update_none) }
+            assertTrue(shadowOf(activity).nextStartedActivity == null)
+        } finally {
+            server.shutdown()
+        }
     }
 
     // --- settings button ---

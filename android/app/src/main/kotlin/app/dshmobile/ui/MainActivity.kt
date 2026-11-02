@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
     private var loadedLaunchUrl: String? = null
     private var loadFailed = false
     private var rollingBack = false
+    private var updating = false
 
     internal val webViewForTest: WebView get() = webView
     internal val uiStateForTest: kotlinx.coroutines.flow.StateFlow<MainUiState> get() = uiState
@@ -269,6 +270,7 @@ class MainActivity : ComponentActivity() {
             LaunchRequest.None -> Unit
             LaunchRequest.Rollback -> confirmRollback()
             LaunchRequest.ExportErrorLog -> exportErrorLog()
+            LaunchRequest.InstallUpdate -> installUpdate()
             // Phase one of the notification deep link: dsh has no conversation URL, so the app only comes to the front.
             is LaunchRequest.OpenSession -> ops.recordDeepLink(request.id)
         }
@@ -317,6 +319,43 @@ class MainActivity : ComponentActivity() {
             superviseAndShow()
         } else {
             uiState.value = MainUiState.Error
+        }
+    }
+
+    // ---------- shell app update ----------
+
+    /**
+     * The update notice's tap. The intent carries no URL or hash (this activity is exported): the release is looked up again
+     * from the public releases repo, downloaded, checked against its SHA-256 and only then handed to the system installer.
+     * Toasts report each stage; a failed check or hash never reaches the installer.
+     */
+    private fun installUpdate() {
+        if (updating) return
+        updating = true
+        lifecycleScope.launch {
+            try {
+                toast(getString(R.string.main_update_checking))
+                val info = app.updateChecker.latest()
+                if (info == null) {
+                    toast(getString(R.string.main_update_none))
+                    return@launch
+                }
+                toast(getString(R.string.main_update_downloading, info.versionName))
+                val apk = app.apkInstaller.download(info)
+                if (apk == null) {
+                    app.errorLog.append("update", "download or verification of ${info.versionName} failed")
+                    toast(getString(R.string.main_update_failed))
+                    return@launch
+                }
+                app.apkInstaller.install(apk)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                app.errorLog.append("update", "update failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.main_update_failed))
+            } finally {
+                updating = false
+            }
         }
     }
 

@@ -21,6 +21,11 @@ class LaunchRequestTest {
         assertEquals(LaunchRequest.ExportErrorLog, LaunchRequest.from(intent(Notifier.EXTRA_ACTION to Notifier.ACTION_EXPORT_ERROR_LOG)))
     }
 
+    @Test fun installUpdateAction() {
+        assertEquals(LaunchRequest.InstallUpdate, LaunchRequest.from(intent(Notifier.EXTRA_ACTION to Notifier.ACTION_INSTALL_UPDATE)))
+        assertEquals("install_update", Notifier.ACTION_INSTALL_UPDATE)
+    }
+
     @Test fun unknownActionIsIgnored() {
         assertEquals(LaunchRequest.None, LaunchRequest.from(intent(Notifier.EXTRA_ACTION to "format_phone")))
         assertEquals(LaunchRequest.None, LaunchRequest.from(intent(Notifier.EXTRA_ACTION to "")))

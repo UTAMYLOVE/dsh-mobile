@@ -11,6 +11,7 @@ sealed interface LaunchRequest {
     data object None : LaunchRequest
     data object Rollback : LaunchRequest
     data object ExportErrorLog : LaunchRequest
+    data object InstallUpdate : LaunchRequest
     data class OpenSession(val id: String) : LaunchRequest
 
     companion object {
@@ -21,6 +22,7 @@ sealed interface LaunchRequest {
             when (intent.getStringExtra(Notifier.EXTRA_ACTION)) {
                 Notifier.ACTION_ROLLBACK -> return Rollback
                 Notifier.ACTION_EXPORT_ERROR_LOG -> return ExportErrorLog
+                Notifier.ACTION_INSTALL_UPDATE -> return InstallUpdate
             }
             val id = intent.getStringExtra(Notifier.EXTRA_SESSION_ID)
             return if (id != null && SESSION_ID.matches(id)) OpenSession(id) else None

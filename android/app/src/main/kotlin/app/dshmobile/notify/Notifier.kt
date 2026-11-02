@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import app.dshmobile.R
 import app.dshmobile.gateway.NotifyRequest
 import app.dshmobile.gateway.Provider
+import app.dshmobile.update.ReleaseInfo
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -73,6 +74,16 @@ class Notifier(private val context: Context) {
         )
     }
 
+    /** One notice for the newest release: a newer one replaces it. The tap carries only `action=install_update`; MainActivity re-checks and downloads by itself. */
+    fun showUpdateAvailable(info: ReleaseInfo) {
+        post(
+            ID_UPDATE,
+            builder(CHANNEL_ALERTS, "有新版本可更新", "DSH Mobile ${info.versionName} 已發佈，點一下下載並安裝")
+                .setContentIntent(openMainActivity(ID_UPDATE, EXTRA_ACTION to ACTION_INSTALL_UPDATE))
+                .setAutoCancel(true),
+        )
+    }
+
     fun serviceNotification(): Notification =
         builder(CHANNEL_SERVICE, "DSH Mobile 執行中", "AI 代理人正在背景運作")
             .setContentIntent(openMainActivity(ID_SERVICE))
@@ -115,10 +126,12 @@ class Notifier(private val context: Context) {
         const val EXTRA_ACTION = "action"
         const val ACTION_ROLLBACK = "rollback"
         const val ACTION_EXPORT_ERROR_LOG = "export_error_log"
+        const val ACTION_INSTALL_UPDATE = "install_update"
         const val ID_SERVICE = 1
         private const val ID_COST = 2
         private const val ID_RATE_GUARD = 3 // 3 and 4: one per provider
         const val ID_HEARTBEAT = 5 // the heartbeat's foreground notification; not ID_SERVICE, whose notification WorkManager would cancel when the heartbeat ends
+        private const val ID_UPDATE = 6
         private const val ID_CRASH = 10 // 10..12: notification and its two actions' request codes
         private const val FIRST_DYNAMIC_ID = 100
         const val MAIN_ACTIVITY = "app.dshmobile.ui.MainActivity"

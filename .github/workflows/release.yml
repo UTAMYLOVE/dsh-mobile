@@ -1,0 +1,209 @@
+name: Release
+
+# A tag push (v<versionName>+<versionCode>, e.g. v0.2.0+2) builds, signs and publishes the shell app to the public releases repo.
+# A manual run (workflow_dispatch) only does the dry run: tests, rootfs and an UNSIGNED release APK, stopping before signing.
+# The dry run needs no secret.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: build an unsigned APK and stop before signing (publishing only happens on a tag push)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            if ! [[ "$REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)$ ]]; then
+              echo "::error::tag '$REF_NAME' does not match v<major>.<minor>.<patch>+<versionCode>"
+              exit 1
+            fi
+            version_name="${BASH_REMATCH[1]}"
+            version_code="${BASH_REMATCH[2]}"
+            publish=true
+            tag="$REF_NAME"
+          else
+            if [ "$DRY_RUN" != "true" ]; then
+              echo "::error::only a tag push publishes; run the workflow with dry_run=true"
+              exit 1
+            fi
+            version_name="0.0.0"
+            version_code="1"
+            publish=false
+            tag=""
+          fi
+          releases_repo="$(sed -n 's/^dshm\.releasesRepo=//p' android/gradle.properties | tr -d '\r')"
+          if ! [[ "$releases_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::dshm.releasesRepo missing or malformed in android/gradle.properties"
+            exit 1
+          fi
+          {
+            echo "version_name=$version_name"
+            echo "version_code=$version_code"
+            echo "publish=$publish"
+            echo "tag=$tag"
+            echo "releases_repo=$releases_repo"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Release build: v${version_name}+${version_code} (publish=$publish)" >> "$GITHUB_STEP_SUMMARY"
+
+      # ---- tests ----
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Android unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: plugins/pnpm-lock.yaml
+      - name: Plugin tests and build
+        run: |
+          pnpm -C plugins install --frozen-lockfile
+          pnpm -C plugins test
+          pnpm -C plugins build
+
+      # ---- rootfs (arm64 only: the release targets the phone; same steps as ci.yml) ----
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Stage plugins for the rootfs
+        run: |
+          mkdir -p out/staging/plugins/memory out/staging/plugins/notify out/staging/plugins/ui
+          cp plugins/packages/memory/dist/index.js out/staging/plugins/memory/index.js
+          cp plugins/packages/notify/dist/index.js out/staging/plugins/notify/index.js
+          cp plugins/packages/ui/dist/index.js out/staging/plugins/ui/index.js
+      - name: Build rootfs
+        run: bash rootfs/build-rootfs.sh arm64 out/dshm-rootfs-arm64.tar.xz out/staging
+      - name: Smoke test rootfs
+        run: bash rootfs/smoke-test.sh out/dshm-rootfs-arm64.tar.xz
+
+      # ---- unsigned release APK (no signing environment is present in this step) ----
+      - name: Build unsigned release APK
+        working-directory: android
+        env:
+          ROOTFS_FILE: ${{ github.workspace }}/out/dshm-rootfs-arm64.tar.xz
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+        run: |
+          ./gradlew :app:assembleRelease --no-daemon \
+            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" \
+            -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
+      - name: Inspect unsigned APK
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -f "$apk"
+          unzip -v "$apk" | grep -E 'Stored .* assets/rootfs\.tar\.xz$'
+          if unzip -Z1 "$apk" | grep '^lib/' | grep -v '^lib/arm64-v8a/'; then
+            echo "::error::APK contains native libraries for another ABI"
+            exit 1
+          fi
+          if unzip -Z1 "$apk" | grep -Ei '\.(jks|keystore|pem|p12|key)$'; then
+            echo "::error::APK contains key material"
+            exit 1
+          fi
+          echo "APK: $(du -h "$apk" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      # The dry run ends here.
+      - name: Upload unsigned APK (dry run)
+        if: steps.ver.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-mobile-unsigned-apk
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 7
+          if-no-files-found: error
+
+      # ---- signing and publishing (tag push only) ----
+      - name: Decode keystore
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/dshm-release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          test -s "$keystore"
+          echo "DSHM_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: steps.ver.outputs.publish == 'true'
+        working-directory: android
+        env:
+          ROOTFS_FILE: ${{ github.workspace }}/out/dshm-rootfs-arm64.tar.xz
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          rm -rf app/build/outputs/apk/release
+          ./gradlew :app:assembleRelease --no-daemon --no-build-cache \
+            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" \
+            -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
+
+      - name: Verify signature and compute SHA-256
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          built=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$built"
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$built"
+          mkdir -p dist
+          apk="dist/dsh-mobile-${VERSION_NAME}-${VERSION_CODE}.apk"
+          cp "$built" "$apk"
+          (cd dist && sha256sum "$(basename "$apk")" > "$(basename "$apk").sha256" && sha256sum -c "$(basename "$apk").sha256")
+          echo "apk=$apk" >> "$GITHUB_ENV"
+
+      - name: Publish to the releases repo
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          RELEASES_REPO: ${{ steps.ver.outputs.releases_repo }}
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" --repo "$RELEASES_REPO" "$apk" "$apk.sha256" \
+            --title "DSH Mobile $VERSION_NAME" \
+            --notes "DSH Mobile $VERSION_NAME. The app checks this page once a day; verify the APK against the .sha256 file."
+
+      - name: Delete keystore
+        if: always() && steps.ver.outputs.publish == 'true'
+        run: rm -f "${DSHM_KEYSTORE_FILE:-$RUNNER_TEMP/dshm-release.keystore}"

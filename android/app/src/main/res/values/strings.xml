@@ -56,6 +56,10 @@
     <string name="main_download_unsupported">無法下載此類型的檔案</string>
     <string name="main_download_failed">下載失敗</string>
     <string name="main_export_failed">無法匯出</string>
+    <string name="main_update_checking">正在確認新版本…</string>
+    <string name="main_update_none">目前已是最新版本</string>
+    <string name="main_update_downloading">正在下載 %1$s，完成後會自動驗證</string>
+    <string name="main_update_failed">更新失敗：下載或驗證沒有通過，未安裝。請稍後再試</string>
     <string name="set_title">設定</string>
     <string name="set_close">關閉</string>
     <string name="set_busy">處理中…</string>

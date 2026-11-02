@@ -14,6 +14,7 @@ import app.dshmobile.notify.Notifier
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.LaunchUrl
 import app.dshmobile.service.DshHolderRuntime
+import app.dshmobile.update.DailyUpdateCheck
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -35,6 +36,8 @@ class HeartbeatDeps(
     val serviceNotification: () -> Notification,
     val errorLog: ErrorLog,
     val timeoutMs: Long = HeartbeatWorker.TIMEOUT_MS,
+    /** The once-a-day shell app update check that rides on the heartbeat; null = none. */
+    val updateCheck: DailyUpdateCheck? = null,
 )
 
 /** Hands [deps] to [HeartbeatWorker]; any other worker class falls through to WorkManager's default factory. */
@@ -47,6 +50,8 @@ class HeartbeatWorkerFactory(private val deps: () -> HeartbeatDeps) : WorkerFact
  * The periodic "dream" run: cold-start dsh if nobody else has it up, ask the memory plugin to consolidate the daily
  * notes, post the reminders it returns, and let dsh go again unless somebody else (the service, the UI) holds it.
  *
+ * The first heartbeat of each Taipei day also asks the releases repo for a newer shell app ([DailyUpdateCheck]).
+ *
  * It never retries: every failure (route error, 409 busy, timeout, exception) is logged by status or exception class
  * only and the run ends in success, so the next period simply tries again. It never starts a second dsh and never
  * stops one that another holder uses (see [DshHolderRuntime.stopIfUnretained]).
@@ -58,6 +63,8 @@ class HeartbeatWorker(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         goForeground()
+        // Independent of dsh (needs no rootfs, no holder) and unable to fail the run: it logs its own problems.
+        deps.updateCheck?.runIfDue()
         deps.runtime.retain(HOLDER)
         try {
             withTimeout(deps.timeoutMs) { heartbeat() }

@@ -32,6 +32,9 @@ import app.dshmobile.service.DshService
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.SettingsJobs
 import app.dshmobile.ui.UiHolder
+import app.dshmobile.update.ApkInstaller
+import app.dshmobile.update.ApkUpdateChecker
+import app.dshmobile.update.DailyUpdateCheck
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -119,6 +122,27 @@ class DshMobileApp : Application(), Configuration.Provider {
         )
     }
 
+    /** Asks the public releases repo for a newer shell app (no credentials; a failure is the caller's to log). */
+    val updateChecker: ApkUpdateChecker by lazy {
+        val http = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()
+        ApkUpdateChecker(http, BuildConfig.RELEASES_REPO, BuildConfig.VERSION_CODE)
+    }
+
+    /** Downloads, verifies and hands over a release APK; no call timeout (the APK carries the rootfs), only per-read ones. */
+    val apkInstaller: ApkInstaller by lazy {
+        ApkInstaller(this, OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build())
+    }
+
+    /** The heartbeat's once-a-day update check; announces a newer release with [Notifier.showUpdateAvailable]. */
+    val dailyUpdateCheck: DailyUpdateCheck by lazy {
+        DailyUpdateCheck(
+            prefs = getSharedPreferences(DailyUpdateCheck.PREFS, Context.MODE_PRIVATE),
+            check = updateChecker::latest,
+            onAvailable = notifier::showUpdateAvailable,
+            errorLog = errorLog,
+        )
+    }
+
     /** Everything [HeartbeatWorker] uses; WorkManager builds the worker through [workManagerConfiguration]'s factory. */
     val heartbeatDeps: HeartbeatDeps by lazy {
         // Long read timeout: the memory plugin's "dream" is one slow model call. The worker's own 5-minute limit still applies.
@@ -129,6 +153,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             notify = notifier::show,
             serviceNotification = notifier::serviceNotification,
             errorLog = errorLog,
+            updateCheck = dailyUpdateCheck,
         )
     }
 

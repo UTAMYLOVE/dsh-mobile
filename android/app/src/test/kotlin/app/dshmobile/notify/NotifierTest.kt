@@ -9,6 +9,7 @@ import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.gateway.NotifyRequest
 import app.dshmobile.gateway.Provider
+import app.dshmobile.update.ReleaseInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -121,5 +122,28 @@ class NotifierTest {
         notifier.showRateGuard(Provider.DEEPSEEK)
         notifier.showCrashGiveUp()
         assertTrue(posted().isEmpty())
+    }
+
+    @Test fun updateAvailableOpensMainActivityWithTheInstallUpdateAction() {
+        notifier.showUpdateAvailable(ReleaseInfo(7, "0.7.0", "https://github.com/o/r/a.apk", "a".repeat(64)))
+        val n = posted().single()
+        assertEquals("dshm_alerts", n.channelId)
+        assertTrue(n.title(), n.title().isNotBlank())
+        assertTrue(n.text().contains("0.7.0"))
+        val intent = tapIntent(n)
+        assertEquals("app.dshmobile.ui.MainActivity", intent.component!!.className)
+        assertEquals("install_update", intent.getStringExtra("action"))
+        // Only the action travels in the intent: MainActivity is exported, so no URL or hash may ride along.
+        assertEquals(setOf("action"), intent.extras!!.keySet())
+        assertTrue(shadowOf(n.contentIntent).isActivity)
+        assertTrue(n.flags and Notification.FLAG_AUTO_CANCEL != 0)
+        assertTrue(shadowOf(n.contentIntent).flags and PendingIntent.FLAG_IMMUTABLE != 0)
+    }
+
+    @Test fun aSecondUpdateNoticeReplacesTheFirst() {
+        notifier.showUpdateAvailable(ReleaseInfo(7, "0.7.0", "https://github.com/o/r/a.apk", "a".repeat(64)))
+        notifier.showUpdateAvailable(ReleaseInfo(8, "0.8.0", "https://github.com/o/r/a.apk", "b".repeat(64)))
+        assertEquals(1, posted().size)
+        assertTrue(posted().single().text().contains("0.8.0"))
     }
 }

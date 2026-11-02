@@ -17,6 +17,8 @@ import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.FakeDshServer
 import app.dshmobile.security.KeyVault
 import app.dshmobile.service.DshController
+import app.dshmobile.update.DailyUpdateCheck
+import app.dshmobile.update.ReleaseInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -92,6 +94,8 @@ class HeartbeatWorkerTest {
         filesDir.deleteRecursively()
     }
 
+    private var updateCheck: DailyUpdateCheck? = null
+
     private fun deps() = HeartbeatDeps(
         runtime = controller,
         clientFor = { launch -> DshClient(OkHttpClient(), launch) },
@@ -99,6 +103,7 @@ class HeartbeatWorkerTest {
         serviceNotification = { serviceNotification() },
         errorLog = errorLog,
         timeoutMs = timeoutMs,
+        updateCheck = updateCheck,
     )
 
     private fun worker() = TestListenableWorkerBuilder<HeartbeatWorker>(context)
@@ -286,5 +291,49 @@ class HeartbeatWorkerTest {
         runHeartbeat()
         assertEquals(2, starts.get())
         assertFalse(controller.isRunning.value)
+    }
+
+    // ---- the daily update check ----
+
+    private val release = ReleaseInfo(2, "0.2.0", "https://github.com/o/r/a.apk", "a".repeat(64))
+    private val updateClock = MutableClock(java.time.Instant.parse("2026-11-02T01:00:00Z"))
+    private val updateChecks = AtomicInteger()
+    private val announced = CopyOnWriteArrayList<ReleaseInfo>()
+
+    private fun dailyUpdate(check: suspend () -> ReleaseInfo?) = DailyUpdateCheck(
+        InMemorySharedPreferences(), { updateChecks.incrementAndGet(); check() }, { announced.add(it) }, errorLog, updateClock,
+    )
+
+    @Test fun theFirstHeartbeatOfTheDayChecksForAnUpdateAndTheSecondDoesNot() {
+        updateCheck = dailyUpdate { release }
+        assertEquals(ListenableWorker.Result.success(), runHeartbeat())
+        assertEquals(ListenableWorker.Result.success(), runHeartbeat())
+        assertEquals(1, updateChecks.get())
+        assertEquals(listOf(release), announced.toList())
+        assertEquals(2, heartbeatRequests.size)
+    }
+
+    @Test fun theNextTaipeiDayChecksAgain() {
+        updateCheck = dailyUpdate { null }
+        runHeartbeat()
+        updateClock.now = java.time.Instant.parse("2026-11-02T16:05:00Z") // just past midnight in Taipei
+        runHeartbeat()
+        assertEquals(2, updateChecks.get())
+    }
+
+    @Test fun aThrowingUpdateCheckDoesNotChangeTheHeartbeatResult() {
+        heartbeatResponse = ::twoReminders
+        updateCheck = dailyUpdate { throw java.io.IOException("offline") }
+        assertEquals(ListenableWorker.Result.success(), runHeartbeat())
+        assertEquals(2, notified.size) // the reminders still went out
+        assertTrue(log().contains("[update]") && log().contains("IOException"))
+        assertTrue(controller.holders.isEmpty())
+    }
+
+    @Test fun theUpdateCheckDoesNotNeedDsh() {
+        installed = false
+        updateCheck = dailyUpdate { release }
+        assertEquals(ListenableWorker.Result.success(), runHeartbeat())
+        assertEquals(listOf(release), announced.toList())
     }
 }
