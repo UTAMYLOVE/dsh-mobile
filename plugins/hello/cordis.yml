@@ -1,0 +1,6 @@
+# Overlay for: dsh web --patch <abs path to this file>
+# The plugin path must be absolute (the loader resolves relative names from the
+# profile directory, not from this file). Adjust if the repo lives elsewhere.
+- insert:
+    - id: dshm-hello
+      name: 'C:/dsh-mobile/plugins/hello/index.js'
