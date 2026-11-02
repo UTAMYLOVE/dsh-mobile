@@ -169,3 +169,4 @@ Task 11a: fix round 1/5 (2 addressed, 2 new open — Retry starts dsh without Ds
 - Ruling: re-review Minor (stale serviceGaveUp flag shows Error on reopen — clear in onStart before DshService.start) rides along in round 2 — same lines.
 Task 11a: minor (deferred): orphan `sh -c '…; sleep 60'` pattern remains in DshService/DshController/Heartbeat tests; MainActivityTest tearDown swallows failures via runCatching; NetworkSecurityConfigTest manifest-pointer assertion not shown RED
 Task 11a: fix round 2/5 dispatched (resume implementer)
+Task 11a: fix round 2 implementer DONE (2331d3f): retry starts DshService; flag cleared at top of onStart; real GIVE_UP tests; 400 tests; re-review dispatched (haiku)
