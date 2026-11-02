@@ -132,3 +132,4 @@ Task 9: review 1 = spec ❌ (rollback robustness), quality Needs fixes — Impor
 - Ruling: Task 9 Minor 1 (rollback file work cancellable between stop and switchTo) joins fix round 1 — same lines, same failure class.
 Task 9: minor (deferred): cancel-restore branch and stop()-throws untested; installLocked uses symlink-following isDirectory; param named runtime not controller; switchTo writes .previous before flip (lost target if flip throws); blocking npm not interrupted by cancellation (up to 15 min); un-timed latch awaits in a test; downgrade offered if registry latest moves back
 Task 9: fix round 1/5 dispatched (resume implementer)
+Task 9: fix round 1 implementer DONE (e3fd117): 3-phase rollback (NonCancellable stop+switch, restart, finally best-effort drop); test seam internal var dropTree; re-review dispatched (haiku)
