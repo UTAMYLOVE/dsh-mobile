@@ -33,6 +33,8 @@ import app.dshmobile.notify.Notifier
 import app.dshmobile.service.DshService
 import app.dshmobile.service.RunningDsh
 import app.dshmobile.system.OnboardingState
+import app.dshmobile.update.DailyUpdateCheck
+import app.dshmobile.update.PendingUpdate
 import app.dshmobile.ui.theme.SakuraTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +65,7 @@ class MainActivity : ComponentActivity() {
     private var loadFailed = false
     private var rollingBack = false
     private var updating = false
+    private val pendingUpdate by lazy { PendingUpdate(getSharedPreferences(DailyUpdateCheck.PREFS, Context.MODE_PRIVATE)) }
 
     internal val webViewForTest: WebView get() = webView
     internal val uiStateForTest: kotlinx.coroutines.flow.StateFlow<MainUiState> get() = uiState
@@ -129,6 +132,17 @@ class MainActivity : ComponentActivity() {
         }
         DshService.start(this)
         startDsh()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Back from the "install unknown apps" page: carry on with the update that was waiting for the grant. Without the grant
+        // nothing happens and the flag stays. Only the update runs here; dsh is not touched.
+        if (ready && pendingUpdate.isPending && app.apkInstaller.canInstall()) {
+            // Cleared before the run: a failing attempt must not repeat (and re-download) on every resume.
+            pendingUpdate.isPending = false
+            installUpdate()
+        }
     }
 
     override fun onStop() {
@@ -327,10 +341,21 @@ class MainActivity : ComponentActivity() {
     /**
      * The update notice's tap. The intent carries no URL or hash (this activity is exported): the release is looked up again
      * from the public releases repo, downloaded, checked against its SHA-256 and only then handed to the system installer.
-     * Toasts report each stage; a failed check or hash never reaches the installer.
+     * Toasts report each stage; a failed check or hash never reaches the installer. Without the install permission nothing is
+     * downloaded: the settings page opens, the update is remembered ([PendingUpdate]) and [onResume] continues it after the grant.
      */
     private fun installUpdate() {
         if (updating) return
+        if (!app.apkInstaller.canInstall()) {
+            pendingUpdate.isPending = true
+            try {
+                app.apkInstaller.openInstallSettings()
+            } catch (_: ActivityNotFoundException) {
+                app.errorLog.append("update", "install settings page not available")
+            }
+            toast(getString(R.string.main_update_needs_permission))
+            return
+        }
         updating = true
         lifecycleScope.launch {
             try {
@@ -347,7 +372,16 @@ class MainActivity : ComponentActivity() {
                     toast(getString(R.string.main_update_failed))
                     return@launch
                 }
-                app.apkInstaller.install(apk)
+                try {
+                    app.apkInstaller.install(apk)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A verified APK is ready but the installer could not be launched: leave a way to retry.
+                    app.errorLog.append("update", "could not open the installer: ${e.javaClass.simpleName}")
+                    app.notifier.showUpdateReady(info)
+                    toast(getString(R.string.main_update_ready))
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -626,8 +626,126 @@ class MainActivityTest {
         }
     }
 
+    private fun pendingFlag() = app.getSharedPreferences("dshm_update", Context.MODE_PRIVATE).getBoolean("pending_install", false)
+
+    private fun installActionIntent() = Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_INSTALL_UPDATE)
+
+    @Test fun withoutInstallPermissionTheSettingsPageOpensFirstAndNothingIsDownloaded() {
+        completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(false)
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            serveRelease(server, sha(apkBytes))
+            val activity = build(installActionIntent()).create().get()
+            waitUntil { shadowOf(activity).peekNextStartedActivity() != null }
+            val settings = shadowOf(activity).nextStartedActivity
+            assertEquals(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, settings.action)
+            assertEquals(android.net.Uri.parse("package:${app.packageName}"), settings.data)
+            assertEquals("no release lookup and no download before the permission", 0, server.requestCount)
+            assertTrue(pendingFlag())
+            assertEquals(activity.getString(R.string.main_update_needs_permission), org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+            assertFalse(File(app.cacheDir, "update").exists() && File(app.cacheDir, "update").list().orEmpty().isNotEmpty())
+        } finally {
+            server.shutdown()
+            app.getSharedPreferences("dshm_update", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
+    @Test fun resumingWithTheGrantContinuesTheUpdateAndClearsTheFlag() {
+        completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(false)
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            serveRelease(server, sha(apkBytes))
+            val ctl = build(installActionIntent()).create().start().resume()
+            val activity = ctl.get()
+            assertEquals(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, shadowOf(activity).nextStartedActivity.action)
+            assertEquals(0, server.requestCount)
+            // The user allows installs in Settings and comes back.
+            shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
+            ctl.pause().resume()
+            waitUntil { shadowOf(activity).peekNextStartedActivity()?.action == Intent.ACTION_VIEW }
+            val install = shadowOf(activity).nextStartedActivity
+            assertEquals("application/vnd.android.package-archive", install.type)
+            assertTrue(File(app.cacheDir, "update/dsh-mobile-9.apk").isFile)
+            assertFalse(pendingFlag())
+        } finally {
+            server.shutdown()
+            File(app.cacheDir, "update").deleteRecursively()
+            app.getSharedPreferences("dshm_update", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
+    @Test fun resumingWhileStillNotAllowedDoesNothingAndKeepsTheFlag() {
+        completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(false)
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            serveRelease(server, sha(apkBytes))
+            val ctl = build(installActionIntent()).create().start().resume()
+            val activity = ctl.get()
+            shadowOf(activity).nextStartedActivity // the settings page
+            ctl.pause().resume()
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(200)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNull(shadowOf(activity).nextStartedActivity)
+            assertEquals(0, server.requestCount)
+            assertTrue(pendingFlag())
+        } finally {
+            server.shutdown()
+            app.getSharedPreferences("dshm_update", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
+    @Test fun aWrongHashAfterTheGrantStillNeverInstalls() {
+        completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(false)
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            serveRelease(server, "0".repeat(64))
+            val ctl = build(installActionIntent()).create().start().resume()
+            val activity = ctl.get()
+            shadowOf(activity).nextStartedActivity
+            shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
+            ctl.pause().resume()
+            waitUntil { org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == activity.getString(R.string.main_update_failed) }
+            assertNull(shadowOf(activity).nextStartedActivity)
+            assertTrue(File(app.cacheDir, "update").list().orEmpty().isEmpty())
+            assertFalse("a failed attempt must not loop on every resume", pendingFlag())
+        } finally {
+            server.shutdown()
+            File(app.cacheDir, "update").deleteRecursively()
+            app.getSharedPreferences("dshm_update", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
+    @Test fun ifTheInstallerCannotBeLaunchedAReadyNoticeIsPostedWithTheSameAction() {
+        completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            serveRelease(server, sha(apkBytes))
+            // An installer whose hand-off fails (no activity can handle it).
+            swap("apkInstaller", object : ApkInstaller(app, okhttp3.OkHttpClient(), listOf(server.url("/").toString())) {
+                override fun install(apk: File) = throw android.content.ActivityNotFoundException("none")
+            })
+            val activity = build(installActionIntent()).create().get()
+            val manager = app.getSystemService(android.app.NotificationManager::class.java)
+            waitUntil { shadowOf(manager).allNotifications.isNotEmpty() }
+            val n = shadowOf(manager).allNotifications.single()
+            assertEquals("install_update", shadowOf(n.contentIntent).savedIntent.getStringExtra("action"))
+            assertTrue(n.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("已下載"))
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally {
+            server.shutdown()
+            File(app.cacheDir, "update").deleteRecursively()
+        }
+    }
+
     @Test fun whenThereIsNoNewerReleaseItSaysSoAndInstallsNothing() {
         completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
         val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
         try {
             serveRelease(server, sha(apkBytes))

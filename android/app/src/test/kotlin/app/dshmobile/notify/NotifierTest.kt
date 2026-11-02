@@ -146,4 +146,12 @@ class NotifierTest {
         assertEquals(1, posted().size)
         assertTrue(posted().single().text().contains("0.8.0"))
     }
+
+    @Test fun updateReadyNoticeRetriesThroughTheSameAction() {
+        notifier.showUpdateReady(ReleaseInfo(7, "0.7.0", "https://github.com/o/r/a.apk", "a".repeat(64)))
+        val n = posted().single()
+        assertEquals("install_update", tapIntent(n).getStringExtra("action"))
+        assertEquals(setOf("action"), tapIntent(n).extras!!.keySet())
+        assertTrue(n.text().contains("已下載") && n.text().contains("0.7.0"))
+    }
 }

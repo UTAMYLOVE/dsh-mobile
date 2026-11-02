@@ -25,7 +25,7 @@ import java.security.MessageDigest
  * added: `REQUEST_INSTALL_PACKAGES` already exists and Android asks the user for every install. Android itself also
  * refuses an update that is not signed with this app's key, so the hash only guards against a damaged or swapped download.
  */
-class ApkInstaller(
+open class ApkInstaller(
     private val context: Context,
     http: OkHttpClient,
     private val allowedPrefixes: List<String> = ApkUpdateChecker.DEFAULT_ALLOWED_PREFIXES,
@@ -97,18 +97,27 @@ class ApkInstaller(
         }
     }
 
+    /** Whether the system lets this app hand an APK to the installer (the "install unknown apps" grant). */
+    open fun canInstall(): Boolean = context.packageManager.canRequestPackageInstalls()
+
+    /** Opens the "install unknown apps" settings page for this app; callers do this before downloading anything. */
+    open fun openInstallSettings() {
+        context.startActivity(settingsIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    private fun settingsIntent() = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+
     /**
-     * Opens the system installer for [apk] (a file in `cache/update/`, else [IllegalArgumentException]). If this app may not
-     * install packages yet, the "install unknown apps" settings page for it opens instead; the user comes back and taps again.
+     * Opens the system installer for [apk] (a file in `cache/update/`, else [IllegalArgumentException]). The caller asks for the
+     * grant first ([canInstall], [openInstallSettings]); if it is missing anyway (revoked in between) the settings page opens
+     * instead of the installer.
      */
-    fun install(apk: File) {
+    open fun install(apk: File) {
         context.startActivity(buildInstallIntent(apk).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     internal fun buildInstallIntent(apk: File): Intent {
-        if (!context.packageManager.canRequestPackageInstalls()) {
-            return Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-        }
+        if (!canInstall()) return settingsIntent()
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.export", apk)
         return Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, APK_MIME)

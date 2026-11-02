@@ -84,6 +84,16 @@ class Notifier(private val context: Context) {
         )
     }
 
+    /** The APK is downloaded and verified but could not be handed to the installer: the same tap action retries (the download is reused). */
+    fun showUpdateReady(info: ReleaseInfo) {
+        post(
+            ID_UPDATE,
+            builder(CHANNEL_ALERTS, "新版已下載", "DSH Mobile ${info.versionName} 已下載，點一下安裝")
+                .setContentIntent(openMainActivity(ID_UPDATE, EXTRA_ACTION to ACTION_INSTALL_UPDATE))
+                .setAutoCancel(true),
+        )
+    }
+
     fun serviceNotification(): Notification =
         builder(CHANNEL_SERVICE, "DSH Mobile 執行中", "AI 代理人正在背景運作")
             .setContentIntent(openMainActivity(ID_SERVICE))

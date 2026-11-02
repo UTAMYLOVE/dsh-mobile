@@ -122,3 +122,25 @@ base64 -w0 dshm-release.keystore   # macOS 用 base64 -i dshm-release.keystore�
 - 金鑰庫遺失或換掉，已安裝的手機就無法再用更新安裝（Android 要求同一把簽章金鑰），請另外備份在安全的地方。
 - 公開倉庫 `dsh-mobile-releases` 至少要有一個提交（例如一個 README），`gh release create` 才能建立標籤。
 - 公開倉庫只會收到 APK 和 `.sha256` 兩個檔案。
+
+## Fix round 1
+Finding: the first update could not complete without waiting a day. `installUpdate` downloaded the APK first; with `canRequestPackageInstalls()` false `install()` only opened the settings page, and the tap that started it (auto-cancelled notification, consumed `action` extra) could not be repeated.
+
+Changes:
+- `MainActivity.installUpdate`: checks `app.apkInstaller.canInstall()` before anything else. If false: sets the persisted `PendingUpdate` flag, opens `ACTION_MANAGE_UNKNOWN_APP_SOURCES` (`package:` URI) via `ApkInstaller.openInstallSettings()`, Toast `main_update_needs_permission` ("請先在設定頁允許 DSH Mobile 安裝應用程式；允許後回到這裡，更新會自動繼續"), and returns: no release lookup, no download.
+- `MainActivity.onResume` (new): if the flag is set and `canInstall()` is now true, clears the flag and runs `installUpdate()` (re-fetch release, download with SHA-256 check, reuse of an already verified APK, install). Still not allowed: nothing happens, flag stays. The flag is cleared before the run so a failing attempt does not re-download on every resume. Only the update runs; dsh is not touched.
+- `update/PendingUpdate.kt` (new): SharedPreferences-backed boolean (`dshm_update` / `pending_install`).
+- `ApkInstaller` is now `open` with `open fun canInstall()`, `open fun openInstallSettings()`, `open fun install(...)` (test seam); `install()` KDoc corrected (it no longer claims a re-tap exists; the settings fallback only covers a grant revoked in between).
+- Belt and braces: if `install()` throws (e.g. `ActivityNotFoundException`) after a verified download, MainActivity logs `[update] could not open the installer: <class>`, posts `Notifier.showUpdateReady(info)` (same `ID_UPDATE`, "DSH Mobile X 已下載，點一下安裝", tap = `action=install_update`, nothing else in the intent) and shows Toast `main_update_ready`. A tap re-runs the flow and reuses the verified APK.
+- The existing test `whenThereIsNoNewerReleaseItSaysSoAndInstallsNothing` now grants install permission first (the permission check precedes the lookup).
+
+Tests (new, `MainActivityTest` +5, `NotifierTest` +1; Robolectric, `setCanRequestPackageInstalls(false)` then `true`):
+- `withoutInstallPermissionTheSettingsPageOpensFirstAndNothingIsDownloaded`: settings intent first (action and `package:` URI), MockWebServer `requestCount == 0`, flag set, toast, no file in `cache/update`.
+- `resumingWithTheGrantContinuesTheUpdateAndClearsTheFlag`: after granting and `pause().resume()`: download, `ACTION_VIEW` install intent, `dsh-mobile-9.apk` present, flag cleared.
+- `resumingWhileStillNotAllowedDoesNothingAndKeepsTheFlag`: no activity started, request count 0, flag kept.
+- `aWrongHashAfterTheGrantStillNeverInstalls`: failed toast, nothing started, `cache/update` empty, flag not left set.
+- `ifTheInstallerCannotBeLaunchedAReadyNoticeIsPostedWithTheSameAction`, `NotifierTest.updateReadyNoticeRetriesThroughTheSameAction`.
+
+RED: with the new tests and only the resource and `open` scaffolding in place, `MainActivityTest.withoutInstallPermissionTheSettingsPageOpensFirstAndNothingIsDownloaded` failed: "no release lookup and no download before the permission expected:<0> but was:<3>" (release, hash file and APK were fetched before the settings page). GREEN after the change.
+
+Commands and counts: `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.ui.MainActivityTest' --tests 'app.dshmobile.update.*' --tests 'app.dshmobile.notify.*' --tests 'app.dshmobile.ui.LaunchRequestTest'` (one failure: the old no-newer-release test, fixed as above) then `MainActivityTest` alone 38 tests, 0 failures; full `./gradlew :app:testDebugUnitTest --no-daemon -q --rerun-tasks`: 556 tests, 0 failures, 0 errors, 0 skipped, no output; `./gradlew :app:assembleDebug --no-daemon -q` exit 0. No manifest change (no new permission).

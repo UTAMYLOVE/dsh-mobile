@@ -57,6 +57,8 @@
     <string name="main_download_failed">下載失敗</string>
     <string name="main_export_failed">無法匯出</string>
     <string name="main_update_checking">正在確認新版本…</string>
+    <string name="main_update_needs_permission">請先在設定頁允許 DSH Mobile 安裝應用程式；允許後回到這裡，更新會自動繼續</string>
+    <string name="main_update_ready">新版已下載，但無法開啟安裝程式；可從通知再點一次安裝</string>
     <string name="main_update_none">目前已是最新版本</string>
     <string name="main_update_downloading">正在下載 %1$s，完成後會自動驗證</string>
     <string name="main_update_failed">更新失敗：下載或驗證沒有通過，未安裝。請稍後再試</string>
