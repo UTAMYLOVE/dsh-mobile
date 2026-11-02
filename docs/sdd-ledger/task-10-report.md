@@ -79,3 +79,10 @@ Tests: heartbeat/{HeartbeatWorkerTest,HeartbeatSchedulerTest}.kt (new), service/
 4. The heartbeat is skipped, not retried, when WorkManager has run it while dsh is mid-update (Task 9 `DshVersions` swaps) or busy (409): next period tries again, as specified.
 5. `DshMobileApp.onCreate` schedules with the constant 45; Task 11b must call `schedule` with the setting (UPDATE keeps timing).
 6. `DshClient.postJsonForText` was added (new method, existing signatures untouched).
+
+## Follow-up (pre-review)
+Coordinator ruling: `DshService.onDestroy` must not force-stop dsh (this replaces concern 3 above).
+- Change (`service/DshService.kt`): `onDestroy` now calls `release("service")` then `stopIfUnretained()` (on the same background thread as before). The GIVE_UP path now calls `controller.stop()` explicitly (before `crashPolicy.reset()` and `stopSelf()`), the only forced stop left, since dsh is dead or crash-looping there.
+- Tests (`service/DshServiceTest.kt`, Robolectric, real `DshController` with a fake `sh` dsh, swapped in through the app's lazy `controller` delegate, the seam `DshService` reads): `destroyReleasesTheServiceHoldButLeavesDshRunningForAnotherHolder` (service and heartbeat hold dsh, service destroyed, holders = {heartbeat}, dsh still running); `destroyStopsDshWhenNobodyElseHoldsIt`. RED check: with `onDestroy` temporarily back on `stop()`, the first test fails (3 tests, 1 failed); restored, all pass.
+- Commands: `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.service.*'` (DshServiceTest 3 tests, 0 failures), then the full `./gradlew :app:testDebugUnitTest --no-daemon -q --rerun-tasks`: 237 tests, 0 failures, 0 errors, 0 skipped, pristine output; `./gradlew :app:assembleDebug --no-daemon -q` exit 0.
+- The GIVE_UP forced stop is compile-verified only (no injectable CrashPolicy).

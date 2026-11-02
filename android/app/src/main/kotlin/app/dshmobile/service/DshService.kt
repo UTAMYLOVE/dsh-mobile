@@ -53,8 +53,9 @@ class DshService : Service() {
         scope.cancel()
         // Stopping waits for the process to die; keep that off the main thread.
         val controller = app.controller
+        // Let go of our hold only: a heartbeat (or the UI) that still holds dsh keeps it running.
         controller.release(HOLDER)
-        Thread({ controller.stop() }, "dshm-stop").start()
+        Thread({ controller.stopIfUnretained() }, "dshm-stop").start()
         super.onDestroy()
     }
 
@@ -86,6 +87,7 @@ class DshService : Service() {
             }
             CrashPolicy.Decision.GIVE_UP -> {
                 app.notifier.showCrashGiveUp()
+                app.controller.stop() // dsh is dead or crash-looping: the one place that stops it whoever holds it
                 app.crashPolicy.reset() // a manual restart by the user counts from zero again
                 stopSelf()
             }
