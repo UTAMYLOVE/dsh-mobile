@@ -96,9 +96,9 @@ class MainActivity : ComponentActivity() {
                 combine(app.controller.isRunning, app.serviceGaveUp) { running, gaveUp -> running to gaveUp }.collect { (running, gaveUp) ->
                     if (rollingBack) return@collect // the rollback restarts dsh itself, after switching versions
                     when {
+                        gaveUp -> uiState.value = MainUiState.Error
                         // Dsh is up (maybe a new instance after a restart by the service): ensureRunning just returns it.
                         running -> startDsh()
-                        gaveUp -> uiState.value = MainUiState.Error
                         uiState.value == MainUiState.Ready -> uiState.value = MainUiState.Loading
                     }
                 }
@@ -115,12 +115,17 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() {
-        // Before super.onStart(): that is where the collector above starts, and it must not see a stale "gave up" from earlier.
-        if (ready) app.serviceGaveUp.value = false
         super.onStart()
         if (!ready) return
         // The hold comes before anything that can start dsh (Task 10 review note).
         app.uiHolder.onUiStart()
+        // After a give-up only an explicit user action restarts dsh (Retry, or the crash notification's rollback): coming back
+        // from Settings or another app must neither clear the error nor start the service or dsh. The flag is in memory only,
+        // so a new process starts fresh.
+        if (app.serviceGaveUp.value) {
+            uiState.value = MainUiState.Error
+            return
+        }
         DshService.start(this)
         startDsh()
     }
@@ -280,7 +285,14 @@ class MainActivity : ComponentActivity() {
         rollingBack = true
         lifecycleScope.launch {
             try {
-                when (val outcome = ops.rollback()) {
+                val outcome = ops.rollback()
+                // Dsh runs again (rolled back, or the current version was restarted after a failed switch): that ends a
+                // give-up, and the service takes supervision back (it stopped itself on the give-up).
+                if (outcome is MainOps.RollbackOutcome.RolledBack || app.controller.isRunning.value) {
+                    app.serviceGaveUp.value = false
+                    DshService.start(this@MainActivity)
+                }
+                when (outcome) {
                     is MainOps.RollbackOutcome.RolledBack -> {
                         toast(getString(R.string.main_rollback_done, outcome.version))
                         loadedLaunchUrl = null

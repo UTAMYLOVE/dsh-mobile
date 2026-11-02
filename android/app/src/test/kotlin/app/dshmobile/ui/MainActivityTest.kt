@@ -26,7 +26,6 @@ import app.dshmobile.security.KeyVault
 import app.dshmobile.service.DshController
 import app.dshmobile.service.DshService
 import app.dshmobile.system.OnboardingState
-import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -277,18 +276,70 @@ class MainActivityTest {
         assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
     }
 
-    @Test fun reopeningNeverFlashesAStaleGiveUpError() {
+    /** The activity is open, dsh gave up (what DshService does: flag first, then stop) and the user has left and come back. */
+    private fun giveUpThenReenter(): Pair<org.robolectric.android.controller.ActivityController<MainActivity>, MainActivity> {
+        val c = controller!!
+        val ctl = build().create().start().resume()
+        val activity = ctl.get()
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        app.serviceGaveUp.value = true
+        c.stop()
+        waitUntil { activity.uiStateForTest.value == MainUiState.Error }
+        shadowOf(app as Application).clearStartedServices()
+        ctl.pause().stop() // e.g. the settings round trip, or switching apps
+        ctl.restart().start().resume()
+        return ctl to activity
+    }
+
+    @Test fun aGiveUpSurvivesLeavingAndComingBackNothingRestartsDsh() {
         completeSetup()
-        app.serviceGaveUp.value = true // left over from an earlier give-up
-        val ctl = build().create()
-        val seen = mutableListOf<MainUiState>()
-        val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined).launch {
-            ctl.get().uiStateForTest.collect { seen += it }
-        }
-        ctl.start().resume()
+        val c = controller!!
+        val (_, activity) = giveUpThenReenter()
+        idleFor(1_500)
+
+        assertTrue("the gave-up flag is still set", app.serviceGaveUp.value)
+        assertEquals(MainUiState.Error, activity.uiStateForTest.value)
+        assertNull("DshService must not be started", shadowOf(app as Application).nextStartedService)
+        assertEquals("ensureRunning must not have started a new dsh", 1, processes.size)
+        assertFalse(c.isRunning.value)
+        assertTrue("the UI still holds dsh (bookkeeping as usual)", "ui" in c.holders)
+    }
+
+    @Test fun retryAfterAGiveUpAndReentryStartsTheServiceAndClearsTheFlag() {
+        completeSetup()
+        val (_, activity) = giveUpThenReenter()
+
+        activity.retry()
+
         assertFalse(app.serviceGaveUp.value)
-        assertFalse("states seen: $seen", seen.contains(MainUiState.Error))
-        job.cancel()
+        assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
+    }
+
+    @Test fun aFreshOpenWithoutAGiveUpStartsNormally() {
+        completeSetup()
+        val c = controller!!
+        assertFalse(app.serviceGaveUp.value)
+        val activity = build().create().start().resume().get()
+        assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        assertTrue(c.isRunning.value)
+        assertTrue("ui" in c.holders)
+    }
+
+    @Test fun theRollbackActionAfterAGiveUpClearsTheFlagAndRestartsDsh() {
+        completeSetup()
+        val c = controller!!
+        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val (ctl, activity) = giveUpThenReenter()
+        assertEquals(MainUiState.Error, activity.uiStateForTest.value)
+
+        ctl.newIntent(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK)) // the crash notification's action
+        ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        waitUntil { currentOf(opt) == "0.2.0" && processes.size == 2 && c.isRunning.value }
+        waitUntil { !app.serviceGaveUp.value }
+
+        assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(1) }
     }
 
     @Test fun whenDshComesBackElsewhereTheActivityReloadsTheNewLaunchUrl() {

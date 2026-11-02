@@ -127,3 +127,23 @@ RED (all against the unfixed code or with the line deleted, then restored):
 GREEN: both lines restored (`git diff` of `DshService.kt` empty), the fixes above in place: `MainActivityTest` 21 and `DshServiceTest` 6 pass.
 
 Commands: `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.ui.MainActivityTest' --tests 'app.dshmobile.service.DshServiceTest'` (exit 0); `./gradlew :app:testDebugUnitTest --no-daemon -q --rerun-tasks` (exit 0, 400 tests, 0 failures, 0 errors, 0 skipped; was 395, +5); `./gradlew :app:assembleDebug --no-daemon -q` and `./gradlew :app:assembleDebugAndroidTest --no-daemon -q` (exit 0, pristine). Plugins untouched.
+
+## Fix round 3
+Ruling: after a GIVE_UP only an explicit user action restarts dsh (Retry on the error screen, or the crash notification's rollback action). This reverses the round-2 handling of reopening.
+
+What changed (`ui/MainActivity.kt` only):
+- `onStart` no longer clears `serviceGaveUp`. It still does the UiHolder bookkeeping (`retain("ui")`, grace cancelled); when the flag is set it shows the Error screen and returns without `DshService.start` and without `ensureRunning`. Without the flag it behaves as before (service start + `startDsh()`).
+- The `isRunning`/`serviceGaveUp` collector now gives the give-up precedence over "running" (a dsh that someone else, e.g. the heartbeat, brought up does not hide the Error screen; Retry stays the user's way out).
+- The flag is cleared by `retry()` (which already started the service, round 2) and by the rollback handler: after `MainOps.rollback()`, if dsh runs again (rolled back, or the current version was restarted after a failed switch) the flag is cleared and `DshService.start` gives supervision back to the service. A rollback that leaves dsh stopped (nothing to roll back to while given up) keeps the flag and the Error screen. `DshService`'s own clear on `onStartCommand` is unchanged.
+- The flag lives in memory, so a new process starts fresh.
+
+Covering tests (`MainActivityTest`, replacing `reopeningNeverFlashesAStaleGiveUpError`, whose premise is reversed; with it went the `job.cancel()` request, the test no longer exists; no other test uses a collector job):
+- (a) `aGiveUpSurvivesLeavingAndComingBackNothingRestartsDsh`: give up while open (flag, then `stop()`, Error shown), `pause/stop`, `restart/start/resume` (the Settings round trip): flag still true, Error screen, no `DshService` started, still exactly 1 process (no `ensureRunning` start), dsh not running, `"ui"` held.
+- (b) `retryAfterAGiveUpAndReentryStartsTheServiceAndClearsTheFlag`: same setup, `retry()`: service start intent, flag false.
+- (c) `aFreshOpenWithoutAGiveUpStartsNormally`: service started, page loaded from the launch URL, dsh running, `"ui"` held.
+- (d) `theRollbackActionAfterAGiveUpClearsTheFlagAndRestartsDsh`: after re-entry the rollback intent (`onNewIntent`) + confirm: symlink switched to `0.2.0`, a second dsh process running, flag cleared, `DshService` started, WebView loads the new launch URL.
+
+RED (new tests against the round-2 code): `MainActivityTest` 24 tests, 2 failed: (a) `java.lang.AssertionError: the gave-up flag is still set`, (d) `java.lang.IllegalStateException: timed out`; (b), (c) already passed (guards).
+GREEN: `MainActivityTest` 24 and `DshServiceTest` 6 pass.
+
+Commands: `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.ui.MainActivityTest' --tests 'app.dshmobile.service.DshServiceTest'` (exit 0); `./gradlew :app:testDebugUnitTest --no-daemon -q --rerun-tasks` (exit 0, 403 tests, 0 failures, 0 errors, 0 skipped; was 400, +3: the stale-flag test replaced by four); `./gradlew :app:assembleDebug --no-daemon -q` and `./gradlew :app:assembleDebugAndroidTest --no-daemon -q` (exit 0, pristine). Plugins untouched.
