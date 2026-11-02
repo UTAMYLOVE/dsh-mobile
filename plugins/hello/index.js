@@ -1,7 +1,8 @@
 // Temporary verification plugin for Task 0 (dsh internals recon). Delete before Task 6.
 // Registers: tool `hello` -> "hi"; GET /dshm/health/hello -> {"ok":true} (no auth);
 // GET /dshm/health/hello-auth (dsh cookie auth via connection.requestRejection);
-// a runtime-context probe (session-start injection) and an index <style> probe.
+// a runtime-context probe (session-start injection), an index <style> probe, and a
+// connection/request guard that refuses credential-writing RPCs (403).
 // No imports: ctx.tools.register accepts a raw ToolDefinition object.
 
 export const name = 'dshm-hello'
@@ -74,6 +75,21 @@ export function apply(ctx) {
   // A later theme plugin pushes real --dsw-alias-* overrides the same way.
   ctx.on('webserver/index-inject', (table) => {
     table.push({ kind: 'style', text: '/* dshm-hello theme probe */ body { --dshm-probe: 1; }' })
+  })
+
+  // Credential-write guard probe: refuse the browser RPCs that would persist a
+  // secret into $DSH_HOME/.credentials.yaml (settings UI key fields, DeepSeek
+  // account sign-in). `connection/request` is a waterfall every authenticated
+  // /api HTTP request passes before its body is read.
+  const BLOCKED = new Set(['/api/credentials/set', '/api/credentials/unset', '/api/account/startSignIn'])
+  ctx.on('connection/request', async (req, res, next) => {
+    const path = new URL(req.url ?? '/', 'http://local').pathname
+    if (BLOCKED.has(path)) {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ ok: false, error: 'dshm: keys are managed by the app' }))
+      return
+    }
+    return next()
   })
 
   ctx.logger.info('[dshm-hello] loaded')
