@@ -245,12 +245,19 @@ class MainActivity : ComponentActivity() {
     }
 
     internal fun retry() {
-        app.serviceGaveUp.value = false
-        // The service supervises dsh (CrashPolicy, give-up notice, restarts); after a give-up it has stopped itself, so a dsh
-        // started here would otherwise run with nobody watching it.
-        DshService.start(this)
         loadedLaunchUrl = null
         loadFailed = false
+        superviseAndShow()
+    }
+
+    /**
+     * The explicit way back to a supervised dsh: ends a give-up, hands supervision to the service (after a give-up it has
+     * stopped itself, so a dsh started here would otherwise run with nobody watching it) and shows dsh through the normal
+     * path (Loading, then the launch URL; ensureRunning just returns a dsh that already runs).
+     */
+    private fun superviseAndShow() {
+        app.serviceGaveUp.value = false
+        DshService.start(this)
         uiState.value = MainUiState.Loading
         startDsh()
     }
@@ -280,33 +287,36 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
+    /** The rollback itself ([MainOps.rollback]); replaced in tests to reach outcomes a real switch rarely produces. */
+    internal var rollbackStep: suspend () -> MainOps.RollbackOutcome = { ops.rollback() }
+
     private fun rollback() {
         if (rollingBack) return
         rollingBack = true
         lifecycleScope.launch {
             try {
-                val outcome = ops.rollback()
-                // Dsh runs again (rolled back, or the current version was restarted after a failed switch): that ends a
-                // give-up, and the service takes supervision back (it stopped itself on the give-up).
-                if (outcome is MainOps.RollbackOutcome.RolledBack || app.controller.isRunning.value) {
-                    app.serviceGaveUp.value = false
-                    DshService.start(this@MainActivity)
-                }
-                when (outcome) {
-                    is MainOps.RollbackOutcome.RolledBack -> {
-                        toast(getString(R.string.main_rollback_done, outcome.version))
-                        loadedLaunchUrl = null
-                        showDsh(outcome.running)
-                    }
+                when (val outcome = rollbackStep()) {
+                    is MainOps.RollbackOutcome.RolledBack -> toast(getString(R.string.main_rollback_done, outcome.version))
                     MainOps.RollbackOutcome.NoPrevious -> toast(getString(R.string.main_rollback_none))
-                    is MainOps.RollbackOutcome.Failed -> {
-                        toast(getString(R.string.main_rollback_failed))
-                        if (!app.controller.isRunning.value) uiState.value = MainUiState.Error
-                    }
+                    is MainOps.RollbackOutcome.Failed -> toast(getString(R.string.main_rollback_failed))
                 }
+                showRealStateAfterRollback()
             } finally {
                 rollingBack = false
             }
+        }
+    }
+
+    /**
+     * Whatever the rollback's outcome, the screen follows whether dsh actually runs now (the collector is suppressed during
+     * the rollback and does not re-emit afterwards). Running: a give-up is over and dsh is shown through the normal path.
+     * Down: the Error screen; a give-up flag stays set, so Retry is the way out and nothing restarts dsh on its own.
+     */
+    private fun showRealStateAfterRollback() {
+        if (app.controller.isRunning.value) {
+            superviseAndShow()
+        } else {
+            uiState.value = MainUiState.Error
         }
     }
 

@@ -147,3 +147,30 @@ RED (new tests against the round-2 code): `MainActivityTest` 24 tests, 2 failed:
 GREEN: `MainActivityTest` 24 and `DshServiceTest` 6 pass.
 
 Commands: `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.ui.MainActivityTest' --tests 'app.dshmobile.service.DshServiceTest'` (exit 0); `./gradlew :app:testDebugUnitTest --no-daemon -q --rerun-tasks` (exit 0, 403 tests, 0 failures, 0 errors, 0 skipped; was 400, +3: the stale-flag test replaced by four); `./gradlew :app:assembleDebug --no-daemon -q` and `./gradlew :app:assembleDebugAndroidTest --no-daemon -q` (exit 0, pristine). Plugins untouched.
+
+## Fix round 4
+Findings: (1) stale Error while dsh runs after a rollback that did not switch (`NoPrevious` / `Failed` with dsh up); (2) the flag was cleared on the outcome variant (`RolledBack || isRunning`) instead of on whether dsh actually runs.
+
+What changed (`ui/MainActivity.kt` only; `MainOps`, `DshVersions`, `DshController`, `DshService` untouched):
+- The rollback handler is now: run the rollback, toast the outcome, then one step `showRealStateAfterRollback()` that reads `app.controller.isRunning.value` only. Running -> `superviseAndShow()`: clear `serviceGaveUp`, `DshService.start`, uiState Loading, `startDsh()` (ensureRunning returns the running dsh; `showDsh` loads its launch URL, or goes to Ready if that URL is already loaded). Down -> uiState Error; the flag is not touched, so after a give-up it stays set and Retry is the way out. The outcome variant no longer decides anything about the flag or the screen.
+- `retry()` reuses `superviseAndShow()` (same steps as before: flag clear, service start, forget the loaded URL, Loading, `startDsh()`).
+- Test seam: `internal var rollbackStep: suspend () -> MainOps.RollbackOutcome = { ops.rollback() }`, so tests can reach outcomes a real switch rarely produces (RolledBack with a dsh that died at once; Failed with dsh up). The fakes drive the real controller, so the activity reads a genuine `isRunning`.
+
+Covering tests (`MainActivityTest`, +6; all start from `giveUpThenReenter()`: flag set, Error, dsh stopped, started services cleared, 1 process). Running cases assert: WebView loads the new launch URL `launchUrl(1)`, uiState Loading, dsh running, flag false, `DshService` start intent. Down cases assert: uiState Error, flag true, no `DshService` start, no extra process, WebView still on `launchUrl(0)`.
+- `rollbackAfterAGiveUpRolledBackAndRunningShowsTheNewDsh` (real MainOps, symlink -> 0.2.0) -> running.
+- `rollbackAfterAGiveUpRolledBackButDshDiedStaysOnError` (seam: ensureRunning, then stop, return RolledBack) -> down.
+- `rollbackAfterAGiveUpWithNothingToGoBackToWhileDshRunsShowsDsh` (real MainOps, no `.previous`; dsh brought up externally while the Error screen shows) -> running.
+- `rollbackAfterAGiveUpWithNothingToGoBackToWhileDshIsDownStaysOnError` (real MainOps) -> down.
+- `rollbackAfterAGiveUpThatFailedButLeftDshRunningShowsDsh` (seam: ensureRunning, return Failed) -> running.
+- `rollbackAfterAGiveUpThatFailedWithDshDownStaysOnError` (real MainOps; the fake launcher now throws when `failLaunches` is set, so ensureRunning after the switch fails) -> down.
+
+RED (new tests against the round-3 `MainActivity.kt` with only the `rollbackStep` seam added so they compile): `MainActivityTest` 30 tests, 3 failed:
+- `rollbackAfterAGiveUpWithNothingToGoBackToWhileDshRunsShowsDsh`: `java.lang.IllegalStateException: timed out` (stuck on Error, the new launch URL never loaded).
+- `rollbackAfterAGiveUpThatFailedButLeftDshRunningShowsDsh`: `java.lang.IllegalStateException: timed out` (same).
+- `rollbackAfterAGiveUpRolledBackButDshDiedStaysOnError`: `java.lang.AssertionError: the gave-up flag stays set` (finding 2: cleared on the variant while dsh was down).
+The other three passed on the old code (guards).
+GREEN: fix restored; `./gradlew :app:testDebugUnitTest --no-daemon -q --tests 'app.dshmobile.ui.*' --tests 'app.dshmobile.service.DshServiceTest'` exit 0 (MainActivityTest 30, DshServiceTest 6, all ui.* green).
+
+Commands and counts: `./gradlew :app:testDebugUnitTest --no-daemon -q --rerun-tasks` exit 0, pristine: 409 tests, 0 failures, 0 errors, 0 skipped (was 403, +6). `./gradlew :app:assembleDebug --no-daemon -q` exit 0, pristine. Plugins untouched.
+
+Note: a rollback that leaves dsh down without a prior give-up (e.g. `Failed` because dsh did not start) shows Error with the flag still false; Retry is the way out, and since the flag is clear a later dsh start by someone else (or the next normal `onStart`) is followed by the collector as before. The flag is not set by the activity itself; only `DshService` sets it.

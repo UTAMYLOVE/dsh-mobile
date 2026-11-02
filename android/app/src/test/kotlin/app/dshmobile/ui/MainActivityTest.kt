@@ -12,6 +12,7 @@ import androidx.core.content.FileProvider
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.BuildConfig
 import app.dshmobile.DshMobileApp
+import app.dshmobile.R
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.dshmobile.gateway.MutableClock
@@ -53,6 +54,8 @@ class MainActivityTest {
     private val tmp: File = Files.createTempDirectory("maintest").toFile()
     private val processes = java.util.concurrent.CopyOnWriteArrayList<Process>()
     private var controller: DshController? = null
+    /** When set, the fake dsh no longer starts (e.g. the version a rollback switched to is broken). */
+    @Volatile private var failLaunches = false
 
     @Before fun setUp() {
         // FileProvider caches its path strategy statically; every Robolectric test has a fresh cache dir.
@@ -91,6 +94,7 @@ class MainActivityTest {
         val c = DshController(
             filesDir = tmp, isRootfsInstalled = { true },
             launcher = { _, _ ->
+                if (failLaunches) throw java.io.IOException("fake dsh does not start")
                 // every start prints its own launch URL (port 45678, 45679, ...), so a restart is visible in the WebView
                 val url = launchUrl(processes.size)
                 ProcessBuilder("sh", "-c", """echo "dsh web: $url"; exec sleep 60""").start().also { processes.add(it) }
@@ -340,6 +344,123 @@ class MainActivityTest {
 
         assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
         waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(1) }
+    }
+
+    // --- every rollback outcome after a give-up: the screen follows dsh's real state ---
+
+    private fun confirmRollbackFromTheNotification(ctl: org.robolectric.android.controller.ActivityController<MainActivity>) {
+        ctl.newIntent(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK))
+        ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+    }
+
+    private fun waitForToast(res: Int, vararg args: Any) {
+        val text = app.getString(res, *args)
+        waitUntil { org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == text }
+    }
+
+    /** Dsh runs: the give-up is over, the service supervises again and the page shows the running dsh's launch URL. */
+    private fun assertShowsDsh(activity: MainActivity, url: String) {
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == url }
+        idleFor(300)
+        assertTrue(controller!!.isRunning.value)
+        assertFalse("the gave-up flag is cleared", app.serviceGaveUp.value)
+        assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService?.component?.className)
+        assertEquals(MainUiState.Loading, activity.uiStateForTest.value) // Ready only follows onPageFinished
+    }
+
+    /** Dsh is down: Error with Retry, the flag stays set, nothing starts the service or dsh. */
+    private fun assertStaysOnError(activity: MainActivity, processCount: Int) {
+        idleFor(1_000)
+        assertFalse(controller!!.isRunning.value)
+        assertTrue("the gave-up flag stays set", app.serviceGaveUp.value)
+        assertEquals(MainUiState.Error, activity.uiStateForTest.value)
+        assertNull("DshService must not be started", shadowOf(app as Application).nextStartedService)
+        assertEquals(processCount, processes.size)
+        assertEquals(launchUrl(0), shadowOf(activity.webView).lastLoadedUrl)
+    }
+
+    @Test fun rollbackAfterAGiveUpRolledBackAndRunningShowsTheNewDsh() {
+        completeSetup()
+        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val (ctl, activity) = giveUpThenReenter()
+
+        confirmRollbackFromTheNotification(ctl)
+        waitForToast(R.string.main_rollback_done, "0.2.0")
+
+        assertEquals("0.2.0", currentOf(opt))
+        assertShowsDsh(activity, launchUrl(1))
+    }
+
+    @Test fun rollbackAfterAGiveUpRolledBackButDshDiedStaysOnError() {
+        completeSetup()
+        val c = controller!!
+        val (ctl, activity) = giveUpThenReenter()
+        activity.rollbackStep = {
+            val running = c.ensureRunning()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                c.stop() // the rolled-back dsh died right after it came up
+                while (c.isRunning.value) Thread.sleep(10)
+            }
+            MainOps.RollbackOutcome.RolledBack("0.2.0", running)
+        }
+
+        confirmRollbackFromTheNotification(ctl)
+        waitForToast(R.string.main_rollback_done, "0.2.0")
+
+        assertStaysOnError(activity, processCount = 2)
+    }
+
+    @Test fun rollbackAfterAGiveUpWithNothingToGoBackToWhileDshRunsShowsDsh() {
+        completeSetup()
+        val c = controller!!
+        versionsDir(previous = null, current = "0.2.1")
+        val (ctl, activity) = giveUpThenReenter()
+        kotlinx.coroutines.runBlocking { c.ensureRunning() } // e.g. a heartbeat brought dsh up; the give-up still shows
+        idleFor(300)
+        assertEquals(MainUiState.Error, activity.uiStateForTest.value)
+
+        confirmRollbackFromTheNotification(ctl)
+        waitForToast(R.string.main_rollback_none)
+
+        assertShowsDsh(activity, launchUrl(1))
+    }
+
+    @Test fun rollbackAfterAGiveUpWithNothingToGoBackToWhileDshIsDownStaysOnError() {
+        completeSetup()
+        versionsDir(previous = null, current = "0.2.1")
+        val (ctl, activity) = giveUpThenReenter()
+
+        confirmRollbackFromTheNotification(ctl)
+        waitForToast(R.string.main_rollback_none)
+
+        assertStaysOnError(activity, processCount = 1)
+    }
+
+    @Test fun rollbackAfterAGiveUpThatFailedButLeftDshRunningShowsDsh() {
+        completeSetup()
+        val c = controller!!
+        val (ctl, activity) = giveUpThenReenter()
+        activity.rollbackStep = {
+            c.ensureRunning() // the switch failed, the version that was current came up again
+            MainOps.RollbackOutcome.Failed("could not switch to 0.2.0")
+        }
+
+        confirmRollbackFromTheNotification(ctl)
+        waitForToast(R.string.main_rollback_failed)
+
+        assertShowsDsh(activity, launchUrl(1))
+    }
+
+    @Test fun rollbackAfterAGiveUpThatFailedWithDshDownStaysOnError() {
+        completeSetup()
+        versionsDir(previous = "0.2.0", current = "0.2.1")
+        val (ctl, activity) = giveUpThenReenter()
+        failLaunches = true // the real MainOps: dsh does not start after the switch
+
+        confirmRollbackFromTheNotification(ctl)
+        waitForToast(R.string.main_rollback_failed)
+
+        assertStaysOnError(activity, processCount = 1)
     }
 
     @Test fun whenDshComesBackElsewhereTheActivityReloadsTheNewLaunchUrl() {
