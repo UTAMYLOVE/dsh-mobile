@@ -41,7 +41,7 @@ d="$(run /opt/dsh/current/node_modules/.bin/dsh --version 2>&1 | tail -n1 | tr -
 rv="$(cat "$DIR/etc/dshm-rootfs-version" 2>/dev/null | tr -d '\r\n')"
 [ "$rv" = "$ROOTFS_VERSION" ] && ok "rootfs version $rv" || bad "/etc/dshm-rootfs-version: '$rv'"
 
-[ -d "$DIR/root/workspace" ] && ok "/root/workspace exists" || bad "/root/workspace missing"
+sudo test -d "$DIR/root/workspace" && ok "/root/workspace exists" || bad "/root/workspace missing"
 
 l="$(readlink "$DIR/opt/dsh/current" 2>/dev/null)"
 case "$l" in
