@@ -1,5 +1,6 @@
 package app.dshmobile.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +60,7 @@ import app.dshmobile.service.DshRuntime
 import app.dshmobile.system.PhantomState
 import app.dshmobile.ui.theme.Sakura
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -92,6 +95,8 @@ class SettingsEnv(
     /** Both exports build a zip and open the share sheet; they run on `Dispatchers.IO`. */
     val exportErrorLog: () -> Unit,
     val exportMemory: () -> Unit,
+    /** Owned by the application: the long dsh actions run there and outlive this screen. */
+    val jobs: SettingsJobs,
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
@@ -106,8 +111,12 @@ private const val MAX_REASON_CHARS = 300
  */
 @Composable
 fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifier = Modifier) {
-    val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope() // keys and exports only: cancelling those half way is harmless
+    var localBusy by remember { mutableStateOf(false) }
+    val jobBusy by env.jobs.busy.collectAsState()
+    val busy = localBusy || jobBusy
+    // Leaving the screen is not possible while something runs (the jobs would survive it, but the user should see the result).
+    BackHandler(enabled = busy) {}
 
     // The vault reads below are one AES-GCM decrypt each (as at app start); everything that can block runs on IO.
     var hasDeepseek by remember { mutableStateOf(env.vault.get(Provider.DEEPSEEK) != null) }
@@ -117,7 +126,7 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
     var keyError by remember { mutableStateOf(false) }
 
     var settings by remember { mutableStateOf(env.store.load(env.phantomState(), hasClaude)) }
-    var applyMessage by remember { mutableStateOf<String?>(null) }
+    val applyMessage by env.jobs.applyMessage.collectAsState()
 
     var todayUsd by remember { mutableStateOf(env.meter.todayUsd()) }
     var alertText by remember { mutableStateOf(formatUsd(env.meter.alertUsd)) }
@@ -133,24 +142,32 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
     fun readPrevious(): String? = try { env.versions.previous() } catch (_: Exception) { null }
     var currentVersion by remember { mutableStateOf(readCurrent()) }
     var previousVersion by remember { mutableStateOf(readPrevious()) }
-    var versionMessage by remember { mutableStateOf<String?>(null) }
+    val versionMessage by env.jobs.versionMessage.collectAsState()
     val dshRunning by env.isRunning.collectAsState()
 
     var phantom by remember { mutableStateOf(env.phantomState()) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { phantom = env.phantomState() } // back from the system settings
     var exportMessage by remember { mutableStateOf<String?>(null) }
 
-    val context = LocalContext.current // for the messages built inside callbacks (stringResource is composable-only)
+    val context = LocalContext.current.applicationContext // (the jobs outlive the activity) for the messages built inside callbacks (stringResource is composable-only)
 
     fun launchBusy(block: suspend () -> Unit) {
         if (busy) return
-        busy = true
+        localBusy = true
         scope.launch {
             try {
                 block()
             } finally {
-                busy = false
+                localBusy = false
             }
+        }
+    }
+
+    // Versions on disk change when a job ends (update, rollback): read them again then.
+    LaunchedEffect(jobBusy) {
+        if (!jobBusy) {
+            currentVersion = readCurrent()
+            previousVersion = readPrevious()
         }
     }
 
@@ -187,86 +204,93 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
         if (provider == Provider.DEEPSEEK) hasDeepseek = false else hasClaude = false
     }
 
-    fun apply() = launchBusy {
-        applyMessage = null
+    /** After an update or rollback: dsh that is up again goes back under DshService (clears a give-up); a dsh that is down stays as it is. */
+    fun superviseIfRunning() {
+        if (env.isRunning.value) runCatching { env.supervise() }
+    }
+
+    fun apply() {
+        if (busy) return
         val toSave = settings.copy(leadModel = AgentModels.resolve(settings.leadModel, hasClaude).id)
         settings = toSave
-        val failure = context.getString(R.string.set_apply_failed)
-        val teamsNow = try {
-            withContext(Dispatchers.IO) {
-                env.store.save(toSave)
-                val teams = env.applyAgentTeams(toSave.agentTeams)
-                env.runtime.stop()
-                teams
+        env.jobs.launch {
+            env.jobs.applyMessage.value = null
+            // Not cancellable: stop() followed by a cancelled start would leave dsh stopped.
+            env.jobs.applyMessage.value = withContext(NonCancellable) {
+                val failure = context.getString(R.string.set_apply_failed)
+                val teamsNow = try {
+                    env.store.save(toSave)
+                    env.runtime.stop()
+                    // dsh's own profile file is only touched while dsh is stopped.
+                    env.applyAgentTeams(toSave.agentTeams)
+                } catch (_: Exception) {
+                    return@withContext failure
+                }
+                try {
+                    runCatching { env.supervise() }
+                    env.runtime.ensureRunning()
+                    val done = context.getString(R.string.set_apply_done)
+                    if (toSave.agentTeams && !teamsNow) done + "\n" + context.getString(R.string.set_apply_teams_later) else done
+                } catch (_: Exception) {
+                    failure
+                }
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            applyMessage = failure
-            return@launchBusy
-        }
-        applyMessage = try {
-            runCatching { env.supervise() }
-            env.runtime.ensureRunning()
-            val done = context.getString(R.string.set_apply_done)
-            if (toSave.agentTeams && !teamsNow) done + "\n" + context.getString(R.string.set_apply_teams_later) else done
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            failure
         }
     }
 
-    fun restart() = launchBusy {
-        versionMessage = try {
-            runCatching { env.supervise() }
-            env.runtime.ensureRunning()
-            null
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            context.getString(R.string.set_apply_failed)
+    fun restart() {
+        if (busy) return
+        env.jobs.launch {
+            env.jobs.versionMessage.value = withContext(NonCancellable) {
+                try {
+                    runCatching { env.supervise() }
+                    env.runtime.ensureRunning()
+                    null
+                } catch (_: Exception) {
+                    context.getString(R.string.set_apply_failed)
+                }
+            }
         }
     }
 
-    fun checkUpdate() = launchBusy {
-        versionMessage = null
-        val outcome = try {
-            withContext(Dispatchers.IO) { env.versions.checkUpdate() }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            UpdateOutcome.Failed(e.message ?: e.javaClass.simpleName)
-        }
-        versionMessage = when (outcome) {
-            UpdateOutcome.UpToDate -> context.getString(R.string.set_version_uptodate)
-            is UpdateOutcome.Updated -> context.getString(R.string.set_version_updated, outcome.version)
-            is UpdateOutcome.RolledBack -> context.getString(R.string.set_version_rolled_back, outcome.version, outcome.reason.take(MAX_REASON_CHARS))
-            is UpdateOutcome.Failed -> context.getString(R.string.set_version_failed, outcome.reason.take(MAX_REASON_CHARS))
-        }
-        withContext(Dispatchers.IO) {
-            currentVersion = readCurrent()
-            previousVersion = readPrevious()
+    fun checkUpdate() {
+        if (busy) return
+        env.jobs.launch {
+            env.jobs.versionMessage.value = null
+            env.jobs.versionMessage.value = withContext(NonCancellable) {
+                val outcome = try {
+                    env.versions.checkUpdate()
+                } catch (e: Exception) {
+                    UpdateOutcome.Failed(e.message ?: e.javaClass.simpleName)
+                }
+                superviseIfRunning()
+                when (outcome) {
+                    UpdateOutcome.UpToDate -> context.getString(R.string.set_version_uptodate)
+                    is UpdateOutcome.Updated -> context.getString(R.string.set_version_updated, outcome.version)
+                    is UpdateOutcome.RolledBack -> context.getString(R.string.set_version_rolled_back, outcome.version, outcome.reason.take(MAX_REASON_CHARS))
+                    is UpdateOutcome.Failed -> context.getString(R.string.set_version_failed, outcome.reason.take(MAX_REASON_CHARS))
+                }
+            }
         }
     }
 
-    fun rollback() = launchBusy {
-        versionMessage = null
-        val outcome = try {
-            env.versions.rollback()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            MainOps.RollbackOutcome.Failed("rollback failed")
-        }
-        versionMessage = when (outcome) {
-            is MainOps.RollbackOutcome.RolledBack -> context.getString(R.string.set_rollback_done, outcome.version)
-            MainOps.RollbackOutcome.NoPrevious -> context.getString(R.string.set_rollback_none)
-            is MainOps.RollbackOutcome.Failed -> context.getString(R.string.set_rollback_failed)
-        }
-        withContext(Dispatchers.IO) {
-            currentVersion = readCurrent()
-            previousVersion = readPrevious()
+    fun rollback() {
+        if (busy) return
+        env.jobs.launch {
+            env.jobs.versionMessage.value = null
+            env.jobs.versionMessage.value = withContext(NonCancellable) {
+                val outcome = try {
+                    env.versions.rollback()
+                } catch (_: Exception) {
+                    MainOps.RollbackOutcome.Failed("rollback failed")
+                }
+                superviseIfRunning()
+                when (outcome) {
+                    is MainOps.RollbackOutcome.RolledBack -> context.getString(R.string.set_rollback_done, outcome.version)
+                    MainOps.RollbackOutcome.NoPrevious -> context.getString(R.string.set_rollback_none)
+                    is MainOps.RollbackOutcome.Failed -> context.getString(R.string.set_rollback_failed)
+                }
+            }
         }
     }
 
@@ -312,7 +336,7 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.set_title), style = MaterialTheme.typography.headlineSmall, color = Sakura.Primary, modifier = Modifier.weight(1f))
-                TextButton(onClick = onClose, modifier = Modifier.testTag("close")) { Text(stringResource(R.string.set_close)) }
+                TextButton(onClick = onClose, enabled = !busy, modifier = Modifier.testTag("close")) { Text(stringResource(R.string.set_close)) }
             }
             if (busy) {
                 Column(Modifier.testTag("busy"), verticalArrangement = Arrangement.spacedBy(4.dp)) {

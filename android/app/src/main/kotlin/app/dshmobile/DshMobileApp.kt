@@ -30,7 +30,11 @@ import app.dshmobile.service.DshController
 import app.dshmobile.service.DshLauncher
 import app.dshmobile.service.DshService
 import app.dshmobile.system.PhantomProcessDetector
+import app.dshmobile.ui.SettingsJobs
 import app.dshmobile.ui.UiHolder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
 import java.io.File
@@ -55,6 +59,11 @@ class DshMobileApp : Application(), Configuration.Provider {
      * screen shows its error screen for it and never restarts dsh by itself (Retry is the user's explicit action).
      */
     val serviceGaveUp = MutableStateFlow(false)
+
+    /** Work that must not end with a screen (settings actions that stop and start dsh). Never cancelled. */
+    val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
+
+    val settingsJobs: SettingsJobs by lazy { SettingsJobs(applicationScope) }
 
     private val proot: ProotRunner by lazy {
         ProotRunner(File(applicationInfo.nativeLibraryDir), File(filesDir, "rootfs"), File(cacheDir, "proot"))

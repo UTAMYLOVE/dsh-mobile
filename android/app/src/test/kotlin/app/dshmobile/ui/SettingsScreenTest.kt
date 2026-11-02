@@ -35,11 +35,16 @@ import app.dshmobile.service.RunningDsh
 import app.dshmobile.system.PhantomState
 import app.dshmobile.ui.theme.SakuraTheme
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,11 +68,13 @@ private class SettingsFakeRuntime : DshRuntime {
     val events = CopyOnWriteArrayList<String>()
     @Volatile var gate: CompletableDeferred<Unit>? = null
     @Volatile var failStart = false
+    @Volatile var completedStarts = 0
     override fun stop() { events += "stop" }
     override suspend fun ensureRunning(): RunningDsh {
         events += "ensureRunning"
         gate?.await()
         if (failStart) throw IllegalStateException("dsh did not start")
+        completedStarts++
         return RunningDsh(1, 2, SessionToken.generate(), LaunchUrl("http://127.0.0.1:1/?token=x", 1))
     }
 }
@@ -80,10 +87,12 @@ private class SettingsFakeVersions : SettingsVersions {
     var rollbackOutcome: MainOps.RollbackOutcome = MainOps.RollbackOutcome.NoPrevious
     var updates = 0
     var rollbacks = 0
+    @Volatile var gate: CompletableDeferred<Unit>? = null
+    @Volatile var completedChecks = 0
     override fun current(): String = if (failReads) throw IllegalStateException("dsh has no current version link") else current
     override fun previous(): String? = if (failReads) throw java.io.IOException("unreadable") else previous
-    override suspend fun checkUpdate(): UpdateOutcome { updates++; return update }
-    override suspend fun rollback(): MainOps.RollbackOutcome { rollbacks++; return rollbackOutcome }
+    override suspend fun checkUpdate(): UpdateOutcome { updates++; gate?.await(); completedChecks++; return update }
+    override suspend fun rollback(): MainOps.RollbackOutcome { rollbacks++; gate?.await(); return rollbackOutcome }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -109,6 +118,15 @@ class SettingsScreenTest {
     private var memoryExports = 0
     private var exportFails = false
     private var closed = 0
+    // The application's scope, outside every composition and Activity: this is what lets a job outlive the screen.
+    private val jobsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val jobs = SettingsJobs(jobsScope)
+
+    @After fun cancelJobs() {
+        runtime.gate?.complete(Unit)
+        versions.gate?.complete(Unit)
+        jobsScope.cancel()
+    }
 
     private fun str(id: Int, vararg args: Any) = rule.activity.getString(id, *args)
 
@@ -119,12 +137,13 @@ class SettingsScreenTest {
                     vault = vault, store = store, meter = meter,
                     phantomState = { phantom },
                     runtime = runtime, isRunning = running, versions = versions,
-                    applyAgentTeams = { teamsApplied += it; teamsResult },
+                    applyAgentTeams = { runtime.events += "teams"; teamsApplied += it; teamsResult },
                     scheduleHeartbeat = { heartbeats += it },
                     supervise = { runtime.events += "supervise" },
                     openDeveloperSettings = { developerOpened++ },
                     exportErrorLog = { if (exportFails) error("zip failed") else errorLogExports++ },
                     exportMemory = { memoryExports++ },
+                    jobs = jobs,
                 ),
                 onClose = { closed++ },
             )
@@ -294,8 +313,9 @@ class SettingsScreenTest {
     @Test fun applyStopsThenEnsureRunning() {
         show()
         clickAndWait("apply")
-        waitFor { runtime.events.size >= 3 }
-        assertEquals(listOf("stop", "supervise", "ensureRunning"), runtime.events.toList())
+        waitFor { runtime.events.size >= 4 }
+        // the profile file (agent teams bundle) is edited only while dsh is stopped
+        assertEquals(listOf("stop", "teams", "supervise", "ensureRunning"), runtime.events.toList())
         waitForText(str(R.string.set_apply_done))
     }
 
@@ -350,6 +370,146 @@ class SettingsScreenTest {
         running.value = false
         clickAndWait("apply")
         waitForText(str(R.string.set_apply_failed))
+        rule.onNodeWithTag("restart").assertExists()
+    }
+
+    // ---------- leaving the screen mid-action ----------
+
+    private fun destroyActivity() {
+        rule.activityRule.scenario.moveToState(Lifecycle.State.DESTROYED)
+    }
+
+    @Test fun closeIsDisabledWhileBusyAndBackDoesNotLeave() {
+        runtime.gate = CompletableDeferred()
+        show()
+        rule.onNodeWithTag("close").assertIsEnabled()
+        click("apply")
+        waitFor { "ensureRunning" in runtime.events }
+        rule.onNodeWithTag("close").assertIsNotEnabled()
+        var finishing = true
+        rule.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed(); finishing = it.isFinishing }
+        assertFalse("back must be swallowed while busy", finishing)
+        runtime.gate!!.complete(Unit)
+        waitIdle()
+        rule.onNodeWithTag("close").assertIsEnabled()
+    }
+
+    @Test fun anApplyFinishesAndDshRunsAfterTheActivityIsDestroyedMidAction() {
+        runtime.gate = CompletableDeferred()
+        val done = str(R.string.set_apply_done)
+        show()
+        click("apply")
+        waitFor { "ensureRunning" in runtime.events } // stop() is done, the start is pending
+        destroyActivity()
+        runtime.gate!!.complete(Unit)
+        waitFor { !jobs.busy.value }
+        assertEquals(listOf("stop", "teams", "supervise", "ensureRunning"), runtime.events.toList())
+        assertEquals(1, runtime.completedStarts)
+        assertEquals(done, jobs.applyMessage.value)
+    }
+
+    @Test fun anUpdateFinishesAfterTheActivityIsDestroyedMidAction() {
+        versions.gate = CompletableDeferred()
+        versions.update = UpdateOutcome.Updated("0.3.0")
+        val updated = str(R.string.set_version_updated, "0.3.0")
+        show()
+        click("check-update")
+        waitFor { versions.updates == 1 }
+        destroyActivity()
+        versions.gate!!.complete(Unit)
+        waitFor { !jobs.busy.value }
+        assertEquals(1, versions.completedChecks)
+        assertEquals(updated, jobs.versionMessage.value)
+        assertTrue("dsh is running after the update, so it is supervised", "supervise" in runtime.events)
+    }
+
+    @Test fun aRollbackFinishesAfterTheActivityIsDestroyedMidAction() {
+        versions.gate = CompletableDeferred()
+        versions.rollbackOutcome = MainOps.RollbackOutcome.RolledBack("0.2.0", RunningDsh(1, 2, SessionToken.generate(), LaunchUrl("http://127.0.0.1:1/?token=x", 1)))
+        val rolled = str(R.string.set_rollback_done, "0.2.0")
+        show()
+        click("rollback")
+        waitFor { versions.rollbacks == 1 }
+        destroyActivity()
+        versions.gate!!.complete(Unit)
+        waitFor { !jobs.busy.value }
+        assertEquals(rolled, jobs.versionMessage.value)
+    }
+
+    @Test fun aRestartFinishesAfterTheActivityIsDestroyedMidAction() {
+        runtime.gate = CompletableDeferred()
+        running.value = false
+        show()
+        click("restart")
+        waitFor { "ensureRunning" in runtime.events }
+        destroyActivity()
+        runtime.gate!!.complete(Unit)
+        waitFor { !jobs.busy.value }
+        assertEquals(1, runtime.completedStarts)
+    }
+
+    @Test fun aReopenedScreenShowsAJobThatIsStillRunning() {
+        val gate = CompletableDeferred<Unit>()
+        jobs.launch { gate.await() } // started by an earlier screen
+        show()
+        rule.onNodeWithTag("busy").assertExists()
+        rule.onNodeWithTag("apply").assertIsNotEnabled()
+        rule.onNodeWithTag("check-update").assertIsNotEnabled()
+        rule.onNodeWithTag("close").assertIsNotEnabled()
+        gate.complete(Unit)
+        waitIdle()
+        rule.onNodeWithTag("apply").assertIsEnabled()
+    }
+
+    @Test fun theResultOfAnEarlierJobIsShownWhenTheScreenOpens() {
+        jobs.applyMessage.value = "earlier result"
+        jobs.versionMessage.value = "earlier version result"
+        show()
+        waitForText("earlier result")
+        waitForText("earlier version result")
+    }
+
+    @Test fun onlyOneJobRunsAtATime() {
+        val gate = CompletableDeferred<Unit>()
+        assertTrue(jobs.launch { gate.await() })
+        assertFalse(jobs.launch { error("never") })
+        gate.complete(Unit)
+        waitFor { !jobs.busy.value }
+        assertTrue(jobs.launch { })
+    }
+
+    // ---------- supervision after update / rollback ----------
+
+    @Test fun updateWithDshRunningHandsItToTheService() {
+        running.value = true
+        show()
+        clickAndWait("check-update")
+        assertEquals(listOf("supervise"), runtime.events.toList())
+    }
+
+    @Test fun updateWithDshDownDoesNotSuperviseAndOffersARestart() {
+        running.value = false
+        versions.update = UpdateOutcome.RolledBack("0.3.0", "the new version failed; switching back to 0.2.0 failed: disk full")
+        show()
+        clickAndWait("check-update")
+        assertTrue(runtime.events.isEmpty())
+        rule.onNodeWithTag("restart").assertExists()
+    }
+
+    @Test fun rollbackWithDshRunningHandsItToTheService() {
+        running.value = true
+        versions.rollbackOutcome = MainOps.RollbackOutcome.RolledBack("0.2.0", RunningDsh(1, 2, SessionToken.generate(), LaunchUrl("http://127.0.0.1:1/?token=x", 1)))
+        show()
+        clickAndWait("rollback")
+        assertEquals(listOf("supervise"), runtime.events.toList())
+    }
+
+    @Test fun rollbackWithDshDownDoesNotSupervise() {
+        running.value = false
+        versions.rollbackOutcome = MainOps.RollbackOutcome.Failed("could not switch")
+        show()
+        clickAndWait("rollback")
+        assertTrue(runtime.events.isEmpty())
         rule.onNodeWithTag("restart").assertExists()
     }
 
