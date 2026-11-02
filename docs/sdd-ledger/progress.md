@@ -102,4 +102,4 @@ Task 5: fix round 1 implementer DONE (52e06ad); confinement check untested on it
 Task 5: fix round 1/5 (4 addressed, 0 open; commits 1d926b7..52e06ad)
 Task 5: complete (commits 0ad5c78..52e06ad, review clean)
 Task 5: minor (deferred, FINAL REVIEW MUST TRIAGE — recommended fix before merge): `%2f`/`%2F` in the rest path is not rejected; OkHttp keeps it encoded so encodedPath stays under base, but an upstream that decodes %2f before normalising could reach /v1/...; fix = reject %2f case-insensitively + `..%2fv1` test. Also: KDoc above isDroppedRequestHeader belongs to isUnsafePath; task-5-report concern 4 / test count stale after fix round.
-Task 6: dispatched (base BASE6, sonnet)
+Task 6: dispatched (base 5344d42, sonnet)
