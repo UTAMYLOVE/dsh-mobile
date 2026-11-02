@@ -112,4 +112,4 @@ Task 6: fix round 1 implementer DONE (ac08c53): guard uses WHATWG pathname + leg
 Task 6: fix round 1/5 (1 addressed, 0 open; commits 0735334..ac08c53)
 Task 6: complete (commits e4c3baa..ac08c53, review clean)
 Task 6: minor (deferred): isApiBackslashForm misses absolute-form targets `http://h/api%5c…` (not reachable: dsh doesn't route %5c); any /api URL with `\`/%5c anywhere (incl. query) is refused — documented trade-off; task-6-report narrative lines 9/28 stale after fix
-Task 7: dispatched (base BASE7, sonnet)
+Task 7: dispatched (base 9d8783d, sonnet)
