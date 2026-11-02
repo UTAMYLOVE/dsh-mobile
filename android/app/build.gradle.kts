@@ -51,10 +51,18 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.commons.compress)
     implementation(libs.xz)
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
+    // Ktor logs through SLF4J; the no-op binding keeps request URLs (which carry the session token) out of any log.
+    implementation(libs.slf4j.nop)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    testImplementation(libs.okhttp.mockwebserver)
 }
 
 apply(from = "proot.gradle.kts")
