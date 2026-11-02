@@ -124,4 +124,4 @@ Task 8: implementer DONE_WITH_CONCERNS (59bd52e): 154 tests; DshService/DshMobil
 Task 8: complete (commits 2b519fb..59bd52e, review clean)
 - Ruling: Task 8 minors 1 (patch file left on launcher failure), 2 (rootfs-not-installed counted as crash → misleading rollback give-up), 3 (no CrashPolicy reset after GIVE_UP), 5 (stop() during start is a no-op / isRunning published outside lock) are carried into Task 10 (appended to task-10-brief.md) — Why: Task 10 already modifies DshController/DshService and its holder logic depends on correct stop-during-start — Cost if wrong: none.
 Task 8: minor (deferred): CrashPolicy uses wall clock (use elapsedRealtime); ErrorLog.secrets only grows; OkHttpClient honours system proxy for 127.0.0.1 (set Proxy.NO_PROXY in DshClient); AndroidManifest CRLF→LF churn; controller tests rely on `sleep 1` timing; no DshService Robolectric test; Notifier uses a system icon until Task 11 adds res
-Task 9: dispatched (base BASE9, sonnet)
+Task 9: dispatched (base f438642, sonnet)
