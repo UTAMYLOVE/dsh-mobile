@@ -4,7 +4,7 @@ set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl xz-utils
+apt-get install -y --no-install-recommends ca-certificates curl xz-utils git ripgrep bash coreutils
 
 # --- Node.js (official tarball, sha256 verified twice) ---
 cd /tmp
@@ -25,6 +25,10 @@ npm install --prefix "/opt/dsh/${DSH_PINNED_VERSION}" "@deepseek-ai/dsh@${DSH_PI
   --no-audit --no-fund --loglevel=error
 ln -sfn "/opt/dsh/${DSH_PINNED_VERSION}" /opt/dsh/current
 "/opt/dsh/current/node_modules/.bin/dsh" --version
+# integrity check against pinned dist.integrity (from the generated lockfile)
+GOT="$(node -p "require('/opt/dsh/${DSH_PINNED_VERSION}/package-lock.json').packages['node_modules/@deepseek-ai/dsh'].integrity")"
+[ "$GOT" = "$DSH_INTEGRITY" ] || { echo "dsh integrity mismatch: $GOT" >&2; exit 1; }
+(cd "/opt/dsh/${DSH_PINNED_VERSION}" && npm ls --all > npm-ls.txt 2>&1 || true)
 
 # --- app layout ---
 mkdir -p /opt/dshm/plugins /root/workspace

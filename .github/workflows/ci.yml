@@ -39,6 +39,7 @@ jobs:
 
   rootfs:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -59,5 +60,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dshm-rootfs-${{ matrix.arch }}
-          path: out/dshm-rootfs-${{ matrix.arch }}.tar.xz
+          path: |
+            out/dshm-rootfs-${{ matrix.arch }}.tar.xz
+            out/dshm-rootfs-${{ matrix.arch }}.package-lock.json
+            out/dshm-rootfs-${{ matrix.arch }}.npm-ls.txt
           retention-days: 7

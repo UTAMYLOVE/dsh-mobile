@@ -51,5 +51,10 @@ esac
 
 [ -d "$DIR/opt/dshm/plugins" ] && ok "/opt/dshm/plugins exists" || bad "/opt/dshm/plugins missing"
 
+for t in git rg bash; do
+  p="$(run sh -c "command -v $t" 2>&1)"
+  [ -n "$p" ] && [ "${p#/}" != "$p" ] && ok "$t -> $p" || bad "$t not found: $p"
+done
+
 [ "$fail" = 0 ] && echo "SMOKE OK" || echo "SMOKE FAILED"
 exit "$fail"
