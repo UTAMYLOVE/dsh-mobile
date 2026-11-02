@@ -86,3 +86,40 @@ Before the `ctx.inject` fix the same run showed `GET /dshm/health/memory` -> 404
 3. The memory tools and the startup-context injection were not exercised live (no model key); the registration mechanism is the one verified by the Task 0 hello plugin.
 4. CI `rootfs` changes are unverified locally. Also `docs/dsh-findings.md` still mentions `plugins/hello/` as historical recon; left untouched.
 5. The heartbeat's dream is unauthenticated-by-cookie only through `requireAuth` (per the brief); a successful model completion path is covered by unit tests with a fake llm and by the live run only up to the adapter's credential check.
+
+## Fix round 1
+
+Review finding (Important): credential guard bypass through backslash paths. `normalizedPath` did not fold `\`, while dsh routes on `new URL(req.url, base).pathname`, whose WHATWG parser turns `\` into `/`; so a raw `POST /api\credentials\set` was routed by dsh to `/api/credentials/set` but passed the guard.
+
+### What changed (`plugins/packages/memory/src/guard.ts`)
+- The guard now derives the path as dsh does, `new URL(req.url ?? '/', 'http://x').pathname`, and applies the existing folding on top (percent-decode, dot segments, duplicate slashes, trailing slash, lowercase).
+- A second candidate (manual fold with `\` turned into `/`) is also checked, so forms the URL parser reads differently (e.g. `//api/credentials/set`, parsed as a host) stay blocked. A request is refused if any candidate is in the blocked set.
+- Defence in depth: any request whose raw `req.url` contains a backslash or `%5c` (case-insensitive) and that targets `/api` (by either candidate or a raw prefix check) gets the same 403.
+
+### Covering tests (`test/plugin.test.ts`, new describe "credential guard over a real HTTP server (raw request targets)")
+Real `node:http` server plus a raw `net` socket (HTTP/1.0, so the client never normalises the target); the guard's `next()` is counted. 403 with `{"ok":false,"error":"dshm: keys are managed by the app"}` and `next()` not called for: `/api\credentials\set`, `/api/credentials\set`, `/api\..\api/credentials/set`, `/api%5ccredentials%5cset`, `/api%5Ccredentials/set`, `/API/Credentials/Set/`. One allowed path, `/api/credentials/describe`, passes through (200, `next()` called once). The earlier fake-req tests still pass.
+
+### RED (new tests before the fix)
+`pnpm -C plugins exec vitest run packages/memory/test/plugin.test.ts`
+```
+× raw POST /api\credentials\set ...        AssertionError: expected 200 to be 403
+× raw POST /api/credentials\set ...
+× raw POST /api\..\api/credentials/set ...
+× raw POST /api%5ccredentials%5cset ...
+× raw POST /api%5Ccredentials/set ...
+Tests  5 failed | 30 passed (35)
+```
+Expected: the guard computed `/api\credentials\set` and called `next()` (200 from the test server). The `/API/Credentials/Set/` and describe cases already passed.
+
+### GREEN
+`pnpm -C plugins test`: Test Files 4 passed (4), Tests 68 passed (68) (memory: store 17, dream 11, plugin 35; common 5). `pnpm -C plugins typecheck` clean; `pnpm -C plugins build` clean (73.5 KB single file).
+
+### Live check against real dsh 0.2.1-rc.5 (rebuilt bundle, cookie from the launch URL, raw socket POSTs)
+```
+POST /api\credentials\set     -> HTTP/1.1 403 Forbidden | {"ok":false,"error":"dshm: keys are managed by the app"}
+POST /api/credentials\set     -> HTTP/1.1 403 Forbidden | {"ok":false,"error":"dshm: keys are managed by the app"}
+POST /api/credentials/set     -> HTTP/1.1 403 Forbidden | (same body)
+POST /api%5ccredentials%5cset -> HTTP/1.1 405 Method Not Allowed (dsh does not treat this as an /api route, so it never reaches the RPC layer)
+POST /api/credentials/describe-> HTTP/1.1 200 OK (passes the guard)
+```
+dsh was killed (no dsh process remains) and the temp dir removed.

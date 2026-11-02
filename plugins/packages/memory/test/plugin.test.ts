@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -317,6 +317,56 @@ describe("credential guard", () => {
   it("an undecodable path is passed on rather than crashing the guard", async () => {
     const { next } = await run("/api/%E0%A4%A");
     expect(next).toHaveBeenCalled();
+  });
+});
+
+describe("credential guard over a real HTTP server (raw request targets)", () => {
+  async function rawRequest(target: string): Promise<{ status: number; body: string; nextCalls: number }> {
+    const fake = makeCtx();
+    mount(fake);
+    const guard = fake.listeners.get("connection/request")![0]!;
+    let nextCalls = 0;
+    const srv = createServer((req, res) => {
+      void guard(req, res, async () => {
+        nextCalls++;
+        res.writeHead(200, { "content-type": "text/plain" }).end("passed");
+      });
+    });
+    servers.push(srv);
+    await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", resolve));
+    const port = (srv.address() as AddressInfo).port;
+    // A raw socket keeps the client from normalising the request target.
+    const raw = await new Promise<string>((resolve, reject) => {
+      const sock = connect(port, "127.0.0.1", () =>
+        sock.write(`POST ${target} HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n`),
+      );
+      let data = "";
+      sock.on("data", (c) => (data += c));
+      sock.on("end", () => resolve(data));
+      sock.on("error", reject);
+    });
+    return { status: Number(/^HTTP\/1\.1 (\d+)/.exec(raw)?.[1]), body: raw.split("\r\n\r\n")[1] ?? "", nextCalls };
+  }
+
+  it.each([
+    "/api\\credentials\\set",
+    "/api/credentials\\set",
+    "/api\\..\\api/credentials/set",
+    "/api%5ccredentials%5cset",
+    "/api%5Ccredentials/set",
+    "/API/Credentials/Set/",
+  ])("raw POST %s is refused with 403 and next() is not called", async (target) => {
+    const { status, body, nextCalls } = await rawRequest(target);
+    expect(status).toBe(403);
+    expect(JSON.parse(body)).toEqual({ ok: false, error: "dshm: keys are managed by the app" });
+    expect(nextCalls).toBe(0);
+  });
+
+  it("a raw allowed path passes through", async () => {
+    const { status, body, nextCalls } = await rawRequest("/api/credentials/describe");
+    expect(status).toBe(200);
+    expect(body).toBe("passed");
+    expect(nextCalls).toBe(1);
   });
 });
 
