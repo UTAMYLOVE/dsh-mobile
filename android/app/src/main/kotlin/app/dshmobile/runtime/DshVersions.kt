@@ -163,13 +163,14 @@ class DshVersions(
     /**
      * Updates to the newest version and starts it; if it does not come up healthy, switches back to the old
      * version and starts that. [runtime]'s `ensureRunning` already includes the health check, so [health] is not
-     * called again (kept for callers' compatibility). Cancellation during the switch puts the old version back
+     * called again (kept for callers' compatibility). With a [target] that exact version is installed and `npm view` is not run
+     * (Settings only ever updates to a version this app verified). Cancellation during the switch puts the old version back
      * (dsh stays stopped) and rethrows.
      */
     @Suppress("UNUSED_PARAMETER")
-    suspend fun updateWithAutoRollback(runtime: DshRuntime, health: HealthCheck): UpdateOutcome {
+    suspend fun updateWithAutoRollback(runtime: DshRuntime, health: HealthCheck, target: String? = null): UpdateOutcome {
         val latest = try {
-            latestAvailable()
+            target ?: latestAvailable()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

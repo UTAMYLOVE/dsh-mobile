@@ -34,6 +34,7 @@ import app.dshmobile.service.DshHolderRuntime
 import app.dshmobile.service.DshRuntime
 import app.dshmobile.service.RunningDsh
 import app.dshmobile.system.PhantomState
+import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.theme.SakuraTheme
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -99,12 +100,14 @@ private class SettingsFakeVersions : SettingsVersions {
     var failReads = false
     var update: UpdateOutcome = UpdateOutcome.UpToDate
     var rollbackOutcome: MainOps.RollbackOutcome = MainOps.RollbackOutcome.NoPrevious
+    var verified = listOf("0.2.1-rc.5")
     var updates = 0
     var rollbacks = 0
     @Volatile var gate: CompletableDeferred<Unit>? = null
     @Volatile var completedChecks = 0
     override fun current(): String = if (failReads) throw IllegalStateException("dsh has no current version link") else current
     override fun previous(): String? = if (failReads) throw java.io.IOException("unreadable") else previous
+    override fun verified(): List<String> = verified
     override suspend fun checkUpdate(): UpdateOutcome { updates++; gate?.await(); completedChecks++; return update }
     override suspend fun rollback(): MainOps.RollbackOutcome { rollbacks++; gate?.await(); return rollbackOutcome }
 }
@@ -136,6 +139,9 @@ class SettingsScreenTest {
     // The application's scope, outside every composition and Activity: this is what lets a job outlive the screen.
     private val jobsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = SettingsJobs(jobsScope, runtime)
+    private val uiPrefs = app.dshmobile.ui.fog.UiPrefs(InMemorySharedPreferences())
+    private val effects = app.dshmobile.ui.fog.EffectsController(uiPrefs)
+    private val effectCalls = CopyOnWriteArrayList<app.dshmobile.ui.fog.EffectLevel>()
 
     @After fun cancelJobs() {
         runtime.gate?.complete(Unit)
@@ -158,6 +164,8 @@ class SettingsScreenTest {
             exportMemory = { memoryExports++ },
             exportWorkspace = { workspaceExports++ },
             jobs = jobs,
+            effectLevel = effects.level,
+            onEffectLevel = { effectCalls += it; effects.set(it) },
         )
     }
 
@@ -236,6 +244,72 @@ class SettingsScreenTest {
         clickAndWait("apply")
         waitFor { "ensureRunning" in runtime.events }
         waitFor { store.load(PhantomState.ENABLED, false).leadModel == "deepseek-flash" }
+    }
+
+    // ---------- effect strength, novel model, verified versions ----------
+
+    private fun isSelected(tag: String) = rule.onNodeWithTag(tag).fetchSemanticsNode().config.getOrNull(SemanticsProperties.Selected) == true
+
+    @Test fun effectStrengthDefaultsToFullAndSavesAtOnce() {
+        show()
+        assertTrue(isSelected(Tags.EFFECT + 0))
+        assertTrue("showing the choice is not a change", effectCalls.isEmpty())
+        click(Tags.EFFECT + 2)
+        waitFor { uiPrefs.effectLevel == app.dshmobile.ui.fog.EffectLevel.SAVER }
+        assertEquals(listOf(app.dshmobile.ui.fog.EffectLevel.SAVER), effectCalls.toList())
+        rule.waitForIdle()
+        assertTrue(isSelected(Tags.EFFECT + 2))
+        assertFalse("no restart", "stop" in runtime.events)
+    }
+
+    @Test fun theEffectControlFollowsTheAppsLevelAndNeverReappliesIt() {
+        effects.set(app.dshmobile.ui.fog.EffectLevel.BALANCED)
+        show()
+        assertTrue(isSelected(Tags.EFFECT + 1))
+        // A recomposition (and a restored draft) must not call set(): it would reset the jank governor's cap.
+        click("inc-concurrent")
+        rule.waitForIdle()
+        assertTrue(effectCalls.isEmpty())
+    }
+
+    @Test fun novelModelListsOnlyAvailableModelsAndSaves() {
+        show()
+        rule.onNodeWithTag(Tags.NOVEL_MODEL + "deepseek-flash").assertExists()
+        rule.onNodeWithTag(Tags.NOVEL_MODEL + "deepseek-v4-pro").assertExists()
+        rule.onNodeWithTag(Tags.NOVEL_MODEL + "claude-sonnet-5-5").assertDoesNotExist()
+        // the stored default is Sonnet; without a Claude key it shows as what it resolves to
+        assertTrue(isSelected(Tags.NOVEL_MODEL + "deepseek-flash"))
+        click(Tags.NOVEL_MODEL + "deepseek-v4-pro")
+        assertEquals("deepseek-v4-pro", store.novelModel)
+        assertTrue("no restart", runtime.events.isEmpty())
+    }
+
+    @Test fun withAClaudeKeyTheNovelModelDefaultsToSonnetAndCanBeChanged() {
+        vault.keys[Provider.ANTHROPIC] = claudeKey
+        show()
+        assertTrue(isSelected(Tags.NOVEL_MODEL + "claude-sonnet-5-5"))
+        click(Tags.NOVEL_MODEL + "claude-opus-5-5")
+        assertEquals("claude-opus-5-5", store.novelModel)
+        assertTrue(runtime.events.isEmpty())
+    }
+
+    @Test fun theVerifiedListIsShown() {
+        versions.verified = listOf("0.2.1-rc.4", "0.2.1-rc.5")
+        show()
+        rule.onNodeWithTag(Tags.VERIFIED_NOTE).performScrollTo().assertTextContains("0.2.1-rc.4, 0.2.1-rc.5", substring = true)
+        rule.onNodeWithTag(Tags.UNVERIFIED_WARNING).assertDoesNotExist()
+    }
+
+    @Test fun anUnverifiedCurrentVersionWarns() {
+        versions.current = "0.2.2"
+        show()
+        rule.onNodeWithTag(Tags.UNVERIFIED_WARNING).performScrollTo().assertTextContains("0.2.2", substring = true).assertTextContains("0.2.1-rc.5", substring = true)
+    }
+
+    @Test fun rollbackIsDisabledWhenThereIsNoVerifiedPrevious() {
+        versions.previous = null // SettingsEnv's previous() is already filtered by VerifiedUpdatePolicy (pinned in MainActivityTest)
+        show()
+        rule.onNodeWithTag("rollback").performScrollTo().assertIsNotEnabled()
     }
 
     // ---------- keys ----------
@@ -611,7 +685,7 @@ class SettingsScreenTest {
         show()
         versions.update = UpdateOutcome.UpToDate
         clickAndWait("check-update")
-        waitForText(str(R.string.set_version_uptodate))
+        waitForText(str(R.string.set_version_uptodate, "0.2.1-rc.5"))
         versions.update = UpdateOutcome.Updated("0.3.0")
         clickAndWait("check-update")
         waitForText(str(R.string.set_version_updated, "0.3.0"))

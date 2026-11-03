@@ -10,7 +10,7 @@ import kotlinx.coroutines.withContext
 /** The slow or stateful actions of the main screen, kept out of MainActivity so they can be tested without a view. */
 class MainOps(
     private val runtime: DshRuntime,
-    /** `DshVersions::previous`: the version a rollback goes back to, null when there is none. */
+    /** `DshVersions::previous` already filtered by `VerifiedUpdatePolicy.previous`: the verified version a rollback goes back to, null when there is none (an unverified one counts as none). */
     private val previousVersion: () -> String?,
     /** `DshVersions::rollback`: false when it could not switch. */
     private val rollbackVersion: () -> Boolean,

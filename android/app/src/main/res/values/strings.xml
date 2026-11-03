@@ -115,6 +115,26 @@
     <string name="set_heartbeat_value">每 %1$d 分鐘</string>
     <string name="set_heartbeat_hint">代理人會定期在背景整理記憶並提醒你，間隔 30～60 分鐘。</string>
 
+    <string name="set_section_models">模型</string>
+    <string name="set_section_effects">效果強度</string>
+    <string name="set_en_keys">KEYS</string>
+    <string name="set_en_agents">AGENTS</string>
+    <string name="set_en_models">MODELS</string>
+    <string name="set_en_effects">EFFECTS</string>
+    <string name="set_en_budget">BUDGET</string>
+    <string name="set_en_heartbeat">HEARTBEAT</string>
+    <string name="set_en_dsh">DSH</string>
+    <string name="set_en_system">SYSTEM</string>
+    <string name="set_en_export">EXPORT</string>
+    <string name="set_en_apply">APPLY</string>
+    <string name="set_effect_full">全開</string>
+    <string name="set_effect_balanced">平衡</string>
+    <string name="set_effect_saver">省電</string>
+    <string name="set_effect_hint">畫面一卡頓，會自動先關掉模糊效果，保持順暢。</string>
+    <string name="set_novel_model">寫小說用的模型</string>
+    <string name="set_novel_hint">在書架開新書或「下一章」時使用（下一版開放）</string>
+    <string name="set_verified_note">只會更新到這版 App 驗證過的 dsh 版本：%1$s</string>
+    <string name="set_unverified_warning">目前的 dsh %1$s 未經這版 App 驗證，介面可能無法正常運作。按「更新」會換回已驗證的 %2$s。</string>
     <string name="set_section_version">DSH 版本</string>
     <string name="set_version_current">目前版本：%1$s</string>
     <string name="set_version_previous">上一版：%1$s</string>
@@ -123,7 +143,7 @@
     <string name="set_version_check">檢查更新</string>
     <string name="set_version_rollback">退回上一版</string>
     <string name="set_version_updated">已更新到 %1$s</string>
-    <string name="set_version_uptodate">已是最新版</string>
+    <string name="set_version_uptodate">已是驗證過的最新版 %1$s</string>
     <string name="set_version_rolled_back">更新到 %1$s 失敗：%2$s</string>
     <string name="set_version_failed">更新失敗：%1$s</string>
     <string name="set_dsh_running">DSH 執行中</string>

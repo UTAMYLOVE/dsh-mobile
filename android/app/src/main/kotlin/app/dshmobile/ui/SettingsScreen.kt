@@ -1,7 +1,6 @@
 package app.dshmobile.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,12 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -29,7 +25,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,10 +44,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.dshmobile.R
 import app.dshmobile.config.AgentModels
 import app.dshmobile.config.AgentSettings
 import app.dshmobile.config.AgentSettingsStore
+import app.dshmobile.config.displayName
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.Provider
 import app.dshmobile.heartbeat.HeartbeatScheduler
@@ -60,6 +57,10 @@ import app.dshmobile.runtime.UpdateOutcome
 import app.dshmobile.security.KeyVault
 import app.dshmobile.service.DshRuntime
 import app.dshmobile.system.PhantomState
+import app.dshmobile.ui.fog.EffectLevel
+import app.dshmobile.ui.fog.FogPanel
+import app.dshmobile.ui.fog.Segmented
+import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.theme.Sakura
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -74,6 +75,8 @@ import java.util.Locale
 interface SettingsVersions {
     fun current(): String
     fun previous(): String?
+    /** The dsh versions this app release has verified; the last is the newest. */
+    fun verified(): List<String>
     suspend fun checkUpdate(): UpdateOutcome
     suspend fun rollback(): MainOps.RollbackOutcome
 }
@@ -103,6 +106,8 @@ class SettingsEnv(
     val jobs: SettingsJobs,
     /** The effect strength chosen in Settings: takes effect at once (the app's `EffectsController.set`). */
     val onEffectLevel: (app.dshmobile.ui.fog.EffectLevel) -> Unit = {},
+    /** The user's chosen level (`EffectsController.level`), what the effect control shows; not the governor-capped one. */
+    val effectLevel: StateFlow<app.dshmobile.ui.fog.EffectLevel> = kotlinx.coroutines.flow.MutableStateFlow(app.dshmobile.ui.fog.EffectLevel.FULL),
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
@@ -163,7 +168,7 @@ fun SettingsScreen(
     val embedded = onClose == null
     val scope = rememberCoroutineScope() // keys and exports only: cancelling those half way is harmless
     var localBusy by draft::localBusy
-    val jobBusy by env.jobs.busy.collectAsState()
+    val jobBusy by env.jobs.busy.collectAsStateWithLifecycle()
     val busy = localBusy || jobBusy
     // Leaving the screen is not possible while something runs (the jobs would survive it, but the user should see the result).
     BackHandler(enabled = busy) {}
@@ -176,7 +181,7 @@ fun SettingsScreen(
     var keyError by draft::keyError
 
     var settings by draft::settings
-    val applyMessage by env.jobs.applyMessage.collectAsState()
+    val applyMessage by env.jobs.applyMessage.collectAsStateWithLifecycle()
 
     var todayUsd by remember { mutableStateOf(env.meter.todayUsd()) }
     var alertText by draft::alertText
@@ -192,8 +197,11 @@ fun SettingsScreen(
     fun readPrevious(): String? = try { env.versions.previous() } catch (_: Exception) { null }
     var currentVersion by remember { mutableStateOf(readCurrent()) }
     var previousVersion by remember { mutableStateOf(readPrevious()) }
-    val versionMessage by env.jobs.versionMessage.collectAsState()
-    val dshRunning by env.isRunning.collectAsState()
+    val versionMessage by env.jobs.versionMessage.collectAsStateWithLifecycle()
+    val dshRunning by env.isRunning.collectAsStateWithLifecycle()
+    val effectLevel by env.effectLevel.collectAsStateWithLifecycle()
+    val verified = remember { runCatching { env.versions.verified() }.getOrDefault(emptyList()) }
+    var novelModel by remember { mutableStateOf(env.store.novelModel) }
 
     var phantom by remember { mutableStateOf(env.phantomState()) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { phantom = env.phantomState() } // back from the system settings
@@ -315,7 +323,7 @@ fun SettingsScreen(
                 }
                 superviseIfRunning()
                 when (outcome) {
-                    UpdateOutcome.UpToDate -> context.getString(R.string.set_version_uptodate)
+                    UpdateOutcome.UpToDate -> context.getString(R.string.set_version_uptodate, verified.lastOrNull().orEmpty())
                     is UpdateOutcome.Updated -> context.getString(R.string.set_version_updated, outcome.version)
                     is UpdateOutcome.RolledBack -> context.getString(R.string.set_version_rolled_back, outcome.version, outcome.reason.take(MAX_REASON_CHARS))
                     is UpdateOutcome.Failed -> context.getString(R.string.set_version_failed, outcome.reason.take(MAX_REASON_CHARS))
@@ -376,13 +384,13 @@ fun SettingsScreen(
         env.scheduleHeartbeat(next)
     }
 
-    Surface(modifier = modifier.fillMaxSize(), color = if (embedded) Color.Transparent else MaterialTheme.colorScheme.background) {
+    Surface(modifier = modifier.fillMaxSize(), color = if (embedded) Color.Transparent else MaterialTheme.colorScheme.background, contentColor = Sakura.Text) {
         Column(
             modifier = Modifier
                 .then(if (embedded) Modifier else Modifier.safeDrawingPadding())
                 .verticalScroll(rememberScrollState())
                 .padding(contentPadding),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             // Embedded, the shell's header already names the page.
             if (onClose != null) {
@@ -401,7 +409,7 @@ fun SettingsScreen(
                 }
             }
 
-            Section(R.string.set_section_keys) {
+            Section(R.string.set_section_keys, R.string.set_en_keys, 0) {
                 Text(stringResource(R.string.set_key_hint), style = MaterialTheme.typography.bodySmall)
                 KeyRow(R.string.set_key_deepseek, "deepseek", hasDeepseek, !busy, { editing = Provider.DEEPSEEK; keyInput = ""; keyError = false }, { clearKey(Provider.DEEPSEEK) })
                 KeyRow(R.string.set_key_claude, "claude", hasClaude, !busy, { editing = Provider.ANTHROPIC; keyInput = ""; keyError = false }, { clearKey(Provider.ANTHROPIC) })
@@ -425,7 +433,7 @@ fun SettingsScreen(
                 if (keyError) Text(stringResource(R.string.set_key_error), color = MaterialTheme.colorScheme.error)
             }
 
-            Section(R.string.set_section_agent) {
+            Section(R.string.set_section_agent, R.string.set_en_agents, 1) {
                 val concurrent = stringResource(R.string.set_agent_concurrent)
                 val depth = stringResource(R.string.set_agent_depth)
                 val team = stringResource(R.string.set_agent_team)
@@ -439,6 +447,10 @@ fun SettingsScreen(
                     Text(stringResource(R.string.set_agent_teams), Modifier.weight(1f))
                     Switch(checked = settings.agentTeams, onCheckedChange = { settings = settings.copy(agentTeams = it) }, enabled = !busy, modifier = Modifier.testTag("switch-teams"))
                 }
+                Text(stringResource(R.string.set_agent_worker_note), style = MaterialTheme.typography.bodySmall)
+            }
+
+            Section(R.string.set_section_models, R.string.set_en_models, 2) {
                 Text(stringResource(R.string.set_agent_model), style = MaterialTheme.typography.titleSmall)
                 val selected = AgentModels.resolve(settings.leadModel, hasClaude).id
                 AgentModels.available(hasClaude).forEach { model ->
@@ -453,10 +465,39 @@ fun SettingsScreen(
                         Text(model.id, Modifier.padding(start = 8.dp))
                     }
                 }
-                Text(stringResource(R.string.set_agent_worker_note), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.set_novel_model), style = MaterialTheme.typography.titleSmall)
+                val novelSelected = AgentModels.resolve(novelModel, hasClaude).id
+                AgentModels.available(hasClaude).forEach { model ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .testTag(Tags.NOVEL_MODEL + model.id)
+                            // Saved at once; dsh is not restarted (the bookshelf that uses it comes in the next release).
+                            .selectable(selected = model.id == novelSelected, enabled = !busy, role = Role.RadioButton) {
+                                novelModel = model.id
+                                env.store.novelModel = model.id
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = model.id == novelSelected, onClick = null, enabled = !busy)
+                        Text(AgentModels.displayName(model.id) ?: model.id, Modifier.padding(start = 8.dp))
+                    }
+                }
+                Text(stringResource(R.string.set_novel_hint), style = MaterialTheme.typography.bodySmall)
             }
 
-            Section(R.string.set_section_budget) {
+            Section(R.string.set_section_effects, R.string.set_en_effects, 3) {
+                // The control shows the app's level and calls onEffectLevel only when a cell is tapped (never on recomposition).
+                Segmented(
+                    options = listOf(stringResource(R.string.set_effect_full), stringResource(R.string.set_effect_balanced), stringResource(R.string.set_effect_saver)),
+                    selected = effectLevel.ordinal,
+                    onSelect = { env.onEffectLevel(EffectLevel.entries[it]) },
+                    tagPrefix = Tags.EFFECT,
+                )
+                Text(stringResource(R.string.set_effect_hint), style = MaterialTheme.typography.bodySmall)
+            }
+
+            Section(R.string.set_section_budget, R.string.set_en_budget, 4) {
                 Text(stringResource(R.string.set_budget_today, String.format(Locale.US, "%.4f", todayUsd)))
                 OutlinedTextField(
                     value = alertText, onValueChange = { alertText = it; budgetMessage = null },
@@ -484,7 +525,7 @@ fun SettingsScreen(
                 }
             }
 
-            Section(R.string.set_section_heartbeat) {
+            Section(R.string.set_section_heartbeat, R.string.set_en_heartbeat, 5) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.set_heartbeat_value, heartbeat), Modifier.weight(1f))
                     StepButtons("heartbeat", stringResource(R.string.set_section_heartbeat), !busy && heartbeat > HeartbeatScheduler.MIN_INTERVAL_MIN, !busy && heartbeat < HeartbeatScheduler.MAX_INTERVAL_MIN,
@@ -493,7 +534,15 @@ fun SettingsScreen(
                 Text(stringResource(R.string.set_heartbeat_hint), style = MaterialTheme.typography.bodySmall)
             }
 
-            Section(R.string.set_section_version) {
+            Section(R.string.set_section_version, R.string.set_en_dsh, 6) {
+                Text(stringResource(R.string.set_verified_note, verified.joinToString(", ")), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag(Tags.VERIFIED_NOTE))
+                if (currentVersion != unknownVersion && currentVersion !in verified && verified.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.set_unverified_warning, currentVersion, verified.last()),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag(Tags.UNVERIFIED_WARNING),
+                    )
+                }
                 Text(stringResource(R.string.set_version_current, currentVersion))
                 Text(stringResource(R.string.set_version_previous, previousVersion ?: stringResource(R.string.set_version_none)))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -508,7 +557,7 @@ fun SettingsScreen(
                 }
             }
 
-            Section(R.string.set_section_phantom) {
+            Section(R.string.set_section_phantom, R.string.set_en_system, 7) {
                 val label = stringResource(
                     when (phantom) {
                         PhantomState.DISABLED -> R.string.onb_phantom_state_disabled
@@ -520,7 +569,7 @@ fun SettingsScreen(
                 OutlinedButton(onClick = env.openDeveloperSettings, modifier = Modifier.testTag("open-developer")) { Text(stringResource(R.string.set_phantom_open)) }
             }
 
-            Section(R.string.set_section_export) {
+            Section(R.string.set_section_export, R.string.set_en_export, 8) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { export(env.exportErrorLog) }, enabled = !busy, modifier = Modifier.testTag("export-log")) { Text(stringResource(R.string.main_export_log)) }
                     OutlinedButton(onClick = { export(env.exportMemory) }, enabled = !busy, modifier = Modifier.testTag("export-memory")) { Text(stringResource(R.string.set_export_memory)) }
@@ -529,7 +578,7 @@ fun SettingsScreen(
                 exportMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
 
-            Section(R.string.set_apply) {
+            Section(R.string.set_apply, R.string.set_en_apply, 9) {
                 Text(stringResource(R.string.set_apply_note), style = MaterialTheme.typography.bodySmall)
                 Button(onClick = { apply() }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("apply")) { Text(stringResource(R.string.set_apply)) }
                 applyMessage?.let { Text(it) }
@@ -541,17 +590,9 @@ fun SettingsScreen(
 internal enum class BudgetMessage { SAVED, INVALID }
 
 @Composable
-private fun Section(title: Int, content: @Composable () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, Sakura.Border),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(stringResource(title), style = MaterialTheme.typography.titleMedium, color = Sakura.Text)
-            content()
-        }
+private fun Section(title: Int, en: Int, index: Int, content: @Composable () -> Unit) {
+    FogPanel(title = stringResource(title), en = stringResource(en), index = index, modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { content() }
     }
 }
 

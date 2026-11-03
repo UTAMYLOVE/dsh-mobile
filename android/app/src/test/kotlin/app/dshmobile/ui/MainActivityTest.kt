@@ -623,13 +623,13 @@ class MainActivityTest {
     @Test fun theRollbackActionAfterAGiveUpClearsTheFlagAndRestartsDsh() {
         completeSetup()
         val c = controller!!
-        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val opt = versionsDir(previous = "0.2.1-rc.5", current = "0.2.2")
         val (ctl, activity) = giveUpThenReenter()
         assertEquals(MainUiState.Error, activity.uiStateForTest.value)
 
         ctl.newIntent(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK)) // the crash notification's action
         ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
-        waitUntil { currentOf(opt) == "0.2.0" && processes.size == 2 && c.isRunning.value }
+        waitUntil { currentOf(opt) == "0.2.1-rc.5" && processes.size == 2 && c.isRunning.value }
         waitUntil { !app.serviceGaveUp.value }
 
         assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
@@ -671,13 +671,13 @@ class MainActivityTest {
 
     @Test fun rollbackAfterAGiveUpRolledBackAndRunningShowsTheNewDsh() {
         completeSetup()
-        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val opt = versionsDir(previous = "0.2.1-rc.5", current = "0.2.2")
         val (ctl, activity) = giveUpThenReenter()
 
         confirmRollbackFromTheNotification(ctl)
-        waitForToast(R.string.main_rollback_done, "0.2.0")
+        waitForToast(R.string.main_rollback_done, "0.2.1-rc.5")
 
-        assertEquals("0.2.0", currentOf(opt))
+        assertEquals("0.2.1-rc.5", currentOf(opt))
         assertShowsDsh(activity, 1)
     }
 
@@ -691,11 +691,11 @@ class MainActivityTest {
                 c.stop() // the rolled-back dsh died right after it came up
                 while (c.isRunning.value) Thread.sleep(10)
             }
-            MainOps.RollbackOutcome.RolledBack("0.2.0", running)
+            MainOps.RollbackOutcome.RolledBack("0.2.1-rc.5", running)
         }
 
         confirmRollbackFromTheNotification(ctl)
-        waitForToast(R.string.main_rollback_done, "0.2.0")
+        waitForToast(R.string.main_rollback_done, "0.2.1-rc.5")
 
         assertStaysOnError(activity, processCount = 2)
     }
@@ -703,7 +703,7 @@ class MainActivityTest {
     @Test fun rollbackAfterAGiveUpWithNothingToGoBackToWhileDshRunsShowsDsh() {
         completeSetup()
         val c = controller!!
-        versionsDir(previous = null, current = "0.2.1")
+        versionsDir(previous = null, current = "0.2.2")
         val (ctl, activity) = giveUpThenReenter()
         kotlinx.coroutines.runBlocking { c.ensureRunning() } // e.g. a heartbeat brought dsh up; the give-up still shows
         idleFor(300)
@@ -717,7 +717,7 @@ class MainActivityTest {
 
     @Test fun rollbackAfterAGiveUpWithNothingToGoBackToWhileDshIsDownStaysOnError() {
         completeSetup()
-        versionsDir(previous = null, current = "0.2.1")
+        versionsDir(previous = null, current = "0.2.2")
         val (ctl, activity) = giveUpThenReenter()
 
         confirmRollbackFromTheNotification(ctl)
@@ -743,7 +743,7 @@ class MainActivityTest {
 
     @Test fun rollbackAfterAGiveUpThatFailedWithDshDownStaysOnError() {
         completeSetup()
-        versionsDir(previous = "0.2.0", current = "0.2.1")
+        versionsDir(previous = "0.2.1-rc.5", current = "0.2.2")
         val (ctl, activity) = giveUpThenReenter()
         failLaunches = true // the real MainOps: dsh does not start after the switch
 
@@ -814,28 +814,28 @@ class MainActivityTest {
 
     @Test fun rollbackAsksBeforeDoingAnything() {
         completeSetup()
-        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val opt = versionsDir(previous = "0.2.1-rc.5", current = "0.2.2")
         val activity = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK)).create().start().resume().get()
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
         assertNotNull(dialog)
         assertTrue(dialog.isShowing)
         shadowOf(Looper.getMainLooper()).idle()
-        assertEquals("0.2.1", currentOf(opt)) // nothing happened yet
+        assertEquals("0.2.2", currentOf(opt)) // nothing happened yet
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
         shadowOf(Looper.getMainLooper()).idle()
-        assertEquals("0.2.1", currentOf(opt))
+        assertEquals("0.2.2", currentOf(opt))
         assertFalse(activity.isFinishing)
     }
 
     @Test fun confirmedRollbackSwitchesVersionRestartsDshAndReloads() {
         completeSetup()
         val c = controller!!
-        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val opt = versionsDir(previous = "0.2.1-rc.5", current = "0.2.2")
         build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK)).create().start().resume()
         waitUntil { c.isRunning.value }
         val first = processes.size
         ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
-        waitUntil { currentOf(opt) == "0.2.0" && processes.size == first + 1 && c.isRunning.value }
+        waitUntil { currentOf(opt) == "0.2.1-rc.5" && processes.size == first + 1 && c.isRunning.value }
         assertFalse(processes.first().isAlive)
         assertTrue(processes.last().isAlive)
     }
@@ -846,42 +846,42 @@ class MainActivityTest {
         completeSetup()
         val c = controller!!
         c.retain("test-service") // what the running DshService holds in the app
-        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val opt = versionsDir(previous = "0.2.1-rc.5", current = "0.2.2")
         val ctl = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK)).create().start().resume()
         waitUntil { c.isRunning.value }
         ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         ctl.pause().stop().destroy() // the user leaves at once and the activity goes away mid-rollback
 
-        waitUntil { currentOf(opt) == "0.2.0" && processes.size == 2 && c.isRunning.value }
+        waitUntil { currentOf(opt) == "0.2.1-rc.5" && processes.size == 2 && c.isRunning.value }
         waitUntil { !app.settingsJobs.busy.value }
         idleFor(300)
         assertTrue("dsh runs on the version rolled back to", c.isRunning.value && processes.last().isAlive)
-        waitForToast(R.string.main_rollback_done, "0.2.0")
+        waitForToast(R.string.main_rollback_done, "0.2.1-rc.5")
     }
 
     @Test fun aServiceStartRefusedInTheBackgroundAfterARollbackIsLoggedNotACrash() {
         completeSetup()
         val c = controller!!
-        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val opt = versionsDir(previous = "0.2.1-rc.5", current = "0.2.2")
         val (ctl, _) = giveUpThenReenter()
         confirmRollbackFromTheNotification(ctl)
         ctl.pause().stop() // the user switches apps while the rollback runs
         // Android 12+ refuses a foreground-service start from the background.
         app.startDshService = { throw android.app.ForegroundServiceStartNotAllowedException("app is in the background") }
 
-        waitUntil { currentOf(opt) == "0.2.0" && processes.size == 2 }
+        waitUntil { currentOf(opt) == "0.2.1-rc.5" && processes.size == 2 }
         waitUntil { !app.settingsJobs.busy.value }
         idleFor(1_000) // any continuation on the main thread has run (a crash would surface here)
         assertTrue(errorLogText(), errorLogText().contains("could not start the service (ForegroundServiceStartNotAllowedException)"))
         assertFalse("the rollback ended the give-up", app.serviceGaveUp.value)
-        assertEquals("0.2.0", currentOf(opt))
+        assertEquals("0.2.1-rc.5", currentOf(opt))
         c.stop()
     }
 
     @Test fun aRollbackIsRefusedWhileASettingsJobRuns() {
         completeSetup()
         val c = controller!!
-        val opt = versionsDir(previous = "0.2.0", current = "0.2.1")
+        val opt = versionsDir(previous = "0.2.1-rc.5", current = "0.2.2")
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         try {
             val activity = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK)).create().start().resume().get()
@@ -889,7 +889,7 @@ class MainActivityTest {
             assertTrue(app.settingsJobs.launch { gate.await() }) // e.g. an update started in Settings
             ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
             idleFor(1_000)
-            assertEquals("nothing was switched while the other job runs", "0.2.1", currentOf(opt))
+            assertEquals("nothing was switched while the other job runs", "0.2.2", currentOf(opt))
             assertEquals(1, processes.size)
             assertEquals(activity.getString(R.string.main_rollback_busy), org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
         } finally {
@@ -901,15 +901,43 @@ class MainActivityTest {
     @Test fun rollbackWithNothingToGoBackToSaysSoAndKeepsDshRunning() {
         completeSetup()
         val c = controller!!
-        val opt = versionsDir(previous = null, current = "0.2.1")
+        val opt = versionsDir(previous = null, current = "0.2.2")
         val activity = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK)).create().start().resume().get()
         waitUntil { c.isRunning.value }
         ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         waitUntil { org.robolectric.shadows.ShadowToast.getTextOfLatestToast() != null }
-        assertEquals("0.2.1", currentOf(opt))
+        assertEquals("0.2.2", currentOf(opt))
         assertTrue(c.isRunning.value)
         assertEquals(1, processes.size)
         assertFalse(activity.isFinishing)
+    }
+
+    @Test fun theCrashNotificationRollbackNeverTargetsAnUnverifiedVersion() {
+        completeSetup()
+        val c = controller!!
+        val opt = versionsDir(previous = "0.2.2", current = "0.2.1-rc.5") // .previous is a version this app never verified
+        build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_ROLLBACK)).create().start().resume()
+        waitUntil { c.isRunning.value }
+        ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        waitForToast(R.string.main_rollback_none)
+        assertEquals("0.2.1-rc.5", currentOf(opt))
+        assertTrue("dsh was not stopped", c.isRunning.value)
+        assertEquals(1, processes.size)
+        assertTrue(processes.single().isAlive)
+    }
+
+    @Test fun settingsUpdateFromAnUnverifiedCurrentTargetsTheNewestVerified() {
+        completeSetup()
+        val opt = File(app.filesDir, "rootfs/opt/dsh").apply { mkdirs() }
+        File(opt, "0.2.2").mkdirs()
+        Files.createSymbolicLink(File(opt, "current").toPath(), Path.of("/opt/dsh/0.2.2"))
+        val guestCalls = java.util.concurrent.CopyOnWriteArrayList<List<String>>()
+        swap("dshVersions", DshVersions(opt, { args, _ -> guestCalls += args; CommandResult(1, "", "no guest in tests") }, app.errorLog))
+        val activity = build().create().get()
+        val outcome = kotlinx.coroutines.runBlocking { buildSettingsEnv(activity, app).versions.checkUpdate() }
+        assertTrue(outcome is app.dshmobile.runtime.UpdateOutcome.Failed) // there is no npm in the test
+        assertTrue("no npm view", guestCalls.none { it.take(2) == listOf("npm", "view") })
+        assertTrue("installs the verified version", guestCalls.any { it.take(2) == listOf("npm", "install") && "@deepseek-ai/dsh@0.2.1-rc.5" in it })
     }
 
     // --- shell app update ---

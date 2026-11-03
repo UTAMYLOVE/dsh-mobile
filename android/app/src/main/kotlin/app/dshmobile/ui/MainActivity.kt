@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +54,7 @@ import app.dshmobile.ui.shell.ShellNav
 import app.dshmobile.ui.shell.ShellSession
 import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.ui.shell.buildSettingsEnv
+import app.dshmobile.runtime.VerifiedUpdatePolicy
 import app.dshmobile.update.DailyUpdateCheck
 import app.dshmobile.update.PendingUpdate
 import kotlinx.coroutines.CancellationException
@@ -120,7 +122,7 @@ class MainActivity : ComponentActivity() {
         openedAt = SystemClock.elapsedRealtime()
         enableEdgeToEdge()
         // DshVersions is built on first use (a rollback), not at every launch.
-        ops = MainOps(app.controller, { app.dshVersions.previous() }, { app.dshVersions.rollback() }, app.errorLog)
+        ops = MainOps(app.controller, { VerifiedUpdatePolicy.previous(app.dshVersions.previous()) }, { app.dshVersions.rollback() }, app.errorLog)
         // Leaving settings while one of its actions runs would cancel it (a key save, an export) or hide its result.
         nav.canLeave = { from -> from != ShellTab.SETTINGS || !settingsBusy() }
         nav.onLeaveRefused = { toast(getString(R.string.shell_settings_busy)) }
@@ -291,7 +293,7 @@ class MainActivity : ComponentActivity() {
                 } ?: EmptyPage(tab)
                 ShellTab.OVERVIEW -> {
                     // Collected only while the overview is the current page (the page lambda is composed for the current tab only).
-                    val overview by remember { app.overviewSource.state() }.collectAsState(initial = null)
+                    val overview by remember { app.overviewSource.state() }.collectAsStateWithLifecycle(initialValue = null)
                     overview?.let { OverviewScreen(it, nav::openSession) { nav.select(ShellTab.AGENTS) } } ?: EmptyPage(tab)
                 }
                 else -> EmptyPage(tab)
