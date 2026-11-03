@@ -14,7 +14,19 @@ class ShellNav {
     var openSessionId: String? by mutableStateOf(null)
     var listOpen: Boolean by mutableStateOf(false)
 
+    /**
+     * Asked before [select] leaves the current tab (e.g. settings while a save runs: leaving would cancel it); false keeps
+     * the tab and calls [onLeaveRefused] instead.
+     */
+    var canLeave: (ShellTab) -> Boolean = { true }
+    var onLeaveRefused: () -> Unit = {}
+
     fun select(tab: ShellTab) {
+        if (tab == this.tab) return
+        if (!canLeave(this.tab)) {
+            onLeaveRefused()
+            return
+        }
         this.tab = tab
     }
 

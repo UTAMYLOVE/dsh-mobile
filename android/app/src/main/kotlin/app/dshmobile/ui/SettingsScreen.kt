@@ -104,6 +104,39 @@ class SettingsEnv(
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
+
+/**
+ * What the user typed or chose in Settings and has not saved yet, and whether one of the screen's own actions (a key, an
+ * export) runs. The host keeps it (the shell: one per screen), so switching tabs and back keeps unsaved fields. Memory only,
+ * never saved instance state: a half-typed key must not land in a Bundle.
+ */
+class SettingsDraft(
+    agent: AgentSettings,
+    alertText: String,
+    capEnabled: Boolean,
+    capText: String,
+) {
+    var localBusy by mutableStateOf(false)
+    var editing by mutableStateOf<Provider?>(null)
+    var keyInput by mutableStateOf("")
+    var keyError by mutableStateOf(false)
+    var settings by mutableStateOf(agent)
+    var alertText by mutableStateOf(alertText)
+    var capEnabled by mutableStateOf(capEnabled)
+    var capText by mutableStateOf(capText)
+    internal var budgetMessage by mutableStateOf<BudgetMessage?>(null)
+    var exportMessage by mutableStateOf<String?>(null)
+
+    companion object {
+        /** The stored values, as the screen shows them when nothing was edited yet (one vault read for the Claude key). */
+        fun from(env: SettingsEnv): SettingsDraft = SettingsDraft(
+            agent = env.store.load(env.phantomState(), env.vault.get(Provider.ANTHROPIC) != null),
+            alertText = formatUsd(env.meter.alertUsd),
+            capEnabled = env.meter.hardCapUsd != null,
+            capText = formatUsd(env.meter.hardCapUsd ?: BUDGET_DEFAULT_CAP),
+        )
+    }
+}
 private const val HEARTBEAT_STEP_MIN = 5
 private const val MAX_REASON_CHARS = 300
 
@@ -123,10 +156,11 @@ fun SettingsScreen(
     onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    draft: SettingsDraft = remember(env) { SettingsDraft.from(env) },
 ) {
     val embedded = onClose == null
     val scope = rememberCoroutineScope() // keys and exports only: cancelling those half way is harmless
-    var localBusy by remember { mutableStateOf(false) }
+    var localBusy by draft::localBusy
     val jobBusy by env.jobs.busy.collectAsState()
     val busy = localBusy || jobBusy
     // Leaving the screen is not possible while something runs (the jobs would survive it, but the user should see the result).
@@ -135,18 +169,18 @@ fun SettingsScreen(
     // The vault reads below are one AES-GCM decrypt each (as at app start); everything that can block runs on IO.
     var hasDeepseek by remember { mutableStateOf(env.vault.get(Provider.DEEPSEEK) != null) }
     var hasClaude by remember { mutableStateOf(env.vault.get(Provider.ANTHROPIC) != null) }
-    var editing by remember { mutableStateOf<Provider?>(null) }
-    var keyInput by remember { mutableStateOf("") }
-    var keyError by remember { mutableStateOf(false) }
+    var editing by draft::editing
+    var keyInput by draft::keyInput
+    var keyError by draft::keyError
 
-    var settings by remember { mutableStateOf(env.store.load(env.phantomState(), hasClaude)) }
+    var settings by draft::settings
     val applyMessage by env.jobs.applyMessage.collectAsState()
 
     var todayUsd by remember { mutableStateOf(env.meter.todayUsd()) }
-    var alertText by remember { mutableStateOf(formatUsd(env.meter.alertUsd)) }
-    var capEnabled by remember { mutableStateOf(env.meter.hardCapUsd != null) }
-    var capText by remember { mutableStateOf(formatUsd(env.meter.hardCapUsd ?: BUDGET_DEFAULT_CAP)) }
-    var budgetMessage by remember { mutableStateOf<BudgetMessage?>(null) }
+    var alertText by draft::alertText
+    var capEnabled by draft::capEnabled
+    var capText by draft::capText
+    var budgetMessage by draft::budgetMessage
 
     var heartbeat by remember { mutableStateOf(env.store.heartbeatIntervalMin) }
 
@@ -161,7 +195,7 @@ fun SettingsScreen(
 
     var phantom by remember { mutableStateOf(env.phantomState()) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { phantom = env.phantomState() } // back from the system settings
-    var exportMessage by remember { mutableStateOf<String?>(null) }
+    var exportMessage by draft::exportMessage
 
     val context = LocalContext.current.applicationContext // (the jobs outlive the activity) for the messages built inside callbacks (stringResource is composable-only)
 
@@ -348,9 +382,13 @@ fun SettingsScreen(
                 .padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.set_title), style = MaterialTheme.typography.headlineSmall, color = Sakura.Text, modifier = Modifier.weight(1f))
-                if (onClose != null) {
+            // Embedded, the shell's header already names the page.
+            if (onClose != null) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.set_title), style = MaterialTheme.typography.headlineSmall, color = Sakura.Text,
+                        modifier = Modifier.weight(1f).testTag("settings-title"),
+                    )
                     TextButton(onClick = onClose, enabled = !busy, modifier = Modifier.testTag("close")) { Text(stringResource(R.string.set_close)) }
                 }
             }
@@ -498,7 +536,7 @@ fun SettingsScreen(
     }
 }
 
-private enum class BudgetMessage { SAVED, INVALID }
+internal enum class BudgetMessage { SAVED, INVALID }
 
 @Composable
 private fun Section(title: Int, content: @Composable () -> Unit) {

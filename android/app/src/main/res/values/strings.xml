@@ -71,6 +71,7 @@
     <string name="shell_remove_attachment">移除 %1$s</string>
     <string name="shell_reconnecting">重新連線中…</string>
     <string name="shell_status_title">DSH 狀態</string>
+    <string name="shell_settings_busy">設定正在處理中，完成後才能切換分頁</string>
     <string name="shell_library_placeholder">書架會在下一版推出：Claude 寫的小說會收在這裡。</string>
     <string name="set_title">設定</string>
     <string name="set_close">關閉</string>

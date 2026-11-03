@@ -309,13 +309,22 @@ class FogShellLayoutTest {
     private fun describe(n: SemanticsNode) =
         n.config.getOrNull(SemanticsProperties.TestTag) ?: n.config.getOrNull(SemanticsProperties.ContentDescription)?.joinToString() ?: "node ${n.id}"
 
+    /** Scrolled to the end, the page's last control sits above the dock and above the band where pages fade out. */
     private fun assertLastPageControlClearsTheDock(where: String) {
         ShellHarness.scrollPageToTheEnd(rule)
         val dockTop = rule.onNodeWithTag(Tags.DOCK).fetchSemanticsNode().boundsInRoot.top
+        val fadeTop = dockTop - with(rule.density) { 24.dp.toPx() }
         val controls = pageControls()
         if (controls.isEmpty()) return
         val lowest = controls.maxBy { it.boundsInRoot.bottom }
-        assertTrue("$where: ${describe(lowest)} ends at ${lowest.boundsInRoot.bottom}, below the dock's top $dockTop", lowest.boundsInRoot.bottom <= dockTop)
+        assertTrue("$where: ${describe(lowest)} ends at ${lowest.boundsInRoot.bottom}, into the fade above the dock ($fadeTop)", lowest.boundsInRoot.bottom <= fadeTop)
+    }
+
+    /** The page viewport starts where the header ends: nothing scrolls under the header. */
+    private fun assertTheStageStartsBelowTheHeader(where: String) {
+        val header = rule.onNodeWithTag(Tags.SHELL_HEADER).fetchSemanticsNode().boundsInRoot
+        val stage = rule.onNodeWithTag(Tags.SHELL_STAGE).fetchSemanticsNode().boundsInRoot
+        assertTrue("$where: stage top ${stage.top} < header bottom ${header.bottom}", stage.top >= header.bottom)
     }
 
     @Test fun atPhoneWidthNoFloatingControlOverlapsAnother() {
@@ -326,6 +335,7 @@ class FogShellLayoutTest {
             rule.onNodeWithTag(Tags.TAB + t.name).performClick()
             rule.waitForIdle()
             assertNoOverlap("$where/${t.name}")
+            assertTheStageStartsBelowTheHeader("$where/${t.name}")
             assertLastPageControlClearsTheDock("$where/${t.name}")
         }
 

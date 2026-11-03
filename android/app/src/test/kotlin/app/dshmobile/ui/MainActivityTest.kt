@@ -276,6 +276,42 @@ class MainActivityTest {
         servers.forEach { assertFalse(text.contains(it.launch.url)) }
     }
 
+    /** The ten-minute grace or a background give-up stops dsh with no screen started: the session must not keep retrying. */
+    @Test fun aDshStoppedWhileNoScreenIsStartedDetachesTheSession() {
+        completeSetup()
+        val c = controller!!
+        val ctl = build().create().start().resume()
+        waitForShellOn(0, ctl.get())
+        val session = app.shellSessions.current.value!!
+        ctl.pause().stop() // the screen's own collector stops with it
+        c.stop()
+        waitUntil { !c.isRunning.value }
+        waitUntil { app.shellSessions.current.value == null }
+        assertEquals(MuxState.CLOSED, session.remote.muxState.value)
+        val upgrades = muxes[0].upgrades.get()
+        idleFor(1_500) // past the first reconnect backoffs: nothing tries the dead port again
+        assertEquals(upgrades, muxes[0].upgrades.get())
+    }
+
+    @Test fun settingsCannotBeLeftWhileItsActionRunsAndSaysWhy() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        activity.navForTest.select(ShellTab.SETTINGS)
+        idleFor(300)
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        try {
+            assertTrue(app.settingsJobs.launch { gate.await() }) // e.g. "apply and restart" running
+            activity.navForTest.select(ShellTab.OVERVIEW)
+            assertEquals(ShellTab.SETTINGS, activity.navForTest.tab)
+            assertEquals(activity.getString(R.string.shell_settings_busy), org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+        } finally {
+            gate.complete(Unit)
+        }
+        waitUntil { !app.settingsJobs.busy.value }
+        activity.navForTest.select(ShellTab.OVERVIEW)
+        assertEquals(ShellTab.OVERVIEW, activity.navForTest.tab)
+    }
+
     @Test fun backFirstClosesShellNavigation() {
         completeSetup()
         val activity = build().create().start().resume().get()

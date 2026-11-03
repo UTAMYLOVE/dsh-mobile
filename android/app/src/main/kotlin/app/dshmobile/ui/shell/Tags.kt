@@ -21,6 +21,9 @@ object Tags {
     const val RECONNECTING = "reconnecting"
     const val LIBRARY_PLACEHOLDER = "library-placeholder"
     const val SHELL_BACKGROUND = "shell-background"
+    /** The header (DSH MOBILE, time, page name and dots) and the page viewport below it. */
+    const val SHELL_HEADER = "shell-header"
+    const val SHELL_STAGE = "shell-stage"
 
     /** Everything that floats over the pages at the bottom: the reconnecting chip, the attach menu and the dock itself. */
     const val DOCK = "dock"

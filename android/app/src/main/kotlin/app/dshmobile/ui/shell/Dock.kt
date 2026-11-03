@@ -32,10 +32,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -51,6 +49,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -117,20 +116,24 @@ internal fun Dock(
                 enabled = true,
                 tag = Tags.ATTACH,
                 onClick = onToggleAttachMenu,
-                background = Modifier
-                    .glow(Sakura.Aqua.copy(alpha = .70f), 14.dp, CircleShape)
-                    .background(Sakura.Aqua.copy(alpha = .40f), CircleShape)
-                    .border(1.dp, Sakura.Aqua.copy(alpha = .95f), CircleShape),
-            ) { PlusIcon() }
+                background = { a ->
+                    Modifier
+                        .glow(Sakura.Aqua.copy(alpha = .70f * a), 14.dp, CircleShape)
+                        .background(Sakura.Aqua.copy(alpha = .40f * a), CircleShape)
+                        .border(1.dp, Sakura.Aqua.copy(alpha = .95f * a), CircleShape)
+                },
+            ) { tint -> PlusIcon(tint) }
             InputField(composer, enabled, Modifier.weight(1f))
-            val pink = Modifier
-                .glow(Sakura.Primary.copy(alpha = .85f), 18.dp, CircleShape, dy = 6.dp)
-                .background(Brush.radialGradient(listOf(Sakura.Background, Sakura.Primary)), CircleShape)
-                .border(1.dp, Color.White.copy(alpha = .9f), CircleShape)
+            val pink = { a: Float ->
+                Modifier
+                    .glow(Sakura.Primary.copy(alpha = .85f * a), 18.dp, CircleShape, dy = 6.dp)
+                    .background(Brush.radialGradient(listOf(Sakura.Background.copy(alpha = a), Sakura.Primary.copy(alpha = a))), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = .9f * a), CircleShape)
+            }
             if (composer.running && composer.text.isBlank()) {
-                RoundButton(stringResource(R.string.shell_stop), enabled, Tags.STOP, composer.onStop, pink) { StopIcon() }
+                RoundButton(stringResource(R.string.shell_stop), enabled, Tags.STOP, composer.onStop, pink) { tint -> StopIcon(tint) }
             } else {
-                RoundButton(stringResource(R.string.shell_send), enabled && composer.canSend, Tags.SEND, composer.onSend, pink) { SendIcon() }
+                RoundButton(stringResource(R.string.shell_send), enabled && composer.canSend, Tags.SEND, composer.onSend, pink) { tint -> SendIcon(tint) }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -204,43 +207,46 @@ private fun RoundButton(
     enabled: Boolean,
     tag: String,
     onClick: () -> Unit,
-    background: Modifier,
-    icon: @Composable () -> Unit,
+    background: (alpha: Float) -> Modifier,
+    icon: @Composable (tint: Color) -> Unit,
 ) {
+    // Disabled = every colour at .45 alpha, not an alpha layer: a layer would clip the glow (drawn outside the circle) to a square.
+    val a = if (enabled) 1f else DISABLED_ALPHA
     Box(
         Modifier
             .size(48.dp)
-            .alpha(if (enabled) 1f else .45f)
-            .then(background)
+            .then(background(a))
             .clip(CircleShape)
             .testTag(tag)
             .semantics { contentDescription = description }
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { icon() }
+    ) { icon(Sakura.Text.copy(alpha = a)) }
 }
+
+private const val DISABLED_ALPHA = .45f
 
 private val IconStroke = 2.dp
 
 @Composable
-private fun PlusIcon() = Canvas(Modifier.size(20.dp)) {
+private fun PlusIcon(tint: Color) = Canvas(Modifier.size(20.dp)) {
     val w = IconStroke.toPx()
-    drawLine(Sakura.Text, Offset(size.width / 2, 2f), Offset(size.width / 2, size.height - 2f), w, StrokeCap.Round)
-    drawLine(Sakura.Text, Offset(2f, size.height / 2), Offset(size.width - 2f, size.height / 2), w, StrokeCap.Round)
+    drawLine(tint, Offset(size.width / 2, 2f), Offset(size.width / 2, size.height - 2f), w, StrokeCap.Round)
+    drawLine(tint, Offset(2f, size.height / 2), Offset(size.width - 2f, size.height / 2), w, StrokeCap.Round)
 }
 
 @Composable
-private fun SendIcon() = Canvas(Modifier.size(20.dp)) {
+private fun SendIcon(tint: Color) = Canvas(Modifier.size(20.dp)) {
     val w = IconStroke.toPx()
     val cx = size.width / 2
-    drawLine(Sakura.Text, Offset(cx, size.height - 2f), Offset(cx, 2f), w, StrokeCap.Round)
-    drawLine(Sakura.Text, Offset(cx, 2f), Offset(cx - size.width * .32f, size.height * .36f), w, StrokeCap.Round)
-    drawLine(Sakura.Text, Offset(cx, 2f), Offset(cx + size.width * .32f, size.height * .36f), w, StrokeCap.Round)
+    drawLine(tint, Offset(cx, size.height - 2f), Offset(cx, 2f), w, StrokeCap.Round)
+    drawLine(tint, Offset(cx, 2f), Offset(cx - size.width * .32f, size.height * .36f), w, StrokeCap.Round)
+    drawLine(tint, Offset(cx, 2f), Offset(cx + size.width * .32f, size.height * .36f), w, StrokeCap.Round)
 }
 
 @Composable
-private fun StopIcon() = Canvas(Modifier.size(16.dp)) {
-    drawRoundRect(Sakura.Text, cornerRadius = CornerRadius(3.dp.toPx()))
+private fun StopIcon(tint: Color) = Canvas(Modifier.size(16.dp)) {
+    drawRoundRect(tint, cornerRadius = CornerRadius(3.dp.toPx()))
 }
 
 @Composable
@@ -290,7 +296,7 @@ private fun TabRow(selected: ShellTab, onSelect: (ShellTab) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cell = maxWidth / ShellTab.entries.size
         val target = cell * selected.ordinal
-        val x by animateDpAsState(
+        val x = animateDpAsState(
             target,
             if (effects.pageMs == 0) snap() else tween(FogMotion.PILL_MS, easing = FogMotion.Spring),
             label = "tab-pill",
@@ -298,7 +304,7 @@ private fun TabRow(selected: ShellTab, onSelect: (ShellTab) -> Unit) {
         Box(Modifier.matchParentSize()) {
             Box(
                 Modifier
-                    .offset(x = x)
+                    .offset { IntOffset(x.value.roundToPx(), 0) } // read while placing: the slide never recomposes
                     .width(cell)
                     .fillMaxHeight()
                     .glow(Sakura.RoseBrown.copy(alpha = .18f), 14.dp, Round, dy = 4.dp)

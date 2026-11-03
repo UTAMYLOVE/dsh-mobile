@@ -84,6 +84,8 @@ class MainActivity : ComponentActivity() {
     private val pendingUpdate by lazy { PendingUpdate(getSharedPreferences(DailyUpdateCheck.PREFS, Context.MODE_PRIVATE)) }
     /** Built when the settings tab is first shown. */
     private val settingsEnv by lazy { buildSettingsEnv(this, app) }
+    /** Unsaved settings fields live here, outside the tab, so switching tabs keeps them. Built with the tab. */
+    private var settingsDraft: SettingsDraft? = null
     private var composerText by mutableStateOf("")
 
     /** How long a started dsh's remote may take to open before the screen says Error (the remote keeps trying). */
@@ -104,6 +106,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // DshVersions is built on first use (a rollback), not at every launch.
         ops = MainOps(app.controller, { app.dshVersions.previous() }, { app.dshVersions.rollback() }, app.errorLog)
+        // Leaving settings while one of its actions runs would cancel it (a key save, an export) or hide its result.
+        nav.canLeave = { from -> from != ShellTab.SETTINGS || !settingsBusy() }
+        nav.onLeaveRefused = { toast(getString(R.string.shell_settings_busy)) }
         // Static for now; Task 14 switches levels live and degrades on jank.
         val effects = effectsFor(app.uiPrefs.effectLevel, systemReducedMotion())
         setContent { FogTheme(effects) { Shell() } }
@@ -210,11 +215,16 @@ class MainActivity : ComponentActivity() {
             onExportErrorLog = ::exportErrorLog,
         ) { tab ->
             when (tab) {
-                ShellTab.SETTINGS -> SettingsScreen(settingsEnv, onClose = null, contentPadding = LocalPagePadding.current)
+                ShellTab.SETTINGS -> {
+                    val draft = settingsDraft ?: SettingsDraft.from(settingsEnv).also { settingsDraft = it }
+                    SettingsScreen(settingsEnv, onClose = null, contentPadding = LocalPagePadding.current, draft = draft)
+                }
                 else -> EmptyPage(tab)
             }
         }
     }
+
+    private fun settingsBusy(): Boolean = settingsDraft?.localBusy == true || app.settingsJobs.busy.value
 
     /** Once per screen: how long it took from opening it to Ready (and from the process start, for cold starts). No URL. */
     private fun logTimeToReady() {

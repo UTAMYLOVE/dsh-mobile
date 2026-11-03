@@ -48,6 +48,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.io.File
@@ -186,14 +187,20 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     /**
      * The native interface's link to the running dsh: one [ShellSession] per dsh instance, in a scope of its own (a child of
-     * [applicationScope], cancelled when that instance's session closes).
+     * [applicationScope], cancelled when that instance's session closes). Whenever dsh stops, with or without a screen (the
+     * background grace, a give-up), the session is detached here, so its remote never keeps retrying a dead port. On the main
+     * thread, like every attach, so a stop seen late can never detach the next instance's session.
      */
     val shellSessions: ShellSessionHolder by lazy {
         val loopback = OkHttpClient()
-        ShellSessionHolder { running ->
+        val holder = ShellSessionHolder { running ->
             val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
             DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope) }
         }
+        applicationScope.launch(Dispatchers.Main) {
+            controller.isRunning.collect { running -> if (!running) holder.detach() }
+        }
+        holder
     }
 
     /** Asks the public releases repo for a newer shell app (no credentials; a failure is the caller's to log). */
