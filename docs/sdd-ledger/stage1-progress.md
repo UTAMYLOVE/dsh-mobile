@@ -157,3 +157,4 @@ T13: implementer DONE_WITH_CONCERNS (lane-t13 0a657d9..d04e01c, 900 unit); Setti
 T13: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
 T13: complete (lane-t13 0a657d9..d04e01c, review clean) — merged (code tree identical to d04e01c: 900 unit + both assembles green there)
 T13: minor (deferred): clearer message when current() throws during update; tapping the selected effect cell resets the governor cap (add no-op guard); OverviewSource IO context untested; lead-model radios show raw ids; no 412 dp settings screenshot (T15)
+T8: fix round 1/5 implementer DONE (a14fff7..093b21c incl. merges of main a5ccff2 and 25e017f; 952 unit, assembles green); re-review dispatched (sonnet)
