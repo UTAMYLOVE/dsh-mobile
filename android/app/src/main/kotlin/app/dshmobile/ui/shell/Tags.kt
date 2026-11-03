@@ -61,4 +61,5 @@ object Tags {
     const val QUESTION_SUBMIT = "question-submit"
     const val QUESTION_DECLINE = "question-decline"
     const val PROMPT_ERROR = "prompt-error"
+    const val PROMPT_CONNECTING = "prompt-connecting"
 }

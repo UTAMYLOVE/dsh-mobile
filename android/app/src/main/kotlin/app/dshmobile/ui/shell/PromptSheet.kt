@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,7 +43,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -101,6 +107,7 @@ fun PromptSheet(
     onReject: () -> Unit,
     onAnswer: (Map<String, List<String>>) -> Unit,
     onDecline: () -> Unit,
+    connecting: Boolean = false,
 ) {
     val animate = LocalEffects.current.pageMs > 0
     val rise = remember { Animatable(if (animate) 1f else 0f) }
@@ -113,12 +120,14 @@ fun PromptSheet(
     }
     // a new prompt (even in the same sheet) starts with nothing picked
     val selection = remember(prompt.eventId) { mutableStateMapOf<String, List<String>>() }
-    Box(Modifier.fillMaxSize()) {
+    val cardTitle = if (prompt is PendingPrompt.Approval) stringResource(R.string.prompt_approval_title, prompt.toolName) else stringResource(R.string.prompt_question_title)
+    Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
         // the scrim swallows every touch: the pages below are out of reach while dsh waits (a sibling of the card, so the
         // card's own semantics are not merged into the scrim's click)
         Box(
             Modifier
                 .fillMaxSize()
+                .semantics { traversalIndex = 1f } // after the card
                 .background(Sakura.Text.copy(alpha = .28f * scrim.value))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
         )
@@ -136,6 +145,13 @@ fun PromptSheet(
                     onDrawBehind { drawRect(Sakura.Background.copy(alpha = .6f)); drawRect(brush) } // the base keeps the dock from showing through the buttons
                 }
                 .border(1.2.dp, Color.White.copy(alpha = .95f), SheetShape)
+                .semantics {
+                    // announced when it appears, and read before anything else
+                    paneTitle = cardTitle
+                    liveRegion = LiveRegionMode.Polite
+                    isTraversalGroup = true
+                    traversalIndex = 0f
+                }
                 .testTag(Tags.PROMPT_SHEET)
                 .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 18.dp),
         ) {
@@ -145,8 +161,7 @@ fun PromptSheet(
                 style = FogText.Label.copy(letterSpacing = 0.24.em),
             )
             Text(
-                if (prompt is PendingPrompt.Approval) stringResource(R.string.prompt_approval_title, prompt.toolName)
-                else stringResource(R.string.prompt_question_title),
+                cardTitle,
                 color = Sakura.Text, fontSize = 18.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.1.em,
                 modifier = Modifier.padding(top = 4.dp),
             )
@@ -172,7 +187,10 @@ fun PromptSheet(
                 }
             }
             if (error != null) {
-                Text(error, color = Color(0xFFB3261E), fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp).testTag(Tags.PROMPT_ERROR))
+                Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp).testTag(Tags.PROMPT_ERROR))
+            }
+            if (connecting) {
+                Text(stringResource(R.string.prompt_connecting), style = FogText.Label, modifier = Modifier.padding(top = 8.dp).testTag(Tags.PROMPT_CONNECTING))
             }
             if (waitingCount > 0) {
                 Text(stringResource(R.string.prompt_more, waitingCount), style = FogText.Label, modifier = Modifier.padding(top = 8.dp).testTag(Tags.PROMPT_MORE))
@@ -246,6 +264,7 @@ private fun QuestionBlock(q: AskQuestion, picked: List<String>, busy: Boolean, o
 fun PromptHost(events: DshEvents?, tree: app.dshmobile.chat.SessionTree?, originOf: (String) -> String? = { null }) {
     val prompts by (events?.prompts ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList()) }).collectAsState()
     val prompt = prompts.firstOrNull() ?: return
+    val clientId by (events?.clientId ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }).collectAsState()
     BackHandler(enabled = true) {} // dsh is waiting: back must not hide the card
     val scope = rememberCoroutineScope()
     var busyId by remember { mutableStateOf<String?>(null) }
@@ -284,5 +303,13 @@ fun PromptHost(events: DshEvents?, tree: app.dshmobile.chat.SessionTree?, origin
         onReject = { (prompt as? PendingPrompt.Approval)?.let { p -> send { events?.reject(p) } } },
         onAnswer = { picked -> (prompt as? PendingPrompt.Question)?.let { p -> send { events?.answer(p, picked) } } },
         onDecline = { (prompt as? PendingPrompt.Question)?.let { p -> send { events?.decline(p) } } },
+        connecting = busyId == prompt.eventId && clientId == null,
     )
+}
+
+/** True while a prompt waits: the shell hides everything under the card from accessibility then. */
+@Composable
+fun rememberHasPrompt(events: DshEvents?): Boolean {
+    val prompts by (events?.prompts ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList()) }).collectAsState()
+    return prompts.isNotEmpty()
 }

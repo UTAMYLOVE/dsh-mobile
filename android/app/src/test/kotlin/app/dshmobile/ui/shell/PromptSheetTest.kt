@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -118,6 +120,22 @@ class PromptSheetTest {
         rule.onNodeWithTag(Tags.APPROVE_ONCE).assertIsEnabled()
     }
 
+    @Test fun theSheetIsAnnouncedAsAPane() {
+        show(approval)
+        val node = rule.onNodeWithTag(Tags.PROMPT_SHEET).fetchSemanticsNode()
+        assertEquals("dsh 想要執行 write", node.config[androidx.compose.ui.semantics.SemanticsProperties.PaneTitle])
+        assertEquals(androidx.compose.ui.semantics.LiveRegionMode.Polite, node.config[androidx.compose.ui.semantics.SemanticsProperties.LiveRegion])
+    }
+
+    @Test fun connectingIsSaidWhileTheAnswerWaits() {
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.FULL, reducedMotion = false)) {
+                Box(androidx.compose.ui.Modifier.fillMaxSize()) { PromptSheet(approval, "x", 0, true, null, {}, {}, {}, {}, connecting = true) }
+            }
+        }
+        rule.onNodeWithTag(Tags.PROMPT_CONNECTING).assertExists()
+    }
+
     @Test fun noErrorLineWithoutAnError() {
         show(approval)
         rule.onNodeWithTag(Tags.PROMPT_ERROR).assertDoesNotExist()
@@ -199,5 +217,34 @@ class PromptSheetLayoutTest {
         assertContains(sheet, submit, "submit")
         assertContains(sheet, decline, "decline")
         assertTrue("the buttons overlap: $submit $decline", !submit.overlaps(decline))
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36], qualifiers = "w412dp-h915dp-port")
+class PromptModalTest {
+    @get:Rule val rule = createComposeRule()
+    private val modal = mutableStateOf(true)
+
+    // accessibility services read the merged tree (clearAndSetSemantics only drops nodes from it; the unmerged tree keeps them)
+    @Test fun whileAPromptShowsTheDockIsHiddenFromAccessibility() {
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.FULL, reducedMotion = true)) {
+                FogShell(
+                    status = app.dshmobile.ui.MainUiState.Ready, connection = app.dshmobile.remote.MuxState.OPEN, nav = ShellNav(),
+                    composer = ComposerUi("", {}, enabled = true, canSend = false, running = false, onSend = {}, onStop = {}),
+                    onRetry = {}, onExportErrorLog = {},
+                    overlay = { PromptSheet(approval, "x", 0, false, null, {}, {}, {}, {}) },
+                    modalOverlay = modal.value,
+                ) {}
+            }
+        }
+        val tab = Tags.TAB + ShellTab.entries.first().name
+        rule.onNodeWithTag(Tags.PROMPT_SHEET).assertExists()
+        rule.onAllNodesWithTag(tab).assertCountEquals(0)
+        rule.onAllNodesWithTag(Tags.SHELL_HEADER).assertCountEquals(0)
+        modal.value = false
+        rule.waitForIdle()
+        rule.onAllNodesWithTag(tab).assertCountEquals(1)
     }
 }

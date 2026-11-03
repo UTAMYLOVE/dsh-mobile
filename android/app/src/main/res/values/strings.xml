@@ -174,4 +174,5 @@
     <string name="prompt_submit">送出</string>
     <string name="prompt_decline">不回答</string>
     <string name="prompt_error">沒有送出，請再試一次</string>
+    <string name="prompt_connecting">連線中…</string>
 </resources>

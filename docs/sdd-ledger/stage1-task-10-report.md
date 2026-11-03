@@ -30,3 +30,9 @@ Pass `originOf` through `PromptHost(events, tree, originOf)`; MainActivity curre
 
 ## Concerns
 - The card covers the dock, but TalkBack can still focus the dock beneath the scrim (the touch is blocked, the semantics are not hidden).
+
+## Fix round 1
+- TalkBack: the card has `paneTitle` (its title) and `liveRegion = Polite`; scrim and card form one traversal group with the card first (`traversalIndex` 0 vs 1).
+- Modal: `FogShell` got an additive `modalOverlay: Boolean = false`; when true the header/stage column and the dock get `clearAndSetSemantics {}`. `MainActivity` passes `rememberHasPrompt(session?.events)` (new in PromptSheet.kt). Tests: `theSheetIsAnnouncedAsAPane`, `PromptModalTest` (tabs and header absent while modal, back after). Note: they query the merged tree, which is what accessibility services read; `clearAndSetSemantics` leaves the nodes in the unmerged tree, so an unmerged query still finds them.
+- Error text uses `MaterialTheme.colorScheme.error` (Material red from SakuraTheme).
+- `PromptSheet` got a trailing `connecting: Boolean = false`; `PromptHost` sets it while an answer is pending and `clientId` is null, showing 「連線中…」 (`PROMPT_CONNECTING`, test `connectingIsSaidWhileTheAnswerWaits`).

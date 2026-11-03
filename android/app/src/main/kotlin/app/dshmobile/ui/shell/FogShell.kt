@@ -64,6 +64,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
@@ -133,6 +134,8 @@ fun FogShell(
     onRetry: () -> Unit,
     onExportErrorLog: () -> Unit,
     overlay: @Composable () -> Unit = {},
+    /** True while [overlay] is a modal card: everything under it is hidden from accessibility services. */
+    modalOverlay: Boolean = false,
     reconnectChipDelayMs: Long = 2_000,
     page: @Composable (ShellTab) -> Unit,
 ) {
@@ -164,7 +167,8 @@ fun FogShell(
             .semantics { testTagsAsResourceId = true },
     ) {
         FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND))
-        Column(Modifier.fillMaxSize()) {
+        val hidden = if (modalOverlay) Modifier.clearAndSetSemantics {} else Modifier
+        Column(Modifier.fillMaxSize().then(hidden)) {
             Header(
                 nav.tab,
                 Modifier
@@ -203,6 +207,7 @@ fun FogShell(
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(start = FogDimens.DockSide, end = FogDimens.DockSide, bottom = 12.dp)
+                .then(hidden)
                 .testTag(Tags.DOCK)
                 .onSizeChanged { stackHeight = it.height }
                 .onGloballyPositioned { edge.stackTop = it.positionInRoot().y },
