@@ -110,3 +110,6 @@ T5: complete (lane-t5 c9e6212..01a58a3, review clean after 2 fix rounds) — mer
 T5: minor (deferred): reopened() sets running=false so a long follow outage (>60 s) during a running turn can still fail a queued bubble; an idle-sent bubble unrecorded when another turn starts waits out that turn
 - Ruling: pushed the local merges (T16, T5, WorkTracker flake fix) before the MuxConnectionTest flake fix lands — Why: CI coverage of the merged work and the flake is rare (load-only); a CI failure on that one test is re-run, not investigated — Cost if wrong: one red CI run.
 Flake fixes complete: MuxConnectionTest closeWhileTheUpgradeIsStarting deterministic (aae3ad4, 20/20) — merged
+T4: fix round 1/5 (4 Important + 4 Minor addressed, 0 open; lane-t4 688ed19..686c191; re-review sonnet)
+T4: complete (lane-t4 bb2ba1b..686c191, review clean after 1 fix round) — merged; conflict resolved (ShellRemote : ChatRemote, duplicate DshRemote import); full unit suite + assembleDebug + assembleDebugAndroidTest green on the merge
+T4: minor (deferred): a conflated fast stop/restart with no screen may leave the old session until next attach; PageTop 8 dp < TopFade 12 dp (first row under a faint fade); settings guard also blocks during app-scope jobs; nav.openSession/back skip canLeave
