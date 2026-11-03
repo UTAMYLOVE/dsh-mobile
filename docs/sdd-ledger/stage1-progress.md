@@ -137,3 +137,10 @@ T12: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
 T12: complete (lane-t12 975e345..53814fa, review clean) — merged
 - Ruling: T12 Minor 1 (overview collector keeps ticking while the app is backgrounded) folds into T13's dispatch (collectAsStateWithLifecycle for the overview and settings collectors); Minor 2 (ReminderLog revision update outside lock, uncapped field lengths) and Minor 3 (EmptyPage flash) go to the final review triage.
 T12: minor (deferred): ReminderLog revision/field caps; EmptyPage flash on first frame; old store mid-day split mismatch (per brief); month 2 decimals (disclosed)
+T14: implementer DONE_WITH_CONCERNS (lane-t14 de1c788..2f36d93, 785 unit on its base); JankStats not exercised in Robolectric (frames fed via governorForTest); onEffectLevel added to buildSettingsEnv/SettingsEnv; LocalEffects provided in MainActivity's FogTheme; blur layers released off-screen (≤4 of 30); review dispatched (opus — perf-critical)
+T14: review = spec ✅, quality Approved (opus), 0 Critical/Important; merge note: FogShell conflicts with T10's modal `hidden` semantics (must be kept)
+- Ruling: Minors 1 (governor steps from max(cap, user floor), no no-op logs), 2 (observe effect locals unconditionally), 3 (CountUpText per-glyph cache), 6 (derivedStateOf for started), 7 (30-frame warm-up after start), 10 (toml back to CRLF, KDoc) plus merging main into lane-t14 (FogShell: keep T10 `hidden` in both places) go into one fix round — Why: lag is the owner's top complaint and each is small — Cost if wrong: one extra round.
+- Ruling: page-switch sweep line (T4 deferral that no task owns) → T15. Blur cap: chat bubbles are glass fill without backdrop blur (blur only for panels + dock) — decided for T8 review/T15 PerfGate to enforce.
+T14: fix round 1/5 dispatched (resume implementer a22b3ca67cf270533)
+T14: minor (deferred): boundsInWindow per scrolled frame; RenderEffect re-alloc at viewport edge; reduced-motion-on-resume untested; MainActivity FogTheme wiring mirrored in test
+T8: implementer DONE_WITH_CONCERNS (lane-t8 41393f1..a14fff7, 823 unit; shots scratchpad/t8-shots); review dispatched (opus)
