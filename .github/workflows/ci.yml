@@ -5,6 +5,13 @@ on:
     paths-ignore:
       - "docs/**"
   pull_request:
+  # A manual run can bisect a renderer crash on the emulator: the shell then draws only its plain pink ground.
+  workflow_dispatch:
+    inputs:
+      plain_background:
+        description: "e2e: plain background (no glows, no grids)"
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -111,7 +118,9 @@ jobs:
   e2e:
     needs: rootfs
     runs-on: ubuntu-latest
-    # The stage-1 suite drives the native shell (t01-t24) and runs the jank gate (PerfGateTest) on a software GPU.
+    # The stage-1 suite drives the native shell (t01-t24), which gates the release, and measures jank (PerfGateTest) on a
+    # software GPU. The jank numbers are ADVISORY here (they go to the step summary and never fail the job on their threshold;
+    # numbers from a real device decide that gate later); a crash or exception in PerfGateTest still fails it.
     timeout-minutes: 90
     env:
       ROOTFS_FILE: ${{ github.workspace }}/rootfs-artifact/dshm-rootfs-x86_64.tar.xz
@@ -147,12 +156,16 @@ jobs:
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE"
       - name: Run the instrumentation tests on the emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          PLAIN_BACKGROUND: ${{ inputs.plain_background && 'true' || 'false' }}
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
           disk-size: 6G
-          ram-size: 4096M
+          # 3 GB guest plus a 1.5 GB Gradle heap leaves the runner room (a 4 GB guest beside a 2 GB Gradle JVM and SwANGLE is
+          # the likely cause of the emulator that vanished without a word).
+          ram-size: 3072M
           cores: 2
           # SwANGLE (SwiftShader Vulkan behind ANGLE) instead of the legacy GLES translator: on swiftshader_indirect the emulator
           # went silent 0.2 s after the native shell's first frame (runs 77, 80, 84: logcat ends at the app's first RenderThread
@@ -160,10 +173,11 @@ jobs:
           emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim
           disable-animations: true
           working-directory: android
+          # The APKs are built already: this Gradle only installs and drives the tests, so it runs on a smaller heap.
           script: |
             adb logcat -c
             adb logcat -v threadtime > "$GITHUB_WORKSPACE/logcat.txt" 2>&1 < /dev/null &
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pandroid.testInstrumentationRunnerArguments.plainBackground=$PLAIN_BACKGROUND"
       # Names, times and pass/fail only (failure messages stay in the uploaded report), so a green job shows what ran.
       - name: List the instrumentation test results
         if: always()
@@ -179,8 +193,16 @@ jobs:
                   print(f'- {state} {m[2].rsplit(".", 1)[-1]}.{m[1]} ({float(m[3]):.1f} s)')
           if not files: print('no results')
           PY
-          # The jank gate's measurements (PerfGateTest sets its thresholds from these) and t24's screen width.
-          grep -hoE "(perf-gate|t24): .*" logcat.txt 2>/dev/null | sed 's/^/    /' | tee -a "$GITHUB_STEP_SUMMARY" || true
+          # t24's screen width, then the jank fractions per scenario: ADVISORY on this emulator (never a failure by themselves).
+          grep -hoE "t24: .*" logcat.txt 2>/dev/null | sed 's/^/    /' | tee -a "$GITHUB_STEP_SUMMARY" || true
+          {
+            echo; echo "### Jank per scenario (advisory on the CI emulator; the gate is set from device numbers)"; echo
+            echo "| scenario | frames | janky | fraction | threshold | verdict |"
+            echo "|---|---|---|---|---|---|"
+            rows=$(grep -hoE "perf-gate [a-z]+: frames=[0-9]+ janky=[0-9]+ fraction=[0-9.]+ max=[0-9.]+ verdict=[a-z-]+" logcat.txt 2>/dev/null \
+              | sed -E 's/perf-gate ([a-z]+): frames=([0-9]+) janky=([0-9]+) fraction=([0-9.]+) max=([0-9.]+) verdict=([a-z-]+)/| \1 | \2 | \3 | \4 | \5 | \6 |/' || true)
+            if [ -n "$rows" ]; then echo "$rows"; else echo "| (no measurement) | | | | | |"; fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Print failures and app crashes
         if: failure()
         run: |

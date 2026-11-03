@@ -39,6 +39,7 @@ import app.dshmobile.system.OnboardingState
 import app.dshmobile.ui.MainActivity
 import app.dshmobile.ui.MainUiState
 import app.dshmobile.ui.fog.EffectLevel
+import app.dshmobile.ui.fog.FogSwitches
 import app.dshmobile.ui.shell.ShellNav
 import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.ui.shell.Tags
@@ -66,8 +67,9 @@ object E2e {
 
     /**
      * Rulings 2-4: onboarding skipped, the fake key in the real Keystore vault, the bundled rootfs installed from the APK asset.
-     * [effects] is a test-setup choice (Task 15): the end-to-end suite runs at SAVER, so no glass backdrop blur is drawn on the
-     * emulator's software renderer; t21 and the perf gate ask for FULL themselves. The production default stays FULL.
+     * [effects] is a test-setup choice (Task 15): the end-to-end suite runs at SAVER, the true safe mode (no backdrop blur, no
+     * 3D or offscreen grid, nothing ambient animating) on the emulator's software renderer; t21 and the perf gate ask for FULL
+     * themselves. The production default stays FULL.
      */
     fun prepareApp(effects: EffectLevel = EffectLevel.SAVER) {
         val app = app
@@ -81,6 +83,17 @@ object E2e {
         val state = OnboardingState(app.getSharedPreferences(OnboardingState.PREFS, Context.MODE_PRIVATE))
         OnboardingState.Step.entries.forEach { state.markDone(it) }
         useEffects(effects)
+        usePlainBackground()
+    }
+
+    /**
+     * CI can bisect a renderer crash with `-Pandroid.testInstrumentationRunnerArguments.plainBackground=true`: the shell then
+     * draws only the pink ground (no glows, no grids). Read before any shell starts; off unless asked.
+     */
+    private fun usePlainBackground() {
+        val plain = InstrumentationRegistry.getArguments().getString("plainBackground") == "true"
+        if (plain != FogSwitches.plainBackground) Log.i(FakeModel.TAG, "plain background: $plain")
+        FogSwitches.plainBackground = plain
     }
 
     /** The user's effect level, as the settings control would set it (also gives the jank governor a fresh start). */

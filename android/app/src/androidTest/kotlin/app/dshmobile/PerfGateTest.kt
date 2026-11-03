@@ -18,7 +18,6 @@ import app.dshmobile.ui.shell.Tags
 import org.junit.After
 import org.junit.AfterClass
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -27,15 +26,20 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * The CI jank gate (Rulings 1 and 4): the FOGCITY shell at FULL, with the system's animations on, measured with JankStats while
- * UiAutomator drives it. No Compose test rule (it cancels the shell's endless animations, which are what is measured) and no
- * ActivityScenario (its launch waits for an idle main looper, which a slow software renderer animating every frame may never
+ * The jank measurement (Rulings 1 and 4): the FOGCITY shell at FULL, with the system's animations on, measured with JankStats
+ * while UiAutomator drives it. No Compose test rule (it cancels the shell's endless animations, which are what is measured) and
+ * no ActivityScenario (its launch waits for an idle main looper, which a slow software renderer animating every frame may never
  * give). The jank governor's auto-degrade is off for the run, so a regression cannot hide behind a quieter level; each scenario
  * ends with the level still FULL. Every scenario runs once to warm up and once measured.
  *
- * Thresholds: [MAX_JANK_TABS], [MAX_JANK_SCROLL], [MAX_JANK_STREAM] start at 0.10 (the brief). Once CI is green they become
- * clamp(measured x 1.5, 0.02, 0.10) rounded up to 0.01, with the measured value written here; a measured value over 0.10 is
- * reported, never loosened. The numbers are logged as `perf-gate <scenario>: frames=… janky=… fraction=…` (tag DSHM-E2E).
+ * ADVISORY on the CI emulator (controller's ruling, final review A-I5): a software GPU on two shared vCPUs says little about a
+ * phone's frame times, so the janky fraction is measured and reported (logged as `perf-gate <scenario>: frames=… janky=…
+ * fraction=… max=… verdict=…`, tag DSHM-E2E, and copied into the CI step summary) but a fraction over [MAX_JANK_TABS],
+ * [MAX_JANK_SCROLL] or [MAX_JANK_STREAM] (0.10, the brief's) does not fail the build; too few frames for a verdict does not
+ * either. Numbers measured on a real device decide the gate later; then these thresholds become clamp(measured x 1.5, 0.02,
+ * 0.10) and this test fails over them again. What still fails here: a crash or exception while driving the shell, a shell that
+ * never shows, and the effect level stepping down although auto-degrade is off. The end-to-end functional tests (E2eTest)
+ * stay release-gating.
  */
 @RunWith(AndroidJUnit4::class)
 class PerfGateTest {
@@ -116,14 +120,22 @@ class PerfGateTest {
                 measure()
                 val (frames, janky) = counter.stop()
                 val fraction = if (frames == 0) 1f else janky.toFloat() / frames
-                Log.i(FakeModel.TAG, "perf-gate $name: frames=$frames janky=$janky fraction=${String.format(Locale.ROOT, "%.4f", fraction)} max=$max")
+                val verdict = advisoryVerdict(frames, fraction, max)
+                Log.i(FakeModel.TAG, "perf-gate $name: frames=$frames janky=$janky fraction=${String.format(Locale.ROOT, "%.4f", fraction)} max=$max verdict=$verdict")
+                // A setup failure, not a measurement: auto-degrade is off, so the level must not have moved.
                 assertEquals("the effects stepped down during $name", EffectLevel.FULL, app.effectsController.effective.value)
-                assertTrue("$name: only $frames frames were measured", frames >= MIN_FRAMES)
-                assertTrue("$name: $janky of $frames frames janky ($fraction) > $max", fraction <= max)
+                // ADVISORY (see the class doc): over the threshold, or too few frames, is reported above and never fails the run.
             } finally {
                 E2e.finishShell(activity)
             }
         }
+    }
+
+    /** `within` / `over` the threshold, or `no-verdict` with fewer than [MIN_FRAMES] frames: reported only (advisory). */
+    private fun advisoryVerdict(frames: Int, fraction: Float, max: Float): String = when {
+        frames < MIN_FRAMES -> "no-verdict"
+        fraction <= max -> "within"
+        else -> "over"
     }
 
     /** The shell, started like a launcher would ([E2e.startShell], which finishes it again if the start fails), with its tabs on screen. */
@@ -184,16 +196,16 @@ class PerfGateTest {
 
     companion object {
         private const val HOLDER = "e2e-perf"
-        /** Fewer measured frames than this means nothing was drawn: no verdict. */
+        /** Fewer measured frames than this means nothing was drawn: no verdict (reported, advisory). */
         private const val MIN_FRAMES = 30
         private const val TAB_PAUSE_MS = 900L
         private const val SCROLL_SPEED = 1_500
 
-        /** Initial gate (brief, Step 3); to be set from the first green CI measurement. */
+        /** Advisory threshold (brief, Step 3) until on-device numbers set the gate. */
         const val MAX_JANK_TABS = 0.10f
-        /** Initial gate (brief, Step 3); to be set from the first green CI measurement. */
+        /** Advisory threshold (brief, Step 3) until on-device numbers set the gate. */
         const val MAX_JANK_SCROLL = 0.10f
-        /** Initial gate (brief, Step 3); to be set from the first green CI measurement. */
+        /** Advisory threshold (brief, Step 3) until on-device numbers set the gate. */
         const val MAX_JANK_STREAM = 0.10f
 
         @AfterClass @JvmStatic fun releaseDsh() {
