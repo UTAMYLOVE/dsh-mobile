@@ -58,7 +58,7 @@ class DshMobileApp : Application(), Configuration.Provider {
     val rootfsInstaller: RootfsInstaller by lazy {
         RootfsInstaller({ assets.open(it) }, filesDir, BuildConfig.ROOTFS_VERSION)
     }
-    val crashPolicy: CrashPolicy by lazy { CrashPolicy(clock = System::currentTimeMillis) }
+    val crashPolicy: CrashPolicy by lazy { CrashPolicy() } // SystemClock.elapsedRealtime: immune to wall-clock changes
 
     /**
      * True from the moment [app.dshmobile.service.DshService] gives up on a crash-looping dsh until the next start. The main

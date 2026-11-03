@@ -1,13 +1,16 @@
 package app.dshmobile.service
 
+import android.os.SystemClock
+
 /**
  * Decides whether dsh may be restarted after it died: [max] crashes inside a sliding [windowMs] window means give up.
- * [clock] returns milliseconds from any monotonic-enough source.
+ * [clock] returns milliseconds from a monotonic source: by default `SystemClock.elapsedRealtime` (counts deep sleep too, and
+ * unlike the wall clock cannot jump when the user or the network sets the time); tests inject their own.
  */
 class CrashPolicy(
     private val max: Int = 3,
     private val windowMs: Long = 600_000,
-    private val clock: () -> Long,
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
 ) {
     enum class Decision { RESTART, GIVE_UP }
 
