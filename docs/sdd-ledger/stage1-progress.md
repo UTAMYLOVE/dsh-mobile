@@ -83,3 +83,14 @@ T2: hardening round implementer DONE (lane-t2fix d5934e9..8582f9a; 723 unit; 4 n
 T2: hardening re-review (sonnet) = all 5 addressed, 0 new Critical/Important
 T2: hardening merged (lane-t2fix 36f606b..8582f9a)
 T2: minor (deferred): conflated OPEN→RECONNECTING→OPEN could keep a stale clientId briefly (backoff ≥ 250 ms makes it negligible); lateinit in closeWhileTheUpgradeIsStartingCancelsTheNewSocket could flake in theory; first retry after a short-lived socket waits backoffMs[1]
+- Ruling: T5 starts now on lane-t5 (wt-t1) in parallel with T4: it implements chat/ (state, reducer, store) and DshRemote's ChatRemote; the one-line ShellSession change (ShellRemote : ChatRemote) is deferred to the merge after T4 lands — Why: T5's substance doesn't depend on T4 — Cost if wrong: a small merge fix-up.
+T16: fix round 1 implementer DONE_WITH_CONCERNS (996aaf0; 738 unit; 9 RED→GREEN); touches ui/UiHolder.kt (isForeground, onWorkEnded) — overlaps T4 lane; re-review dispatched (sonnet)
+T16: fix round 1/5 (2 Important + 6 Minor addressed, 0 open; lane-t16 adadc0a..996aaf0)
+T16: complete (lane-t16 bb2ba1b..996aaf0, review clean after 1 fix round) — merged
+T16: minor (deferred): redundant baseline at startup/reopen (cancelled by collectLatest); a failed Stop followed by natural completion suppresses the done notice
+T16 merge: WorkTrackerTest.aSubagentRunningKeepsItBusyAfterTheLeadIsIdle flaky on the merged head (1/3) — merge not pushed; deflake dispatched to the T16 implementer on lane-t16fix (296f3e9)
+T5: implementer DONE_WITH_CONCERNS (lane-t5 c9e6212..168e3e7, 751 unit); deviations: internal approvals map, reduceContext param, firstSeq = min seq, session/page assumed snapshot-shaped (unverified), store ignores StreamSignal.Failed (retry left to shell); ShellRemote : ChatRemote change pending T4 merge; review dispatched (sonnet)
+T5: review 1 = spec ✅, quality Needs fixes (sonnet) — Important: failed/ended follow leaves the chat silently dead (no error, no retry); replayed durable events regress approval cards and running
+- Ruling: Minors 3 (loadOlder reports unexpected-answer), 4 (remove dead quadratic assistant-stream branch), 5 (pending bubble 60 s timeout → failed-send with retry) join round 1.
+T5: fix round 1/5 dispatched (resume implementer)
+T5: minor (deferred): cross-page tool pairs stay RUNNING if their result is in an unloaded page; O(n) list rebuild per event (bounded by maxMessages); close() cancels publishJob off the reduce context (benign)
