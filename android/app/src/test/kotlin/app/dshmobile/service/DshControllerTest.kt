@@ -349,7 +349,8 @@ class DshControllerTest {
     @Test fun stdoutAndStderrGoToTheMaskedErrorLogButNotTheLaunchLine() = runBlocking {
         script = """echo "hello from dsh"; echo "boom token=zzz999" >&2; echo "dsh web: http://127.0.0.1:45678/?token=abcSECRET"; echo "again abcSECRET"; exec sleep 30"""
         newController().ensureRunning()
-        waitUntil { errorLog.file().exists() && errorLog.file().readText().contains("again") }
+        // stdout and stderr have their own readers: wait for the last line of each (stderr can arrive after stdout's last).
+        waitUntil { errorLog.file().exists() && errorLog.file().readText().let { it.contains("again") && it.contains("boom") } }
         val text = errorLog.file().readText()
         assertTrue(text.contains("[dsh] hello from dsh"))
         assertTrue(text.contains("[dsh] boom token=***"))
