@@ -131,3 +131,48 @@ The remaining tests need a new API (`runningHint`, `codec`, `prompts`, `ChatUiCa
 - The permanent-code list in `DshErrors.isPermanent` is my judgement from the dsh source's `RemoteError` codes. Review it once more.
 - A-I3 relies on the service's own `$events` client receiving the waterfalls, the same as the UI's client. This is verified with the fake only, not against a real dsh.
 - The optional e2e checks were not added: the reconnect while streaming (A-I1) and the finish during E2E_SLOW (§5.11).
+
+## Residual round (branch `residual-x`, from main 400d33f)
+
+Commits dd0d42a..762a9e7, plus this report section. Nothing pushed. androidTest and final-fix-x were not touched.
+
+Verification after the last code commit:
+- Full unit suite (`--max-workers=2`): **1049 tests, 0 failures, 0 skipped**.
+- `assembleDebug` and `assembleDebugAndroidTest` both build, with no compiler warnings in the output.
+
+### 1. Important: A-I2 was incomplete (dd0d42a)
+- **Problem:** `DshClient` still turned the request String into a body on the caller's thread (`toRequestBody`), which UTF-8 encoded about 27 MB on Main for a 20 MB upload.
+- **Change:**
+  - `DshRemote.call` now encodes the body bytes on the codec dispatcher, through `encodeBody`, a constructor seam that defaults to UTF-8.
+  - `DshClient.postJsonForBoundedText(path, ByteArray, maxBytes)` posts those bytes as they are. `ByteArray.toRequestBody` wraps them without copying or encoding.
+  - The String overloads that other callers use are unchanged.
+  - The upload KDoc now counts this copy: the peak is about 5× the file, and none of it is made on the caller's thread.
+- **Test:** DshRemoteCallTest `theBodyBytesAreEncodedOffTheCallersThread`.
+  - It runs an upload and a list call from a single thread named "caller".
+  - It records the thread that encodes each body and asserts that it is never "caller".
+  - RED: compile (the `encodeBody` parameter did not exist).
+
+### 2. Important: unbounded composer text in the saved state (0b76617)
+- **Change:** `MainViewModel.saveState()` saves the text only up to `MAX_SAVED_TEXT = 50_000` characters, about 100 KB of UTF-16. A longer draft is left out of the Bundle. It stays in memory and is lost only to a process death.
+- **Tests:** MainViewModelTest `aHugeDraftStaysInMemoryButIsNotSaved` and `aNormalDraftIsSavedAndRestored`. RED: compile.
+
+### 3. Minor: a deep link stuck behind a local settings action (0b76617)
+- **Problem:** the busy watch's `snapshotFlow` read a plain `var` that was null at init, so it never re-emitted.
+- **Change:** `settingsDraft` is now Compose state. The flow sees the draft arrive and sees its `localBusy` change.
+- **Test:** MainViewModelTest `aLinkWaitingForALocalSettingsActionOpensWhenItEnds`. It was RED against the plain var: the tab stayed SETTINGS.
+
+### 4. Minor: the update confirm before knowing an update exists (7f04b65)
+- **Change:** `SettingsVersions.updateTarget()` gives the verified version an update would install. The factory uses `VerifiedUpdatePolicy.target(current)`.
+- 「檢查更新」 asks it first:
+  - With no target, the check runs at once, stops nothing and asks nothing.
+  - With a target, it asks only if work is running.
+- **Test:** SettingsScreenTest `anUpdateWithNothingToInstallNeverAsks`. It was RED: the card appeared.
+
+### 5. Tags prefix rule (762a9e7)
+- **Change:** `EFFECT_LOWERED` changed from "effect-lowered" to "lowered-effect", because the old value started with the prefix tag `EFFECT = "effect-"`. Users go through the constant, so only the value changed.
+- **Test:** the new `TagsPrefixTest.noPrefixTagStartsAnotherTag` checks every tag that ends in `-` against all other tags. It was RED before the rename, with `EFFECT="effect-" starts EFFECT_LOWERED`. This was the only clash.
+
+### Concerns
+- `encodeBody` is a constructor parameter that exists only as a test seam. Production always uses the UTF-8 default.
+- A draft over 50 000 characters is lost if the process dies. That is a deliberate trade against the crash.
+- `updateTarget()` reads the `current` link on the main thread when the button is tapped. It is one symlink read, the same as the screen's existing version reads.
