@@ -61,3 +61,8 @@ T7: fix round 1/5 (4 addressed, 0 open; lane-t7 a6e508b..ed82360)
 T7: complete (lane-t7 d143f12..ed82360, review clean after 1 fix round) — merge into the branch batched with wave A to save CI minutes
 T7: minor (deferred): capped ordered list numbers the remainder item ("501. …還有 N 項"); short non-streaming text parsed twice
 - Ruling: new Task 16 (background: finish work, then stop) added to the plan from the boss's decision "做完再停就好" (spec §5.11); runs after T2 is merged, on lane-t7's worktree (files disjoint from the UI tasks) — Cost if wrong: none beyond the task.
+T3: fix round 1 implementer DONE_WITH_CONCERNS (e974277): caches + counters, background layer, white fade, position-change invalidation, padding 16/18/18 gap 14, all minors; 655 unit; meter gradient spans full bar (deviation); re-review dispatched (sonnet)
+T3: fix round 1/5 (5 Important + 8 Minor addressed, 0 open; lane-t3 32a7d03..e974277)
+T3: complete (lane-t3 d143f12..e974277, review clean after 1 fix round)
+T3: minor (deferred → T14 perf review): CountUpText measures text every frame during the 950 ms count-up; FogDebug counters (ConcurrentHashMap lookup) in production draw paths; onGloballyPositioned may not fire on graphicsLayer-only moves (panel rise) — brief blur lag; Meter gradient spans the full bar (fill <100% ends lighter than mockup; fix via unit shader + setLocalMatrix); CountUpText ignores max constraints and defaults colour to Sakura.Text
+Wave A merge: lane-t3 and lane-t7 merged into the branch (T1/T2 lane merges after T2)
