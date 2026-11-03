@@ -4,7 +4,9 @@ import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.FakeDshServer
 import app.dshmobile.runtime.FakeMux
 import app.dshmobile.runtime.eventually
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -331,21 +333,25 @@ class MuxConnectionTest {
         follow.job.cancel()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // getCompleted
     @Test fun closeWhileTheUpgradeIsStartingCancelsTheNewSocket() = runBlocking {
         client.login()
-        lateinit var mux: MuxConnection
+        // The connector starts inside the constructor; it may only reach open() once the test holds the instance.
+        val constructed = CompletableDeferred<MuxConnection>()
         val opened = CopyOnWriteArrayList<okhttp3.WebSocket>()
-        mux = MuxConnection(
+        val mux = MuxConnection(
             open = { listener ->
                 client.openWebSocket("/api/remote.mux", listener).also {
                     opened += it
-                    mux.close() // close() lands between the attempt being registered and open() returning
+                    constructed.getCompleted().close() // close() lands between the attempt being registered and open() returning
                 }
             },
             relogin = { client.login() },
             scope = scope,
             backoffMs = listOf(0),
+            beforeConnect = { constructed.await() },
         ).also { made += it }
+        constructed.complete(mux)
         eventually("the upgrade started") { opened.isNotEmpty() }
         assertEquals(MuxState.CLOSED, mux.state.value)
         delay(500)
