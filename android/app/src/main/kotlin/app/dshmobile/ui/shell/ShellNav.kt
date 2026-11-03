@@ -38,13 +38,25 @@ class ShellNav {
     }
 
     /**
-     * One step back inside the shell: the conversation list closes first, then the open conversation, then any tab goes back to
-     * the overview. False when there is nothing left to go back from (the system's back then applies).
+     * One step back inside the shell. On the chat tab the conversation list closes first (over an open conversation), then the
+     * open conversation. Any other tab, and the chat with nothing left to close, goes to the overview through [select], so
+     * [canLeave] is asked (a refusal still consumes the back: the app must not close under a busy page). The chat's state is
+     * only touched while the chat is the tab (final review B1-I5). False on the overview: the system's back then applies.
      */
-    fun back(): Boolean = when {
-        listOpen -> { listOpen = false; true }
-        openSessionId != null -> { openSessionId = null; true }
-        tab != ShellTab.OVERVIEW -> { tab = ShellTab.OVERVIEW; true }
-        else -> false
+    fun back(): Boolean {
+        if (tab == ShellTab.CHAT) {
+            if (listOpen && openSessionId != null) {
+                listOpen = false
+                return true
+            }
+            listOpen = false
+            if (openSessionId != null) {
+                openSessionId = null
+                return true
+            }
+        }
+        if (tab == ShellTab.OVERVIEW) return false
+        select(ShellTab.OVERVIEW)
+        return true
     }
 }

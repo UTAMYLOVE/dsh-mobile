@@ -37,4 +37,37 @@ class ShellNavTest {
         nav.select(ShellTab.CHAT)
         assertEquals(ShellTab.CHAT, nav.tab)
     }
+
+    /** Final review B1-I5: back on another tab goes to the overview and leaves the chat's hidden state alone. */
+    @Test fun backOnAnotherTabLeavesTheHiddenChatAlone() {
+        val nav = ShellNav()
+        nav.openSession("s1")
+        nav.listOpen = true
+        nav.select(ShellTab.AGENTS)
+        assertTrue(nav.back())
+        assertEquals(ShellTab.OVERVIEW, nav.tab)
+        assertEquals("s1", nav.openSessionId)
+        assertTrue(nav.listOpen)
+        assertFalse(nav.back())
+    }
+
+    @Test fun backAsksCanLeaveLikeATabTap() {
+        val nav = ShellNav()
+        var refusals = 0
+        nav.canLeave = { from -> from != ShellTab.SETTINGS }
+        nav.onLeaveRefused = { refusals++ }
+        nav.select(ShellTab.SETTINGS)
+        assertTrue("consumed: the app does not close under a busy settings page", nav.back())
+        assertEquals(ShellTab.SETTINGS, nav.tab)
+        assertEquals(1, refusals)
+    }
+
+    @Test fun backFromTheListWithNothingOpenGoesToTheOverview() {
+        val nav = ShellNav()
+        nav.select(ShellTab.CHAT)
+        nav.listOpen = true
+        assertTrue(nav.back())
+        assertEquals(ShellTab.OVERVIEW, nav.tab)
+        assertFalse(nav.listOpen)
+    }
 }
