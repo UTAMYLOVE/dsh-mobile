@@ -1,6 +1,17 @@
 package app.dshmobile.ui.shell
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.snap
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -16,8 +27,6 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -64,7 +73,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -100,7 +108,6 @@ import app.dshmobile.ui.fog.FogFonts
 import app.dshmobile.ui.fog.FogMotion
 import app.dshmobile.ui.fog.FogText
 import app.dshmobile.ui.fog.LocalEffects
-import app.dshmobile.ui.fog.fogShadowPaint
 import app.dshmobile.ui.fog.glass
 import app.dshmobile.ui.fog.glow
 import app.dshmobile.ui.fog.rememberBackdrop
@@ -316,23 +323,43 @@ private fun rememberIdle(started: Boolean): IdleWatch {
 }
 
 /**
- * Fades the content out over [DockFade] ending at the floating stack's top, transparent below it: a mask (destination-in in an
- * offscreen layer), so it works the same with or without blur. The positions are read here, at draw time, so the keyboard's
- * animation only redraws.
+ * Fades the content out over [DockFade] ending at the floating stack's top, transparent below it. The content is recorded once
+ * into a layer: above the band it is drawn as is, and only the band itself goes through an offscreen save-layer for the mask
+ * (destination-in), so it works the same with or without blur without a full-screen offscreen layer. The positions are read
+ * here, at draw time, so the keyboard's animation only redraws; the mask's brush is rebuilt only when the band moves.
  */
-private fun Modifier.fadeAbove(edge: FloatingEdge): Modifier = this
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-    .drawWithContent {
-        drawContent()
+private fun Modifier.fadeAbove(edge: FloatingEdge): Modifier = this.drawWithCache {
+    val content = obtainGraphicsLayer()
+    var brushFor = Float.NaN
+    var brush: Brush = SolidColor(Color.Black)
+    val maskPaint = Paint()
+    onDrawWithContent {
         val stackTop = edge.stackTop
-        if (stackTop.isNaN()) return@drawWithContent
+        if (stackTop.isNaN()) {
+            drawContent()
+            return@onDrawWithContent
+        }
         val end = stackTop - edge.stageTop
         val start = end - DockFade.toPx()
-        drawRect(
-            brush = Brush.verticalGradient(listOf(Color.Black, Color.Transparent), startY = start, endY = end),
-            blendMode = BlendMode.DstIn,
-        )
+        if (start != brushFor) {
+            brushFor = start
+            brush = Brush.verticalGradient(listOf(Color.Black, Color.Transparent), startY = start, endY = end)
+        }
+        content.record { this@onDrawWithContent.drawContent() }
+        clipRect(bottom = start.coerceAtLeast(0f)) { drawLayer(content) }
+        if (end > 0f) {
+            val band = Rect(0f, start.coerceAtLeast(0f), size.width, end.coerceAtMost(size.height))
+            if (!band.isEmpty) {
+                drawContext.canvas.saveLayer(band, maskPaint)
+                clipRect(band.left, band.top, band.right, band.bottom) {
+                    drawLayer(content)
+                    drawRect(brush, topLeft = band.topLeft, size = band.size, blendMode = BlendMode.DstIn)
+                }
+                drawContext.canvas.restore()
+            }
+        }
     }
+}
 
 /** True once [connection] has been RECONNECTING for [delayMs] without a break; a short blip never shows the chip. */
 @Composable
@@ -349,7 +376,11 @@ private fun rememberReconnectingChip(connection: MuxState?, delayMs: Long): Bool
     return shown && reconnecting
 }
 
-/** The current page; switching slides in depth (or fades, or cuts) as the effect level allows. */
+/**
+ * The current page; switching slides in depth (or fades, or cuts) as the effect level allows. The fade is the page's own alpha
+ * on the switch's transition, applied to each thing the page draws (ModulateAlpha) rather than through a page-sized offscreen
+ * layer for each of the two pages on screen.
+ */
 @Composable
 private fun Pages(tab: ShellTab, content: @Composable (ShellTab) -> Unit) {
     val effects = LocalEffects.current
@@ -362,14 +393,26 @@ private fun Pages(tab: ShellTab, content: @Composable (ShellTab) -> Unit) {
             when {
                 ms == 0 -> ContentTransform(EnterTransition.None, ExitTransition.None)
                 effects.depthTransitions ->
-                    (slideInHorizontally(tween(ms, easing = FogMotion.EaseOut)) { w -> dir * w * 72 / 100 } + fadeIn(tween(ms, easing = FogMotion.EaseOut))) togetherWith
+                    slideInHorizontally(tween(ms, easing = FogMotion.EaseOut)) { w -> dir * w * 72 / 100 } togetherWith
                         (slideOutHorizontally(tween(ms, easing = FogMotion.EaseOut)) { w -> -dir * w * 18 / 100 } +
-                            scaleOut(tween(ms, easing = FogMotion.EaseOut), targetScale = .9f) + fadeOut(tween(ms, easing = FogMotion.EaseOut)))
-                else -> fadeIn(tween(ms)) togetherWith fadeOut(tween(ms))
+                            scaleOut(tween(ms, easing = FogMotion.EaseOut), targetScale = .9f))
+                else -> ContentTransform(EnterTransition.None, ExitTransition.None)
             }
         },
         label = "page",
-    ) { current -> content(current) }
+    ) { current ->
+        val ms = effects.pageMs
+        val alpha = transition.animateFloat(
+            transitionSpec = { if (ms == 0) snap() else tween(ms, easing = if (effects.depthTransitions) FogMotion.EaseOut else LinearEasing) },
+            label = "page-alpha",
+        ) { if (it == EnterExitState.Visible) 1f else 0f }
+        Box(
+            Modifier.fillMaxSize().graphicsLayer {
+                this.alpha = alpha.value
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            },
+        ) { content(current) }
+    }
 }
 
 /**
@@ -398,35 +441,80 @@ private fun PageSweep(tab: ShellTab) {
             .fillMaxSize()
             .clearAndSetSemantics { testTag = Tags.PAGE_SWEEP }
             .drawWithCache {
-                val line = 2.dp.toPx()
-                val core = Brush.verticalGradient(0f to Color.Transparent, .2f to Color.White, .8f to Color.White, 1f to Color.Transparent)
-                val near = fogShadowPaint(Color.White.copy(alpha = .9f), 18.dp.toPx())
-                val far = fogShadowPaint(Sakura.Primary.copy(alpha = .45f), 40.dp.toPx())
-                val nearSpread = 6.dp.toPx()
-                val farSpread = 12.dp.toPx()
-                val start = -10.dp.toPx()
-                val travel = size.width - start
-                val skew = tan(Math.toRadians(-12.0)).toFloat()
-                onDrawBehind {
-                    val p = progress.value
-                    val alpha = if (p < .15f) p / .15f else (1f - p) / .85f
-                    if (alpha <= 0f) return@onDrawBehind
-                    val x = start + travel * p
-                    val canvas = drawContext.canvas
-                    canvas.save()
-                    // skewX about the line's own middle, like CSS transform-origin: center
-                    canvas.translate(x, size.height / 2f)
-                    canvas.skew(skew, 0f)
-                    canvas.translate(-x, -size.height / 2f)
-                    near.alpha = .9f * alpha
-                    far.alpha = .45f * alpha
-                    canvas.drawRect(x - farSpread, 0f, x + line + farSpread, size.height, far)
-                    canvas.drawRect(x - nearSpread, 0f, x + line + nearSpread, size.height, near)
-                    drawRect(core, topLeft = Offset(x, 0f), size = Size(line, size.height), alpha = alpha)
-                    canvas.restore()
-                }
+                val look = SweepLook(density)
+                onDrawBehind { look.draw(this, progress.value) }
             },
     )
+}
+
+/**
+ * The sweep line's look, built once per density: a 2 dp white core and two glows (white, near; pink, far). The glows are
+ * horizontal gradients sampled from a blurred band's profile (the mockup's box-shadows), so drawing them costs one gradient
+ * rect each; no blur mask filter, which under the skew would be re-rasterised every frame.
+ */
+internal class SweepLook(density: Float) {
+    private val line = 2f * density
+    private val core = Brush.verticalGradient(0f to Color.Transparent, .2f to Color.White, .8f to Color.White, 1f to Color.Transparent)
+    private val near = GlowBand(Color.White.copy(alpha = .9f), halfWidth = 6f * density + line / 2f, blur = 18f * density)
+    private val far = GlowBand(Sakura.Primary.copy(alpha = .45f), halfWidth = 12f * density + line / 2f, blur = 40f * density)
+    private val start = -10f * density
+    private val skew = tan(Math.toRadians(-12.0)).toFloat()
+
+    /** Draws the line [p] of the way across ([p] 0..1): fading in over the first 15 %, out over the rest. */
+    fun draw(scope: DrawScope, p: Float) = with(scope) {
+        val alpha = if (p < .15f) p / .15f else (1f - p) / .85f
+        if (alpha <= 0f) return@with
+        val x = start + (size.width - start) * p
+        val canvas = drawContext.canvas
+        canvas.save()
+        // skewX about the line's own middle, like CSS transform-origin: center
+        canvas.translate(x, size.height / 2f)
+        canvas.skew(skew, 0f)
+        canvas.translate(-x, -size.height / 2f)
+        val mid = x + line / 2f
+        far.draw(this, mid, alpha)
+        near.draw(this, mid, alpha)
+        drawRect(core, topLeft = Offset(x, 0f), size = Size(line, size.height), alpha = alpha)
+        canvas.restore()
+    }
+}
+
+/**
+ * A vertical band of [color], [halfWidth] each side of its centre, blurred like CSS `blur` (Gaussian, sigma = blur / 2), as a
+ * pre-built horizontal gradient: [Stops] samples of the blurred profile across the band's reach.
+ */
+private class GlowBand(color: Color, halfWidth: Float, blur: Float) {
+    private val reach = halfWidth + blur * 1.25f
+    private val brush: Brush
+
+    init {
+        val sigma = blur / 2f
+        val stops = Array(Stops) { i ->
+            val t = i / (Stops - 1f)
+            val d = -reach + 2f * reach * t
+            val a = .5f * (erf((halfWidth - d) / (sigma * SQRT2)) + erf((halfWidth + d) / (sigma * SQRT2)))
+            t to color.copy(alpha = color.alpha * a.coerceIn(0f, 1f))
+        }
+        brush = Brush.horizontalGradient(*stops, startX = -reach, endX = reach)
+    }
+
+    fun draw(scope: DrawScope, centre: Float, alpha: Float) = with(scope) {
+        translate(left = centre) { drawRect(brush, topLeft = Offset(-reach, 0f), size = Size(2f * reach, size.height), alpha = alpha) }
+    }
+
+    private companion object {
+        const val Stops = 17
+        const val SQRT2 = 1.4142135f
+    }
+}
+
+/** The error function (Abramowitz and Stegun 7.1.26, error under 1.5e-7): the blur profile of a band. */
+private fun erf(x: Float): Float {
+    val sign = if (x < 0f) -1f else 1f
+    val ax = kotlin.math.abs(x)
+    val t = 1f / (1f + .3275911f * ax)
+    val y = 1f - (((((1.061405429f * t - 1.453152027f) * t) + 1.421413741f) * t - .284496736f) * t + .254829592f) * t * kotlin.math.exp(-ax * ax)
+    return sign * y
 }
 
 @Composable

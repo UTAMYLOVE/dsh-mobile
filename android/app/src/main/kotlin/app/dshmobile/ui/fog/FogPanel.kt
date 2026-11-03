@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +61,8 @@ fun FogPanel(
             .graphicsLayer {
                 val p = rise.value
                 alpha = p
+                // Each draw of the panel takes the alpha, instead of an offscreen layer per rising panel.
+                compositingStrategy = CompositingStrategy.ModulateAlpha
                 translationY = (1f - p) * 26.dp.toPx()
                 val sc = .98f + .02f * p
                 scaleX = sc

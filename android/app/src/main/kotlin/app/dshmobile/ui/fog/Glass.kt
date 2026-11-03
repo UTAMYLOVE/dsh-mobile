@@ -138,6 +138,7 @@ val LocalBlurFloor: ProvidableCompositionLocal<BlurFloor?> = staticCompositionLo
 
 /** A CSS blur of [blurPx] has a Gaussian sigma of blurPx / 2; BlurMaskFilter wants a radius, which Skia turns into 0.57735 * radius + 0.5. */
 internal fun cssBlurFilter(blurPx: Float): BlurMaskFilter {
+    FogDebug.count("maskFilter")
     val sigma = blurPx / 2f
     return BlurMaskFilter(((sigma - 0.5f) / 0.57735f).coerceAtLeast(0.1f), BlurMaskFilter.Blur.NORMAL)
 }
