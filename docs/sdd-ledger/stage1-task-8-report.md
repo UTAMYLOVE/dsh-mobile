@@ -184,3 +184,73 @@ All in `/tmp/claude-0/-home-user/1e630f02-b974-5959-b741-b3d92fa6411e/scratchpad
 - **Live → durable handoff.** If dsh sends the stream's `end` before the `assistant/message` event, the reply disappears for that gap. This is a store ordering question, not seen in tests.
 - Pieces of a long reply have a flat fill (no blur, no shadow) where a short reply has full glass. The render shows them as one continuous bubble; the difference is visible only side by side.
 - A table of 500 rows or a single code line of 100k characters is still one lazy item (tables cannot be split without breaking their column widths).
+
+## Fix round 1
+
+Commits on `lane-t8`:
+- b80fa1c: the fixes.
+- 0d14903: merge of main (T10/T11/T12/T14, a5ccff2).
+- The merge of main at 25e017f (T13), right after it.
+- This report commit.
+
+### Fixes
+- **I1.** The message list sits in `CompositionLocalProvider(LocalBackdrop provides null)` (`ChatScreen.kt`), so bubbles are glass with no backdrop blur. The header, the menu, the ↓ pill and the dock keep their blur. The header has a new tag, `CHAT_HEADER`.
+  - Test `bubblesNeverBlurButTheHeaderDoes` (FULL effects, a backdrop provided): `FogSemantics.Blur` is true on `CHAT_HEADER` and false on `ASSISTANT_BUBBLE` and `LIVE_BUBBLE`.
+- **I2.** When a new `PendingSend.requestId` appears, the list runs `animateScrollToItem(0)`. A 48 dp glass ↓ pill (`SCROLL_TO_NEWEST`, 「到最新的訊息」 for TalkBack) shows while `firstVisibleItemIndex > 0` and the newest row's key differs from the one that was newest when the user left the bottom; tapping it animates to 0.
+  - Tests:
+    - `atTheBottomANewRowComesIntoView`
+    - `scrolledUpANewRowKeepsThePlaceAndOffersThePill`: the visible row's top is unchanged (±1 px), the new row is not composed, the pill is at least 48 dp, and tapping it shows the new row and hides the pill.
+    - `scrolledUpASendReturnsToTheBottom`
+- **M1.** The deep link calls `nav.select(CHAT)` first and opens the conversation only if the tab is CHAT. While settings is busy it does nothing, and the existing toast says why. Test `aDeepLinkWaitsWhileSettingsIsBusy`.
+- **M2.** New `parseMissing(missing, cache, parse)` (internal): it skips keys already cached, stores each parse as it finishes and redraws once for the whole batch. Test `BlockCacheTest.aBatchParsesOnlyWhatIsNotCachedAndRedrawsOnce`.
+- **M3.** New strings `chat_stopped` (「已停止」) and `chat_attachments` (「附件：」, passed into the row builder).
+- **M4.** `minimumInteractiveComponentSize()` on `ThinkingToggle` and the source chips.
+- **M5.** Long user-bubble pieces follow one 135° gradient. Each piece gets a `Shade(from, to, across)`; the vertical share is estimated from the pieces' text lengths, so neighbours meet on exactly the same colour. Test `neighbouringPiecesShareTheirEdgeOfTheGradient`; render `11-long-user-bubble.png`.
+- **M6.** Pending text uses `Sakura.TextSecondary`.
+- **M7.** `ConversationStore.selectModel` now returns false when dsh refuses. `onPickModel` resets `picked` itself; the `LaunchedEffect(sendError)` is gone. Test `aRefusedModelChangeReturnsFalse`.
+- **T5 follow-up.** On a committed `end` whose `outcome.seq` is not yet in the state, the store first publishes the full text, then holds `live` until `lastSeq >= seq`.
+  - The hold also ends with the next snapshot, a new `start`, a reconnect, a loaded older page, or after 10 s.
+  - An abandoned end, an end without a seq, or a message that arrived before the end drops `live` at once.
+  - Tests:
+    - `aCommittedReplyStaysUntilItsMessageArrives` (it also shows the whole text, not the last throttled publish)
+    - `aCommittedReplyWhoseMessageNeverComesIsDroppedAfterTenSeconds`
+    - `theNextBaselineDropsAHeldReply`
+    - `anAbandonedOrUnnumberedEndDropsTheReplyAtOnce`
+    - `aMessageThatArrivedBeforeTheEndDropsTheReplyAtOnce`
+
+### RED → GREEN
+- **Compile RED.** The new tests first failed to compile: `CHAT_HEADER` and `SCROLL_TO_NEWEST` were unresolved, and `selectModel` returned Unit where a Boolean was expected.
+- **Runtime RED (mutation).** I wrote the fixes before running, so I reverted each one in place (hold off, backdrop passed through, pill off, send-scroll off, deep link unguarded) and ran once. Six fix tests failed:
+  - `aCommittedReplyStaysUntilItsMessageArrives`
+  - `aCommittedReplyWhoseMessageNeverComesIsDroppedAfterTenSeconds`
+  - `aDeepLinkWaitsWhileSettingsIsBusy`
+  - `scrolledUpANewRowKeepsThePlaceAndOffersThePill`
+  - `scrolledUpASendReturnsToTheBottom`
+  - `bubblesNeverBlurButTheHeaderDoes`
+  After restoring, all were GREEN.
+- **M2.** A first compose-level parse-count test did not go RED under the old behaviour, because Robolectric frame timing never restarts the effect mid-parse. I replaced it with the deterministic `parseMissing` unit test, which is RED with the old per-item publish and no skip, and GREEN with the fix.
+
+### Merges
+- **a5ccff2: 5 conflicts, all resolved by keeping both sides.**
+  - `MainActivity.kt`:
+    - imports: chat and `AgentsTab`
+    - fields: `dockError` and T14's jank tracking
+    - `onCreate`: the `lastSessionId` restore plus T14's live-effects `setContent` and `trackJank()`, replacing my static `setContent`
+    - `onStop`: the `lastSessionId` save and `stopJankTracking()`
+    - `when (tab)`: CHAT, AGENTS and OVERVIEW. CHAT now falls back to `EmptyPage` without a session, and the `EmptyPage` doc is reworded as that fallback.
+  - `Tags.kt` and `strings.xml`: both blocks. Main's `option-` is not a prefix of `model-option-`.
+  - `ShellSessionHolderTest`: main's `interruptSubagent` and my recording `follow`.
+  - `MainActivityTest`:
+    - the union of the imports and a single `createEmptyComposeRule`
+    - `FakeDshServer(rpc = { req -> rpcBodies.add(req.body.clone().readUtf8()); rpc(req) }, mux = mux)`
+    - `rpc` defaults to main's 200 `{"ok":true}`. The chat tests set their own answers through `answerChatRpc()`, and none relied on the 404.
+- **25e017f (T13): merged without conflicts.** The flagged spots are intact: `onStop` keeps both the `lastSessionId` save and `stopJankTracking`, the rollback version literals 0.2.1-rc.5 and 0.2.2 are kept, and T14's 30 warm-up frames are kept.
+
+### Results
+`./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --max-workers=2` after the final merge: **952 tests, 0 failures, 100 classes**, BUILD SUCCESSFUL. The only Kotlin warning is the existing one in `DshVersionsTest.kt:35`.
+
+Renders `10-pill.png` and `11-long-user-bubble.png` were made by a throwaway test that was not committed. They are in `/tmp/claude-0/-home-user/1e630f02-b974-5959-b741-b3d92fa6411e/scratchpad/t8-shots/`.
+
+### Concerns
+- The ↓ pill misses one edge case: if the user is scrolled only within the newest row (index 0, offset > 0) when a new row arrives, no pill shows.
+- The pill floats over the bottom of the message list, by design of the fix brief, so it can cover part of a message while it shows.
