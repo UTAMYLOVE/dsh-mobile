@@ -38,6 +38,12 @@ class DailyUpdateCheck(
         }
     }
 
+    /** Records today (Asia/Taipei) as checked, so [runIfDue] does nothing until tomorrow (the emulator test keeps off the network). */
+    @androidx.annotation.VisibleForTesting
+    fun markCheckedToday() {
+        prefs.edit().putString(KEY_LAST_CHECK_DAY, clock.instant().atZone(TAIPEI).toLocalDate().toString()).commit()
+    }
+
     companion object {
         const val PREFS = "dshm_update"
         private const val KEY_LAST_CHECK_DAY = "last_check_day"

@@ -38,6 +38,15 @@ class DailyUpdateCheckTest {
         assertEquals(listOf(info), announced)
     }
 
+    @Test fun markingTodayCheckedSkipsTodaysCheckButNotTomorrows() = runBlocking {
+        daily.markCheckedToday()
+        daily.runIfDue()
+        assertEquals(0, calls)
+        clock.advance(java.time.Duration.ofDays(1))
+        daily.runIfDue()
+        assertEquals(1, calls)
+    }
+
     @Test fun noUpdateAnnouncesNothing() = runBlocking {
         result = { null }
         daily.runIfDue()

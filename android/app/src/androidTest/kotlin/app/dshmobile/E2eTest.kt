@@ -93,6 +93,8 @@ class E2eTest {
         val client = DshClient(http, running.launch)
         runBlocking { client.login() }
         val seenBefore = FakeModel.instance.seen.size
+        // Only what this conversation adds counts: an earlier run (or test) may already have left the mark in today's note.
+        val sizesBefore = notesOfToday().associateWith { if (it.isFile) it.length() else 0L }
 
         val created = rpc(client, "session/create", JSONObject().put("request", JSONObject().put("cwd", "/root/workspace")))
         val sessionId = created.getString("sessionId")
@@ -106,7 +108,9 @@ class E2eTest {
         )
 
         // dsh runs with TZ=Asia/Taipei; around midnight the note may land on either side.
-        waitFor(240_000, "$MARK in today's memory note") { notesOfToday().any { it.isFile && it.readText().contains(MARK) } }
+        waitFor(240_000, "$MARK newly written to today's memory note") {
+            notesOfToday().any { it.isFile && addedSince(it, sizesBefore.getValue(it)).contains(MARK) }
+        }
         waitFor(120_000, "the follow-up request with the tool result") {
             FakeModel.instance.seen.drop(seenBefore).any { it.kind == FakeModel.Kind.FOLLOW_UP }
         }
@@ -120,6 +124,8 @@ class E2eTest {
     @Test fun t4_theHeartbeatPostsTheDreamReminder() {
         val nm = app.getSystemService(NotificationManager::class.java)
         nm.cancelAll()
+        // The heartbeat's first run of the day also asks GitHub for a newer app: the test stays off the network.
+        app.dailyUpdateCheck.markCheckedToday()
         memoryDir.mkdirs()
         File(memoryDir, ".dream-state.json").delete() // a dream processes only notes after its last run
         val yesterday = LocalDate.now(TAIPEI).minusDays(1)
@@ -170,6 +176,12 @@ class E2eTest {
         assertTrue("$method failed: ${r.body.take(500)}", result.optBoolean("ok"))
         Log.i(FakeModel.TAG, "$method ok")
         return result.optJSONObject("value") ?: JSONObject()
+    }
+
+    /** The text appended to [note] after it had [sizeBefore] bytes (a note is only ever appended to). */
+    private fun addedSince(note: File, sizeBefore: Long): String {
+        val bytes = note.readBytes()
+        return if (bytes.size.toLong() <= sizeBefore) "" else String(bytes, sizeBefore.toInt(), bytes.size - sizeBefore.toInt(), Charsets.UTF_8)
     }
 
     private fun notesOfToday(): List<File> {
