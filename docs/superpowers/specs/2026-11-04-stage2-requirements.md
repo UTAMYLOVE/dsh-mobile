@@ -208,3 +208,18 @@ Elements to adapt to our palette and our data:
   - The state badge comes from running status and the current tool kind.
   - The log comes from durable events: tool calls, approvals, api-session added/removed.
 - The jellyfish creatures (H) can live inside the LIVE FLOW area, moving between stage nodes. The cards and the log give the dense, detailed status (G).
+
+### H.2 Owner change (02:45): NO jellyfish. Agents are cute little sprites / ghosts (小精靈／小幽靈)
+- The owner said 「水母好醜」 and replaced the jellyfish with **floating cute little spirits**. Each is a soft round blob with a glowing tail, drawn in code in the FOGCITY palette. The design is original.
+- **Moving.** Wherever a spirit flies, that is what it is working on. It flies between the LIVE FLOW stage nodes and the data panels.
+- **Expressions.** Its face changes with state:
+  - focused eyes while running
+  - looks up at you while waiting for your answer
+  - sweat drop and rose-brown blink on error
+  - happy hop when done
+  - sleepy when idle
+- **Tool props.** It carries a tiny prop for the tool kind: a magnifier for search, a page for read, a pen for write, and a small spirit splitting off when it dispatches a subagent.
+- **Colour** shows state, as in H: aqua running, pink waiting, milk-tea done, rose-brown error.
+- **Tap** a spirit to get the detailed status (G).
+- **Performance:** they animate only on the visible page; their number is capped; at SAVER they are static; with reduced motion they don't drift.
+- Every mention of "jellyfish/medusa" in H means these spirits now.
