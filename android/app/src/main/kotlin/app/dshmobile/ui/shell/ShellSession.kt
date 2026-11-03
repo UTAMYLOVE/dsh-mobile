@@ -3,6 +3,7 @@ package app.dshmobile.ui.shell
 import app.dshmobile.agents.AgentsRemote
 import app.dshmobile.agents.RunningAgents
 import app.dshmobile.chat.ChatRemote
+import app.dshmobile.chat.ConversationStore
 import app.dshmobile.chat.IndexRemote
 import app.dshmobile.chat.SessionIndex
 import app.dshmobile.chat.SessionTree
@@ -37,11 +38,37 @@ class ShellSession(val remote: ShellRemote, val events: DshEvents?, val scope: C
 
     @Volatile private var closed = false
 
+    /** Open conversations, least recently used first (access order); guarded by itself. */
+    private val stores = LinkedHashMap<String, ConversationStore>(4, .75f, true)
+
+    /**
+     * The store of conversation [id], kept while it is one of the [MAX_STORES] most recently used: going back to a conversation
+     * just opened shows it at once. The least recently used one beyond that is closed (its follow ends).
+     */
+    fun conversation(id: String): ConversationStore = synchronized(stores) {
+        stores[id] ?: ConversationStore(remote, id, scope).also { fresh ->
+            stores[id] = fresh
+            while (stores.size > MAX_STORES) {
+                val eldest = stores.entries.iterator().next()
+                stores.remove(eldest.key)
+                eldest.value.close()
+            }
+        }
+    }
+
     fun close() {
         if (closed) return
         closed = true
+        synchronized(stores) {
+            stores.values.forEach { it.close() }
+            stores.clear()
+        }
         remote.close()
         scope.cancel()
+    }
+
+    private companion object {
+        const val MAX_STORES = 3
     }
 }
 

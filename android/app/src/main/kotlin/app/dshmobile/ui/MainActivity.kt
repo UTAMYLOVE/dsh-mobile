@@ -38,6 +38,10 @@ import app.dshmobile.service.DshService
 import app.dshmobile.service.RunningDsh
 import app.dshmobile.system.OnboardingState
 import app.dshmobile.system.PhantomProcessDetector
+import app.dshmobile.ui.chat.ChatPage
+import app.dshmobile.ui.chat.DockSend
+import app.dshmobile.ui.chat.ExternalLinks
+import app.dshmobile.ui.chat.sendFromDock
 import app.dshmobile.ui.agents.AgentsTab
 import app.dshmobile.ui.fog.FogPanel
 import app.dshmobile.ui.fog.JankGovernor
@@ -65,6 +69,9 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -97,6 +104,8 @@ class MainActivity : ComponentActivity() {
     /** Unsaved settings fields live here, outside the tab, so switching tabs keeps them. Built with the tab. */
     private var settingsDraft: SettingsDraft? = null
     private var composerText by mutableStateOf("")
+    /** Why the last dock send did not happen (no conversation could be made); cleared by typing. */
+    private var dockError by mutableStateOf<String?>(null)
     /** The system "remove animations" setting; read again at every resume, since it is changed in the system settings. */
     private var reducedMotion by mutableStateOf(false)
     private var jankStats: JankStats? = null
@@ -126,6 +135,8 @@ class MainActivity : ComponentActivity() {
         // Leaving settings while one of its actions runs would cancel it (a key save, an export) or hide its result.
         nav.canLeave = { from -> from != ShellTab.SETTINGS || !settingsBusy() }
         nav.onLeaveRefused = { toast(getString(R.string.shell_settings_busy)) }
+        // The chat opens on the conversation that was open last time (saved in onStop); a deep link (below) replaces it.
+        if (savedInstanceState == null) nav.openSessionId = app.uiPrefs.lastSessionId
         reducedMotion = systemReducedMotion()
         setContent {
             // Live: the user's level held down by the jank governor, and the system's animation setting.
@@ -240,6 +251,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         if (ready) {
+            app.uiPrefs.lastSessionId = nav.openSessionId
             stopJankTracking()
             app.uiHolder.onUiStop()
         }
@@ -259,19 +271,26 @@ class MainActivity : ComponentActivity() {
         val session by app.shellSessions.current.collectAsState()
         val connectionFlow: StateFlow<MuxState?> = remember(session) { session?.remote?.muxState ?: MutableStateFlow(null) }
         val connection by connectionFlow.collectAsState()
+        // Only whether the open conversation runs reaches the shell (not every streamed token).
+        val openId = nav.openSessionId
+        val runningFlow = remember(session, openId) {
+            val s = session
+            if (s == null || openId == null) flowOf(false) else s.conversation(openId).state.map { it.running }.distinctUntilChanged()
+        }
+        val running by runningFlow.collectAsState(false)
         FogShell(
             status = state,
             connection = connection,
             nav = nav,
-            // Sending is wired to the open conversation by Task 8; until then the dock only holds the text.
             composer = ComposerUi(
                 text = composerText,
-                onText = { composerText = it },
+                onText = { composerText = it; dockError = null },
                 enabled = state == MainUiState.Ready,
                 canSend = composerText.isNotBlank(),
-                running = false,
-                onSend = {},
-                onStop = {},
+                running = running,
+                onSend = ::onDockSend,
+                onStop = ::stopReply,
+                error = dockError,
             ),
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,
@@ -284,6 +303,7 @@ class MainActivity : ComponentActivity() {
                     val draft = settingsDraft ?: SettingsDraft.from(settingsEnv).also { settingsDraft = it }
                     SettingsScreen(settingsEnv, onClose = null, contentPadding = LocalPagePadding.current, draft = draft)
                 }
+                ShellTab.CHAT -> session?.let { ChatTab(it) } ?: EmptyPage(tab)
                 ShellTab.AGENTS -> session?.let { sess ->
                     // The limit is the configured subagent cap; read when the tab is shown (changing it needs "apply and restart" anyway).
                     val limit = remember {
@@ -297,6 +317,56 @@ class MainActivity : ComponentActivity() {
                     overview?.let { OverviewScreen(it, nav::openSession) { nav.select(ShellTab.AGENTS) } } ?: EmptyPage(tab)
                 }
                 else -> EmptyPage(tab)
+            }
+        }
+    }
+
+    /** The chat tab (Task 8). A Claude key added in settings shows its models once the tab is shown again. */
+    @Composable
+    private fun ChatTab(session: ShellSession) {
+        val tab = nav.tab
+        val hasClaude = remember(tab) { app.keyVault.get(Provider.ANTHROPIC) != null }
+        val lead = remember(tab, hasClaude) {
+            app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).leadModel
+        }
+        ChatPage(session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast)
+    }
+
+    /** The dock's send: to the open conversation (a new one when none is open), and the chat tab shows it. */
+    private fun onDockSend() {
+        val text = composerText
+        val session = app.shellSessions.current.value
+        if (text.isBlank() || session == null) return
+        nav.select(ShellTab.CHAT)
+        if (nav.tab != ShellTab.CHAT) return // settings is busy and said so; the text stays
+        composerText = ""
+        dockError = null
+        session.scope.launch(Dispatchers.Main.immediate) {
+            val outcome = sendFromDock(session, nav, text)
+            if (outcome != DockSend.Sent && composerText.isEmpty()) composerText = text // nothing typed meanwhile: put it back
+            if (outcome is DockSend.NotCreated) dockError = getString(R.string.chat_create_failed, outcome.code)
+        }
+    }
+
+    private fun stopReply() {
+        val session = app.shellSessions.current.value ?: return
+        val id = nav.openSessionId ?: return
+        session.scope.launch { session.conversation(id).stop() }
+    }
+
+    private fun openLink(url: String) {
+        if (!ExternalLinks.open(this, url)) toast(getString(R.string.chat_no_browser))
+    }
+
+    private fun shareWorkspaceFile(rel: String) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { app.exporter.shareWorkspaceFile(rel) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                app.errorLog.append("export", "sharing a workspace file failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.chat_share_failed))
             }
         }
     }
@@ -380,8 +450,11 @@ class MainActivity : ComponentActivity() {
             LaunchRequest.Rollback -> confirmRollback()
             LaunchRequest.ExportErrorLog -> exportErrorLog()
             LaunchRequest.InstallUpdate -> installUpdate()
-            // Phase one of the notification deep link: dsh has no conversation URL, so the app only comes to the front.
-            is LaunchRequest.OpenSession -> ops.recordDeepLink(request.id)
+            // Like a tab tap: while settings is busy the tab stays (and says why), and the link does nothing.
+            is LaunchRequest.OpenSession -> {
+                nav.select(ShellTab.CHAT)
+                if (nav.tab == ShellTab.CHAT) nav.openSession(request.id)
+            }
         }
         // Consumed: a later recreation must not run it again.
         intent?.removeExtra(Notifier.EXTRA_ACTION)
@@ -542,7 +615,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** The overview, chat and agents pages until their tasks fill them: an empty FOGCITY panel with the page's names. */
+/** The fallback for a page that has nothing to show yet (no session, no data): an empty FOGCITY panel with the page's names. */
 @Composable
 private fun EmptyPage(tab: ShellTab) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(LocalPagePadding.current)) {

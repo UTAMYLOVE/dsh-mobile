@@ -76,14 +76,7 @@ class MainOpsTest {
         }
     }
 
-    @Test fun deepLinkLogsOnlyTheSessionId() {
-        ops.recordDeepLink("session-abc-123")
-        val text = logText()
-        assertTrue(text.contains("[deeplink]"))
-        assertTrue(text.contains("session-abc-123"))
-    }
-
-    @Test fun nothingIsLoggedWithoutADeepLink() {
+    @Test fun nothingIsLoggedOnItsOwn() {
         assertFalse(log.file().exists() && log.file().length() > 0)
     }
 }
