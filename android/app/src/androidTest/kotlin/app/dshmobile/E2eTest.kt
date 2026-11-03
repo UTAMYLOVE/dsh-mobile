@@ -16,7 +16,6 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.TextUnit
@@ -38,13 +37,13 @@ import app.dshmobile.runtime.GuestCommand
 import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.UpdateOutcome
 import app.dshmobile.runtime.VerifiedDsh
-import app.dshmobile.runtime.VerifiedUpdatePolicy
 import app.dshmobile.ui.MainActivity
 import app.dshmobile.ui.chat.circled
 import app.dshmobile.ui.fog.EffectLevel
 import app.dshmobile.ui.fog.FogSemantics
 import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.ui.shell.Tags
+import app.dshmobile.ui.shell.buildSettingsEnv
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -185,7 +184,8 @@ class E2eTest {
 
     /**
      * §9.5: a "new version" that installs but cannot start is rolled back automatically; the old one runs and the UI works.
-     * Then settings' update check on a verified current version: UpToDate, without asking npm anything.
+     * Then settings' update check on a verified current version: UpToDate, without asking npm anything. It runs the real
+     * settings environment ([buildSettingsEnv]'s `checkUpdate`) on a [DshVersions] whose npm only records.
      */
     @Test fun t05_aBrokenUpdateRollsBackAndTheAppStillWorks() {
         val optDsh = File(rootfs, "opt/dsh")
@@ -201,15 +201,13 @@ class E2eTest {
         assertFalse("the failed version is still on disk", File(optDsh, BROKEN).exists())
         val running = runBlocking { app.controller.ensureRunning() }
         assertTrue("health check after the rollback", runBlocking { HealthCheck(http).check(running.launch) })
-        launchShell().use { }
-
-        // Settings' checkUpdate (SettingsEnvFactory) with npm recorded instead of run: the same policy and DshVersions.
         val npm = RecordingNpm()
         val checked = DshVersions(optDsh, npm, app.errorLog, BuildConfig.DSH_PINNED_VERSION)
         assertTrue("the current dsh ${checked.current()} is not a verified version", VerifiedDsh.isVerified(checked.current()))
-        val target = VerifiedUpdatePolicy.target(checked.current())
-        val check = target?.let { runBlocking { checked.updateWithAutoRollback(app.controller, HealthCheck(http), it) } } ?: UpdateOutcome.UpToDate
-        assertEquals(UpdateOutcome.UpToDate, check)
+        launchShell().use {
+            val env = E2e.onMain { buildSettingsEnv(E2e.shellActivity(), app, dshVersions = { checked }) }
+            assertEquals(UpdateOutcome.UpToDate, runBlocking { env.versions.checkUpdate() })
+        }
         assertEquals("npm was asked: ${npm.calls}", emptyList<String>(), npm.calls)
     }
 
@@ -282,8 +280,7 @@ class E2eTest {
         // The dock is hidden from accessibility under the modal card, so the tab is switched the way the dock would.
         E2e.nav { select(ShellTab.SETTINGS) }
         ui.await("the settings tab") { E2e.nav { tab } == ShellTab.SETTINGS }
-        ui.waitForIdle()
-        assertTrue("the card went away with the tab change", ui.has(Tags.PROMPT_SHEET))
+        ui.onEachFrame { assertTrue("the card went away with the tab change", ui.has(Tags.PROMPT_SHEET)) }
         ui.tap(Tags.APPROVE_ONCE)
         ui.awaitNoTag(Tags.PROMPT_SHEET, 30_000)
         ui.tap(Tags.TAB + ShellTab.CHAT.name)
@@ -354,7 +351,10 @@ class E2eTest {
         assertTrue("the turn did not go to $PRO: $turns", turns.isNotEmpty() && turns.all { it.model == PRO })
     }
 
-    /** Rename and delete from the conversation list; the deleted conversation stays gone after the app starts again. */
+    /**
+     * Rename and delete from the conversation list; dsh no longer lists the conversation (or lists it only as archived), and it
+     * stays gone after the app starts again. Everything it looks at is made here.
+     */
     @Test fun t18_renameAndDeleteAConversation() {
         var id = ""
         launchShell().use {
@@ -372,15 +372,19 @@ class E2eTest {
             ui.tap(Tags.DELETE_CONFIRM)
             ui.awaitNoTag(Tags.SESSION_ROW + id, 60_000)
         }
+        val running = runBlocking { app.controller.ensureRunning() }
+        val client = DshClient(http, running.launch)
+        runBlocking { client.login() }
+        waitFor(60_000, "dsh to stop listing $id (or to list it as archived)") {
+            id !in listedSessionIds(client) || id in archivedSessionIds()
+        }
         launchShell().use {
-            ui.tap(Tags.TAB + ShellTab.CHAT.name)
-            ui.await("the chat tab") { ui.has(Tags.NEW_SESSION) || ui.has(Tags.CHAT_LIST_BUTTON) }
-            if (!ui.has(Tags.NEW_SESSION)) ui.tap(Tags.CHAT_LIST_BUTTON)
-            // dsh's list has arrived when the other conversations (every chat test made one) are listed.
-            ui.await("the conversation list from dsh") { ui.nodes(hasTagPrefix(Tags.SESSION_ROW), unmerged = true).isNotEmpty() }
-            ui.waitForIdle()
-            assertFalse("the deleted conversation is listed again", ui.has(Tags.SESSION_ROW + id))
-            assertFalse("dsh still lists the deleted conversation", app.shellSessions.current.value!!.index.rows.value.any { it.id == id })
+            // A conversation of this test's own: once its row is listed, dsh's list has arrived.
+            val witness = ui.newConversation()
+            ui.tap(Tags.CHAT_LIST_BUTTON)
+            ui.awaitTag(Tags.SESSION_ROW + witness, 60_000)
+            ui.onEachFrame { assertFalse("the deleted conversation is listed again", ui.has(Tags.SESSION_ROW + id)) }
+            assertFalse("the app's index still lists the deleted conversation", app.shellSessions.current.value!!.index.rows.value.any { it.id == id })
         }
     }
 
@@ -397,26 +401,40 @@ class E2eTest {
             child.isNotEmpty()
         }
         ui.tap(Tags.AGENT_STOP + child)
-        ui.awaitNoTag(Tags.AGENT_STOP + child, 30_000)
+        val finished = app.getString(R.string.agents_finished)
+        ui.await("the row of $child to say 「$finished」", 30_000) {
+            !ui.has(Tags.AGENT_STOP + child) && agentStatus(child) == finished
+        }
+        assertTrue("the stopped agent's row went away", ui.has(Tags.AGENT_ROW + child))
     }
 
     /** The overview shows today's spend (the fake model reports usage on every reply) and the conversation just used. */
     @Test fun t20_overviewShowsTodaysSpendAndRecentConversations() = shell {
         val id = ui.newConversation()
+        // The meter adds up the whole day (earlier tests spent too): what counts is that this reply adds to it.
+        val before = app.costMeter.todayUsd()
         ui.send(FakeModel.HELLO)
         awaitBubble("reply")
+        ui.await("today's spend to grow past US$$before", 30_000) { app.costMeter.todayUsd() > before }
         ui.tap(Tags.TAB + ShellTab.OVERVIEW.name)
-        val zero = app.getString(R.string.overview_ring_desc, "0.0000")
-        ui.await("a spend above zero on the ring") { ui.textsOf(Tags.OVERVIEW_RING).let { it.isNotEmpty() && it.none { t -> t == zero } } }
+        ui.await("the ring to show more than US$$before") { ringUsd()?.let { it > before } == true }
         ui.awaitTag(Tags.OVERVIEW_RECENT + id)
     }
 
-    /** Ruling 3: at FULL the background really animates; SAVER (from settings) is saved and calms it; FULL brings it back. */
+    /**
+     * Ruling 3: at FULL the background really animates; SAVER (from settings) is saved and calms it; FULL brings it back. The
+     * jank governor may not step the level down meanwhile, and the shell is started without ActivityScenario (see
+     * [E2e.startShell]): at FULL it animates on every frame.
+     */
     @Test fun t21_effectStrengthPersistsAndCalmsTheShell() {
+        val governor = app.effectsController.governor
+        val autoDegrade = governor.autoDegrade
         try {
             E2e.withAnimationsOn {
                 E2e.useEffects(EffectLevel.FULL)
-                launchShell().use {
+                governor.autoDegrade = false
+                val activity = E2e.startShell()
+                try {
                     ui.await("the background animating at FULL", 30_000) { backgroundAnimating() == true }
                     ui.tap(Tags.TAB + ShellTab.SETTINGS.name)
                     ui.tap(Tags.EFFECT + 2)
@@ -427,9 +445,12 @@ class E2eTest {
                     ui.await("the background animating again at FULL", 30_000) {
                         app.uiPrefs.effectLevel == EffectLevel.FULL && backgroundAnimating() == true
                     }
+                } finally {
+                    E2e.finishShell(activity)
                 }
             }
         } finally {
+            governor.autoDegrade = autoDegrade
             E2e.useEffects(EffectLevel.SAVER)
         }
     }
@@ -466,8 +487,7 @@ class E2eTest {
             remote.muxState.value == MuxState.OPEN
         }
         assertEquals("cards seen during the reconnect", setOf(1), counts)
-        ui.waitForIdle()
-        assertEquals("cards after the reconnect", 1, ui.nodes(hasTestTag(Tags.PROMPT_SHEET), unmerged = true).size)
+        ui.onEachFrame { assertEquals("cards after the reconnect", 1, ui.nodes(hasTestTag(Tags.PROMPT_SHEET), unmerged = true).size) }
         ui.tap(Tags.APPROVE_ONCE)
         awaitBubble(FakeModel.APPROVED_REPLY)
     }
@@ -483,18 +503,9 @@ class E2eTest {
         try {
             if (density != null) E2e.shell("wm density $density")
             launchShell().use {
-                val widthDp = with(ui.density) { ui.onRoot().fetchSemanticsNode().boundsInRoot.width.toDp().value }
-                val enforce = widthDp in 360f..480f
-                Log.i(FakeModel.TAG, "t24: root width $widthDp dp (density override $density); layout checks ${if (enforce) "enforced" else "logged only"}")
-                val problems = mutableListOf<String>()
-                fun check(where: String, block: () -> Unit) {
-                    try {
-                        block()
-                    } catch (e: AssertionError) {
-                        if (enforce) throw e
-                        problems += "$where: ${e.message}"
-                    }
-                }
+                val widthDp = E2e.onMain { E2e.shellActivity().resources.displayMetrics.let { it.widthPixels / it.density } }
+                Log.i(FakeModel.TAG, "t24: activity width $widthDp dp (density override $density)")
+                assertTrue("the screen is $widthDp dp wide after the density override $density, not a phone's 360..480", widthDp in 360f..480f)
                 fun everyTab(where: String) = ShellTab.entries.forEach { t ->
                     ui.tap(Tags.TAB + t.name)
                     ui.await("the ${t.name} tab") { E2e.nav { tab } == t }
@@ -502,16 +513,16 @@ class E2eTest {
                         E2e.nav { listOpen = true } // the conversation list: a page that scrolls to an end like the others
                         ui.awaitTag(Tags.NEW_SESSION)
                     }
-                    ui.waitForIdle()
-                    check("$where/${t.name}") { ui.assertNoFloatingOverlap("$where/${t.name}") }
-                    check("$where/${t.name}") { assertNoVerticalText("$where/${t.name}") }
-                    check("$where/${t.name}") { assertLastPageControlClearsTheDock("$where/${t.name}") }
+                    ui.awaitStable("the ${t.name} page's layout") { ui.nodes(hasClickAction(), unmerged = true).map { it.boundsInRoot } }
+                    ui.assertNoFloatingOverlap("$where/${t.name}")
+                    assertNoVerticalText("$where/${t.name}")
+                    assertLastPageControlClearsTheDock("$where/${t.name}")
                 }
 
                 everyTab("ready")
                 ui.tap(Tags.ATTACH)
                 ui.awaitTag(Tags.ATTACH_IMAGE)
-                check("attach menu") { ui.assertNoFloatingOverlap("attach menu") }
+                ui.assertNoFloatingOverlap("attach menu", minControls = DOCK_CONTROLS + 2)
                 ui.tap(Tags.ATTACH)
                 ui.awaitNoTag(Tags.ATTACH_IMAGE)
 
@@ -529,12 +540,11 @@ class E2eTest {
                 ui.newConversation()
                 ui.send(FakeModel.APPROVE)
                 ui.awaitTag(Tags.PROMPT_SHEET)
-                check("approval card") { ui.assertNoFloatingOverlap("approval card") }
-                check("approval card") { assertNoVerticalText("approval card") }
+                // Under the modal card the dock is hidden from semantics: the card's own two buttons are what floats.
+                ui.assertNoFloatingOverlap("approval card", minControls = 2)
+                assertNoVerticalText("approval card")
                 ui.tap(Tags.APPROVE_ONCE)
                 awaitBubble(FakeModel.APPROVED_REPLY)
-
-                if (problems.isNotEmpty()) Log.w(FakeModel.TAG, "t24: problems at $widthDp dp (not enforced):\n" + problems.joinToString("\n"))
             }
         } finally {
             if (density != null) E2e.shell("wm density reset")
@@ -557,6 +567,46 @@ class E2eTest {
 
     private fun backgroundAnimating(): Boolean? =
         ui.nodes(hasTestTag(Tags.SHELL_BACKGROUND), unmerged = true).firstOrNull()?.config?.getOrNull(FogSemantics.Animating)
+
+    /** The status the agents page gives the row of [child] (the dot beside the row's text says 執行中 or 已結束). */
+    private fun agentStatus(child: String): String? {
+        val row = ui.nodes(hasTestTag(Tags.AGENT_ROW + child), unmerged = true).firstOrNull() ?: return null
+        val labels = setOf(app.getString(R.string.agents_running), app.getString(R.string.agents_finished))
+        // The dot sits beside the row's text (not inside it): the label on the same line as the row is the row's.
+        val line = row.boundsInRoot.top..row.boundsInRoot.bottom
+        return ui.nodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.ContentDescription), unmerged = true)
+            .filter { it.boundsInRoot.center.y in line }
+            .flatMap { it.texts() }
+            .firstOrNull { it in labels }
+    }
+
+    /** Today's spend as the overview's ring reads it out (its content description carries the US$ amount). */
+    private fun ringUsd(): Double? {
+        val prefix = app.getString(R.string.overview_ring_desc, "")
+        return ui.textsOf(Tags.OVERVIEW_RING).firstNotNullOfOrNull { it.removePrefix(prefix).trim().toDoubleOrNull() }
+    }
+
+    /** The ids dsh's `session/list` returns (top level and children). */
+    private fun listedSessionIds(client: DshClient): Set<String> {
+        val items = rpc(client, "session/list", JSONObject().put("_request", JSONObject())).optJSONArray("items") ?: JSONArray()
+        return (0 until items.length()).mapNotNull { items.optJSONObject(it)?.optString("sessionId")?.takeIf { id -> id.isNotEmpty() } }.toSet()
+    }
+
+    /** The sessions dsh's workspace registry marks archived (`workspace/archiveSession` is how the app deletes one). */
+    private fun archivedSessionIds(): Set<String> {
+        val store = File(app.appPaths.dshHome, "storages/workspace.json")
+        if (!store.isFile) return emptySet()
+        val out = mutableSetOf<String>()
+        fun walk(v: Any?, underArchived: Boolean) {
+            when (v) {
+                is JSONObject -> v.keys().forEach { k -> walk(v.get(k), underArchived || k.contains("archived", ignoreCase = true)) }
+                is JSONArray -> (0 until v.length()).forEach { walk(v.get(it), underArchived) }
+                is String -> if (underArchived) out += v
+            }
+        }
+        walk(JSONObject(store.readText()), false)
+        return out
+    }
 
     /** The title the chat header shows for [id] (dsh's title once it has one, else the untitled label), as the chat page picks it. */
     private fun conversationTitle(id: String): String {
@@ -588,8 +638,6 @@ class E2eTest {
         return (widthPx * 160.0 / 412.0).toInt().coerceAtLeast(60)
     }
 
-    private fun ComposeUiTest.onRoot() = onAllNodes(SemanticsMatcher("root") { it.parent == null }).onFirst()
-
     private val inDock = hasAnyAncestor(hasTestTag(Tags.DOCK))
     private val inSheet = hasAnyAncestor(hasTestTag(Tags.PROMPT_SHEET))
 
@@ -601,11 +649,12 @@ class E2eTest {
                 ui.onNode(SemanticsMatcher("node ${s.id}") { it.id == s.id }).performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 100_000f) }
             }
         }
-        ui.waitForIdle()
-        val dockTop = ui.nodes(hasTestTag(Tags.DOCK), unmerged = true).first().boundsInRoot.top
-        val controls = ui.nodes(hasClickAction() and !inDock and !inSheet and !hasTestTag(Tags.DOCK), unmerged = true)
+        fun pageControls() = ui.nodes(hasClickAction() and !inDock and !inSheet and !hasTestTag(Tags.DOCK), unmerged = true)
             .filter { it.boundsInRoot.height > 0f && it.boundsInRoot.width > 0f }
-        val lowest = controls.maxByOrNull { it.boundsInRoot.bottom } ?: return
+        // The scroll (and anything it brings into view) has settled when the lowest control stops moving.
+        ui.awaitStable("$where: the scroll to the end") { pageControls().maxOfOrNull { it.boundsInRoot.bottom } }
+        val dockTop = ui.nodes(hasTestTag(Tags.DOCK), unmerged = true).first().boundsInRoot.top
+        val lowest = pageControls().maxByOrNull { it.boundsInRoot.bottom } ?: return
         assertTrue("$where: ${lowest.describe()} ends at ${lowest.boundsInRoot.bottom}, under the dock's top $dockTop", lowest.boundsInRoot.bottom <= dockTop + 0.5f)
     }
 

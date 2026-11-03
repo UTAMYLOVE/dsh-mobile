@@ -1,12 +1,20 @@
 package app.dshmobile.ui.shell
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import app.dshmobile.remote.MuxState
 import app.dshmobile.ui.MainUiState
 import app.dshmobile.ui.fog.EffectLevel
@@ -29,14 +37,14 @@ class FogShellSweepTest {
     private var level by mutableStateOf(EffectLevel.FULL)
     private var reducedMotion by mutableStateOf(false)
 
-    private fun show() {
+    private fun show(page: @androidx.compose.runtime.Composable (ShellTab) -> Unit = { ShellHarness.DefaultPage(it) }) {
         rule.mainClock.autoAdvance = false
         rule.setContent {
             FogTheme(effectsFor(level, reducedMotion)) {
                 FogShell(
                     status = MainUiState.Ready, connection = MuxState.OPEN, nav = nav,
                     composer = ComposerUi(text = "", onText = {}, enabled = true, canSend = false, running = false, onSend = {}, onStop = {}),
-                    onRetry = {}, onExportErrorLog = {}, page = { ShellHarness.DefaultPage(it) },
+                    onRetry = {}, onExportErrorLog = {}, page = page,
                 )
             }
         }
@@ -82,6 +90,22 @@ class FogShellSweepTest {
         show()
         select(ShellTab.CHAT)
         assertEquals(0, sweeps())
+    }
+
+    /** The line is drawn over the page but takes no input: a control under it still gets the tap while it sweeps. */
+    @Test fun aTapDuringTheSweepReachesThePage() {
+        var taps = 0
+        show { tab ->
+            Box(Modifier.fillMaxSize().padding(LocalPagePadding.current)) {
+                Box(Modifier.size(120.dp).testTag("page-control-" + tab.name).clickable { taps++ })
+            }
+        }
+        select(ShellTab.CHAT)
+        rule.mainClock.advanceTimeBy(300) // mid-sweep (620 ms in all)
+        assertEquals("the sweep is still on screen", 1, sweeps())
+        rule.onNodeWithTag("page-control-CHAT").performClick()
+        rule.mainClock.advanceTimeBy(50)
+        assertEquals("the sweep swallowed the tap", 1, taps)
     }
 
     @Test fun switchingToSaverMidSweepRemovesTheLine() {

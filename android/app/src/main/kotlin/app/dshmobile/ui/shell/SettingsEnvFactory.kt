@@ -3,6 +3,7 @@ package app.dshmobile.ui.shell
 import androidx.activity.ComponentActivity
 import app.dshmobile.DshMobileApp
 import app.dshmobile.heartbeat.HeartbeatScheduler
+import app.dshmobile.runtime.DshVersions
 import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.UpdateOutcome
 import app.dshmobile.runtime.VerifiedDsh
@@ -23,19 +24,22 @@ fun buildSettingsEnv(
     activity: ComponentActivity,
     app: DshMobileApp,
     onEffectLevel: (EffectLevel) -> Unit = app.effectsController::set,
+    /** The installed versions; the end-to-end test hands in one whose npm only records (t05). */
+    dshVersions: () -> DshVersions = { app.dshVersions },
 ): SettingsEnv {
     val platform = AndroidOnboardingPlatform(activity)
     // The rollback never targets a version this app has not verified (the same filter as the crash notification's rollback).
-    val ops = MainOps(app.controller, { VerifiedUpdatePolicy.previous(app.dshVersions.previous()) }, { app.dshVersions.rollback() }, app.errorLog)
+    val ops = MainOps(app.controller, { VerifiedUpdatePolicy.previous(dshVersions().previous()) }, { dshVersions().rollback() }, app.errorLog)
     val versions = object : SettingsVersions {
-        override fun current(): String = app.dshVersions.current()
-        override fun previous(): String? = VerifiedUpdatePolicy.previous(app.dshVersions.previous())
+        override fun current(): String = dshVersions().current()
+        override fun previous(): String? = VerifiedUpdatePolicy.previous(dshVersions().previous())
         override fun verified(): List<String> = VerifiedDsh.VERSIONS
         // The health check is part of ensureRunning; updateWithAutoRollback only needs the object. Only a verified version is installed:
         // from an unverified current this is the switch back to the newest verified one.
         override suspend fun checkUpdate(): UpdateOutcome {
-            val target = VerifiedUpdatePolicy.target(runCatching { app.dshVersions.current() }.getOrNull()) ?: return UpdateOutcome.UpToDate
-            return app.dshVersions.updateWithAutoRollback(app.controller, HealthCheck(OkHttpClient()), target)
+            val versions = dshVersions()
+            val target = VerifiedUpdatePolicy.target(runCatching { versions.current() }.getOrNull()) ?: return UpdateOutcome.UpToDate
+            return versions.updateWithAutoRollback(app.controller, HealthCheck(OkHttpClient()), target)
         }
         override suspend fun rollback(): MainOps.RollbackOutcome = ops.rollback()
     }

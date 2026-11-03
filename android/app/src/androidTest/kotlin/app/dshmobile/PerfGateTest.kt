@@ -1,6 +1,5 @@
 package app.dshmobile
 
-import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
 import androidx.metrics.performance.JankStats
@@ -45,16 +44,18 @@ class PerfGateTest {
     private val app get() = E2e.app
     private val device: UiDevice by lazy { UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()) }
     private var levelBefore = EffectLevel.SAVER
+    private var autoDegradeBefore = true
 
     @Before fun setUp() {
         HeartbeatScheduler.cancel(app)
         levelBefore = app.effectsController.level.value
+        autoDegradeBefore = app.effectsController.governor.autoDegrade
         E2e.prepareApp(effects = EffectLevel.FULL)
         app.controller.retain(HOLDER)
     }
 
     @After fun tearDown() {
-        app.effectsController.governor.autoDegrade = true
+        app.effectsController.governor.autoDegrade = autoDegradeBefore
         E2e.useEffects(levelBefore)
     }
 
@@ -120,19 +121,19 @@ class PerfGateTest {
                 assertTrue("$name: only $frames frames were measured", frames >= MIN_FRAMES)
                 assertTrue("$name: $janky of $frames frames janky ($fraction) > $max", fraction <= max)
             } finally {
-                E2e.onMain { activity.finish() }
-                E2e.waitFor(30_000, "the shell to close") { E2e.mainActivity() == null }
+                E2e.finishShell(activity)
             }
         }
     }
 
-    /** The shell, started like a launcher would (see the class comment for why not ActivityScenario), Ready on dsh. */
+    /** The shell, started like a launcher would ([E2e.startShell], which finishes it again if the start fails), with its tabs on screen. */
     private fun startShell(): MainActivity {
-        val intent = Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        app.startActivity(intent)
-        E2e.awaitShellReady()
-        require(device.wait(Until.hasObject(By.res(Tags.TAB + ShellTab.OVERVIEW.name)), 60_000)) { "the shell's tabs never showed" }
-        return E2e.shellActivity()
+        val activity = E2e.startShell()
+        if (!device.wait(Until.hasObject(By.res(Tags.TAB + ShellTab.OVERVIEW.name)), 60_000)) {
+            E2e.finishShell(activity)
+            throw AssertionError("the shell's tabs never showed")
+        }
+        return activity
     }
 
     private fun find(tag: String): UiObject2 =
