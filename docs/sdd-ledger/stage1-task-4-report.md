@@ -63,3 +63,59 @@ Tests:
 - Header time uses a minute-ticker `LaunchedEffect`. It is harmless in tests (it never blocks idling), but every page change recomposes the header.
 - `DshMobileApp.kt` is also edited by Task 16 in parallel. My change is additive only (two lazies, four imports), so expect a trivial merge.
 - `MainActivityTest` now starts a real `DshRemote` (WebSocket to MockWebServer) per test; teardown detaches the shell and closes every fake server. Runtime is about 34 s for 46 tests; 2 green runs so far (focused + full suite).
+
+## Fix round 1
+
+Commit 27558c2 (`fix: shell clips pages under the header and fades them before the dock, detaches the session when dsh stops`).
+
+### What changed
+1. **App-level detach** (`DshMobileApp.kt:186-204`). When `shellSessions` is created it starts a collector on `controller.isRunning` in `applicationScope`, dispatched on `Dispatchers.Main` (the same thread as every attach, so a stop that is seen late can never detach the next instance's session). On false it calls `detach()`. MainActivity's own detach stays and does no harm.
+2. **Page viewport below the header** (`FogShell.kt`).
+   - The header and a stage `Box` (`Tags.SHELL_STAGE`, `weight(1f)`, `clipToBounds`) now sit in a column, as in the mockup's `#stage`. The header (`Tags.SHELL_HEADER`) takes its own top inset in layout.
+   - There is a 12 dp `#FEDFE1` .9→0 fade at the top of the stage. Page top padding is now 8 dp, since the header is no longer inside the padding.
+3. **Fade before the dock** (`FogShell.kt:235` `fadeAbove`).
+   - The stage draws in an offscreen layer with a `DstIn` vertical gradient: opaque down to 24 dp above the top of the floating stack, transparent from there down. It is a mask, so it does not depend on blur.
+   - The stack's and stage's positions are read only at draw time (`FloatingEdge`), never in composition.
+   - The page bottom gap grew to fade + 6 dp, so a page's last control is never faded.
+4. **Disabled send glow** (`Dock.kt:214-227`). `ModulateAlpha` alone still showed the square edge in the native render, so a disabled `RoundButton` now multiplies every colour (glow, fill, rim, icon tint) by .45 and uses no layer at all. The glow stays round.
+5. The pill offset is read while placing: `offset { IntOffset(x.value.roundToPx(), 0) }` (`Dock.kt:307`).
+6. **Keyboard.** Composition no longer reads `safeDrawing` (which includes the keyboard).
+   - The page bottom padding uses the navigation bar, `WindowInsets.imeAnimationTarget` (which changes once per show or hide) and the stack's own measured height (`onSizeChanged`, no insets).
+   - The dock still follows the keyboard in layout.
+   - The stack's per-frame position during the keyboard animation only feeds the draw-time mask, so it redraws without recomposing.
+7. **Settings busy.**
+   - `ShellNav.canLeave` / `onLeaveRefused`: `select()` keeps the tab and calls the refusal instead.
+   - MainActivity refuses to leave SETTINGS while `draft.localBusy` or `settingsJobs.busy` is set, with the toast 「設定正在處理中，完成後才能切換分頁」 (`shell_settings_busy`).
+   - Unsaved fields now live in `SettingsDraft` (`SettingsScreen.kt:113`): editing, key input, key error, agent settings, alert, cap, messages, local busy. MainActivity owns it, outside the tab content. It is memory only and never in saved instance state, so a half-typed key never reaches a Bundle.
+   - `SettingsScreen(draft = remember { SettingsDraft.from(env) })` stays the default for other hosts.
+8. The title row 「設定」 (now tagged `settings-title`) and the close button show only when `onClose != null`.
+
+### Tests (all RED-checked by breaking the code, then restored)
+- `MainActivityTest.aDshStoppedWhileNoScreenIsStartedDetachesTheSession`: stop the activity, stop dsh, then `current == null`, the mux is CLOSED and the upgrade count no longer grows. With the app collector removed: `timed out`.
+- `MainActivityTest.settingsCannotBeLeftWhileItsActionRunsAndSaysWhy`: a running settings job keeps the SETTINGS tab and shows the toast; once the job ends, the tab can be left.
+- `FogShellLayoutTest` now also asserts, for every tab and state, that the stage top is at or below the header bottom, and that the last page control ends at or above the dock top minus the 24 dp fade.
+- New `FogShellRenderTest` (`@GraphicsMode(NATIVE)`, 412 dp, `decorView.draw(Canvas)` read back pixel by pixel; the page is a black rectangle drawing 400 dp beyond its bounds):
+  - `pagesAreClippedUnderTheHeaderAndFadeBeforeTheDockWithBlur` (FULL) and `pagesFadeBeforeTheDockWithoutBlur` (SAVER) check five points: black mid-screen, light just above the header bottom (clip), light just below it (top fade), black 30 dp above the dock, light 2 dp above the dock (mask). Without the mask, luminance at the dock was 6; without clip and mask, it was 0 at the header.
+  - `aDisabledSendKeepsItsRoundGlow`: no colour jump across the send button's square edge. The old alpha layer gave a jump of 9 against a limit of 6.
+- New `ShellNavTest` (2): back order, and the leave guard.
+- `SettingsScreenTest`:
+  - `unsavedFieldsSurviveTheScreenLeavingAndComingBack`: alert text, agent-teams switch and half-typed key survive the screen being disposed and shown again; nothing is saved.
+  - The two close-button tests also check the title tag.
+- Note: without `@GraphicsMode(NATIVE)`, `decorView.draw` gives an unusable bitmap in this Robolectric setup.
+
+### Results
+- Focused: `ui.shell.*` 18, `MainActivityTest` 48, `SettingsScreenTest` 50, all green.
+- Full suite: 692 tests, 0 failures, 72 classes. `:app:assembleDebugAndroidTest` builds. The only Kotlin warnings are the 4 pre-existing ones.
+
+### Screenshots
+`/tmp/claude-0/-home-user/1e630f02-b974-5959-b741-b3d92fa6411e/scratchpad/t4-shots/after-*.png` (01, 01b scrolled, 02, 03, 04, 05, 05b scrolled, 06, 07, zoom-dock, zoom-header), rendered by a throwaway test that was not committed.
+- Pages clip at the header and fade under it.
+- Settings content dissolves above the dock, so no text shows through the tabs.
+- The disabled send glow is round.
+- The embedded settings page has no 「設定」 title.
+
+### Deviations
+- Item 4 uses fading colours rather than `graphicsLayer(ModulateAlpha)`: the layer version still cut the glow off square in the native render.
+- `SettingsDraft` is a new public class; `BudgetMessage` became `internal` so the draft can hold it.
+- The toast also blocks while an app-scope settings job (apply, update, rollback) runs, because the brief says "while settings are busy", even though those jobs survive the tab being left.
+- `nav.openSession` (deep links, Task 8) and `nav.back()` do not ask the guard. While settings are busy, SettingsScreen's own `BackHandler` already swallows back.
