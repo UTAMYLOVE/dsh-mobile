@@ -133,6 +133,28 @@ object E2e {
         return scenario
     }
 
+    /**
+     * Starts the shell the way a launcher does, without ActivityScenario: its launch and close wait for an idle main looper,
+     * which a shell animating every frame on the emulator's software renderer may never give (t21 and the perf gate run at
+     * FULL with animations on). Waits until Ready; a start that fails finishes whatever shell it left behind.
+     */
+    fun startShell(intent: Intent = Intent(app, MainActivity::class.java)): MainActivity {
+        app.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        try {
+            awaitShellReady()
+            return shellActivity()
+        } catch (e: Throwable) {
+            runCatching { mainActivity()?.let { finishShell(it) } }
+            throw e
+        }
+    }
+
+    /** Finishes a shell started with [startShell] and waits until it is gone. */
+    fun finishShell(activity: MainActivity) {
+        onMain { activity.finish() }
+        waitFor(30_000, "the shell to close") { mainActivity() == null }
+    }
+
     /** Waits until the main screen's shell is Ready: dsh runs and the native interface's remote to it is open. */
     fun awaitShellReady() {
         waitFor(300_000, "the native shell to be ready (dsh up, remote open)") {
@@ -169,8 +191,10 @@ object E2e {
             if (!ValueAnimator.areAnimatorsEnabled()) Log.w(FakeModel.TAG, "animators still report off after setting the scales to 1")
             block()
         } finally {
+            // Each one on its own: one failing restore must not leave the others changed.
             before.forEach { (key, value) ->
-                shell(if (value.isEmpty() || value == "null") "settings delete global $key" else "settings put global $key $value")
+                runCatching { shell(if (value.isEmpty() || value == "null") "settings delete global $key" else "settings put global $key $value") }
+                    .onFailure { Log.w(FakeModel.TAG, "could not restore $key: ${it.javaClass.simpleName}") }
             }
         }
     }
@@ -243,6 +267,28 @@ fun ComposeUiTest.await(what: String, timeoutMs: Long = 120_000, cond: () -> Boo
     }
 }
 
+/** Runs [check] on each of [frames] frames that the test advances itself (no idling wait in between). */
+fun ComposeUiTest.onEachFrame(frames: Int = 10, check: () -> Unit) {
+    repeat(frames) {
+        mainClock.advanceTimeByFrame()
+        check()
+    }
+}
+
+/** Waits until [sample] gives the same value on [times] polls in a row (a scroll or a layout has settled); returns it. */
+fun <T> ComposeUiTest.awaitStable(what: String, timeoutMs: Long = 30_000, times: Int = 3, sample: () -> T): T {
+    var last: T? = null
+    var same = 0
+    await("$what to stop changing", timeoutMs) {
+        val now = sample()
+        if (now == last) same++ else same = 1
+        last = now
+        same >= times
+    }
+    @Suppress("UNCHECKED_CAST")
+    return last as T
+}
+
 fun ComposeUiTest.awaitTag(tag: String, timeoutMs: Long = 120_000) = await("a node tagged $tag", timeoutMs) { has(tag) }
 
 fun ComposeUiTest.awaitNoTag(tag: String, timeoutMs: Long = 120_000) = await("no node tagged $tag", timeoutMs) { !has(tag) }
@@ -303,17 +349,23 @@ private fun SemanticsNode.isAncestorOf(other: SemanticsNode): Boolean {
     return false
 }
 
+/** The dock's own controls: attach, the input, send (or stop) and the five tabs. */
+val DOCK_CONTROLS = 3 + ShellTab.entries.size
+
 fun SemanticsNode.describe(): String = tag() ?: config.getOrNull(SemanticsProperties.ContentDescription)?.joinToString() ?: "node $id"
 
 /**
  * Nothing floating covers anything else floating: the controls of the dock (and the attach menu, the attachment chips and the
  * reconnecting chip above it) and of a permission or question card, compared by their bounds on screen.
  */
-fun ComposeUiTest.assertNoFloatingOverlap(where: String = "") {
+fun ComposeUiTest.assertNoFloatingOverlap(where: String = "", minControls: Int = DOCK_CONTROLS) {
     val floating = hasAnyAncestor(hasTestTag(Tags.DOCK)) or hasAnyAncestor(hasTestTag(Tags.PROMPT_SHEET))
     val controls = nodes(floating, unmerged = true).filter { n ->
         val tag = n.tag().orEmpty()
         (clickable(n) || tag == Tags.RECONNECTING || tag.startsWith(Tags.ATTACHMENT_CHIP)) && n.boundsInRoot.width > 0f && n.boundsInRoot.height > 0f
+    }
+    if (controls.size < minControls) {
+        throw AssertionError("$where: only ${controls.size} floating controls found (expected at least $minControls): ${controls.map { it.describe() }}")
     }
     for (i in controls.indices) for (j in i + 1 until controls.size) {
         val a = controls[i]
