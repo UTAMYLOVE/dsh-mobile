@@ -29,7 +29,7 @@ class WorkTrackerTest {
     @Test fun aRunningStatusMakesItBusyAndRetainsWork() {
         val remote = FakeWorkRemote()
         val tracker = WorkTracker(remote, scope)
-        waitUntil("baseline") { remote.muxState.value == MuxState.OPEN }
+        waitUntil("first baseline applied") { tracker.synced.value }
         assertFalse(tracker.busy.value)
 
         remote.emit(HostEvent.SessionAdded(row("a", true, title = "寫小說")))
@@ -42,6 +42,7 @@ class WorkTrackerTest {
         val tracker = WorkTracker(remote, scope)
         val busyChanges = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
         scope.launch { tracker.busy.collect { busyChanges.add(it) } }
+        waitUntil("first baseline applied") { tracker.synced.value }
         waitUntil("collector") { busyChanges.isNotEmpty() }
 
         remote.status("a", true)
@@ -57,7 +58,7 @@ class WorkTrackerTest {
     @Test fun aSubagentRunningKeepsItBusyAfterTheLeadIsIdle() {
         val remote = FakeWorkRemote(listOf(row("lead", false, title = "主"), row("kid", false, parent = "lead")))
         val tracker = WorkTracker(remote, scope)
-        waitUntil("baseline") { remote.muxState.value == MuxState.OPEN }
+        waitUntil("first baseline applied") { tracker.synced.value }
         remote.status("lead", true)
         remote.status("kid", true)
         waitUntil("both") { tracker.running.value.size == 2 }
