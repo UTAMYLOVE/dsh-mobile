@@ -34,3 +34,11 @@ Full unit suite: 751 tests, 0 failures.
 ## Concerns
 - `StreamSignal.Failed` is ignored by the store (the flow completes, no follow resumes); a screen-level retry is up to Task 4/8.
 - `session/page` answer shape was assumed to be snapshot-like (`records[].event`, `hasMore`), not observed.
+
+## Fix round 1
+- Follow health: `followError` (safe code, `ended`, or exception class name), re-follow with backoff 1 s, 2 s, 5 s, then 10 s, public `retry()`, collect wrapped against non-cancellation exceptions; dead flows also reset live/running. Cleared on the next value.
+- Replayed events: `ConversationState.lastSeq` (internal; snapshot max record seq or cursor). Event frames with seq <= lastSeq are dropped.
+- `loadOlder` with a page lacking `records` sets `sendError = "unexpected-answer"`.
+- Stream handling removed from `ConversationReducer.reduce` (it now ignores `assistant-stream` frames, so the store is the only production path). The concatenating version stays as `internal reduceLive`, documented as test reference only.
+- Pending bubbles: after 60 s without dsh recording them, `PendingSend.failed = true` (new defaulted field); `retrySend(requestId)` resends under a new id, `dismissSend(requestId)` drops it.
+- RED: new tests fail to compile against the old main code (`followError`, `reduceLive` unresolved). GREEN: 8 new tests (replayed approval, replayed turn/start, reduce ignores stream, failed follow recovers, ended + retry, throwing flow, page without records, bubble timeout and retry); chat suite passes, full suite 759 tests, 0 failures.
