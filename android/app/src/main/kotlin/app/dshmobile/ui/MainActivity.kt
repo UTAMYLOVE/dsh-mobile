@@ -22,7 +22,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
@@ -31,14 +30,13 @@ import androidx.lifecycle.repeatOnLifecycle
 import app.dshmobile.DshMobileApp
 import app.dshmobile.R
 import app.dshmobile.gateway.Provider
-import app.dshmobile.chat.SessionRows
 import app.dshmobile.notify.Notifier
 import app.dshmobile.remote.MuxState
 import app.dshmobile.service.DshService
 import app.dshmobile.service.RunningDsh
 import app.dshmobile.system.OnboardingState
 import app.dshmobile.system.PhantomProcessDetector
-import app.dshmobile.ui.agents.AgentsScreen
+import app.dshmobile.ui.agents.AgentsTab
 import app.dshmobile.ui.fog.FogPanel
 import app.dshmobile.ui.fog.FogTheme
 import app.dshmobile.ui.fog.effectsFor
@@ -228,32 +226,16 @@ class MainActivity : ComponentActivity() {
                     val draft = settingsDraft ?: SettingsDraft.from(settingsEnv).also { settingsDraft = it }
                     SettingsScreen(settingsEnv, onClose = null, contentPadding = LocalPagePadding.current, draft = draft)
                 }
-                ShellTab.AGENTS -> session?.let { AgentsTab(it) } ?: EmptyPage(tab)
+                ShellTab.AGENTS -> session?.let { sess ->
+                    // The limit is the configured subagent cap; read when the tab is shown (changing it needs "apply and restart" anyway).
+                    val limit = remember {
+                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
+                    }
+                    AgentsTab(sess.agents, sess.tree, sess.scope, limit, nav::openSession)
+                } ?: EmptyPage(tab)
                 else -> EmptyPage(tab)
             }
         }
-    }
-
-    @Composable
-    private fun AgentsTab(session: ShellSession) {
-        val rows by session.agents.rows.collectAsState()
-        val stopping by session.agents.stopping.collectAsState()
-        val failed by session.agents.failed.collectAsState()
-        val tree by session.tree.state.collectAsState()
-        val scope = rememberCoroutineScope()
-        // The limit is the configured subagent cap; read when the tab is shown (changing it needs "apply and restart" anyway).
-        val limit = remember {
-            app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
-        }
-        AgentsScreen(
-            rows = rows,
-            parentTitle = { id -> SessionRows.titleOf(tree, id) },
-            limit = limit,
-            stopping = stopping,
-            onStop = { row -> scope.launch { session.agents.stop(row) } },
-            onOpenParent = nav::openSession,
-            failed = failed,
-        )
     }
 
     private fun settingsBusy(): Boolean = settingsDraft?.localBusy == true || app.settingsJobs.busy.value

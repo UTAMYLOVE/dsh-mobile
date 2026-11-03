@@ -79,7 +79,9 @@ class RunningAgents(private val tree: SessionTree, private val remote: AgentsRem
         val s = tree.state.value
         val row = AgentRows.from(s).firstOrNull { it.childId == sessionId } ?: return null
         val parent = SessionRows.titleOf(s, row.parentId) ?: UNTITLED
-        return "子代理人「${row.label}」（來自 $parent）"
+        // The default label is not quoted: 子代理人「子代理人」 says nothing twice.
+        val who = if (row.label == AgentRows.DEFAULT_LABEL) AgentRows.DEFAULT_LABEL else "${AgentRows.DEFAULT_LABEL}「${row.label}」"
+        return "$who（來自 $parent）"
     }
 
     /** Asks dsh to stop [row]; the tap is ignored while a stop for it is already in flight or the row is not running. */

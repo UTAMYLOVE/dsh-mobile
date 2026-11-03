@@ -162,6 +162,6 @@ class RunningAgentsTest {
         val remote = FakeIndexRemote(listOf(sum("s1"), sum("c1", parent = "s1", origin = "subagent")))
         val tree = SessionTree(remote, scope)
         waitUntil("baseline") { tree.state.value.summaries.size == 2 }
-        assertEquals("子代理人「子代理人」（來自 新對話）", RunningAgents(tree, FakeAgents(), scope).originOf("c1"))
+        assertEquals("子代理人（來自 新對話）", RunningAgents(tree, FakeAgents(), scope).originOf("c1"))
     }
 }
