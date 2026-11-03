@@ -118,4 +118,32 @@ class ShellSessionHolderTest {
         while (!cond() && System.currentTimeMillis() < end) Thread.sleep(5)
         assertTrue(cond())
     }
+
+    /** Final review B2-M11: a conversation with a send dsh has not recorded (or that failed) is not evicted with it. */
+    @Test fun aConversationHoldingASendIsNotEvicted() {
+        val remote = FakeRemote()
+        val session = ShellSession(remote, events = null, scope = CoroutineScope(Job() + kotlinx.coroutines.Dispatchers.Default))
+        try {
+            val a = session.conversation("a")
+            kotlinx.coroutines.runBlocking { a.send(listOf(app.dshmobile.remote.PromptPart.Text("hi")), "hi", emptyList()) }
+            assertEquals(1, a.pending.value.size)
+            session.conversation("b"); session.conversation("c"); session.conversation("d")
+            assertSame("a keeps its bubble", a, session.conversation("a"))
+            assertSame("the UI cache stays with it", session.chatUi("a"), session.chatUi("a"))
+        } finally {
+            session.close()
+        }
+    }
+
+    @Test fun eachConversationKeepsItsChatUiCacheWhileCached() {
+        val remote = FakeRemote()
+        val session = ShellSession(remote, events = null, scope = CoroutineScope(Job() + kotlinx.coroutines.Dispatchers.Default))
+        try {
+            val ui = session.chatUi("a")
+            assertSame(ui, session.chatUi("a"))
+            assertTrue(ui !== session.chatUi("b"))
+        } finally {
+            session.close()
+        }
+    }
 }

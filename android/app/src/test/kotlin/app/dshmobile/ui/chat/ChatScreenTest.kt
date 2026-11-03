@@ -52,9 +52,12 @@ internal class ChatHarness {
     var lists = 0
     var olders = 0
     var follows = 0
+    /** What the shell session keeps per conversation; a test may swap it or hide the screen and bring it back. */
+    var ui = ChatUiCache()
+    var visible by mutableStateOf(true)
 
     @androidx.compose.runtime.Composable
-    fun Screen() = ChatScreen(
+    fun Screen() = if (visible) ChatScreen(
         state = state,
         onOpenList = { lists++ },
         onPickModel = { picked += it },
@@ -64,7 +67,8 @@ internal class ChatHarness {
         onRetryFollow = { follows++ },
         onRetrySend = { retried += it },
         onDismissSend = { dismissed += it },
-    )
+        ui = ui,
+    ) else Unit
 
     fun show(rule: ComposeContentTestRule) = rule.setContent {
         FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) { Screen() }
@@ -359,5 +363,36 @@ class ChatScreenTest {
         h.state = h.state.copy(pending = listOf(PendingSend("r9", "新的一句", emptyList(), queued = false)))
         rule.waitForIdle()
         rule.onNodeWithTag(Tags.PENDING_BUBBLE + "r9").assertIsDisplayed()
+    }
+
+    // ---- final review B2-I3 / B2-M8 ----
+
+    @Test fun onlyTheNewestMessagesAreParsedInTheCompositionAndTheCacheOutlivesTheScreen() {
+        val before = ChatDebug.backgroundParses.get()
+        val items = (1..60).map { ChatItem.User("e$it", "第 $it 則 **短訊**", emptyList()) }
+        show(*items.toTypedArray())
+        rule.waitUntil(5_000) { ChatDebug.backgroundParses.get() - before >= 60 - EAGER_ROWS }
+        rule.waitForIdle()
+        val parsed = ChatDebug.backgroundParses.get()
+        assertTrue("the newest are parsed at once, the rest off the main thread", parsed - before in (60 - EAGER_ROWS)..59)
+        // Leaving the conversation and coming back parses nothing again.
+        h.visible = false
+        rule.waitForIdle()
+        h.visible = true
+        rule.waitForIdle()
+        Thread.sleep(100)
+        rule.waitForIdle()
+        assertEquals(parsed, ChatDebug.backgroundParses.get())
+        rule.onNodeWithTag(Tags.CHAT_MESSAGES).assertExists()
+    }
+
+    @Test fun openThinkingStaysOpenWhenTheReplyFinishes() {
+        show { state = state.copy(live = LiveReply("a1", "先想一想", "答", emptyList()), running = true) }
+        rule.onNodeWithTag(Tags.THINKING).performClick()
+        rule.waitForIdle()
+        assertEquals(1, rule.onAllNodes(hasText("先想一想", substring = true)).fetchSemanticsNodes().size)
+        h.state = h.state.copy(live = null, running = false, items = listOf(ChatItem.Assistant("e5", 5, "先想一想", "答")))
+        rule.waitForIdle()
+        assertEquals("still open", 1, rule.onAllNodes(hasText("先想一想", substring = true)).fetchSemanticsNodes().size)
     }
 }

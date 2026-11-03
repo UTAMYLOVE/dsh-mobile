@@ -42,6 +42,7 @@ import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.chat.ChatPage
 import app.dshmobile.ui.chat.DockSend
 import app.dshmobile.ui.chat.ExternalLinks
+import app.dshmobile.ui.chat.LinkOpen
 import app.dshmobile.ui.chat.sendFromDock
 import app.dshmobile.chat.AttachmentLoader
 import app.dshmobile.chat.ConversationStore
@@ -353,7 +354,11 @@ class MainActivity : ComponentActivity() {
     internal fun attachForTest(uris: List<Uri>) = vm.addPicked(uris)
 
     private fun openLink(url: String) {
-        if (!ExternalLinks.open(this, url)) toast(getString(R.string.chat_no_browser))
+        when (ExternalLinks.open(this, url)) {
+            LinkOpen.OPENED -> Unit
+            LinkOpen.REFUSED -> toast(getString(R.string.chat_link_refused))
+            LinkOpen.NO_BROWSER -> toast(getString(R.string.chat_no_browser))
+        }
     }
 
     private fun shareWorkspaceFile(rel: String) {

@@ -111,6 +111,13 @@ fun modelChoices(hasClaudeKey: Boolean, current: String?): List<ModelChoice> =
 
 /** Up to this many characters, a message is parsed in the composition (the first frame already shows it). */
 internal const val EAGER_PARSE_CHARS = 2_000
+/**
+ * Only the newest this many messages, within [EAGER_BUDGET_CHARS] characters together, are parsed in the composition; older
+ * ones are parsed off the main thread (a placeholder until then). Opening a 500-message conversation must not parse them all on
+ * the main thread (final review B2-I3).
+ */
+internal const val EAGER_ROWS = 20
+private const val EAGER_BUDGET_CHARS = 20_000
 /** A message this short, in this few pieces, is one bubble in one lazy item (exactly the mockup's glass). */
 private const val SINGLE_MAX_CHARS = 3_000
 private const val SINGLE_MAX_PIECES = 12
@@ -252,11 +259,14 @@ internal class BlockCache {
     var revision by mutableIntStateOf(0)
         private set
 
-    /** [text]'s parse under [key]: cached, the live reply's when it is the same text, or parsed now when short; else null. */
-    fun entry(key: String, text: String): Entry? {
+    /**
+     * [text]'s parse under [key]: cached, the live reply's when it is the same text, or parsed now when short and [parseNow];
+     * else null.
+     */
+    fun entry(key: String, text: String, parseNow: Boolean = true): Entry? {
         entries[key]?.let { e -> if (e.text == text) return e }
         live?.let { l -> if (l.text.length == text.length && l.text == text) return l.also { entries[key] = it } }
-        if (text.length <= EAGER_PARSE_CHARS) return Entry(text, MarkdownParser.parse(text)).also { entries[key] = it }
+        if (parseNow && text.length <= EAGER_PARSE_CHARS) return Entry(text, MarkdownParser.parse(text)).also { entries[key] = it }
         return null
     }
 
@@ -338,7 +348,7 @@ internal suspend fun parseMissing(
 
 private class Built(val rows: List<ChatRow>, val missing: List<Pair<String, String>>)
 
-private class RowBuilder(private val cache: BlockCache, private val expanded: Set<String>) {
+private class RowBuilder(private val cache: BlockCache, private val expanded: Set<String>, private val eager: Set<String>? = null) {
     val rows = ArrayList<ChatRow>()
     val missing = ArrayList<Pair<String, String>>()
     val keys = HashSet<String>()
@@ -359,7 +369,7 @@ private class RowBuilder(private val cache: BlockCache, private val expanded: Se
 
     /** A durable message: parsed now, from the cache, or (long) queued for a background parse. */
     fun message(kind: BubbleKind, key: String, text: String, cites: List<Int>, gap: Int) {
-        val e = cache.entry(key, text)
+        val e = cache.entry(key, text, parseNow = eager == null || key in eager)
         if (e != null) return emit(kind, key, e, cites, gap)
         missing += key to text
         val shown = cache.provisional(text)
@@ -389,7 +399,7 @@ private class RowBuilder(private val cache: BlockCache, private val expanded: Se
 private fun durableRows(
     items: List<ChatItem>, hasMore: Boolean, olderError: String?, cache: BlockCache, expanded: Set<String>, attachments: String,
 ): Built {
-    val b = RowBuilder(cache, expanded)
+    val b = RowBuilder(cache, expanded, eagerKeys(items))
     if (hasMore) b.add(ChatRow.Older(olderError))
     var lastSearch: ChatItem.Tool? = null
     val used = HashSet<String>()
@@ -421,6 +431,23 @@ private fun durableRows(
     }
     cache.retain(used)
     return Built(b.rows, b.missing)
+}
+
+/** The row keys of the newest messages that may be parsed in the composition ([EAGER_ROWS], [EAGER_BUDGET_CHARS]). */
+private fun eagerKeys(items: List<ChatItem>): Set<String> {
+    val keys = HashSet<String>()
+    var chars = 0
+    for (item in items.asReversed()) {
+        val (key, length) = when (item) {
+            is ChatItem.User -> ("u:" + item.key) to item.text.length
+            is ChatItem.Assistant -> ("a:" + item.key) to item.text.length
+            else -> continue
+        }
+        if (keys.size >= EAGER_ROWS || chars + length > EAGER_BUDGET_CHARS) break
+        keys += key
+        chars += length
+    }
+    return keys
 }
 
 /** The streaming reply and the messages waiting for dsh, below the durable part. */
@@ -478,6 +505,35 @@ private fun rememberLiveEntry(live: LiveReply?, cache: BlockCache): BlockCache.E
 // ---- the screen --------------------------------------------------------------------------------------------------------
 
 /**
+ * What the chat page keeps for one conversation beyond a visit (final review B2-I3): the parsed Markdown, the open thinking
+ * sections and where the list was. The shell session holds one next to the conversation's store, so switching tabs or opening
+ * the list and coming back neither parses again nor folds anything. Main thread only.
+ */
+@Stable
+class ChatUiCache {
+    internal val blocks = BlockCache()
+    internal var expanded by mutableStateOf(emptySet<String>())
+    internal var scrollIndex = 0
+    internal var scrollOffset = 0
+    /** The live reply seen last; when it ends with its thinking open, the finished message's thinking opens (final review B2-M8). */
+    internal var lastLive: String? = null
+}
+
+/** The thinking of a reply that just finished stays open on its durable message (its key changes from `live:` to `a:`). */
+private fun carryOpenThinking(ui: ChatUiCache, live: String?, items: List<ChatItem>) {
+    if (live == ui.lastLive) return
+    val ended = ui.lastLive
+    ui.lastLive = live
+    if (ended == null) return
+    val liveKey = "think:live:$ended"
+    Snapshot.withoutReadObservation {
+        if (liveKey !in ui.expanded) return@withoutReadObservation
+        val reply = items.lastOrNull { it is ChatItem.Assistant && !it.reasoning.isNullOrBlank() } ?: return@withoutReadObservation
+        ui.expanded = ui.expanded - liveKey + ("think:a:" + reply.key)
+    }
+}
+
+/**
  * The chat page: the header (「☰ 對話」, the title on one line, the model chip and its inline menu), the error lines, and the
  * messages in a lazy list anchored at the newest. Every Markdown block of a long reply is a lazy item of its own, so a
  * 100 000-character chapter scrolls like a short one. Thinking is folded under 「思考過程」; `web_search` is a source card; an
@@ -496,14 +552,17 @@ fun ChatScreen(
     onRetryFollow: () -> Unit = {},
     onRetrySend: (String) -> Unit = {},
     onDismissSend: (String) -> Unit = {},
+    /** The conversation's cache from the shell session; a fresh one (lost when the screen leaves) when none is given. */
+    ui: ChatUiCache = remember { ChatUiCache() },
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
     var menuOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = menuOpen) { menuOpen = false }
 
-    val cache = remember { BlockCache() }
-    var expanded by remember { mutableStateOf(emptySet<String>()) }
+    carryOpenThinking(ui, state.live?.attemptId, state.items)
+    val cache = ui.blocks
+    var expanded by ui::expanded
     val revision = cache.revision
     val attachments = stringResource(R.string.chat_attachments)
     val durable = remember(state.items, state.hasMore, state.olderError, expanded, revision, attachments) {
@@ -516,7 +575,14 @@ fun ChatScreen(
     val newest = remember(tail) { tail.asReversed() }
     val oldest = remember(durable) { durable.rows.asReversed() }
 
-    val listState = rememberLazyListState()
+    val listState = rememberLazyListState(ui.scrollIndex, ui.scrollOffset)
+    // Where the list was, for the next visit to this conversation.
+    androidx.compose.runtime.DisposableEffect(listState, ui) {
+        onDispose {
+            ui.scrollIndex = listState.firstVisibleItemIndex
+            ui.scrollOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
     val scope = rememberCoroutineScope()
     // The ↓ pill: shown while the list is scrolled up and something newer arrived since the user left the bottom.
     val newestKey = newest.firstOrNull()?.key ?: oldest.firstOrNull()?.key

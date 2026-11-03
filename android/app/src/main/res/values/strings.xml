@@ -225,6 +225,7 @@
     <string name="chat_long_reply_loading">長回覆整理中…</string>
     <string name="chat_create_failed">沒有開成新對話（%1$s），文字留在輸入框</string>
     <string name="chat_no_browser">找不到可以開啟連結的瀏覽器</string>
+    <string name="chat_link_refused">這個連結不能在瀏覽器開啟</string>
     <string name="chat_share_failed">沒有辦法分享這個檔案</string>
     <string name="chat_list_failed">對話清單的動作沒有完成（%1$s）</string>
     <string name="chat_stopped">已停止</string>
