@@ -9,7 +9,7 @@
   - F + I.2/I.3: share any workspace file, plain-words limit/sandbox errors, phone note for the agent, team default 16 when phantom off, small-screen modal (af7f584)
   - Batch 2: app skills in $DSH_HOME/skills (novel, daily brief, bookkeeping, phone, pages), auto Flash/Pro routing, remote MCP servers (a5e8890). Schedules and long-term memory were already in dsh / our memory plugin.
   - e2e t25–t28 added; t19 switches to 清單模式 first.
-- NEXT: CI green on the branch head, then give the owner the tag command for v0.3.0+5.
+- CI GREEN: run 41731946451 attempt 2 at 562802e (attempt 1 had a one-off t23 flake: send stayed disabled, dsh healthy; passed in 3 other runs). Tag command given to the owner: `gh api repos/UTAMYLOVE/dsh-mobile/git/refs -f ref='refs/tags/v0.3.0+5' -f sha=562802e0170ac5443f85e312816628a5f25069bc`.
 - Not done / later: native dsh without proot (research); workflow sandbox under proot (needs dsh support); MCP with secrets (would break the keys rule).
 
 ## State on 2026-11-04 03:05 (Taipei)
