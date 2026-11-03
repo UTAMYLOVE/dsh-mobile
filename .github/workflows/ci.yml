@@ -175,6 +175,19 @@ jobs:
                   print(f'- {state} {m[2].rsplit(".", 1)[-1]}.{m[1]} ({float(m[3]):.1f} s)')
           if not files: print('no results')
           PY
+      - name: Print failures and app crashes
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, re, html
+          for f in glob.glob('android/app/build/outputs/androidTest-results/connected/**/TEST-*.xml', recursive=True):
+              for m in re.finditer(r'<testcase name="([^"]+)"[^>]*>(.*?)</testcase>', open(f).read(), re.S):
+                  if '<failure' in m[2] or '<error' in m[2]:
+                      print(f'=== {m[1]}')
+                      print('\n'.join(html.unescape(m[2]).splitlines()[:60]))
+          PY
+          echo "=== logcat: crashes, ANRs, low-memory kills, test runner"
+          grep -E "FATAL EXCEPTION|AndroidRuntime|ANR in|lowmemorykiller|Low on memory|TestRunner|app\.dshmobile" logcat.txt | grep -vE "token=|Authorization|api[_-]?key" | tail -n 200 || true
       - name: Upload test reports and logcat
         if: failure()
         uses: actions/upload-artifact@v4
