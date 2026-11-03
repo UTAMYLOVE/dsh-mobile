@@ -56,3 +56,7 @@ T7: minor (deferred): single 200k-char code line untested
 T3: review 1 = spec ❌ (panel padding top/sides swapped, heading gap 12 vs 14), quality Needs fixes (sonnet) — Important: per-frame allocations in ring/meter/background/glass draw paths; animated background lacks its own layer (invalidates ancestors); radial fades through grey; blurred backdrop not re-recorded when a panel moves
 - Ruling: all Minors join round 1 (same files; lag is the owner's top complaint): CountUpText draw-time read, one CSS-matching blur helper, glow offset, Segmented PILL_MS spring, 48 dp touch targets + selectableGroup, lazy GraphicsLayer, invalidateSemantics, Material body/title/label styles on the system font (Chakra Petch only for numbers and English labels per brief).
 T3: fix round 1/5 dispatched (resume implementer)
+T7: fix round 1 implementer DONE (ed82360): conflated parse publishes while streaming, 500-row/item caps, surrogate-safe cut, marker width; 649 unit; RED weak (compile-only); re-review dispatched (sonnet)
+T7: fix round 1/5 (4 addressed, 0 open; lane-t7 a6e508b..ed82360)
+T7: complete (lane-t7 d143f12..ed82360, review clean after 1 fix round) — merge into the branch batched with wave A to save CI minutes
+T7: minor (deferred): capped ordered list numbers the remainder item ("501. …還有 N 項"); short non-streaming text parsed twice
