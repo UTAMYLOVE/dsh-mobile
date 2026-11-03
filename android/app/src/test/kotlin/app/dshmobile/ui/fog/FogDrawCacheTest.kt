@@ -34,7 +34,14 @@ import org.robolectric.annotation.Config
 class FogDrawCacheTest {
     @get:Rule val rule = createComposeRule()
 
-    @Before fun clean() = FogDebug.reset()
+    @Before fun clean() {
+        FogDebug.enabled = true
+        FogDebug.reset()
+    }
+
+    @org.junit.After fun off() {
+        FogDebug.enabled = false
+    }
 
     private var view: View? = null
 

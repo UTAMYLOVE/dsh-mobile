@@ -34,6 +34,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -63,19 +64,35 @@ fun CountUpText(value: Double, format: (Double) -> String, style: TextStyle, mod
     val measurer = rememberTextMeasurer()
     val finalText = format(value)
     val drawStyle = if (style.color == Color.Unspecified) style.copy(color = Sakura.Text) else style
+    // One layout per distinct string: the final text (measured by every layout pass) and the digits already shown are not measured again.
+    val layouts = remember(measurer, drawStyle) {
+        StringCache<TextLayoutResult>(CountLayoutsKept) { measurer.measure(it, drawStyle, softWrap = false, maxLines = 1) }
+    }
     Spacer(
         modifier
             .semantics { text = AnnotatedString(finalText) }
             .layout { measurable, constraints ->
                 // Sized for the final text, so the layout does not move while the digits run.
-                val r = measurer.measure(finalText, drawStyle, softWrap = false, maxLines = 1)
+                val r = layouts[finalText]
                 val p = measurable.measure(Constraints.fixed(r.size.width, r.size.height))
                 layout(p.width, p.height) { p.place(0, 0) }
             }
             .drawWithCache {
-                onDrawBehind { drawText(measurer.measure(format(shown.doubleValue), drawStyle, softWrap = false, maxLines = 1)) }
+                onDrawBehind { drawText(layouts[format(shown.doubleValue)]) }
             },
     )
+}
+
+private const val CountLayoutsKept = 48
+
+/** Remembers the result of [compute] for the last [max] distinct strings asked for (least recently used goes first). Main thread only. */
+internal class StringCache<T : Any>(private val max: Int, private val compute: (String) -> T) {
+    private val map = object : LinkedHashMap<String, T>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, T>?): Boolean = size > max
+    }
+    val size: Int get() = map.size
+
+    operator fun get(key: String): T = map.getOrPut(key) { compute(key) }
 }
 
 /** The 240-unit HUD ring of the mockup: ticks (40 s spin), track, value arc from 12 o'clock with a glow, dashed aqua ring (26 s, reverse). */
@@ -90,7 +107,7 @@ fun HudRing(progress: Float, size: Dp, modifier: Modifier = Modifier, center: @C
     }
     val spinning = effects.spin && LocalPageActive.current
     val clock = rememberFogClock(spinning, LocalIdle.current)
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+    Box(modifier.size(size).semantics { set(FogSemantics.Animating, spinning) }, contentAlignment = Alignment.Center) {
         Box(
             Modifier.size(size).drawWithCache {
                 FogDebug.count("ring.cache")

@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +51,8 @@ fun FogPanel(
             rise.animateTo(1f, tween(FogMotion.RISE_MS, delay, FogMotion.EaseOut))
         }
     }
+    // Read through derivedStateOf: only the flip at the end of the rise recomposes this, not each frame of it.
+    val settled by remember { derivedStateOf { rise.value >= 1f } }
     val shape = RoundedCornerShape(FogDimens.Panel)
     Column(
         modifier
@@ -61,7 +65,7 @@ fun FogPanel(
                 scaleX = sc
                 scaleY = sc
             }
-            .glass(shape)
+            .glass(shape, settled)
             .padding(start = 18.dp, top = 16.dp, end = 18.dp, bottom = 18.dp),
     ) {
         if (title != null || en != null || meta != null) {

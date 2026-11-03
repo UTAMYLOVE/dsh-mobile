@@ -52,6 +52,11 @@ import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -80,7 +85,10 @@ import app.dshmobile.ui.fog.FogDimens
 import app.dshmobile.ui.fog.FogFonts
 import app.dshmobile.ui.fog.FogMotion
 import app.dshmobile.ui.fog.FogText
+import app.dshmobile.ui.fog.LocalBackdrop
 import app.dshmobile.ui.fog.LocalEffects
+import app.dshmobile.ui.fog.LocalIdle
+import app.dshmobile.ui.fog.LocalPageActive
 import app.dshmobile.ui.fog.glass
 import app.dshmobile.ui.fog.glow
 import app.dshmobile.ui.fog.rememberBackdrop
@@ -137,6 +145,8 @@ fun FogShell(
     page: @Composable (ShellTab) -> Unit,
 ) {
     val backdrop = rememberBackdrop()
+    val started = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(Lifecycle.State.STARTED)
+    val idle = rememberIdle(started)
     val density = LocalDensity.current
     // Composition reads only insets that do not animate frame by frame: the navigation bar, and the keyboard's target (it
     // changes once when the keyboard starts to show or hide). The dock itself follows the keyboard in layout.
@@ -158,73 +168,124 @@ fun FogShell(
     )
     val ready = status == MainUiState.Ready
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .semantics { testTagsAsResourceId = true },
-    ) {
-        FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND))
-        Column(Modifier.fillMaxSize()) {
-            Header(
-                nav.tab,
-                Modifier
-                    .testTag(Tags.SHELL_HEADER)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
-            )
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .testTag(Tags.SHELL_STAGE)
-                    .clipToBounds()
-                    .onGloballyPositioned { edge.stageTop = it.positionInRoot().y }
-                    .fadeAbove(edge),
-            ) {
-                CompositionLocalProvider(LocalPagePadding provides padding) {
-                    Pages(nav.tab) { tab ->
-                        when {
-                            tab == ShellTab.LIBRARY -> LibraryPlaceholder()
-                            tab.needsDsh && !ready -> StatusPage(status, onRetry, onExportErrorLog)
-                            else -> page(tab)
-                        }
-                    }
-                }
+    // Real blur on (the backdrop is provided for every glass surface); pages animate only while current and the screen is started;
+    // after eight quiet seconds the ambient motion slows down.
+    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides started, LocalIdle provides idle.value) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .semantics { testTagsAsResourceId = true }
+                .then(idle.observer),
+        ) {
+            FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND))
+            Column(Modifier.fillMaxSize()) {
+                Header(
+                    nav.tab,
+                    Modifier
+                        .testTag(Tags.SHELL_HEADER)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+                )
                 Box(
                     Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .height(TopFade)
-                        .background(Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .9f), Sakura.Background.copy(alpha = 0f)))),
+                        .testTag(Tags.SHELL_STAGE)
+                        .clipToBounds()
+                        .onGloballyPositioned { edge.stageTop = it.positionInRoot().y }
+                        .fadeAbove(edge),
+                ) {
+                    CompositionLocalProvider(LocalPagePadding provides padding) {
+                        Pages(nav.tab) { tab ->
+                            // Only the current page animates; the one sliding out is already still.
+                            CompositionLocalProvider(LocalPageActive provides (started && tab == nav.tab)) {
+                                when {
+                                    tab == ShellTab.LIBRARY -> LibraryPlaceholder()
+                                    tab.needsDsh && !ready -> StatusPage(status, onRetry, onExportErrorLog)
+                                    else -> page(tab)
+                                }
+                            }
+                        }
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(TopFade)
+                            .background(Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .9f), Sakura.Background.copy(alpha = 0f)))),
+                    )
+                }
+            }
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                    .padding(start = FogDimens.DockSide, end = FogDimens.DockSide, bottom = 12.dp)
+                    .testTag(Tags.DOCK)
+                    .onSizeChanged { stackHeight = it.height }
+                    .onGloballyPositioned { edge.stackTop = it.positionInRoot().y },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (showReconnecting) ReconnectingChip(Modifier.align(Alignment.CenterHorizontally))
+                if (attachMenu) {
+                    AttachMenu(
+                        onImage = { attachMenu = false; composer.onAttachImage() },
+                        onFile = { attachMenu = false; composer.onAttachFile() },
+                    )
+                }
+                Dock(
+                    composer = composer,
+                    enabled = composer.enabled && ready,
+                    tab = nav.tab,
+                    onSelect = nav::select,
+                    onToggleAttachMenu = { attachMenu = !attachMenu },
                 )
             }
+            overlay()
         }
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                .padding(start = FogDimens.DockSide, end = FogDimens.DockSide, bottom = 12.dp)
-                .testTag(Tags.DOCK)
-                .onSizeChanged { stackHeight = it.height }
-                .onGloballyPositioned { edge.stackTop = it.positionInRoot().y },
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (showReconnecting) ReconnectingChip(Modifier.align(Alignment.CenterHorizontally))
-            if (attachMenu) {
-                AttachMenu(
-                    onImage = { attachMenu = false; composer.onAttachImage() },
-                    onFile = { attachMenu = false; composer.onAttachFile() },
-                )
-            }
-            Dock(
-                composer = composer,
-                enabled = composer.enabled && ready,
-                tab = nav.tab,
-                onSelect = nav::select,
-                onToggleAttachMenu = { attachMenu = !attachMenu },
-            )
-        }
-        overlay()
     }
+}
+
+/** How long without a touch before the ambient motion slows down. */
+private const val IdleAfterMs = 8_000L
+
+/** [value] is true after [IdleAfterMs] without a touch (never while the screen is stopped); [observer] watches touches without consuming them. */
+@Stable
+private class IdleWatch {
+    var value by mutableStateOf(false)
+    var touches = 0
+    val observer: Modifier = Modifier.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                awaitPointerEvent(PointerEventPass.Initial) // looks, never consumes
+                touches++
+                if (value) value = false
+            }
+        }
+    }
+}
+
+/** One check a second, counted in the composition's own clock; the state flips only when idleness starts or ends, so nothing recomposes meanwhile. */
+@Composable
+private fun rememberIdle(started: Boolean): IdleWatch {
+    val watch = remember { IdleWatch() }
+    LaunchedEffect(started) {
+        watch.value = false
+        if (!started) return@LaunchedEffect
+        var seen = watch.touches
+        var quiet = 0L
+        while (true) {
+            delay(1_000)
+            if (watch.touches != seen) {
+                seen = watch.touches
+                quiet = 0
+            } else {
+                quiet += 1_000
+            }
+            val idle = quiet >= IdleAfterMs
+            if (watch.value != idle) watch.value = idle
+        }
+    }
+    return watch
 }
 
 /**

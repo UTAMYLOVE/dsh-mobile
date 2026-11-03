@@ -10,13 +10,18 @@ import app.dshmobile.ui.AndroidOnboardingPlatform
 import app.dshmobile.ui.MainOps
 import app.dshmobile.ui.SettingsEnv
 import app.dshmobile.ui.SettingsVersions
+import app.dshmobile.ui.fog.EffectLevel
 import okhttp3.OkHttpClient
 
 /**
  * [app.dshmobile.ui.SettingsScreen]'s environment with the app's real singletons, for the shell's settings tab. Nothing here
  * runs on construction: versions, vault and exports are touched only when the screen asks.
  */
-fun buildSettingsEnv(activity: ComponentActivity, app: DshMobileApp): SettingsEnv {
+fun buildSettingsEnv(
+    activity: ComponentActivity,
+    app: DshMobileApp,
+    onEffectLevel: (EffectLevel) -> Unit = app.effectsController::set,
+): SettingsEnv {
     val platform = AndroidOnboardingPlatform(activity)
     val ops = MainOps(app.controller, { app.dshVersions.previous() }, { app.dshVersions.rollback() }, app.errorLog)
     val versions = object : SettingsVersions {
@@ -44,5 +49,6 @@ fun buildSettingsEnv(activity: ComponentActivity, app: DshMobileApp): SettingsEn
         exportMemory = { app.exporter.share(app.exporter.memoryBackupZip()) },
         exportWorkspace = { app.exporter.share(app.exporter.workspaceZip()) },
         jobs = app.settingsJobs,
+        onEffectLevel = onEffectLevel,
     )
 }

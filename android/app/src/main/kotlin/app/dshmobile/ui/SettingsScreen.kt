@@ -101,6 +101,8 @@ class SettingsEnv(
     val exportWorkspace: () -> Unit,
     /** Owned by the application: the long dsh actions run there and outlive this screen. */
     val jobs: SettingsJobs,
+    /** The effect strength chosen in Settings: takes effect at once (the app's `EffectsController.set`). */
+    val onEffectLevel: (app.dshmobile.ui.fog.EffectLevel) -> Unit = {},
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
