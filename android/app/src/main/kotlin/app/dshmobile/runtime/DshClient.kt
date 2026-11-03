@@ -14,6 +14,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -72,14 +73,21 @@ class DshClient(base: OkHttpClient, private val launch: LaunchUrl) {
      * also holds while the server dribbles its body.
      */
     suspend fun postJsonForText(path: String, json: String): TextResponse =
-        postAndRead(path, json) { TextResponse(it.code, it.peekBody(MAX_TEXT_BYTES).string()) }
+        postAndRead(path, json.toRequestBody(JSON)) { TextResponse(it.code, it.peekBody(MAX_TEXT_BYTES).string()) }
 
     /**
      * Like [postJsonForText], but the whole body is read up to [maxBytes] and a longer one fails with
      * [ResponseTooLargeException] instead of being cut off (DshRemote's RPC answers, e.g. a long `session/list`).
      */
     suspend fun postJsonForBoundedText(path: String, json: String, maxBytes: Long): TextResponse =
-        postAndRead(path, json) { TextResponse(it.code, readBounded(it, maxBytes)) }
+        postAndRead(path, json.toRequestBody(JSON)) { TextResponse(it.code, readBounded(it, maxBytes)) }
+
+    /**
+     * [postJsonForBoundedText] for a body already encoded as UTF-8 [json] bytes. The bytes are sent as they are (no copy, no
+     * encoding here): DshRemote encodes a large body off the caller's thread and hands it over with this.
+     */
+    suspend fun postJsonForBoundedText(path: String, json: ByteArray, maxBytes: Long): TextResponse =
+        postAndRead(path, json.toRequestBody(JSON)) { TextResponse(it.code, readBounded(it, maxBytes)) }
 
     /**
      * Opens [path] on dsh as a WebSocket through the same client (session cookie, [Proxy.NO_PROXY], loopback origin only).
@@ -90,8 +98,8 @@ class DshClient(base: OkHttpClient, private val launch: LaunchUrl) {
     /** The body was longer than the caller allowed. */
     class ResponseTooLargeException : IOException("dsh answer too large")
 
-    private suspend fun <T> postAndRead(path: String, json: String, read: (Response) -> T): T = coroutineScope {
-        val call = client.newCall(request(path).post(json.toRequestBody(JSON)).build())
+    private suspend fun <T> postAndRead(path: String, body: RequestBody, read: (Response) -> T): T = coroutineScope {
+        val call = client.newCall(request(path).post(body).build())
         val exchange = async(Dispatchers.IO) {
             try {
                 call.execute().use(read)

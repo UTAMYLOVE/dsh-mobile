@@ -133,7 +133,7 @@ object Tags {
     const val NOVEL_MODEL = "novel-model-"
     const val UNVERIFIED_WARNING = "unverified-warning"
     /** 「目前自動降為：…」 under the effect control. */
-    const val EFFECT_LOWERED = "effect-lowered"
+    const val EFFECT_LOWERED = "lowered-effect"
     /** 「未套用」 beside a lead model chosen but not applied yet. */
     const val LEAD_UNAPPLIED = "lead-unapplied"
     /** The glass card that asks before apply, update or rollback cut off a running conversation; its two buttons. */

@@ -4,6 +4,7 @@ import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.FakeDshServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -249,6 +250,31 @@ class DshRemoteCallTest {
             assertTrue("base64, encode and decode: ${dispatched.get() - before}", dispatched.get() - before >= 3)
         } finally {
             counted.close()
+        }
+    }
+
+    /**
+     * Residual review (A-I2): the request body's UTF-8 bytes (27 MB for a 20 MB upload) are made off the caller's thread, and the
+     * client is handed bytes, so nothing re-encodes them on it.
+     */
+    @Test fun theBodyBytesAreEncodedOffTheCallersThread() {
+        val encodedOn = CopyOnWriteArrayList<Thread>()
+        val caller = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "caller") }
+        val counted = DshRemote(
+            DshClient(OkHttpClient(), dsh.launch), scope, ZoneId.of("Asia/Taipei"),
+            encodeBody = { json -> encodedOn += Thread.currentThread(); json.toByteArray(Charsets.UTF_8) },
+        )
+        try {
+            runBlocking(caller.asCoroutineDispatcher()) {
+                counted.upload("s1", "a.bin", ByteArray(4096))
+                counted.listSessions()
+            }
+            assertEquals(2, encodedOn.size)
+            assertTrue(encodedOn.toString(), encodedOn.none { it.name == "caller" })
+            assertTrue(rpcBodies.any { it.contains("fileUploads/upload") })
+        } finally {
+            counted.close()
+            caller.shutdown()
         }
     }
 }

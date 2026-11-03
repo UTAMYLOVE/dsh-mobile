@@ -100,6 +100,8 @@ private class SettingsFakeVersions : SettingsVersions {
     var failReads = false
     var update: UpdateOutcome = UpdateOutcome.UpToDate
     var rollbackOutcome: MainOps.RollbackOutcome = MainOps.RollbackOutcome.NoPrevious
+    /** The verified version an update would install; null when already on it. */
+    var target: String? = "0.2.2"
     var verified = listOf("0.2.1-rc.5")
     var updates = 0
     var rollbacks = 0
@@ -108,6 +110,7 @@ private class SettingsFakeVersions : SettingsVersions {
     override fun current(): String = if (failReads) throw IllegalStateException("dsh has no current version link") else current
     override fun previous(): String? = if (failReads) throw java.io.IOException("unreadable") else previous
     override fun verified(): List<String> = verified
+    override fun updateTarget(): String? = target
     override suspend fun checkUpdate(): UpdateOutcome { updates++; gate?.await(); completedChecks++; return update }
     override suspend fun rollback(): MainOps.RollbackOutcome { rollbacks++; gate?.await(); return rollbackOutcome }
 }
@@ -899,5 +902,17 @@ class SettingsScreenTest {
         waitFor { "ensureRunning" in runtime.events }
         rule.waitForIdle()
         assertFalse(hasTag(Tags.LEAD_UNAPPLIED))
+    }
+
+    /** Residual review: up to date, an update stops nothing, so it asks nothing even while work runs. */
+    @Test fun anUpdateWithNothingToInstallNeverAsks() {
+        working = true
+        versions.target = null
+        show()
+        clickAndWait("check-update")
+        assertFalse(hasTag(Tags.CONFIRM_CARD))
+        assertEquals(1, versions.updates)
+        waitForText(str(R.string.set_version_uptodate, "0.2.1-rc.5"))
+        assertFalse("stop" in runtime.events)
     }
 }
