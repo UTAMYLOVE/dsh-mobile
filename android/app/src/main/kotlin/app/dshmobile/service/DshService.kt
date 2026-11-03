@@ -10,7 +10,6 @@ import android.os.Looper
 import androidx.core.app.ServiceCompat
 import app.dshmobile.DshMobileApp
 import app.dshmobile.notify.Notifier
-import app.dshmobile.ui.UiHolder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,11 +17,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
  * Foreground service that keeps dsh alive while the user chats with it. If dsh dies, [CrashPolicy] decides
  * between restarting it and giving up (notify the user, stop the service).
+ *
+ * Work in flight (spec §5.11) keeps the service and dsh up through the `"work"` holder. The service is [START_NOT_STICKY]:
+ * if the system kills the whole process (low memory, OEM task killer) the work is lost and nothing restarts it; the next
+ * screen start or heartbeat starts dsh again.
  */
 class DshService : Service() {
     private val app get() = application as DshMobileApp
@@ -38,6 +42,9 @@ class DshService : Service() {
     private var remote: WorkRemote? = null
     private var wasBusy = false // only touched by the one collector of the current tracker, or under attachLock
     private var lastWork: RunningWork? = null
+    private var attachedDsh: RunningDsh? = null
+    private var endCheckPending = false // a restart dropped the work hold: the new tracker's first answer still owes the end-of-work rule
+    private var stopRequested = false   // the owner pressed 「停止」 while working: its end is not a "done" notice
     private val attachLock = Any()
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -54,7 +61,12 @@ class DshService : Service() {
         if (intent?.getStringExtra(Notifier.EXTRA_ACTION) == Notifier.ACTION_STOP_WORK) {
             // The notification's 「停止」: not a (re)start. Without a tracker there is nothing to stop and nothing running here.
             val t = tracker
-            if (t == null) stopSelf() else scope.launch { t.stopAll() }
+            if (t == null) {
+                stopSelf()
+            } else {
+                synchronized(attachLock) { if (wasBusy) stopRequested = true }
+                scope.launch { t.stopAll() }
+            }
             return START_NOT_STICKY
         }
         ServiceCompat.startForeground(
@@ -113,14 +125,16 @@ class DshService : Service() {
     /** Watches the (new) dsh for work; a restart after a crash replaces the old watcher and its hold. */
     private fun attachTracker(dsh: RunningDsh) {
         synchronized(attachLock) {
+            if (dsh == attachedDsh && tracker != null) return // the same dsh (every app open asks again): keep its watcher
             detachTracker()
+            attachedDsh = dsh
             val ts = CoroutineScope(SupervisorJob(scope.coroutineContext[Job]) + Dispatchers.Default)
             val r = app.workRemoteFactory(dsh, ts)
             val t = WorkTracker(r, ts)
             trackerScope = ts
             remote = r
             tracker = t
-            ts.launch { t.running.collect { onWork(t, it) } }
+            ts.launch { combine(t.running, t.synced) { r, synced -> r to synced }.collect { (r, synced) -> onWork(t, r, synced) } }
         }
     }
 
@@ -131,22 +145,28 @@ class DshService : Service() {
             runCatching { remote?.close() }
             remote = null
             tracker = null
-            if (wasBusy) app.controller.release(WORK_HOLDER)
+            attachedDsh = null
+            if (wasBusy) {
+                app.controller.release(WORK_HOLDER)
+                endCheckPending = true
+            }
             wasBusy = false
         }
     }
 
-    private fun onWork(from: WorkTracker, work: List<RunningWork>) {
-        synchronized(attachLock) { handleWork(from, work) }
+    private fun onWork(from: WorkTracker, work: List<RunningWork>, synced: Boolean) {
+        synchronized(attachLock) { handleWork(from, work, synced) }
     }
 
-    private fun handleWork(from: WorkTracker, work: List<RunningWork>) {
+    private fun handleWork(from: WorkTracker, work: List<RunningWork>, synced: Boolean) {
         if (tracker !== from) return // replaced or destroyed while this update was waiting
         if (work.isNotEmpty()) {
+            endCheckPending = false
             lastWork = work.firstOrNull { it.parentId == null } ?: work.first()
             if (!wasBusy) {
                 app.controller.retain(WORK_HOLDER)
                 wasBusy = true
+                stopRequested = false
             }
             ServiceCompat.startForeground(
                 this, Notifier.ID_SERVICE, app.notifier.workingNotification(work),
@@ -155,22 +175,26 @@ class DshService : Service() {
         } else if (wasBusy) {
             wasBusy = false
             app.controller.release(WORK_HOLDER)
-            ServiceCompat.startForeground(
-                this, Notifier.ID_SERVICE, app.notifier.serviceNotification(),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-            )
-            if (!app.isInForeground) app.notifier.showWorkDone(lastWork?.sessionId, lastWork?.title)
-            stopWhenNobodyIsLooking()
+            endWork(announce = !stopRequested)
+            stopRequested = false
+        } else if (synced && endCheckPending) {
+            // A crash restart dropped the hold while working; the new dsh has nothing to do: the normal end of work, quietly.
+            endCheckPending = false
+            endWork(announce = false)
         }
     }
 
-    /**
-     * The UI's grace countdown may have run out while the work held dsh (it then left the service alone): end it now. If the
-     * countdown is still pending, or the UI is up, they end it by their own rules.
-     */
-    private fun stopWhenNobodyIsLooking() {
+    /** Back to the plain notification, a 「完成」 notice if nobody is looking, and the usual 10-minute idle countdown. */
+    private fun endWork(announce: Boolean) {
+        ServiceCompat.startForeground(
+            this, Notifier.ID_SERVICE, app.notifier.serviceNotification(),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+        )
+        val done = lastWork
+        // UiHolder is main-thread only.
         Handler(Looper.getMainLooper()).post {
-            if (!app.isInForeground && !app.uiHolder.graceScheduled && UiHolder.HOLDER !in app.controller.holders) stopSelf()
+            if (announce && !app.uiHolder.isForeground) app.notifier.showWorkDone(done?.sessionId, done?.title)
+            app.uiHolder.onWorkEnded()
         }
     }
 

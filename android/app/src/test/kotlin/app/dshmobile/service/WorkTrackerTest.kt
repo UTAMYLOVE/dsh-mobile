@@ -97,4 +97,23 @@ class WorkTrackerTest {
         assertEquals(setOf("a", "b"), remote.cancelled.toSet())
         assertEquals(setOf("k1" to "a", "k2" to "b"), remote.interrupted.toSet())
     }
+
+    @Test fun anIdleEventLostWhileEventsReopenedClearsBusyOnTheNextBaseline() {
+        val remote = FakeWorkRemote(listOf(row("a", true)))
+        val tracker = WorkTracker(remote, scope)
+        waitUntil("busy") { tracker.busy.value }
+
+        remote.sessions = listOf(row("a", false)) // the idle event was lost; only the list knows
+        remote.reopenEvents()
+        waitUntil("idle after the events reopened") { !tracker.busy.value }
+    }
+
+    @Test fun theWatchdogReconcilesAStuckBusyWithoutAnyReopen() {
+        val remote = FakeWorkRemote(listOf(row("a", true)))
+        val tracker = WorkTracker(remote, scope, watchdogMs = 50)
+        waitUntil("busy") { tracker.busy.value }
+
+        remote.sessions = listOf(row("a", false))
+        waitUntil("watchdog clears busy") { !tracker.busy.value }
+    }
 }

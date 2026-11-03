@@ -15,3 +15,24 @@ Full unit suite: 730 tests, 0 failures. No new permissions.
 - `onTaskRemoved` idle "as before" = no reaction (the service never had one); idle and working tests differ in holders/assertions only.
 - Production risk: a RECONNECTING->OPEN flip faster than the collector could be conflated and skip a re-baseline; real reconnects have backoff delay.
 - Foreground notification title when idle is unchanged ("DSH Mobile 執行中").
+
+## Fix round 1
+
+Method: tests written first; RED = new tests run against the round-0 main sources (main tree restored from HEAD; the fake's `override` and the `watchdogMs` argument temporarily removed so it compiled), then GREEN with the fixes. RED run: 90 tests, 9 failed.
+
+| Item | Fix | Test (RED -> GREEN) |
+|---|---|---|
+| I1 | `WorkRemote.eventsClientId` (DshEvents' clientId); the tracker re-baselines on every mux OPEN and on every clientId change; a watchdog calls `listSessions()` every 45 s while busy (`watchdogMs`); reconciles are serialized | `WorkTrackerTest.anIdleEventLostWhileEventsReopenedClearsBusyOnTheNextBaseline`, `theWatchdogReconcilesAStuckBusyWithoutAnyReopen` (RED -> GREEN) |
+| I2 | `WorkTracker.synced`; `detachTracker` marks `endCheckPending`; the new tracker's first synced idle answer runs the normal end rule (quiet, no notice) | `DshServiceTest.aCrashRestartInTheBackgroundThatFindsNoWorkAppliesTheNormalEndRule` (RED -> GREEN) |
+| M1 | `UiHolder.onWorkEnded()` (new, plus `isForeground`) starts the 10-minute grace instead of an immediate stop; `stopWhenNobodyIsLooking` removed; the "完成" decision uses `uiHolder.isForeground` (so the app's activity counter is gone from DshMobileApp) | `swipingTheTaskAwayWhileWorking...` (grace restarts, then stops), `workEndingInTheBackgroundPostsTheNoticeAndStartsTheCountdown`, `workEndingWhileTheScreenIsUpPostsNoNoticeAndNoCountdown` |
+| M2 | `attachTracker` skips an unchanged `RunningDsh` | `anotherStartCommandForTheSameDshKeepsTheWatcher` (RED -> GREEN) |
+| M3 | KDoc on `DshService`: START_NOT_STICKY means work is lost if the system kills the process; behaviour unchanged | none (documentation) |
+| M4 | `stopRequested` flag set by 「停止」 while working; the end does not announce | `pressingStopPostsNoDoneNotice` (RED -> GREEN) |
+| M5 | `clip` drops a high surrogate at the cut | `NotifierTest.aClipNeverSplitsASurrogatePair` (RED -> GREEN); `theWorkingNotificationClipsALongTitleAndLeaksNoUrlOrToken` (40-char clip, "等 3 件", no http/token; already GREEN against round-0 clip) |
+| M6 | Swipe tests go through `app.uiHolder.onUiStart/onUiStop`, the 10-minute countdown (looper `idleFor`) and `app.stopService` (recorded by Robolectric); assert the holder set; both branches of the stopService guard (work held: not stopped; idle: stopped) and both foreground/background branches of the end rule; main-thread waits use the looper instead of sleeps (two short negative-assertion sleeps remain, 150/300 ms). Mutation check: replacing the guard in DshMobileApp with `true` makes `swipingTheTaskAwayWhileWorking...` fail | as listed |
+
+`swipingTheTaskAwayWhenIdleBehavesAsBefore` passed in the RED run too, as intended (it pins the unchanged idle behaviour).
+
+DshMobileApp.kt now has only: `workRemoteFactory` seam and the `uiHolder.stopService` work guard (activity counter removed). UiHolder.kt (ui/) got two small additions at the end of the class (`isForeground`, `onWorkEnded`); the coordinator ruled M1 through a uiHolder method, but note the possible merge overlap with Task 4.
+
+Full suite: 738 tests, 0 failures.

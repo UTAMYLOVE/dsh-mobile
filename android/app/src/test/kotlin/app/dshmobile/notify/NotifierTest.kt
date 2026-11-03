@@ -171,4 +171,12 @@ class NotifierTest {
         notifier.showWorkDone("s", "字".repeat(100))
         assertEquals(40, posted().single().text().length)
     }
+
+    @Test fun aClipNeverSplitsASurrogatePair() {
+        notifier.showWorkDone("s", "字".repeat(38) + "\uD83D\uDE00".repeat(5)) // the 40-char cut falls inside the first emoji
+        val text = posted().single().text()
+        assertTrue(text.length <= 40)
+        assertTrue(text.endsWith("…"))
+        assertTrue("no lone high surrogate before the ellipsis", !Character.isHighSurrogate(text[text.length - 2]))
+    }
 }

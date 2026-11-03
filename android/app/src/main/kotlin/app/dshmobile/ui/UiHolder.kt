@@ -46,6 +46,20 @@ class UiHolder(
         graceScheduled = true
     }
 
+    /** True while any screen is started (the owner is looking at the app). */
+    val isForeground: Boolean get() = startedScreens > 0
+
+    /**
+     * Background work just ended: the usual idle countdown starts now (nothing to do while a screen is up, which holds dsh
+     * itself and starts the countdown when it stops).
+     */
+    fun onWorkEnded() {
+        if (startedScreens > 0) return
+        handler.removeCallbacks(check)
+        handler.postDelayed(check, graceMs)
+        graceScheduled = true
+    }
+
     private fun cancelGrace() {
         handler.removeCallbacks(check)
         graceScheduled = false

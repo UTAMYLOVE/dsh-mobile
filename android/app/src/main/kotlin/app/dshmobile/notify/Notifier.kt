@@ -134,7 +134,12 @@ class Notifier(private val context: Context) {
         )
     }
 
-    private fun clip(s: String) = if (s.length > MAX_TITLE) s.take(MAX_TITLE - 1) + "…" else s
+    private fun clip(s: String): String {
+        if (s.length <= MAX_TITLE) return s
+        var cut = MAX_TITLE - 1
+        if (Character.isHighSurrogate(s[cut - 1])) cut-- // never split a surrogate pair
+        return s.take(cut) + "…"
+    }
 
     private fun builder(channel: String, title: String, text: String): Notification.Builder =
         Notification.Builder(context, channel)

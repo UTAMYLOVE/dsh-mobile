@@ -13,12 +13,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** The slice of [DshRemote] that [WorkTracker] needs (lets tests substitute a fake). */
 interface WorkRemote {
     val hostEvents: Flow<HostEvent>
     val muxState: StateFlow<MuxState>
+
+    /** `$events`' client id: it changes (through null) whenever dsh's event stream was reopened, which can lose events. */
+    val eventsClientId: StateFlow<String?>
     suspend fun listSessions(): List<SessionSummary>
     suspend fun cancel(sessionId: String)
     suspend fun interruptSubagent(childSessionId: String, parentSessionId: String)
@@ -28,6 +34,7 @@ interface WorkRemote {
 fun DshRemote.asWorkRemote(): WorkRemote = object : WorkRemote {
     override val hostEvents get() = this@asWorkRemote.hostEvents
     override val muxState get() = this@asWorkRemote.muxState
+    override val eventsClientId get() = this@asWorkRemote.events.clientId
     override suspend fun listSessions() = this@asWorkRemote.listSessions()
     override suspend fun cancel(sessionId: String) = this@asWorkRemote.cancel(sessionId)
     override suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) =
@@ -43,13 +50,19 @@ data class RunningWork(val sessionId: String, val parentId: String?, val title: 
  * and rebuilt from `session/list` every time the mux (re)opens, so events missed while disconnected cannot leave it stuck.
  * Holds no dsh lifecycle itself: [DshService] turns [busy] into the `"work"` holder.
  */
-class WorkTracker(private val remote: WorkRemote, private val scope: CoroutineScope) {
+class WorkTracker(
+    private val remote: WorkRemote,
+    private val scope: CoroutineScope,
+    /** While busy, the list is asked this often and reconciled: a lost "idle" event must not hold dsh forever. */
+    private val watchdogMs: Long = WATCHDOG_MS,
+) {
     private val lock = Any()
     private val runningIds = LinkedHashSet<String>()      // guarded by lock
     private val meta = HashMap<String, SessionSummary>()  // guarded by lock
     private var touched: MutableMap<String, Boolean>? = null // events seen while a baseline list is in flight; guarded by lock
     private val asked = HashSet<String>()                 // sessions whose metadata was already requested; guarded by lock
 
+    private val reconcileLock = Mutex()
     private val _running = MutableStateFlow<List<RunningWork>>(emptyList())
     private val _busy = MutableStateFlow(false)
 
@@ -57,12 +70,32 @@ class WorkTracker(private val remote: WorkRemote, private val scope: CoroutineSc
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
     val running: StateFlow<List<RunningWork>> = _running.asStateFlow()
 
+    private val _synced = MutableStateFlow(false)
+
+    /** True once the first baseline from `session/list` has been applied: before it, an empty [running] means "not known yet". */
+    val synced: StateFlow<Boolean> = _synced.asStateFlow()
+
     init {
         // Subscribe before anything else so no event falls between the baseline and the first collect.
         scope.launch(start = CoroutineStart.UNDISPATCHED) { remote.hostEvents.collect(::onEvent) }
         scope.launch {
-            remote.muxState.collectLatest { state ->
+            // A new baseline whenever the mux (re)opens and whenever `$events` was reopened on an open mux: events can be lost in both.
+            combine(remote.muxState, remote.eventsClientId) { state, client -> state to client }.collectLatest { (state, _) ->
                 if (state == MuxState.OPEN) baseline()
+            }
+        }
+        scope.launch {
+            busy.collectLatest { isBusy ->
+                while (isBusy) {
+                    delay(watchdogMs)
+                    try {
+                        reconcile()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Try again at the next tick.
+                    }
+                }
             }
         }
     }
@@ -104,25 +137,32 @@ class WorkTracker(private val remote: WorkRemote, private val scope: CoroutineSc
 
     private suspend fun baseline() {
         while (true) {
-            synchronized(lock) { touched = HashMap() }
             try {
-                val list = remote.listSessions()
-                synchronized(lock) {
-                    val seen = touched.orEmpty()
-                    runningIds.clear()
-                    list.forEach { meta[it.id] = it; if (it.running == true) runningIds.add(it.id) }
-                    seen.forEach { (id, r) -> if (r) runningIds.add(id) else runningIds.remove(id) } // newer than the list
-                    touched = null
-                }
-                publish()
+                reconcile()
                 return
             } catch (e: CancellationException) {
-                synchronized(lock) { touched = null }
                 throw e
             } catch (_: Exception) {
-                synchronized(lock) { touched = null }
                 delay(RETRY_MS)
             }
+        }
+    }
+
+    /** Replaces the running set with what `session/list` says; events that arrived while it was in flight are newer and win. */
+    private suspend fun reconcile() = reconcileLock.withLock {
+        synchronized(lock) { touched = HashMap() }
+        try {
+            val list = remote.listSessions()
+            synchronized(lock) {
+                val seen = touched.orEmpty()
+                runningIds.clear()
+                list.forEach { meta[it.id] = it; if (it.running == true) runningIds.add(it.id) }
+                seen.forEach { (id, r) -> if (r) runningIds.add(id) else runningIds.remove(id) }
+            }
+            publish()
+            _synced.value = true
+        } finally {
+            synchronized(lock) { touched = null }
         }
     }
 
@@ -149,7 +189,8 @@ class WorkTracker(private val remote: WorkRemote, private val scope: CoroutineSc
         _busy.value = list.isNotEmpty()
     }
 
-    private companion object {
-        const val RETRY_MS = 2_000L
+    companion object {
+        const val WATCHDOG_MS = 45_000L
+        private const val RETRY_MS = 2_000L
     }
 }
