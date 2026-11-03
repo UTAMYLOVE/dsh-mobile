@@ -82,6 +82,8 @@ interface SettingsVersions {
     fun previous(): String?
     /** The dsh versions this app release has verified; the last is the newest. */
     fun verified(): List<String>
+    /** The verified version an update would install; null when dsh is already on it (an update then stops nothing). */
+    fun updateTarget(): String?
     suspend fun checkUpdate(): UpdateOutcome
     suspend fun rollback(): MainOps.RollbackOutcome
 }
@@ -365,6 +367,16 @@ fun SettingsScreen(
         }
     }
 
+    /**
+     * An update stops dsh only when there is a verified version to install: up to date, it stops nothing and asks nothing (it
+     * just says so). Only with a target and a running conversation does it ask first.
+     */
+    fun askToUpdate() {
+        if (busy) return
+        val target = runCatching { env.versions.updateTarget() }.getOrNull()
+        if (target == null) checkUpdate() else askOrRun(StopAction.UPDATE, ::checkUpdate)
+    }
+
     fun confirmed(action: StopAction) {
         confirming = null
         when (action) {
@@ -583,7 +595,7 @@ fun SettingsScreen(
                 Text(stringResource(R.string.set_version_current, currentVersion))
                 Text(stringResource(R.string.set_version_previous, previousVersion ?: stringResource(R.string.set_version_none)))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { askOrRun(StopAction.UPDATE, ::checkUpdate) }, enabled = !busy, modifier = Modifier.testTag("check-update")) { Text(stringResource(R.string.set_version_check)) }
+                    Button(onClick = { askToUpdate() }, enabled = !busy, modifier = Modifier.testTag("check-update")) { Text(stringResource(R.string.set_version_check)) }
                     OutlinedButton(onClick = { askOrRun(StopAction.ROLLBACK, ::rollback) }, enabled = !busy && previousVersion != null, modifier = Modifier.testTag("rollback")) { Text(stringResource(R.string.set_version_rollback)) }
                 }
                 confirming?.takeIf { it != StopAction.APPLY }?.let { action -> StopConfirmCard(action, { confirming = null }) { confirmed(action) } }

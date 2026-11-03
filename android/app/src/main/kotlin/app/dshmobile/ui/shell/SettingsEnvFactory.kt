@@ -33,6 +33,7 @@ fun buildSettingsEnv(
         override fun current(): String = dshVersions().current()
         override fun previous(): String? = VerifiedUpdatePolicy.previous(dshVersions().previous())
         override fun verified(): List<String> = VerifiedDsh.VERSIONS
+        override fun updateTarget(): String? = VerifiedUpdatePolicy.target(runCatching { dshVersions().current() }.getOrNull())
         // The health check is part of ensureRunning; updateWithAutoRollback only needs the object. Only a verified version is installed:
         // from an unverified current this is the switch back to the newest verified one.
         override suspend fun checkUpdate(): UpdateOutcome {
