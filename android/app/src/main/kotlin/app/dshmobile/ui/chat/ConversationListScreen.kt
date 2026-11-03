@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -88,7 +89,13 @@ fun ConversationListScreen(
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
                 FogButton(stringResource(R.string.list_new), FogButtonKind.PINK, onNew, Modifier.testTag(Tags.NEW_SESSION))
-                FogButton("✕", FogButtonKind.GHOST, onClose, Modifier.size(48.dp).testTag(Tags.SESSION_CLOSE).semantics { contentDescription = closeLabel })
+                // A round 48 dp button: FogButton's 20 dp side padding would leave the ✕ no room (it showed as "…").
+                Box(
+                    Modifier.size(48.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .5f))
+                        .border(1.dp, Sakura.Primary.copy(alpha = .6f), RoundedCornerShape(50))
+                        .clickable(role = Role.Button, onClick = onClose).testTag(Tags.SESSION_CLOSE).semantics { contentDescription = closeLabel },
+                    contentAlignment = Alignment.Center,
+                ) { Text("✕", color = Sakura.Text, fontSize = 16.sp) }
             }
             SearchField(query, onQuery)
             if (groups.isEmpty()) {

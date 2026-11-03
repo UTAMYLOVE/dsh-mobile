@@ -318,6 +318,15 @@ fun MarkdownView(blocks: List<MdBlock>, onLink: (String) -> Unit, modifier: Modi
     }
 }
 
+/**
+ * One block as [MarkdownView] draws it, for hosts that lay the blocks out themselves: the chat page puts every block of a long
+ * reply in a lazy item of its own, so a 100k-character chapter is never one item.
+ */
+@Composable
+fun MarkdownBlock(block: MdBlock, onLink: (String) -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier) { Block(block, onLink) }
+}
+
 @Composable
 private fun Block(block: MdBlock, onLink: (String) -> Unit) {
     when (block) {

@@ -8,6 +8,16 @@ import android.content.Context
 import android.content.Intent
 import android.os.Looper
 import androidx.core.content.FileProvider
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performTextInput
+import app.dshmobile.ui.shell.Tags
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.config.DshPatch
 import app.dshmobile.BuildConfig
@@ -63,6 +73,12 @@ class MainActivityTest {
     private val muxes = java.util.concurrent.CopyOnWriteArrayList<FakeMux>()
     /** The next fake dsh's mux holds its upgrade until this completes (the shell stays Loading). */
     @Volatile private var nextUpgradeGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    /** dsh's RPC for every fake dsh (404 unless a test answers). */
+    @Volatile private var rpc: (okhttp3.mockwebserver.RecordedRequest) -> okhttp3.mockwebserver.MockResponse =
+        { okhttp3.mockwebserver.MockResponse().setResponseCode(404) }
+
+    /** The chat tests drive the native shell through its test tags (the activity is built by Robolectric, not by the rule). */
+    @get:org.junit.Rule val compose = androidx.compose.ui.test.junit4.createEmptyComposeRule()
 
     @Before fun setUp() {
         // FileProvider caches its path strategy statically; every Robolectric test has a fresh cache dir.
@@ -108,7 +124,7 @@ class MainActivityTest {
                 if (failLaunches) throw java.io.IOException("fake dsh does not start")
                 // every start is a new fake dsh with its own port and launch URL, so a restart is visible in the shell
                 val mux = FakeMux().also { m -> nextUpgradeGate?.let { m.upgradeGate = it; nextUpgradeGate = null } }
-                val server = FakeDshServer(mux = mux)
+                val server = FakeDshServer(rpc = { rpc(it) }, mux = mux)
                 muxes.add(mux)
                 servers.add(server)
                 val url = server.launch.url
@@ -677,13 +693,139 @@ class MainActivityTest {
         assertNull(activity.intent.getStringExtra(Notifier.EXTRA_ACTION))
     }
 
-    @Test fun aSessionIdIsOnlyLoggedForTheDeepLinkTodo() {
+    // --- the chat page (Task 8) ---
+
+    /** RPC calls the fake dsh received, as (path, body). */
+    private val calls = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+
+    private fun rpcOk(value: String) = okhttp3.mockwebserver.MockResponse().setResponseCode(200)
+        .setBody("""{"type":"server-response","rpcId":"x","result":{"ok":true,"value":$value}}""")
+
+    /** A dsh with one conversation "s1"; creating one answers "new1"; prompts, cancels and the rest succeed. */
+    private fun answerChatRpc() {
+        rpc = { req ->
+            val path = req.path.orEmpty()
+            calls += path to req.body.clone().readUtf8()
+            when (path) {
+                "/api/session/list" -> rpcOk("""{"items":[{"sessionId":"s1","updatedAt":${System.currentTimeMillis()},"projections":{"values":{"title":"霧城"}}}]}""")
+                "/api/session/create" -> rpcOk("""{"sessionId":"new1"}""")
+                else -> rpcOk("null")
+            }
+        }
+    }
+
+    private fun called(method: String) = calls.filter { it.first == "/api/$method" }
+
+    private fun type(text: String) {
+        compose.onNodeWithTag(Tags.COMPOSER_INPUT).performTextInput(text)
+        compose.waitForIdle()
+    }
+
+    @Test fun sendingFromAnotherTabSwitchesToChatAndPrompts() {
         completeSetup()
-        val activity = build(Intent().putExtra(Notifier.EXTRA_SESSION_ID, "session-1111-2222")).create().get()
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        val nav = activity.navForTest
+        nav.openSession("s1")
+        nav.select(ShellTab.OVERVIEW)
+        type("hi")
+        compose.onNodeWithTag(Tags.SEND).performClick()
+        waitUntil { called("session/prompt").isNotEmpty() }
+        assertEquals(ShellTab.CHAT, nav.tab)
+        val body = called("session/prompt").single().second
+        assertTrue(body, body.contains("\"sessionId\":\"s1\"") && body.contains("\"hi\""))
+        assertTrue("nothing was created", called("session/create").isEmpty())
+        val input = compose.onNodeWithTag(Tags.COMPOSER_INPUT).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText]
+        assertEquals("the input is empty again", "", input.text)
+    }
+
+    @Test fun withoutAnOpenConversationSendingCreatesOne() {
+        completeSetup()
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        assertNull(activity.navForTest.openSessionId)
+        type("第一句")
+        compose.onNodeWithTag(Tags.SEND).performClick()
+        waitUntil { called("session/prompt").isNotEmpty() }
+        val order = calls.map { it.first }.filter { it == "/api/session/create" || it == "/api/session/prompt" }
+        assertEquals(listOf("/api/session/create", "/api/session/prompt"), order)
+        assertTrue(called("session/prompt").single().second.contains("\"sessionId\":\"new1\""))
+        assertEquals("new1", activity.navForTest.openSessionId)
+        assertEquals(ShellTab.CHAT, activity.navForTest.tab)
+        activities.last().pause().stop()
+        assertEquals("remembered for the next start", "new1", app.uiPrefs.lastSessionId)
+    }
+
+    @Test fun aDeepLinkOpensThatConversation() {
+        completeSetup()
+        val ctl = build(Intent().putExtra(Notifier.EXTRA_SESSION_ID, "s1")).create()
+        val activity = ctl.get()
         assertFalse(activity.isFinishing)
-        val text = errorLogText()
-        assertTrue(text, text.contains("[deeplink]") && text.contains("session-1111-2222"))
-        assertNull(shadowOf(activity).nextStartedActivity)
+        assertEquals("s1", activity.navForTest.openSessionId)
+        assertEquals(ShellTab.CHAT, activity.navForTest.tab)
+        assertFalse("nothing is logged for it any more", errorLogText().contains("[deeplink]"))
+        assertNull(activity.intent.getStringExtra(Notifier.EXTRA_SESSION_ID))
+        // And from a notification tapped while the screen is open.
+        activity.navForTest.select(ShellTab.SETTINGS)
+        ctl.newIntent(Intent().putExtra(Notifier.EXTRA_SESSION_ID, "s2"))
+        assertEquals("s2", activity.navForTest.openSessionId)
+        assertEquals(ShellTab.CHAT, activity.navForTest.tab)
+    }
+
+    @Test fun stopShowsWhileRunningWithAnEmptyInput() {
+        completeSetup()
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        activity.navForTest.openSession("s1")
+        compose.waitForIdle()
+        waitUntil { muxes[0].opened("session/follow").isNotEmpty() }
+        compose.onNodeWithTag(Tags.SEND).assertExists()
+        val follow = muxes[0].opened("session/follow").last()
+        muxes[0].sendItem(follow, """{"type":"snapshot","header":{"version":4},"cursor":2,"records":[{"type":"event","event":{"type":"turn/start","seq":2,"time":1,"data":{}}}],"hasMore":false}""")
+        waitUntil { compose.onAllNodesWithTag(Tags.STOP).fetchSemanticsNodes().isNotEmpty() }
+        type("下一句") // with text it is a send again (queued behind the running turn)
+        compose.onNodeWithTag(Tags.SEND).assertIsEnabled()
+        compose.onNodeWithTag(Tags.COMPOSER_INPUT).performTextClearance()
+        compose.waitForIdle()
+        compose.onNodeWithTag(Tags.STOP).performClick()
+        waitUntil { called("session/cancel").isNotEmpty() }
+        assertTrue(called("session/cancel").single().second.contains("\"sessionId\":\"s1\""))
+        assertTrue(called("session/prompt").isEmpty())
+    }
+
+    @Test fun sendIsDisabledWhileDshIsNotReady() {
+        completeSetup()
+        answerChatRpc()
+        nextUpgradeGate = kotlinx.coroutines.CompletableDeferred()
+        val activity = build().create().start().resume().visible().get()
+        waitUntil { muxes.isNotEmpty() && muxes[0].upgrades.get() > 0 }
+        assertEquals(MainUiState.Loading, activity.uiStateForTest.value)
+        runCatching { compose.onNodeWithTag(Tags.COMPOSER_INPUT).performTextInput("hi") }
+        compose.waitForIdle()
+        compose.onNodeWithTag(Tags.SEND).assertIsNotEnabled()
+        compose.onNodeWithTag(Tags.COMPOSER_HINT, useUnmergedTree = true).assertIsDisplayed()
+        runCatching { compose.onNodeWithTag(Tags.SEND).performClick() }
+        idleFor(300)
+        assertTrue(called("session/prompt").isEmpty())
+    }
+
+    @Test fun theModelChipShowsTheNextModelBeforeItIsUsed() {
+        completeSetup()
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        activity.navForTest.openSession("s1")
+        waitUntil { muxes[0].opened("session/control").isNotEmpty() && called("session/list").isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithTag(Tags.MODEL_CHIP).assertTextEquals("DEEPSEEK FLASH") // nothing chosen yet: the lead model
+        muxes[0].sendItem(
+            muxes[0].opened("session/control").last(),
+            """{"type":"projection","sessionId":"s1","key":"modelSelection","value":{"lastUsed":{"provider":"deepseek-official","model":"deepseek-flash"},"next":{"provider":"deepseek-official","model":"deepseek-v4-pro"}},"seq":5}""",
+        )
+        waitUntil { compose.onAllNodes(androidx.compose.ui.test.hasTestTag(Tags.MODEL_CHIP) and androidx.compose.ui.test.hasText("DEEPSEEK PRO")).fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun rollbackAsksBeforeDoingAnything() {

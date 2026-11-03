@@ -163,4 +163,39 @@
     <string name="list_cancel">取消</string>
     <string name="list_delete_title">刪除這個對話？</string>
     <string name="list_delete_body">對話會從清單移除，正在進行的工作也會停止。</string>
+
+    <!-- the chat page (Task 8) -->
+    <string name="chat_list_button">☰ 對話</string>
+    <string name="chat_untitled">新對話</string>
+    <string name="chat_model_menu_title">這個對話使用的模型</string>
+    <string name="chat_model_unknown">模型</string>
+    <string name="chat_thinking">思考過程</string>
+    <string name="chat_tool_running">執行中</string>
+    <string name="chat_tool_waiting">等待確認</string>
+    <string name="chat_tool_done">完成</string>
+    <string name="chat_tool_failed">失敗</string>
+    <string name="chat_share">分享</string>
+    <string name="chat_share_file">分享 %1$s</string>
+    <string name="chat_search_sources">搜尋網路 · %1$d 個來源</string>
+    <string name="chat_search_running">搜尋網路 · 搜尋中…</string>
+    <string name="chat_search_none">搜尋網路 · 沒有找到來源</string>
+    <string name="chat_cites">來源 %1$s</string>
+    <string name="chat_queued">排隊中</string>
+    <string name="chat_sending">傳送中…</string>
+    <string name="chat_send_failed">dsh 沒有收到這則訊息</string>
+    <string name="chat_resend">重送</string>
+    <string name="chat_remove">移除</string>
+    <string name="chat_load_older">載入更早的訊息</string>
+    <string name="chat_older_failed">更早的訊息沒有載入（%1$s）</string>
+    <string name="chat_follow_ended">這個對話的連線中斷了</string>
+    <string name="chat_follow_failed">這個對話的連線中斷了（%1$s）</string>
+    <string name="chat_follow_retry">重新連線</string>
+    <string name="chat_action_failed">沒有完成（%1$s）</string>
+    <string name="chat_typing">正在回覆…</string>
+    <string name="chat_using_tools">正在使用 %1$s</string>
+    <string name="chat_long_reply_loading">長回覆整理中…</string>
+    <string name="chat_create_failed">沒有開成新對話（%1$s），文字留在輸入框</string>
+    <string name="chat_no_browser">找不到可以開啟連結的瀏覽器</string>
+    <string name="chat_share_failed">沒有辦法分享這個檔案</string>
+    <string name="chat_list_failed">對話清單的動作沒有完成（%1$s）</string>
 </resources>

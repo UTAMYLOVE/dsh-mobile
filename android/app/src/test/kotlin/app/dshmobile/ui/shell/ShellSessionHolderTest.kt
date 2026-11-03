@@ -29,7 +29,12 @@ class ShellSessionHolderTest {
         override val muxState: StateFlow<MuxState> = MutableStateFlow(MuxState.CONNECTING)
         var closes = 0
         override fun close() { closes++ }
-        override fun follow(sessionId: String): kotlinx.coroutines.flow.Flow<app.dshmobile.remote.StreamSignal> = kotlinx.coroutines.flow.emptyFlow()
+        /** Session ids whose follow is being collected right now. */
+        val following: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        override fun follow(sessionId: String): kotlinx.coroutines.flow.Flow<app.dshmobile.remote.StreamSignal> = kotlinx.coroutines.flow.flow {
+            following += sessionId
+            try { kotlinx.coroutines.awaitCancellation() } finally { following -= sessionId }
+        }
         override suspend fun prompt(sessionId: String, requestId: String, parts: List<app.dshmobile.remote.PromptPart>) = Unit
         override suspend fun cancel(sessionId: String) = Unit
         override suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): kotlinx.serialization.json.JsonElement = kotlinx.serialization.json.JsonNull
@@ -84,5 +89,32 @@ class ShellSessionHolderTest {
         val b = holder.attach(running(1000))
         assertTrue(a !== b)
         assertEquals(2, made.size)
+    }
+
+    @Test fun conversationsAreCachedUpToThreeAndTheLeastRecentlyUsedIsClosed() {
+        val remote = FakeRemote()
+        val session = ShellSession(remote, events = null, scope = CoroutineScope(Job() + kotlinx.coroutines.Dispatchers.Default))
+        try {
+            val a = session.conversation("a")
+            assertSame(a, session.conversation("a"))
+            val b = session.conversation("b")
+            session.conversation("c")
+            session.conversation("a") // a is used again: b is now the least recent
+            waitFor { remote.following == setOf("a", "b", "c") }
+            session.conversation("d")
+            waitFor { remote.following == setOf("a", "c", "d") }
+            assertSame("a stayed cached", a, session.conversation("a"))
+            assertTrue("b was closed, a new store follows it", b !== session.conversation("b"))
+            waitFor { remote.following == setOf("a", "b", "d") }
+        } finally {
+            session.close()
+        }
+        waitFor { remote.following.isEmpty() }
+    }
+
+    private fun waitFor(cond: () -> Boolean) {
+        val end = System.currentTimeMillis() + 5_000
+        while (!cond() && System.currentTimeMillis() < end) Thread.sleep(5)
+        assertTrue(cond())
     }
 }

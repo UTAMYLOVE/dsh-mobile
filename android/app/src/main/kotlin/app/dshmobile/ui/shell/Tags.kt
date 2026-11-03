@@ -49,4 +49,44 @@ object Tags {
     const val DELETE = "delete"
     const val DELETE_CONFIRM = "delete-confirm"
     const val DELETE_CANCEL = "delete-cancel"
+
+    // ---- the chat page (Task 8) ----
+    const val CHAT_LIST_BUTTON = "chat-list-button"
+    const val CHAT_TITLE = "chat-title"
+    const val MODEL_CHIP = "model-chip"
+    /** + model id. */
+    const val MODEL_OPTION = "model-option-"
+    const val USER_BUBBLE = "user-bubble"
+    const val ASSISTANT_BUBBLE = "assistant-bubble"
+    const val LIVE_BUBBLE = "live-bubble"
+    const val THINKING = "thinking"
+    /** + callId. */
+    const val TOOL_CARD = "tool-card-"
+    /** + callId. */
+    const val TOOL_STATUS = "tool-status-"
+    const val SEARCH_CARD = "search-card"
+    /** + the source's number, from 1. */
+    const val SOURCE_CHIP = "source-chip-"
+    const val CITES = "cites"
+    const val QUEUED = "queued"
+    const val NOTICE = "notice"
+    const val LOAD_OLDER = "load-older"
+    /** + callId. */
+    const val SHARE = "share-"
+    /** The scrolling message list of the chat page. */
+    const val CHAT_MESSAGES = "chat-messages"
+    /** The inline model menu under the chat header. */
+    const val MODEL_MENU = "model-menu"
+    /** The follow stream is down: the banner and its reconnect button. */
+    const val FOLLOW_ERROR = "follow-error"
+    const val FOLLOW_RETRY = "follow-retry"
+    /** The last send, stop or model change failed. */
+    const val CHAT_ERROR = "chat-error"
+    /** Loading older messages failed. */
+    const val OLDER_ERROR = "older-error"
+    /** + requestId: a pending bubble dsh never recorded, sent again / removed. */
+    const val SEND_RETRY = "send-retry-"
+    const val SEND_DISMISS = "send-dismiss-"
+    /** + requestId: a bubble that is waiting for dsh. */
+    const val PENDING_BUBBLE = "pending-bubble-"
 }

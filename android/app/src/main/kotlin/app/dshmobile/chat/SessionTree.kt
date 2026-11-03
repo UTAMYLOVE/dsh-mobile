@@ -9,6 +9,7 @@ import app.dshmobile.runtime.AppPaths
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,18 +123,39 @@ object SessionTreeReducer {
  * fetched again every time the mux returns to OPEN and every time `$events` was reopened; events that arrive while the list call
  * is in flight are newer than the list and win (same method as `WorkTracker`).
  */
-class SessionTree(private val remote: IndexRemote, private val scope: CoroutineScope) {
+class SessionTree(
+    private val remote: IndexRemote,
+    private val scope: CoroutineScope,
+    /** A status for an unknown session refetches the list after this quiet time (one list call per burst). */
+    private val unknownRefreshMs: Long = UNKNOWN_REFRESH_MS,
+) {
     private val _state = MutableStateFlow(SessionTreeState())
     val state: StateFlow<SessionTreeState> = _state.asStateFlow()
 
     private val lock = Any()
     private var touched: MutableList<HostEvent>? = null // events seen while a list call is in flight; guarded by lock
     private val reconcileLock = Mutex()
+    private val unknownSeen = Channel<Unit>(Channel.CONFLATED)
 
     init {
         // Subscribe before anything else so no event falls between the baseline and the first collect.
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            remote.hostEvents.collect { e -> synchronized(lock) { touched?.add(e); _state.update { SessionTreeReducer.applyEvent(it, e) } } }
+            remote.hostEvents.collect { e ->
+                synchronized(lock) {
+                    // A status for a session we have never listed (made by the heartbeat, another client...): the list knows it.
+                    if (e is HostEvent.SessionStatus && e.sessionId !in _state.value.summaries) unknownSeen.trySend(Unit)
+                    touched?.add(e)
+                    _state.update { SessionTreeReducer.applyEvent(it, e) }
+                }
+            }
+        }
+        scope.launch {
+            while (true) {
+                unknownSeen.receive()
+                delay(unknownRefreshMs)
+                unknownSeen.tryReceive() // statuses that came during the wait are covered by this one list call
+                refreshNow()
+            }
         }
         keepCollecting(remote::control, SessionTreeReducer::applyControl)
         keepCollecting(remote::workspaces, SessionTreeReducer::applyWorkspace)
@@ -210,5 +232,6 @@ class SessionTree(private val remote: IndexRemote, private val scope: CoroutineS
     private companion object {
         const val RETRY_MS = 2_000L
         const val REOPEN_MS = 2_000L
+        const val UNKNOWN_REFRESH_MS = 500L
     }
 }

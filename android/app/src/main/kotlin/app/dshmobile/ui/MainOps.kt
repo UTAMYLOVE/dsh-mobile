@@ -51,11 +51,6 @@ class MainOps(
         return RollbackOutcome.RolledBack(target, running)
     }
 
-    /** Notification deep link, phase one: dsh has no conversation URL, so only the session id is kept for later. */
-    fun recordDeepLink(sessionId: String) {
-        errorLog.append("deeplink", "notification for session $sessionId")
-    }
-
     private fun describe(e: Exception) = e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
 
     private companion object {

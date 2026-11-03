@@ -180,4 +180,21 @@ class SessionTreeTest {
         waitUntil("frames") { tree.state.value.workspaceId == "w" && tree.state.value.projections.containsKey("s1") }
         assertEquals(setOf("s1"), tree.state.value.archived)
     }
+
+    /** A status for a session the tree does not know (made elsewhere, e.g. by the heartbeat) refetches the list, once per burst. */
+    @Test fun aStatusForAnUnknownSessionRefetchesTheListOnce() {
+        val remote = FakeIndexRemote(listOf(sum("s1")))
+        val tree = SessionTree(remote, scope, unknownRefreshMs = 200)
+        waitUntil("baseline") { remote.listCalls.get() == 1 && "s1" in tree.state.value.summaries }
+        remote.list = listOf(sum("s1"), sum("s2", running = true))
+        repeat(3) { remote.events.tryEmit(HostEvent.SessionStatus("s2", true)) }
+        waitUntil("s2 known") { "s2" in tree.state.value.summaries }
+        Thread.sleep(500)
+        assertEquals("one list call for the burst", 2, remote.listCalls.get())
+        assertEquals(true, tree.state.value.summaries["s2"]?.running)
+        remote.events.tryEmit(HostEvent.SessionStatus("s1", true))
+        Thread.sleep(500)
+        assertEquals("a known session's status needs no list call", 2, remote.listCalls.get())
+        assertEquals(true, tree.state.value.summaries["s1"]?.running)
+    }
 }

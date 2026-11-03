@@ -207,7 +207,8 @@ class ConversationStoreTest {
         remote.emit(snapshot(userMsg(30, "new"), hasMore = true)); runCurrent()
         remote.pageAnswer = JsonNull
         store.loadOlder()
-        assertEquals("unexpected-answer", store.sendError.value)
+        assertEquals("unexpected-answer", store.olderError.value)
+        assertNull("not a send error", store.sendError.value)
         assertEquals(1, store.state.value.items.size)
         store.close()
     }

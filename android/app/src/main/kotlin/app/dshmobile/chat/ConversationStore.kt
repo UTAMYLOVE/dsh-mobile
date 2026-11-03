@@ -68,7 +68,7 @@ class ConversationStore(
     private val _pending = MutableStateFlow<List<PendingSend>>(emptyList())
     val pending: StateFlow<List<PendingSend>> = _pending.asStateFlow()
 
-    /** A [DshErrors.safeCode] (an exception class name for non-dsh failures); the screen words it. */
+    /** A [DshErrors.safeCode] (an exception class name for non-dsh failures) of the last send, stop or model change; the screen words it. */
     private val _sendError = MutableStateFlow<String?>(null)
     val sendError: StateFlow<String?> = _sendError.asStateFlow()
 
@@ -260,7 +260,11 @@ class ConversationStore(
         }
     }
 
-    /** Older history: `session/page` before [ConversationState.firstSeq], 200 messages at a time. */
+    /** Why the last [loadOlder] failed (a [DshErrors.safeCode], `unexpected-answer` or an exception class name); null after a success. */
+    private val _olderError = MutableStateFlow<String?>(null)
+    val olderError: StateFlow<String?> = _olderError.asStateFlow()
+
+    /** Older history: `session/page` before [ConversationState.firstSeq], 200 messages at a time. A failure goes to [olderError]. */
     suspend fun loadOlder() {
         val s = _state.value
         val before = s.firstSeq ?: return
@@ -268,14 +272,15 @@ class ConversationStore(
         try {
             val page = remote.page(sessionId, before, PAGE_MESSAGES)
             if ((page as? JsonObject)?.get("records") !is JsonArray) {
-                _sendError.value = DshErrors.UNEXPECTED_ANSWER
+                _olderError.value = DshErrors.UNEXPECTED_ANSWER
                 return
             }
             withContext(reduceContext) { _state.update { ConversationReducer.prepend(it, page) } }
+            _olderError.value = null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            report(e)
+            _olderError.value = errorName(e)
         }
     }
 
