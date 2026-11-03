@@ -68,6 +68,14 @@
     <string name="shell_attach_file">檔案</string>
     <string name="shell_send">送出</string>
     <string name="shell_stop">停止回覆</string>
+    <string name="attach_too_large">%1$s 超過 %2$d MB，沒有附上</string>
+    <string name="attach_unreadable">讀不到 %1$s</string>
+    <string name="attach_upload_failed">附件上傳失敗，訊息沒有送出（%1$s）</string>
+    <string name="attach_out_of_memory">附件太大，手機記憶體不夠，沒有送出</string>
+    <string name="attach_reason_connection">連線中斷</string>
+    <string name="attach_reason_unknown">未知錯誤</string>
+    <string name="attach_refused_with">dsh 不接受這個附件：%1$s</string>
+    <string name="attach_refused">dsh 沒有收下這則訊息：%1$s</string>
     <string name="shell_remove_attachment">移除 %1$s</string>
     <string name="shell_reconnecting">重新連線中…</string>
     <string name="shell_status_title">DSH 狀態</string>
