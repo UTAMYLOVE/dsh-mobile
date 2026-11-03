@@ -57,6 +57,9 @@ class DshControllerTest {
     private var prepare: () -> Unit = {}
     private var patchProvider: (String) -> String = { app.dshmobile.config.DshPatch.render(it) }
     private var vault: KeyVault = FakeVault()
+    /** The controller's `afterHealthy` step (production: register the workspace in dsh). */
+    private val readySteps = CopyOnWriteArrayList<Pair<LaunchUrl, Boolean>>() // launch, isRunning at that moment
+    private var readyStep: () -> Unit = {}
 
     private fun controller() = DshController(
         patchProvider = { patchProvider(it) },
@@ -78,6 +81,7 @@ class DshControllerTest {
         onCostAlert = {},
         onRateGuard = {},
         beforeLaunch = { prepares.incrementAndGet(); prepare() },
+        afterHealthy = { launch -> readySteps.add(launch to (controllers.lastOrNull()?.isRunning?.value == true)); readyStep() },
         launchTimeoutMs = launchTimeoutMs,
         stopGraceMs = 500,
     )
@@ -129,6 +133,36 @@ class DshControllerTest {
         duringHealthCheck = {}
         c.ensureRunning()
         assertTrue(c.isRunning.value)
+    }
+
+    @Test fun afterAPassedHealthCheckTheReadyStepRunsOnceBeforeDshIsPublished() = runBlocking {
+        val c = newController()
+
+        val running = c.ensureRunning()
+        c.ensureRunning() // already running: no second start, no second ready step
+
+        assertEquals(1, readySteps.size)
+        assertEquals(running.launch, readySteps.single().first)
+        assertFalse("the ready step ran after dsh was published", readySteps.single().second)
+        assertEquals(1, healthChecked.size)
+    }
+
+    @Test fun aFailingReadyStepIsLoggedAndTheStartStillSucceeds() = runBlocking {
+        readyStep = { throw IllegalStateException("workspace boom") }
+        val c = newController()
+
+        c.ensureRunning()
+
+        assertTrue(c.isRunning.value)
+        assertTrue(errorLog.file().readText().contains("[controller] after-start step failed (IllegalStateException)"))
+    }
+
+    @Test fun noReadyStepWhenTheHealthCheckFails() = runBlocking {
+        healthy = false
+        val c = newController()
+
+        assertTrue(runCatching { c.ensureRunning() }.isFailure)
+        assertTrue(readySteps.isEmpty())
     }
 
     @Test fun concurrentEnsureRunningStartsDshOnce() = runBlocking {

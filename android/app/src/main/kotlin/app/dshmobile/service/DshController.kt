@@ -86,6 +86,11 @@ class DshController(
      * proot binds in, and put a broken `/opt/dsh/current` back on the bundled version). A failure is a failed start.
      */
     private val beforeLaunch: () -> Unit = {},
+    /**
+     * Runs once per start, after the health check passed and before the dsh is published (production: register the workspace
+     * in dsh, so the page shows it from its first load). It must not fail the start: anything it throws is logged and ignored.
+     */
+    private val afterHealthy: suspend (LaunchUrl) -> Unit = {},
     private val launchTimeoutMs: Long = 60_000,
     private val stopGraceMs: Long = 2_000,
 ) : DshHolderRuntime {
@@ -200,6 +205,13 @@ class DshController(
             val launch = withTimeoutOrNull(launchTimeoutMs) { run.launched.await() }
                 ?: throw IllegalStateException("dsh did not print its launch line within $launchTimeoutMs ms")
             if (!healthCheck(launch)) throw IllegalStateException("dsh health check failed")
+            try {
+                afterHealthy(launch)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                errorLog.append("controller", "after-start step failed (${e.javaClass.simpleName})")
+            }
             val info = RunningDsh(launch.port, gatewayPort, token, launch)
             synchronized(stateLock) {
                 // A stop() that raced with this start wins: nothing is published for a dsh somebody asked to end.

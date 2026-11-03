@@ -26,6 +26,7 @@ import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.ProotGuestCommand
 import app.dshmobile.runtime.ProotRunner
 import app.dshmobile.runtime.RootfsInstaller
+import app.dshmobile.runtime.WorkspaceRegistrar
 import app.dshmobile.security.AndroidKeyVault
 import app.dshmobile.security.KeyVault
 import app.dshmobile.service.CrashPolicy
@@ -116,7 +117,9 @@ class DshMobileApp : Application(), Configuration.Provider {
     var upstreamsOverride: Map<Provider, HttpUrl>? = null
 
     val controller: DshController by lazy {
-        val health = HealthCheck(OkHttpClient())
+        val loopback = OkHttpClient()
+        val health = HealthCheck(loopback)
+        val workspaces = WorkspaceRegistrar(loopback, errorLog)
         DshController(
             filesDir = filesDir,
             isRootfsInstalled = rootfsInstaller::isInstalled,
@@ -145,6 +148,8 @@ class DshMobileApp : Application(), Configuration.Provider {
                     errorLog.append("controller", "no usable dsh version: ${e.message}")
                 }
             },
+            // dsh's own folder picker does not work in the WebView: list /root/workspace in dsh after every start.
+            afterHealthy = { launch -> workspaces.ensure(launch) },
         )
     }
 

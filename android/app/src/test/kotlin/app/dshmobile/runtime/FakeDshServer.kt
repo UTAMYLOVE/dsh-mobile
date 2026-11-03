@@ -13,6 +13,8 @@ class FakeDshServer(
     private val healthBody: String = """{"ok":true}""",
     private val tokenValid: () -> Boolean = { true },
     private val heartbeat: (RecordedRequest) -> MockResponse = { MockResponse().setResponseCode(404) },
+    /** dsh's RPC (`POST /api/<namespace>/<method>`), authenticated requests only. */
+    private val rpc: (RecordedRequest) -> MockResponse = { MockResponse().setResponseCode(404) },
 ) : AutoCloseable {
     val server = MockWebServer()
     val unauthenticated = CopyOnWriteArrayList<String>()
@@ -37,6 +39,7 @@ class FakeDshServer(
                     path == "/" -> MockResponse().setResponseCode(200).setBody("<html></html>")
                     path in healthStatus -> MockResponse().setResponseCode(healthStatus.getValue(path)).setBody(healthBody)
                     path == "/dshm/heartbeat" && request.method == "POST" -> heartbeat(request)
+                    path.startsWith("/api/") && request.method == "POST" -> rpc(request)
                     path == "/echo" -> MockResponse().setResponseCode(200).setBody(request.body.readUtf8())
                     else -> MockResponse().setResponseCode(404)
                 }

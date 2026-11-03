@@ -162,6 +162,30 @@ class E2eTest {
         ActivityScenario.launch(MainActivity::class.java).use { it.awaitDshInSakuraPink() }
     }
 
+    /**
+     * Follow-up 1: dsh lists the app's workspace after a start (its own folder picker does not work in the WebView), and
+     * registering it again on a later start (t5 restarted dsh twice) never adds a duplicate.
+     */
+    @Test fun t6_dshListsTheAppWorkspaceOnceAfterEveryStart() {
+        val running = runBlocking { app.controller.ensureRunning() }
+        val store = File(app.appPaths.dshHome, "storages/workspace.json")
+        waitFor(30_000, "/root/workspace in dsh's workspace list") { workspacePaths(store).contains("/root/workspace") }
+        assertEquals(listOf("/root/workspace"), workspacePaths(store).filter { it == "/root/workspace" })
+        // dsh itself says it already has it: workspace/create is idempotent by path.
+        val client = DshClient(http, running.launch)
+        runBlocking { client.login() }
+        val again = rpc(client, "workspace/create", JSONObject().put("request", JSONObject().put("path", "/root/workspace")))
+        assertFalse("dsh created the workspace a second time", again.getBoolean("created"))
+        assertEquals(1, workspacePaths(store).count { it == "/root/workspace" })
+    }
+
+    /** The paths of every workspace in dsh's own registry file (`$DSH_HOME/storages/workspace.json`). */
+    private fun workspacePaths(store: File): List<String> {
+        if (!store.isFile) return emptyList()
+        val tables = JSONObject(store.readText()).optJSONObject("tables")?.optJSONObject("workspaces") ?: return emptyList()
+        return tables.keys().asSequence().map { tables.getJSONObject(it).optString("path") }.toList()
+    }
+
     // ---------- helpers ----------
 
     private fun code(url: String): Int = http.newCall(Request.Builder().url(url).build()).execute().use { it.code }
