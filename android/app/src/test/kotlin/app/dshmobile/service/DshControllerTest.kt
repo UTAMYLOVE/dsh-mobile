@@ -52,6 +52,9 @@ class DshControllerTest {
     private val healthChecked = CopyOnWriteArrayList<LaunchUrl>()
     private var launchTimeoutMs = 10_000L
     private var beforeLaunch: () -> Unit = {}
+    /** The controller's own `beforeLaunch` (production: user-data dirs and the dsh version link). */
+    private val prepares = AtomicInteger()
+    private var prepare: () -> Unit = {}
     private var patchProvider: (String) -> String = { app.dshmobile.config.DshPatch.render(it) }
     private var vault: KeyVault = FakeVault()
 
@@ -74,6 +77,7 @@ class DshControllerTest {
         onNotify = {},
         onCostAlert = {},
         onRateGuard = {},
+        beforeLaunch = { prepares.incrementAndGet(); prepare() },
         launchTimeoutMs = launchTimeoutMs,
         stopGraceMs = 500,
     )
@@ -236,7 +240,20 @@ class DshControllerTest {
         newController().ensureRunning()
         assertEquals("nameserver 9.9.9.9\n", File(rootfs, "etc/resolv.conf").readText())
         assertTrue(File(rootfs, "etc/hosts").readText().startsWith("127.0.0.1 localhost"))
-        assertTrue(File(rootfs, "root/workspace").isDirectory)
+        assertEquals("the launch preparation ran once, before the launch", 1, prepares.get())
+    }
+
+    @Test fun aFailingLaunchPreparationIsAFailedStartWithoutALaunch() = runBlocking {
+        prepare = { throw java.io.IOException("cannot create the user data directories") }
+        val c = newController()
+        try {
+            c.ensureRunning()
+            fail("the start succeeded")
+        } catch (_: java.io.IOException) {
+        }
+        assertEquals(0, starts.get())
+        assertFalse(c.isRunning.value)
+        assertFalse("no patch with the session token is left", File(rootfs, "opt/dshm/dshm.cordis.yml").exists())
     }
 
     @Test fun deletesLeftoverRootfsOld() = runBlocking {

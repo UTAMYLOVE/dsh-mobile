@@ -20,6 +20,7 @@ import app.dshmobile.heartbeat.HeartbeatWorkerFactory
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.notify.Notifier
 import app.dshmobile.export.Exporter
+import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshVersions
 import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.ProotGuestCommand
@@ -55,8 +56,13 @@ class DshMobileApp : Application(), Configuration.Provider {
     val costMeter: CostMeter by lazy {
         CostMeter(getSharedPreferences("dshm_cost", Context.MODE_PRIVATE), PriceTable(), clock = Clock.systemUTC())
     }
+    /** Where the rootfs and the user's data (outside it, bound into the guest) live on the host. */
+    val appPaths: AppPaths by lazy { AppPaths(filesDir) }
+
     val rootfsInstaller: RootfsInstaller by lazy {
-        RootfsInstaller({ assets.open(it) }, filesDir, BuildConfig.ROOTFS_VERSION)
+        // A reinstall never touches userdata/; data an older build kept inside the rootfs moves out first. If that move fails the
+        // install fails too (the old rootfs, with the data, stays): never delete what could not be moved.
+        RootfsInstaller({ assets.open(it) }, filesDir, BuildConfig.ROOTFS_VERSION, beforeReplace = { appPaths.migrateLegacy() })
     }
     val crashPolicy: CrashPolicy by lazy { CrashPolicy() } // SystemClock.elapsedRealtime: immune to wall-clock changes
 
@@ -91,15 +97,15 @@ class DshMobileApp : Application(), Configuration.Provider {
     val settingsJobs: SettingsJobs by lazy { SettingsJobs(applicationScope, controller) }
 
     private val proot: ProotRunner by lazy {
-        ProotRunner(File(applicationInfo.nativeLibraryDir), File(filesDir, "rootfs"), File(cacheDir, "proot"))
+        ProotRunner(File(applicationInfo.nativeLibraryDir), appPaths.rootfs, File(cacheDir, "proot"), appPaths.binds)
     }
 
     val agentSettingsStore: AgentSettingsStore by lazy {
         AgentSettingsStore(getSharedPreferences(AgentSettingsStore.PREFS, Context.MODE_PRIVATE))
     }
 
-    /** dsh's own home on the host side of the rootfs (guest `/root/.dsh`). */
-    val agentConfigWriter: AgentConfigWriter by lazy { AgentConfigWriter(File(filesDir, "rootfs/root/.dsh")) }
+    /** dsh's own home on the host (guest `/root/.dsh`, bound in from [AppPaths.dshHome]). */
+    val agentConfigWriter: AgentConfigWriter by lazy { AgentConfigWriter(appPaths.dshHome) }
 
     /**
      * Test-only: the model upstreams the gateway forwards to (the emulator end-to-end test points them at an in-process fake
@@ -130,16 +136,28 @@ class DshMobileApp : Application(), Configuration.Provider {
                 phantom = PhantomProcessDetector(contentResolver)::state,
             ),
             upstreams = upstreamsOverride ?: DshController.DEFAULT_UPSTREAMS,
+            beforeLaunch = {
+                appPaths.ensureUserDirs()
+                // A rootfs upgrade resets dsh to its bundled version: a `current` link to a version that is gone goes back to it.
+                try {
+                    dshVersions.current()
+                } catch (e: IllegalStateException) {
+                    errorLog.append("controller", "no usable dsh version: ${e.message}")
+                }
+            },
         )
     }
 
     /** dsh versions under the rootfs' /opt/dsh (guest commands run through proot); the main screen's rollback uses it. */
     val dshVersions: DshVersions by lazy {
-        val rootfs = File(filesDir, "rootfs")
-        DshVersions(File(rootfs, "opt/dsh"), ProotGuestCommand(proot, rootfs, ::activeNetworkDnsServers), errorLog)
+        val rootfs = appPaths.rootfs
+        DshVersions(
+            File(rootfs, "opt/dsh"), ProotGuestCommand(proot, rootfs, ::activeNetworkDnsServers), errorLog,
+            bundledVersion = BuildConfig.DSH_PINNED_VERSION,
+        )
     }
 
-    val exporter: Exporter by lazy { Exporter(this, File(filesDir, "rootfs/root/workspace"), errorLog) }
+    val exporter: Exporter by lazy { Exporter(this, appPaths.workspace, errorLog) }
 
     /**
      * The UI's hold on dsh and the ten-minute background grace. Process-level on purpose: the countdown must survive an
@@ -194,8 +212,19 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Before anything reads the workspace or dsh's home: data an older build kept inside the rootfs moves to userdata/.
+        migrateLegacyUserData()
         // The interval is the user's setting (default 45). UPDATE keeps an existing schedule's timing.
         HeartbeatScheduler.schedule(this, agentSettingsStore.heartbeatIntervalMin)
+    }
+
+    /** [AppPaths.migrateLegacy], logged; a failure leaves the data where it was (nothing is deleted) and is retried next time. */
+    private fun migrateLegacyUserData() {
+        try {
+            appPaths.migrateLegacy().forEach { errorLog.append("paths", "moved $it out of the rootfs into userdata") }
+        } catch (e: Exception) {
+            errorLog.append("paths", "could not move user data out of the rootfs (${e.javaClass.simpleName})")
+        }
     }
 
     /** DNS servers of the active network as literals; link-local IPv6 ones are unusable in the guest without a scope id. */

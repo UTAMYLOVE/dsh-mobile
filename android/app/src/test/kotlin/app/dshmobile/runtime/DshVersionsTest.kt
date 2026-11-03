@@ -61,6 +61,39 @@ class DshVersionsTest {
         }
     }
 
+    // ---------- fallback to the bundled version (a rootfs upgrade resets dsh to what it ships) ----------
+
+    private fun linkTarget() = Files.readSymbolicLink(File(optDsh, "current").toPath()).toString()
+
+    @Test fun aCurrentLinkToAMissingVersionFallsBackToTheBundledOne() {
+        val withBundle = DshVersions(optDsh, cmd, log, bundledVersion = "0.2.1-rc.5")
+        mkVersion("0.2.1-rc.5")
+        link("0.3.0") // e.g. a version installed through Settings that the new rootfs does not have
+        assertEquals("0.2.1-rc.5", withBundle.current())
+        assertEquals("/opt/dsh/0.2.1-rc.5", linkTarget())
+        assertTrue(log.file().readText().contains("reset to the bundled 0.2.1-rc.5"))
+    }
+
+    @Test fun aMissingCurrentLinkFallsBackToTheBundledOne() {
+        val withBundle = DshVersions(optDsh, cmd, log, bundledVersion = "0.2.1-rc.5")
+        mkVersion("0.2.1-rc.5")
+        assertEquals("0.2.1-rc.5", withBundle.current())
+        assertEquals("/opt/dsh/0.2.1-rc.5", linkTarget())
+    }
+
+    @Test fun aValidCurrentLinkIsLeftAlone() {
+        val withBundle = DshVersions(optDsh, cmd, log, bundledVersion = "0.2.1-rc.5")
+        setup("0.3.0", "0.2.1-rc.5")
+        assertEquals("0.3.0", withBundle.current())
+        assertEquals("/opt/dsh/0.3.0", linkTarget())
+    }
+
+    @Test fun withoutTheBundledVersionOnDiskABrokenLinkIsStillAnError() {
+        val withBundle = DshVersions(optDsh, cmd, log, bundledVersion = "0.2.1-rc.5")
+        link("0.3.0")
+        try { withBundle.current(); fail("current() returned a version that is not installed") } catch (_: IllegalStateException) {}
+    }
+
     // ---------- version string validation ----------
 
     @Test fun invalidVersionStringsAreRejected() = runBlocking {

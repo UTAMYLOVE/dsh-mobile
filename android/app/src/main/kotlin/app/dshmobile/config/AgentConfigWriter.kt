@@ -15,8 +15,8 @@ import java.nio.file.StandardCopyOption
 
 /**
  * Turns [AgentSettings] into dsh configuration: the agent rows of the `--patch` YAML ([patchSection]) and the Agent Teams
- * bundle entry in the web profile's `package.json` ([ensureAgentTeamsBundle]). [dshHome] is the host-side `$DSH_HOME`
- * (`rootfs/root/.dsh`). Row `config` values replace the whole row, so every row lists all the keys it needs.
+ * bundle entry in the web profile's `package.json` ([ensureAgentTeamsBundle]). [dshHome] is the host side of `$DSH_HOME`
+ * (`AppPaths.dshHome`, bound to the guest's `/root/.dsh`). Row `config` values replace the whole row, so every row lists all the keys it needs.
  */
 class AgentConfigWriter(private val dshHome: File) {
     private val packageJson get() = File(dshHome, "profiles/web/package.json")

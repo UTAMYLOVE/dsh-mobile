@@ -70,6 +70,33 @@ class RootfsInstallerTest {
         assertFalse(inst.isInstalled())
     }
 
+    /** I-5: a new rootfs (a plugin change, a Node or Debian update) must never cost the user's memory or conversations. */
+    @Test fun reinstallingTheRootfsKeepsTheUserDataAndMovesLegacyDataOut() {
+        val paths = AppPaths(filesDir)
+        val v1 = RootfsInstaller({ ByteArrayInputStream(tarXz("1") { dir("root/"); dir("root/workspace/") }) }, filesDir, "1", paths::migrateLegacy)
+        v1.install {}
+        // An older build kept the user's data inside the rootfs:
+        File(paths.rootfs, "root/workspace/memory").mkdirs()
+        File(paths.rootfs, "root/workspace/memory/2026-11-01.md").writeText("- legacy note")
+        File(paths.rootfs, "root/.dsh").mkdirs()
+        File(paths.rootfs, "root/.dsh/conversations.db").writeText("chats")
+
+        val v2 = RootfsInstaller({ ByteArrayInputStream(tarXz("2") { dir("root/"); dir("root/workspace/") }) }, filesDir, "2", paths::migrateLegacy)
+        v2.install {}
+        assertTrue(v2.isInstalled())
+        assertEquals("- legacy note", File(paths.workspace, "memory/2026-11-01.md").readText())
+        assertEquals("chats", File(paths.dshHome, "conversations.db").readText())
+
+        // Data written to the new place (through the binds) survives the next reinstall untouched.
+        File(paths.workspace, "MEMORY.md").writeText("long term")
+        val v3 = RootfsInstaller({ ByteArrayInputStream(tarXz("3") { dir("root/"); dir("root/workspace/") }) }, filesDir, "3", paths::migrateLegacy)
+        v3.install {}
+        assertEquals("long term", File(paths.workspace, "MEMORY.md").readText())
+        assertEquals("- legacy note", File(paths.workspace, "memory/2026-11-01.md").readText())
+        assertEquals("chats", File(paths.dshHome, "conversations.db").readText())
+        assertEquals(setOf("rootfs", "userdata"), filesDir.list()!!.toSet())
+    }
+
     @Test fun reportsProgressEndingAt100() {
         val seen = mutableListOf<Int>()
         installer(tarXz()).install { seen.add(it) }

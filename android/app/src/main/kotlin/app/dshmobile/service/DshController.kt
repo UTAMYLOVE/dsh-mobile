@@ -5,6 +5,7 @@ import app.dshmobile.gateway.LocalGateway
 import app.dshmobile.gateway.NotifyRequest
 import app.dshmobile.gateway.Provider
 import app.dshmobile.log.ErrorLog
+import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshLaunchLine
 import app.dshmobile.runtime.GuestNetworkFiles
 import app.dshmobile.runtime.LaunchUrl
@@ -80,6 +81,11 @@ class DshController(
     /** The dsh patch (YAML) for a start, given the gateway base URL `http://127.0.0.1:<port>/<token>`. Production: `AgentPatchProvider`. */
     private val patchProvider: (gatewayBase: String) -> String,
     private val upstreams: Map<Provider, HttpUrl> = DEFAULT_UPSTREAMS,
+    /**
+     * Runs before every launch, after the guest network files are written (production: create the user-data directories that
+     * proot binds in, and put a broken `/opt/dsh/current` back on the bundled version). A failure is a failed start.
+     */
+    private val beforeLaunch: () -> Unit = {},
     private val launchTimeoutMs: Long = 60_000,
     private val stopGraceMs: Long = 2_000,
 ) : DshHolderRuntime {
@@ -180,7 +186,7 @@ class DshController(
         try {
             val gatewayBase = "http://127.0.0.1:$gatewayPort/${token.value}"
             GuestNetworkFiles.write(rootfs, dnsServers())
-            File(rootfs, "root/workspace").mkdirs()
+            beforeLaunch()
             val patch = writePatch(patchProvider(gatewayBase))
             val process = launcher.start(guestEnv(gatewayBase), DSH_ARGS)
             run = Run(process, gateway, patch)
@@ -305,8 +311,8 @@ class DshController(
      */
     private fun guestEnv(gatewayBase: String): Map<String, String> = linkedMapOf(
         "DSHM_GATEWAY" to gatewayBase,
-        "DSHM_WORKSPACE" to "/root/workspace",
-        "DSH_HOME" to "/root/.dsh",
+        "DSHM_WORKSPACE" to AppPaths.GUEST_WORKSPACE,
+        "DSH_HOME" to AppPaths.GUEST_DSH_HOME,
         "DSH_TELEMETRY_MODE" to "DISABLED",
         "DEEPSEEK_API_KEY" to FAKE_KEY,
     ).also { env ->

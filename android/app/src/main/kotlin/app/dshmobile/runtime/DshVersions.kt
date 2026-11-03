@@ -39,13 +39,34 @@ class DshVersions(
     private val optDsh: File,
     private val cmd: GuestCommand,
     private val log: ErrorLog,
+    /**
+     * The version the installed rootfs ships (`BuildConfig.DSH_PINNED_VERSION`, from rootfs/versions.env). When `current` is
+     * missing or points at a version that is not on disk, [current] puts it back on this one if it is installed.
+     */
+    private val bundledVersion: String? = null,
 ) {
     private val fsLock = Any()
     private val installMutex = Mutex()
     private val installing = AtomicInteger(0)
 
-    /** The version `current` points at. Throws [IllegalStateException] when the link is missing or malformed. */
-    fun current(): String = currentOrNull() ?: throw IllegalStateException("dsh has no current version link")
+    /**
+     * The version `current` points at. A link that is missing or points at a version that is not installed is first put back on
+     * [bundledVersion] (when that one is installed). Throws [IllegalStateException] when there is no usable version.
+     */
+    fun current(): String = synchronized(fsLock) {
+        currentOrNull()?.takeIf(::hasDir) ?: repairToBundled() ?: throw IllegalStateException("dsh has no current version link")
+    }
+
+    /** Points `current` back at the bundled version, atomically; null when there is none to point at. Caller holds [fsLock]. */
+    private fun repairToBundled(): String? {
+        val bundled = bundledVersion?.takeIf { isVersion(it) && hasDir(it) } ?: return null
+        val tmpLink = File(optDsh, "current.tmp").toPath()
+        Files.deleteIfExists(tmpLink)
+        Files.createSymbolicLink(tmpLink, Path.of("/opt/dsh/$bundled"))
+        Files.move(tmpLink, File(optDsh, CURRENT).toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        log.append(TAG, "current version link was missing or broken; reset to the bundled $bundled")
+        return bundled
+    }
 
     /** The version a rollback goes back to, or null when there is none (or its directory is gone). */
     fun previous(): String? {

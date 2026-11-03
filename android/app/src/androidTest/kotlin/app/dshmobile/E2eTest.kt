@@ -54,7 +54,8 @@ class E2eTest {
 
     private val app get() = E2e.app
     private val rootfs get() = File(app.filesDir, "rootfs")
-    private val memoryDir get() = File(rootfs, "root/workspace/memory")
+    /** The workspace lives outside the rootfs (AppPaths) and is bound into the guest at /root/workspace. */
+    private val memoryDir get() = File(app.appPaths.workspace, "memory")
     private val http = OkHttpClient.Builder().followRedirects(false).readTimeout(120, TimeUnit.SECONDS).build()
 
     @Before fun setUp() {
@@ -140,7 +141,7 @@ class E2eTest {
     /** §9.5: a "new version" that installs but cannot start is rolled back automatically; the old one runs and the UI works. */
     @Test fun t5_aBrokenUpdateRollsBackAndTheAppStillWorks() {
         val optDsh = File(rootfs, "opt/dsh")
-        val versions = DshVersions(optDsh, BrokenReleaseNpm(rootfs), app.errorLog)
+        val versions = DshVersions(optDsh, BrokenReleaseNpm(rootfs), app.errorLog, BuildConfig.DSH_PINNED_VERSION)
         val before = versions.current()
         runBlocking { app.controller.ensureRunning() }
 

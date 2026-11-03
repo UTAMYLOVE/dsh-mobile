@@ -20,11 +20,15 @@ import java.nio.file.attribute.PosixFilePermission
 /**
  * Streams the bundled `rootfs.tar.xz` into `filesDir/rootfs`. Extraction goes to `rootfs.tmp`
  * first and is renamed on success, so an interrupted install never leaves a half rootfs behind.
+ * It only ever touches `rootfs`, `rootfs.tmp` and `rootfs.old`: the user's data lives in `filesDir/userdata` ([AppPaths]) and
+ * survives every reinstall. [beforeReplace] runs once the new tree is complete, just before the old one is set aside
+ * (production: [AppPaths.migrateLegacy], so data an older build kept inside the rootfs moves out instead of being deleted).
  */
 class RootfsInstaller(
     private val open: (String) -> InputStream,
     private val filesDir: File,
     private val expectedVersion: String,
+    private val beforeReplace: () -> Unit = {},
 ) {
     private val rootfs = File(filesDir, "rootfs")
     private val tmp = File(filesDir, "rootfs.tmp")
@@ -66,6 +70,7 @@ class RootfsInstaller(
             if (!marker.isFile || marker.readText().trim() != expectedVersion) {
                 throw IOException("rootfs version marker missing or not $expectedVersion")
             }
+            beforeReplace()
             swapIn()
             onProgress(100)
         } catch (t: Throwable) {

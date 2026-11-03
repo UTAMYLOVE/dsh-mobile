@@ -2,14 +2,23 @@ package app.dshmobile.runtime
 
 import java.io.File
 
-/** Builds `ProcessBuilder`s that run a command inside the extracted rootfs via the bundled proot. */
+/**
+ * Builds `ProcessBuilder`s that run a command inside the extracted rootfs via the bundled proot. [binds] (host directory to
+ * guest path, see [AppPaths.binds]) are bound in with `-b host:guest`; both ends are created before every start.
+ */
 class ProotRunner(
     private val nativeLibDir: File,
     private val rootfsDir: File,
     private val tmpDir: File,
+    private val binds: List<Pair<File, String>> = emptyList(),
 ) {
     fun command(args: List<String>, env: Map<String, String>): ProcessBuilder {
         tmpDir.mkdirs()
+        for ((host, guest) in binds) {
+            host.mkdirs()
+            // The guest end as an empty directory too, so the guest sees a normal directory there (and `-w` can enter it).
+            if (rootfsDir.isDirectory) File(rootfsDir, guest.removePrefix("/")).mkdirs()
+        }
         val proot = File(nativeLibDir, "libproot.so")
         val cmd = buildList {
             add(proot.path)
@@ -20,7 +29,8 @@ class ProotRunner(
             add("-b"); add("/proc")
             add("-b"); add("/dev")
             add("-b"); add("/sys")
-            add("-w"); add("/root/workspace")
+            for ((host, guest) in binds) { add("-b"); add("${host.path}:$guest") }
+            add("-w"); add(AppPaths.GUEST_WORKSPACE)
             addAll(args)
         }
         val pb = ProcessBuilder(cmd)

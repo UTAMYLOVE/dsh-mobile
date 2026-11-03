@@ -1,3 +1,7 @@
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.security.MessageDigest
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -31,6 +35,41 @@ val rootfsNdkAbi = rootfsAbiProp?.let {
 }
 val rootfsSource = rootfsFileProp?.let { file(it).also { f -> check(f.isFile) { "dshm.rootfsFile is not a file: $it" } } }
 
+// The rootfs is built from rootfs/ and plugins/ (versions in rootfs/versions.env, the single source). Its version is
+// ROOTFS_VERSION-<8-hex content hash of rootfs/** and plugins/**>: any plugin or rootfs change makes installed apps reinstall
+// the rootfs (the user's data lives outside it). rootfs/source-hash.sh computes the same hash for the rootfs marker; the
+// definition (sha256 of the `sha256sum` lines of the sorted regular files, build products excluded) must stay identical.
+val repoRoot: File = rootProject.projectDir.parentFile
+val versionsEnv: Map<String, String> = File(repoRoot, "rootfs/versions.env").readLines()
+    .map { it.trim() }
+    .filter { it.isNotEmpty() && !it.startsWith("#") && '=' in it }
+    .associate { it.substringBefore('=') to it.substringAfter('=') }
+fun envValue(key: String): String = requireNotNull(versionsEnv[key]?.takeIf { it.isNotBlank() }) { "rootfs/versions.env has no $key" }
+fun sha256Hex(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+fun compareBytes(a: String, b: String): Int {
+    val x = a.toByteArray(Charsets.UTF_8)
+    val y = b.toByteArray(Charsets.UTF_8)
+    for (i in 0 until minOf(x.size, y.size)) {
+        val c = (x[i].toInt() and 0xff) - (y[i].toInt() and 0xff)
+        if (c != 0) return c
+    }
+    return x.size - y.size
+}
+val rootfsSourceHash: String = run {
+    val prunedDirs = setOf("node_modules", "dist", ".turbo", "coverage")
+    val files = listOf("rootfs", "plugins").flatMap { top ->
+        File(repoRoot, top).walkTopDown()
+            .onEnter { (it.name !in prunedDirs || it == File(repoRoot, top)) && !Files.isSymbolicLink(it.toPath()) }
+            .filter { Files.isRegularFile(it.toPath(), LinkOption.NOFOLLOW_LINKS) && !it.name.endsWith(".tsbuildinfo") }
+            .map { it.relativeTo(repoRoot).invariantSeparatorsPath to it }
+            .toList()
+    }.sortedWith { a, b -> compareBytes(a.first, b.first) }
+    val lines = files.joinToString("") { (rel, f) -> "${sha256Hex(f.readBytes())}  $rel\n" }
+    sha256Hex(lines.toByteArray(Charsets.UTF_8)).take(8)
+}
+val rootfsVersion = "${envValue("ROOTFS_VERSION")}-$rootfsSourceHash"
+
 // Signing comes from the environment only (the release workflow sets it); without it the release APK stays unsigned.
 val keystorePath: String? = System.getenv("DSHM_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
 
@@ -47,8 +86,9 @@ android {
         // Starts the fake model and points the gateway at it before the app's onCreate (see src/androidTest/.../E2eRunner.kt).
         testInstrumentationRunner = "app.dshmobile.E2eRunner"
 
-        buildConfigField("String", "ROOTFS_VERSION", "\"1\"")
-        buildConfigField("String", "DSH_PINNED_VERSION", "\"0.2.1-rc.5\"")
+        buildConfigField("String", "ROOTFS_VERSION", "\"$rootfsVersion\"")
+        // The dsh version the rootfs ships; DshVersions falls back to it when `/opt/dsh/current` points at nothing.
+        buildConfigField("String", "DSH_PINNED_VERSION", "\"${envValue("DSH_PINNED_VERSION")}\"")
         val releasesRepo = providers.gradleProperty("dshm.releasesRepo").get()
         buildConfigField("String", "RELEASES_REPO", "\"$releasesRepo\"")
 

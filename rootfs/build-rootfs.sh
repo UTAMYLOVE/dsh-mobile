@@ -8,6 +8,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=versions.env
 . "$HERE/versions.env"
 
+# The full rootfs version (the marker the app checks): versions.env's ROOTFS_VERSION plus the content hash of rootfs/ and
+# plugins/, exactly as android/app/build.gradle.kts computes BuildConfig.ROOTFS_VERSION.
+ROOTFS_VERSION="${ROOTFS_VERSION}-$(bash "$HERE/source-hash.sh")"
+
 ARCH="${1:?arch (arm64|x86_64) required}"
 OUT="${2:?output path required}"
 STAGING="${3:-}"
@@ -45,4 +49,4 @@ cp "$WORK/root/opt/dsh/$DSH_PINNED_VERSION/package-lock.json" "$BASE.package-loc
 cp "$WORK/root/opt/dsh/$DSH_PINNED_VERSION/npm-ls.txt" "$BASE.npm-ls.txt"
 sudo tar -c --numeric-owner -C "$WORK/root" . | xz -9e -T0 -c > "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"
-echo "rootfs: $OUT ($(du -h "$OUT" | cut -f1), $(stat -c %s "$OUT") bytes)"
+echo "rootfs: $OUT ($(du -h "$OUT" | cut -f1), $(stat -c %s "$OUT") bytes, version $ROOTFS_VERSION)"
