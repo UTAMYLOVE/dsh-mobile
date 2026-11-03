@@ -196,3 +196,4 @@ Final review results: A (data/service/e2e) 0 Critical, 5 Important; B1 (fog/shel
 - Ruling: launcher icon background #f06595 (pre-existing, outside the palette) is left as is and listed for the owner.
 Final fix wave dispatched: lane X (opus, wt-t3 final-fix-x) and lane Y (opus, wt-t7 final-fix-y) from 721e9e8
 Owner made UTAMYLOVE/dsh-mobile public (Actions free; scanned history first: no secrets, no personal data; owner's Gmail visible as author of 12 early commits — told). Re-ran CI run 41640039240 (bb25aa7) for e2e evidence while the fix wave runs.
+Final fix lane X: DONE_WITH_CONCERNS (final-fix-x 721e9e8..248b75c, 11 fix commits; 1017 unit, both assembles); B2-M10 deferred per ruling; MainViewModel (androidx ViewModel + SavedStateHandle) for nav/composer; DshErrors.isPermanent list is the fixer's reading; A-I3 verified only against the fake; scoped re-review dispatched (opus)
