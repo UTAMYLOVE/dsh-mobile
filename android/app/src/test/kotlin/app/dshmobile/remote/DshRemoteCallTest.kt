@@ -230,4 +230,25 @@ class DshRemoteCallTest {
         "/api/fileUploads/upload" -> """{"receiptId":"rcpt-1","file":{"name":"n.txt"}}"""
         else -> """{"accepted":true}"""
     }
+
+    /** Final review A-I2: building the request (photos, base64 uploads) and reading the answer never run on the caller's thread. */
+    @Test fun encodingAndDecodingRunOnTheCodecDispatcherNotTheCallers() = runBlocking {
+        val dispatched = AtomicInteger()
+        val codec = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                dispatched.incrementAndGet()
+                kotlinx.coroutines.Dispatchers.Default.dispatch(context, block)
+            }
+        }
+        val counted = DshRemote(DshClient(OkHttpClient(), dsh.launch), scope, ZoneId.of("Asia/Taipei"), codec = codec)
+        try {
+            counted.listSessions()
+            assertTrue("encode and decode: ${dispatched.get()}", dispatched.get() >= 2)
+            val before = dispatched.get()
+            counted.upload("s1", "a.bin", ByteArray(1024))
+            assertTrue("base64, encode and decode: ${dispatched.get() - before}", dispatched.get() - before >= 3)
+        } finally {
+            counted.close()
+        }
+    }
 }

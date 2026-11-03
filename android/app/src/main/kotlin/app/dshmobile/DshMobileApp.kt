@@ -19,6 +19,10 @@ import app.dshmobile.heartbeat.HeartbeatWorker
 import app.dshmobile.heartbeat.HeartbeatWorkerFactory
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.overview.OverviewSource
+import app.dshmobile.overview.OverviewState
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import app.dshmobile.overview.ReminderLog
 import app.dshmobile.heartbeat.nextRunAt
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -92,10 +96,17 @@ class DshMobileApp : Application(), Configuration.Provider {
      */
     val serviceGaveUp = MutableStateFlow(false)
 
+    /**
+     * The one HTTP client for talking to dsh on 127.0.0.1 (health checks, the workspace registrar, the shell's and the service's
+     * remotes, Settings' update check): one connection pool and one dispatcher instead of one per caller (final review B1-M7).
+     * [DshClient] adds its own cookie jar and `Proxy.NO_PROXY` on a derived client.
+     */
+    val loopbackHttp: OkHttpClient by lazy { OkHttpClient() }
+
     /** Builds the [WorkRemote] [DshService] watches for work; a test seam (production: a [DshRemote] on the running dsh). */
     @VisibleForTesting
     internal var workRemoteFactory: (RunningDsh, CoroutineScope) -> WorkRemote = { dsh, scope ->
-        DshRemote(DshClient(OkHttpClient(), dsh.launch), scope).asWorkRemote()
+        DshRemote(DshClient(loopbackHttp, dsh.launch), scope).asWorkRemote()
     }
 
     /** Starts [DshService]; a test seam (Robolectric cannot make `startForegroundService` refuse). */
@@ -142,7 +153,7 @@ class DshMobileApp : Application(), Configuration.Provider {
     var upstreamsOverride: Map<Provider, HttpUrl>? = null
 
     val controller: DshController by lazy {
-        val loopback = OkHttpClient()
+        val loopback = loopbackHttp
         val health = HealthCheck(loopback)
         val workspaces = WorkspaceRegistrar(loopback, errorLog)
         DshController(
@@ -220,7 +231,7 @@ class DshMobileApp : Application(), Configuration.Provider {
      * thread, like every attach, so a stop seen late can never detach the next instance's session.
      */
     val shellSessions: ShellSessionHolder by lazy {
-        val loopback = OkHttpClient()
+        val loopback = loopbackHttp
         val holder = ShellSessionHolder { running ->
             val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
             DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope) }
@@ -243,7 +254,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             meter = costMeter,
             reminders = reminderLog,
             agentsLimit = {
-                agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
+                agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), keyVault.has(Provider.ANTHROPIC)).maxConcurrent
             },
             heartbeatIntervalMin = { agentSettingsStore.heartbeatIntervalMin },
             nextHeartbeatAt = HeartbeatScheduler.nextRunAt(this),
@@ -253,6 +264,14 @@ class DshMobileApp : Application(), Configuration.Provider {
             clock = Clock.systemUTC(),
             context = Dispatchers.IO,
         )
+    }
+
+    /**
+     * [overviewSource]'s state shared by every overview visit: computed while the page shows and for five seconds after it, and
+     * the last state kept, so a revisit never flashes an empty page (final review B2-M12).
+     */
+    val overviewState: StateFlow<OverviewState?> by lazy {
+        overviewSource.state().stateIn(applicationScope, SharingStarted.WhileSubscribed(OVERVIEW_LINGER_MS), null)
     }
 
     /** Asks the public releases repo for a newer shell app (no credentials; a failure is the caller's to log). */
@@ -313,6 +332,10 @@ class DshMobileApp : Application(), Configuration.Provider {
         } catch (e: Exception) {
             errorLog.append("paths", "could not move user data out of the rootfs (${e.javaClass.simpleName})")
         }
+    }
+
+    private companion object {
+        const val OVERVIEW_LINGER_MS = 5_000L
     }
 
     /** DNS servers of the active network as literals; link-local IPv6 ones are unusable in the guest without a scope id. */

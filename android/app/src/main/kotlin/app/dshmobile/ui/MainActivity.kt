@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -41,8 +42,10 @@ import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.chat.ChatPage
 import app.dshmobile.ui.chat.DockSend
 import app.dshmobile.ui.chat.ExternalLinks
+import app.dshmobile.ui.chat.LinkOpen
 import app.dshmobile.ui.chat.sendFromDock
 import app.dshmobile.chat.AttachmentLoader
+import app.dshmobile.chat.ConversationStore
 import app.dshmobile.chat.AttachmentReason
 import app.dshmobile.chat.LoadResult
 import app.dshmobile.chat.PendingAttachment
@@ -101,7 +104,9 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
     private val app get() = application as DshMobileApp
     private val uiState = MutableStateFlow(MainUiState.Loading)
-    private val nav = ShellNav()
+    /** Navigation, the composer and the settings draft: they outlive a recreated activity (and partly a process death). */
+    private val vm: MainViewModel by viewModels()
+    private val nav get() = vm.nav
     private lateinit var ops: MainOps
     private var ready = false
     private var startJob: Job? = null
@@ -114,29 +119,9 @@ class MainActivity : ComponentActivity() {
     private val pendingUpdate by lazy { PendingUpdate(getSharedPreferences(DailyUpdateCheck.PREFS, Context.MODE_PRIVATE)) }
     /** Built when the settings tab is first shown. */
     private val settingsEnv by lazy { buildSettingsEnv(this, app, onEffectLevel = app.effectsController::set) }
-    /** Unsaved settings fields live here, outside the tab, so switching tabs keeps them. Built with the tab. */
-    private var settingsDraft: SettingsDraft? = null
-    private var composerText by mutableStateOf("")
-    /** Why the last dock send did not happen (no conversation could be made); cleared by typing. */
-    private var dockError by mutableStateOf<String?>(null)
-    /** Picked attachments, in pick order: only the picker's URI and name, never bytes (those are read when sending). */
-    private var attachments by mutableStateOf(emptyList<PendingAttachment>())
-    /** An attachment send is under way (reading and uploading take a while): send is off so it cannot go twice. */
-    private var sending by mutableStateOf(false)
-    private val attachmentLoader by lazy {
-        AttachmentLoader(
-            open = { contentResolver.openInputStream(it) },
-            describe = ::describeUri,
-            mimeOf = { uri ->
-                contentResolver.getType(uri)
-                    ?: uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotEmpty() }
-                        ?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
-            },
-        )
-    }
     // The system pickers need no permission; both are registered here, before the activity starts.
-    private val imagePicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK)) { addPicked(it) }
-    private val filePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { addPicked(it) }
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK)) { vm.addPicked(it) }
+    private val filePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.addPicked(it) }
     /** The system "remove animations" setting; read again at every resume, since it is changed in the system settings. */
     private var reducedMotion by mutableStateOf(false)
     private var jankStats: JankStats? = null
@@ -163,11 +148,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // DshVersions is built on first use (a rollback), not at every launch.
         ops = MainOps(app.controller, { VerifiedUpdatePolicy.previous(app.dshVersions.previous()) }, { app.dshVersions.rollback() }, app.errorLog)
-        // Leaving settings while one of its actions runs would cancel it (a key save, an export) or hide its result.
-        nav.canLeave = { from -> from != ShellTab.SETTINGS || !settingsBusy() }
-        nav.onLeaveRefused = { toast(getString(R.string.shell_settings_busy)) }
-        // The chat opens on the conversation that was open last time (saved in onStop); a deep link (below) replaces it.
-        if (savedInstanceState == null) nav.openSessionId = app.uiPrefs.lastSessionId
+        // The view model ([vm], made on first use) restores the shell (tab, conversation, list, draft) after a process death, or
+        // opens the conversation that was open last time (saved in onStop) on a fresh start; a deep link (below) replaces it.
         reducedMotion = systemReducedMotion()
         setContent {
             // Live: the user's level held down by the jank governor, and the system's animation setting.
@@ -314,18 +296,18 @@ class MainActivity : ComponentActivity() {
             connection = connection,
             nav = nav,
             composer = ComposerUi(
-                text = composerText,
-                onText = { composerText = it; dockError = null },
+                text = vm.composerText,
+                onText = vm::onText,
                 enabled = state == MainUiState.Ready,
-                canSend = (composerText.isNotBlank() || attachments.isNotEmpty()) && !sending,
+                canSend = vm.canSend,
                 running = running,
-                onSend = ::onDockSend,
-                onStop = ::stopReply,
+                onSend = vm::onDockSend,
+                onStop = vm::stopReply,
                 onAttachImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onAttachFile = { filePicker.launch(arrayOf("*/*")) },
-                chips = chips,
-                onRemoveChip = { id -> attachments = attachments.filterNot { it.id == id } },
-                error = dockError,
+                chips = vm.chips,
+                onRemoveChip = vm::removeChip,
+                error = vm.dockError,
             ),
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,
@@ -335,20 +317,21 @@ class MainActivity : ComponentActivity() {
         ) { tab ->
             when (tab) {
                 ShellTab.SETTINGS -> {
-                    val draft = settingsDraft ?: SettingsDraft.from(settingsEnv).also { settingsDraft = it }
+                    val draft = vm.settingsDraft ?: SettingsDraft.from(settingsEnv).also { vm.settingsDraft = it }
                     SettingsScreen(settingsEnv, onClose = null, contentPadding = LocalPagePadding.current, draft = draft)
                 }
                 ShellTab.CHAT -> session?.let { ChatTab(it) } ?: EmptyPage(tab)
                 ShellTab.AGENTS -> session?.let { sess ->
                     // The limit is the configured subagent cap; read when the tab is shown (changing it needs "apply and restart" anyway).
                     val limit = remember {
-                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
+                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.has(Provider.ANTHROPIC)).maxConcurrent
                     }
                     AgentsTab(sess.agents, sess.tree, sess.scope, limit, nav::openSession)
                 } ?: EmptyPage(tab)
                 ShellTab.OVERVIEW -> {
-                    // Collected only while the overview is the current page (the page lambda is composed for the current tab only).
-                    val overview by remember { app.overviewSource.state() }.collectAsStateWithLifecycle(initialValue = null)
+                    // Collected only while the overview is the current page (the page lambda is composed for the current tab only); the
+                    // app keeps the last state, so coming back shows it at once instead of an empty page (final review B2-M12).
+                    val overview by app.overviewState.collectAsStateWithLifecycle()
                     overview?.let { OverviewScreen(it, nav::openSession) { nav.select(ShellTab.AGENTS) } } ?: EmptyPage(tab)
                 }
                 else -> EmptyPage(tab)
@@ -360,109 +343,21 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun ChatTab(session: ShellSession) {
         val tab = nav.tab
-        val hasClaude = remember(tab) { app.keyVault.get(Provider.ANTHROPIC) != null }
+        val hasClaude = remember(tab) { app.keyVault.has(Provider.ANTHROPIC) }
         val lead = remember(tab, hasClaude) {
             app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).leadModel
         }
         ChatPage(session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast)
     }
 
-    /**
-     * The dock's send: to the open conversation (a new one when none is open), and the chat tab shows it. Text only: the field is
-     * emptied at once and comes back if the send fails. With attachments the text and the tiles stay until dsh took the message
-     * (reading and uploading come first and may fail); send is off meanwhile.
-     */
-    private fun onDockSend() {
-        val text = composerText
-        val picked = attachments
-        val session = app.shellSessions.current.value
-        if ((text.isBlank() && picked.isEmpty()) || session == null || sending) return
-        nav.select(ShellTab.CHAT)
-        if (nav.tab != ShellTab.CHAT) return // settings is busy and said so; the text stays
-        val held = picked.isNotEmpty()
-        if (held) sending = true else composerText = ""
-        dockError = null
-        session.scope.launch(Dispatchers.Main.immediate) {
-            val outcome = try {
-                sendFromDock(session, nav, text, picked, attachmentLoader)
-            } finally {
-                if (held) sending = false
-            }
-            if (outcome == DockSend.Sent) {
-                if (held) {
-                    if (composerText == text) composerText = ""
-                    val sent = picked.mapTo(HashSet()) { it.id }
-                    attachments = attachments.filterNot { it.id in sent }
-                }
-            } else if (!held && composerText.isEmpty()) {
-                composerText = text // nothing typed meanwhile: put it back
-            }
-            dockError = when (outcome) {
-                DockSend.Sent -> null
-                is DockSend.NotCreated -> getString(R.string.chat_create_failed, outcome.code)
-                is DockSend.Refused -> getString(if (held) R.string.attach_refused_with else R.string.attach_refused, outcome.code)
-                is DockSend.AttachmentFailed -> when (outcome.reason) {
-                    AttachmentReason.TOO_LARGE -> getString(R.string.attach_too_large, outcome.name, AttachmentLoader.FILE_LIMIT / MB)
-                    AttachmentReason.UNREADABLE -> getString(R.string.attach_unreadable, outcome.name)
-                    AttachmentReason.OUT_OF_MEMORY -> getString(R.string.attach_out_of_memory)
-                    AttachmentReason.CONNECTION -> getString(R.string.attach_upload_failed, getString(R.string.attach_reason_connection))
-                    AttachmentReason.UNKNOWN -> getString(R.string.attach_upload_failed, getString(R.string.attach_reason_unknown))
-                    else -> getString(R.string.attach_upload_failed, outcome.reason)
-                }
-            }
-        }
-    }
-
-    /** What the pickers returned (an empty list: the picker was cancelled and nothing changes). Reads each file once to count it, off the main thread. */
-    private fun addPicked(uris: List<Uri>) {
-        if (uris.isEmpty()) return
-        lifecycleScope.launch {
-            val results = withContext(Dispatchers.IO) { uris.distinct().map(attachmentLoader::inspect) }
-            var error: String? = null
-            val added = ArrayList<PendingAttachment>()
-            results.forEach { r ->
-                when (r) {
-                    is LoadResult.Ok -> if (attachments.none { it.uri == r.attachment.uri } && added.none { it.uri == r.attachment.uri }) added += r.attachment
-                    is LoadResult.TooLarge -> error = getString(R.string.attach_too_large, r.name, r.limitMb)
-                    is LoadResult.Unreadable -> error = getString(R.string.attach_unreadable, r.name)
-                }
-            }
-            attachments = attachments + added
-            dockError = error
-        }
-    }
-
-    internal fun attachForTest(uris: List<Uri>) = addPicked(uris)
-
-    private val chips: List<AttachmentChip>
-        get() = attachments.map { a ->
-            AttachmentChip(a.id, a.name, a.isImage, if (a.isImage) ({ thumbnailOf(a.uri) }) else null)
-        }
-
-    private suspend fun thumbnailOf(uri: Uri): ImageBitmap? = withContext(Dispatchers.IO) {
-        decodeThumbnail({ contentResolver.openInputStream(uri) }, (THUMB_DP * resources.displayMetrics.density).toInt())?.asImageBitmap()
-    }
-
-    /** The provider's display name and size; either may be missing. */
-    private fun describeUri(uri: Uri): Pair<String?, Long?> = try {
-        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
-            if (!c.moveToFirst()) return@use null to null
-            val n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            val z = c.getColumnIndex(OpenableColumns.SIZE)
-            (if (n >= 0 && !c.isNull(n)) c.getString(n) else null) to (if (z >= 0 && !c.isNull(z)) c.getLong(z) else null)
-        } ?: (null to null)
-    } catch (_: Exception) {
-        null to null
-    }
-
-    private fun stopReply() {
-        val session = app.shellSessions.current.value ?: return
-        val id = nav.openSessionId ?: return
-        session.scope.launch { session.conversation(id).stop() }
-    }
+    internal fun attachForTest(uris: List<Uri>) = vm.addPicked(uris)
 
     private fun openLink(url: String) {
-        if (!ExternalLinks.open(this, url)) toast(getString(R.string.chat_no_browser))
+        when (ExternalLinks.open(this, url)) {
+            LinkOpen.OPENED -> Unit
+            LinkOpen.REFUSED -> toast(getString(R.string.chat_link_refused))
+            LinkOpen.NO_BROWSER -> toast(getString(R.string.chat_no_browser))
+        }
     }
 
     private fun shareWorkspaceFile(rel: String) {
@@ -477,8 +372,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    private fun settingsBusy(): Boolean = settingsDraft?.localBusy == true || app.settingsJobs.busy.value
 
     /** Once per screen: how long it took from opening it to Ready (and from the process start, for cold starts). No URL. */
     private fun logTimeToReady() {
@@ -557,24 +450,26 @@ class MainActivity : ComponentActivity() {
             LaunchRequest.Rollback -> confirmRollback()
             LaunchRequest.ExportErrorLog -> exportErrorLog()
             LaunchRequest.InstallUpdate -> installUpdate()
-            // Like a tab tap: while settings is busy the tab stays (and says why), and the link does nothing.
-            is LaunchRequest.OpenSession -> {
-                nav.select(ShellTab.CHAT)
-                if (nav.tab == ShellTab.CHAT) nav.openSession(request.id)
-            }
+            // Like a tab tap: while settings is busy the tab stays (and says why); the conversation opens once settings is free.
+            is LaunchRequest.OpenSession -> vm.openFromLink(request.id)
         }
         // Consumed: a later recreation must not run it again.
         intent?.removeExtra(Notifier.EXTRA_ACTION)
         intent?.removeExtra(Notifier.EXTRA_SESSION_ID)
     }
 
-    /** MainActivity is exported, so another app could send this intent: the rollback needs the user's yes. */
+    /**
+     * MainActivity is exported, so another app could send this intent: the rollback needs the user's yes. While a conversation
+     * runs the question says the rollback will cut it off (final review B2-I4).
+     */
     private fun confirmRollback() {
+        val working = settingsEnv.workRunning()
+        val message = getString(R.string.main_rollback_message) + if (working) "\n\n" + getString(R.string.set_confirm_rollback) else ""
         AlertDialog.Builder(this)
             .setTitle(R.string.main_rollback_title)
-            .setMessage(R.string.main_rollback_message)
-            .setPositiveButton(R.string.main_rollback_confirm) { _, _ -> rollback() }
-            .setNegativeButton(R.string.main_cancel, null)
+            .setMessage(message)
+            .setPositiveButton(if (working) R.string.set_confirm_rollback_go else R.string.main_rollback_confirm) { _, _ -> rollback() }
+            .setNegativeButton(if (working) R.string.set_confirm_wait else R.string.main_cancel, null)
             .show()
     }
 
@@ -582,27 +477,20 @@ class MainActivity : ComponentActivity() {
     internal var rollbackStep: suspend () -> MainOps.RollbackOutcome = { ops.rollback() }
 
     /**
-     * Runs the rollback as an application job ([SettingsJobs], shared with Settings' update and rollback, one at a time): stop,
-     * switch and start must not be cut short when this activity goes away, which would leave dsh stopped. The outcome is told by a
-     * toast; this screen (if it is still there) then follows dsh's real state ([showRealStateAfterRollback]). A screen opened
-     * later follows it through its usual collector.
+     * Runs the shared rollback ([SettingsJobs.rollback], the same one as Settings', one job at a time): stop, switch and start must
+     * not be cut short when this activity goes away, which would leave dsh stopped. The outcome is told by a toast; this screen
+     * (if it is still there) then follows dsh's real state ([showRealStateAfterRollback]). A screen opened later follows it
+     * through its usual collector.
      */
     private fun rollback() {
         if (rollingBack) return
         val app = app
-        val step = rollbackStep
-        val started = app.settingsJobs.launch {
-            val outcome = withContext(NonCancellable) {
-                try {
-                    step()
-                } catch (e: Exception) {
-                    // Also a start that a stop cancelled (CancellationException): the job itself is never cancelled.
-                    app.errorLog.append("rollback", "rollback failed: ${e.javaClass.simpleName}")
-                    MainOps.RollbackOutcome.Failed("rollback failed")
-                }
-            }
-            // A dsh that is up again goes back under the service (also ends a give-up); a dsh that is down stays as it is.
-            if (app.controller.isRunning.value) app.supervise()
+        val started = app.settingsJobs.rollback(
+            step = rollbackStep,
+            isRunning = { app.controller.isRunning.value },
+            supervise = { app.supervise() },
+            onFailure = { e -> app.errorLog.append("rollback", "rollback failed: ${e.javaClass.simpleName}") },
+        ) { outcome ->
             withContext(Dispatchers.Main) {
                 val text = when (outcome) {
                     is MainOps.RollbackOutcome.RolledBack -> app.getString(R.string.main_rollback_done, outcome.version)
@@ -721,8 +609,6 @@ class MainActivity : ComponentActivity() {
         const val REMOTE_OPEN_TIMEOUT_MS = 60_000L
         /** Most pictures one photo-picker session returns. */
         const val MAX_PICK = 9
-        const val MB = 1024 * 1024
-        const val THUMB_DP = 64
     }
 }
 

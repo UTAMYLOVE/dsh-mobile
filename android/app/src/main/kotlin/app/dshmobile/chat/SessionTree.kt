@@ -1,5 +1,6 @@
 package app.dshmobile.chat
 
+import app.dshmobile.remote.DshErrors
 import app.dshmobile.remote.HostEvent
 import app.dshmobile.remote.MuxState
 import app.dshmobile.remote.SearchHit
@@ -128,6 +129,8 @@ class SessionTree(
     private val scope: CoroutineScope,
     /** A status for an unknown session refetches the list after this quiet time (one list call per burst). */
     private val unknownRefreshMs: Long = UNKNOWN_REFRESH_MS,
+    /** A stream that ended or failed (not for good) is opened again after this. */
+    private val reopenMs: Long = REOPEN_MS,
 ) {
     private val _state = MutableStateFlow(SessionTreeState())
     val state: StateFlow<SessionTreeState> = _state.asStateFlow()
@@ -191,14 +194,23 @@ class SessionTree(
     private fun keepCollecting(open: () -> Flow<StreamSignal>, apply: (SessionTreeState, JsonElement?) -> SessionTreeState) {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             while (true) {
+                var refused: String? = null
                 try {
-                    open().collect { if (it is StreamSignal.Value) _state.update { s -> apply(s, it.value) } }
+                    open().collect {
+                        when (it) {
+                            is StreamSignal.Value -> _state.update { s -> apply(s, it.value) }
+                            is StreamSignal.Failed -> refused = it.code
+                            StreamSignal.Reopened -> Unit
+                        }
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
                     // Opened again below.
                 }
-                delay(REOPEN_MS)
+                // dsh refused it for good (a bad request, an endpoint it does not have): asking every 2 s would not change that.
+                if (DshErrors.isPermanent(refused)) return@launch
+                delay(reopenMs)
             }
         }
     }

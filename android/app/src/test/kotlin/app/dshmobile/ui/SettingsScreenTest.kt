@@ -142,6 +142,8 @@ class SettingsScreenTest {
     private val uiPrefs = app.dshmobile.ui.fog.UiPrefs(InMemorySharedPreferences())
     private val effects = app.dshmobile.ui.fog.EffectsController(uiPrefs)
     private val effectCalls = CopyOnWriteArrayList<app.dshmobile.ui.fog.EffectLevel>()
+    /** Whether a conversation or subagent runs (the shell's session tree in the app). */
+    @Volatile private var working = false
 
     @After fun cancelJobs() {
         runtime.gate?.complete(Unit)
@@ -166,6 +168,8 @@ class SettingsScreenTest {
             jobs = jobs,
             effectLevel = effects.level,
             onEffectLevel = { effectCalls += it; effects.set(it) },
+            effectiveLevel = effects.effective,
+            workRunning = { working },
         )
     }
 
@@ -808,5 +812,92 @@ class SettingsScreenTest {
         assertEquals("sk-ant-half-typed", draft.keyInput)
         assertEquals("nothing was saved", alertBefore, meter.alertUsd, 0.0)
         assertEquals("nothing was saved", teamsBefore, store.load(phantom, false).agentTeams)
+    }
+
+    // ---------- final review B2-I4: a running conversation is not cut off without asking ----------
+
+    private fun hasTag(tag: String) = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    @Test fun applyWhileWorkRunsAsksFirstAndWaitingChangesNothing() {
+        working = true
+        show()
+        click("apply")
+        rule.waitForIdle()
+        assertTrue(hasTag(Tags.CONFIRM_CARD))
+        rule.onNodeWithText(str(R.string.set_confirm_apply)).assertExists()
+        rule.onNodeWithText(str(R.string.set_confirm_apply_go)).assertExists()
+        assertTrue("nothing stopped yet", runtime.events.isEmpty())
+        click(Tags.CONFIRM_WAIT)
+        rule.waitForIdle()
+        assertFalse(hasTag(Tags.CONFIRM_CARD))
+        Thread.sleep(100)
+        assertTrue(runtime.events.isEmpty())
+    }
+
+    @Test fun applyAnywayStopsAndRestarts() {
+        working = true
+        show()
+        click("apply")
+        click(Tags.CONFIRM_GO)
+        waitFor { "ensureRunning" in runtime.events }
+        assertEquals(listOf("stop", "teams", "supervise", "ensureRunning"), runtime.events.toList())
+    }
+
+    @Test fun updateAndRollbackAskWithTheirOwnVerb() {
+        working = true
+        show()
+        click("check-update")
+        rule.onNodeWithText(str(R.string.set_confirm_update)).assertExists()
+        rule.onNodeWithText(str(R.string.set_confirm_update_go)).assertExists()
+        assertEquals(0, versions.updates)
+        click(Tags.CONFIRM_GO)
+        waitFor { versions.updates == 1 }
+        waitIdle()
+        click("rollback")
+        rule.onNodeWithText(str(R.string.set_confirm_rollback)).assertExists()
+        rule.onNodeWithText(str(R.string.set_confirm_rollback_go)).assertExists()
+        assertEquals(0, versions.rollbacks)
+        click(Tags.CONFIRM_GO)
+        waitFor { versions.rollbacks == 1 }
+    }
+
+    @Test fun withoutWorkNothingIsAsked() {
+        show()
+        clickAndWait("check-update")
+        assertFalse(hasTag(Tags.CONFIRM_CARD))
+        assertEquals(1, versions.updates)
+    }
+
+    // ---------- final review B2-M2 / B2-M3 ----------
+
+    @Test fun tappingTheSelectedEffectCellChangesNothing() {
+        show()
+        click(Tags.EFFECT + 0)
+        rule.waitForIdle()
+        assertTrue("re-tapping must not reset the governor", effectCalls.isEmpty())
+    }
+
+    @Test fun anAutomaticallyLoweredLevelIsShown() {
+        show()
+        assertFalse(hasTag(Tags.EFFECT_LOWERED))
+        rule.runOnIdle {
+            effects.governor.onStart()
+            while (effects.effective.value == app.dshmobile.ui.fog.EffectLevel.FULL) effects.governor.onFrame(true)
+        }
+        waitFor { hasTag(Tags.EFFECT_LOWERED) }
+        rule.onNodeWithText(str(R.string.set_effect_lowered, str(R.string.set_effect_balanced))).assertExists()
+    }
+
+    @Test fun leadModelsShowTheirNamesAndAnUnappliedChoiceSaysSo() {
+        show()
+        rule.onNodeWithText("deepseek-v4-pro").assertDoesNotExist()
+        assertFalse(hasTag(Tags.LEAD_UNAPPLIED))
+        click("model-deepseek-v4-pro")
+        rule.waitForIdle()
+        assertTrue(hasTag(Tags.LEAD_UNAPPLIED))
+        clickAndWait("apply")
+        waitFor { "ensureRunning" in runtime.events }
+        rule.waitForIdle()
+        assertFalse(hasTag(Tags.LEAD_UNAPPLIED))
     }
 }

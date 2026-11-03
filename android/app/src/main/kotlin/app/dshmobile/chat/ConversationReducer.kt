@@ -76,6 +76,8 @@ object ConversationReducer {
         val projected = o.obj("projections")?.obj("values")?.str("title")
         return rebuilt.copy(
             live = null,
+            // A reply in flight means a turn runs, even when the message window cut its turn/start off.
+            running = rebuilt.running || activeAttempt(o) != null,
             title = rebuilt.title ?: projected,
             hasMore = o.bool("hasMore") ?: false,
             firstSeq = minSeq(records),
@@ -83,6 +85,43 @@ object ConversationReducer {
             acceptedRequestIds = state.acceptedRequestIds + rebuilt.acceptedRequestIds,
         )
     }
+
+    /**
+     * The reply dsh was streaming when it made this snapshot (`assistantStream.activeAttempt`, history.js): dsh folds the attempt's
+     * chunks so far into the snapshot and then sends only the later chunks, without a `start`. Its compact records are
+     * `text-chunks`/`reasoning-chunks` (`texts`), `tool-call-chunks` (`name`) and single `chunk`s (only tool-call deltas carry
+     * anything shown). Null when nothing is in flight or the snapshot is not one.
+     */
+    fun activeAttempt(snapshot: JsonElement?): LiveReply? = try {
+        val attempt = (snapshot as? JsonObject)?.obj("assistantStream")?.obj("activeAttempt")
+        val id = attempt?.str("attemptId")
+        if (attempt == null || id == null) null else {
+            val text = StringBuilder()
+            val reasoning = StringBuilder()
+            val tools = LinkedHashSet<String>()
+            for (record in (attempt["stream"] as? JsonArray).orEmpty()) {
+                val r = record as? JsonObject ?: continue
+                when (r.str("type")) {
+                    "text-chunks" -> texts(r).forEach(text::append)
+                    "reasoning-chunks" -> texts(r).forEach(reasoning::append)
+                    "tool-call-chunks" -> r.str("name")?.takeIf { it.isNotEmpty() }?.let(tools::add)
+                    "chunk" -> r.obj("chunk")?.let { c ->
+                        when (c.str("type")) {
+                            "text-delta" -> c.str("text")?.let(text::append)
+                            "reasoning-delta" -> c.str("text")?.let(reasoning::append)
+                            "tool-call-delta" -> c.str("name")?.takeIf { it.isNotEmpty() }?.let(tools::add)
+                        }
+                    }
+                }
+            }
+            LiveReply(id, reasoning.toString(), text.toString(), tools.toList())
+        }
+    } catch (_: RuntimeException) {
+        null
+    }
+
+    private fun texts(r: JsonObject): List<String> =
+        (r["texts"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
 
     private fun events(o: JsonObject): List<JsonObject> =
         (o["records"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.obj("event") }

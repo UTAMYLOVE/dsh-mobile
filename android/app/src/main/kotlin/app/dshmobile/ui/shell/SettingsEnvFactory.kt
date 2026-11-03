@@ -14,7 +14,6 @@ import app.dshmobile.ui.MainOps
 import app.dshmobile.ui.SettingsEnv
 import app.dshmobile.ui.SettingsVersions
 import app.dshmobile.ui.fog.EffectLevel
-import okhttp3.OkHttpClient
 
 /**
  * [app.dshmobile.ui.SettingsScreen]'s environment with the app's real singletons, for the shell's settings tab. Nothing here
@@ -39,7 +38,7 @@ fun buildSettingsEnv(
         override suspend fun checkUpdate(): UpdateOutcome {
             val versions = dshVersions()
             val target = VerifiedUpdatePolicy.target(runCatching { versions.current() }.getOrNull()) ?: return UpdateOutcome.UpToDate
-            return versions.updateWithAutoRollback(app.controller, HealthCheck(OkHttpClient()), target)
+            return versions.updateWithAutoRollback(app.controller, HealthCheck(app.loopbackHttp), target)
         }
         override suspend fun rollback(): MainOps.RollbackOutcome = ops.rollback()
     }
@@ -63,5 +62,8 @@ fun buildSettingsEnv(
         jobs = app.settingsJobs,
         effectLevel = app.effectsController.level,
         onEffectLevel = onEffectLevel,
+        effectiveLevel = app.effectsController.effective,
+        // Any session of the current dsh running, subagents included (they are in the same tree).
+        workRunning = { app.shellSessions.current.value?.tree?.state?.value?.summaries?.values?.any { it.running == true } == true },
     )
 }

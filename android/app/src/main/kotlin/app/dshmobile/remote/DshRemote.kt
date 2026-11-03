@@ -5,6 +5,8 @@ import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.ui.shell.ShellRemote
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +23,7 @@ import java.io.IOException
 import java.time.ZoneId
 import java.util.Base64
 import java.util.UUID
+import kotlin.coroutines.CoroutineContext
 
 /**
  * The app's typed view of one running dsh: unary calls over `POST /api/<namespace>/<method>` and streams over one
@@ -35,6 +38,11 @@ class DshRemote(
     private val client: DshClient,
     private val scope: CoroutineScope,
     private val zone: ZoneId = ZoneId.systemDefault(),
+    /**
+     * Where requests are serialized and answers parsed (final review A-I2). Callers are often on the main thread; a prompt with
+     * pictures, an upload's base64 or a long `session/list` must not be built or read there.
+     */
+    private val codec: CoroutineContext = Dispatchers.Default,
 ) : ShellRemote {
     private val loginLock = Mutex()
     @Volatile private var loggedIn = false
@@ -78,14 +86,14 @@ class DshRemote(
         require(METHOD.matches(method)) { "not a dsh method name" }
         if (closed) throw IOException("dsh remote closed")
         ensureLoggedIn()
-        val body = RpcEnvelope.request(method, args, "dshm-${UUID.randomUUID()}")
+        val body = withContext(codec) { RpcEnvelope.request(method, args, "dshm-${UUID.randomUUID()}") }
         var response = post(method, body)
         if (response.code == 401) {
             loginLock.withLock { client.login() }
             response = post(method, body)
         }
         if (response.code != 200) throw IOException("dsh $method: HTTP ${response.code}")
-        return when (val result = RpcEnvelope.parse(response.body)) {
+        return when (val result = withContext(codec) { RpcEnvelope.parse(response.body) }) {
             is RpcResult.Ok -> result.value
             is RpcResult.Err -> throw rpcError(method, result.code)
         }
@@ -93,7 +101,7 @@ class DshRemote(
 
     override suspend fun listSessions(): List<SessionSummary> {
         val value = call(LIST, buildJsonObject { putJsonObject("_request") {} })
-        return items(LIST, value).mapNotNull { (it as? JsonObject)?.let(SessionSummary::from) }
+        return withContext(codec) { items(LIST, value).mapNotNull { (it as? JsonObject)?.let(SessionSummary::from) } }
     }
 
     override suspend fun searchSessions(query: String): List<SearchHit> {
@@ -110,15 +118,18 @@ class DshRemote(
         return field(CREATE, value, "sessionId")
     }
 
-    /** Always `mode:"queue"`: stage 1 never steers a running turn. */
+    /** Always `mode:"queue"`: stage 1 never steers a running turn. The content (inline pictures) is built on [codec]. */
     override suspend fun prompt(sessionId: String, requestId: String, parts: List<PromptPart>) {
-        call("session/prompt", request {
-            put("requestId", requestId)
-            put("sessionId", sessionId)
-            put("mode", "queue")
-            put("content", buildJsonArray { parts.forEach { add(contentPart(it)) } })
-            put("clientTimeZone", zone.id)
-        })
+        val args = withContext(codec) {
+            request {
+                put("requestId", requestId)
+                put("sessionId", sessionId)
+                put("mode", "queue")
+                put("content", buildJsonArray { parts.forEach { add(contentPart(it)) } })
+                put("clientTimeZone", zone.id)
+            }
+        }
+        call("session/prompt", args)
     }
 
     override suspend fun cancel(sessionId: String) {
@@ -140,17 +151,21 @@ class DshRemote(
     }
 
     /**
-     * Stages [bytes] for [sessionId]'s next prompt; returns the receipt id for [PromptPart.File]. The base64 text is made inside
-     * the request and not kept in a variable of its own, so only the raw bytes (the caller's) and the request exist at once.
+     * Stages [bytes] for [sessionId]'s next prompt; returns the receipt id for [PromptPart.File]. The base64 text is made on
+     * [codec], off the caller's thread. While it is sent, the caller's bytes, the base64 text (4/3 of them, as UTF-16 chars) and
+     * the serialized request (another 4/3) are all in memory: about four times the file at the peak.
      */
     override suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String {
-        val value = call(UPLOAD, buildJsonObject {
-            put("agentId", sessionId)
-            putJsonObject("request") {
-                put("data", String(Base64.getEncoder().encode(bytes), Charsets.ISO_8859_1))
-                put("name", name)
+        val args = withContext(codec) {
+            buildJsonObject {
+                put("agentId", sessionId)
+                putJsonObject("request") {
+                    put("data", String(Base64.getEncoder().encode(bytes), Charsets.ISO_8859_1))
+                    put("name", name)
+                }
             }
-        })
+        }
+        val value = call(UPLOAD, args)
         return field(UPLOAD, value, "receiptId")
     }
 

@@ -19,6 +19,7 @@ class FakeWorkRemote(initial: List<SessionSummary> = emptyList(), state: MuxStat
     val cancelled = CopyOnWriteArrayList<String>()
     val interrupted = CopyOnWriteArrayList<Pair<String, String>>()
 
+    override val prompts = MutableStateFlow<List<app.dshmobile.remote.PendingPrompt>>(emptyList())
     override val hostEvents get() = events
     override val muxState: StateFlow<MuxState> get() = _state
     override val eventsClientId: StateFlow<String?> get() = _client

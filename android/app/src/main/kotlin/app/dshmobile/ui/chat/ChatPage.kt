@@ -205,6 +205,7 @@ private fun ConversationPage(
     onShare: (String) -> Unit,
 ) {
     val store = remember(session, id) { session.conversation(id) }
+    val ui = remember(session, id) { session.chatUi(id) }
     val conversation by store.state.collectAsState()
     val pending by store.pending.collectAsState()
     val sendError by store.sendError.collectAsState()
@@ -243,6 +244,7 @@ private fun ConversationPage(
         onRetryFollow = store::retry,
         onRetrySend = { rid -> session.scope.launch { store.retrySend(rid) } },
         onDismissSend = store::dismissSend,
+        ui = ui,
     )
 }
 

@@ -45,6 +45,33 @@ class SettingsJobs(private val scope: CoroutineScope, private val holders: DshHo
         return true
     }
 
+    /**
+     * The one rollback, for Settings' button and the crash notification's action (final review B2-M1): [step] (stop, switch,
+     * start) runs to its end whatever happens to the screens; a failure is [MainOps.RollbackOutcome.Failed] ([onFailure] logs
+     * it, without a URL). A dsh that is up again goes back under the service ([supervise], which also ends a give-up); a dsh
+     * that is down stays as it is. [then] tells the outcome. False when another job runs.
+     */
+    fun rollback(
+        step: suspend () -> MainOps.RollbackOutcome,
+        isRunning: () -> Boolean,
+        supervise: () -> Unit,
+        onFailure: (Exception) -> Unit = {},
+        then: suspend (MainOps.RollbackOutcome) -> Unit,
+    ): Boolean = launch {
+        versionMessage.value = null
+        val outcome = withContext(NonCancellable) {
+            try {
+                step()
+            } catch (e: Exception) {
+                // Also a start that a stop cancelled (CancellationException): the job itself is never cancelled.
+                onFailure(e)
+                MainOps.RollbackOutcome.Failed("rollback failed")
+            }
+        }
+        if (isRunning()) runCatching { supervise() }
+        withContext(NonCancellable) { then(outcome) }
+    }
+
     companion object {
         const val HOLDER = "settings-job"
     }

@@ -116,7 +116,8 @@ class Notifier(private val context: Context) {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return builder(CHANNEL_SERVICE, "DSH 正在工作…", text)
-            .setContentIntent(openMainActivity(ID_SERVICE, EXTRA_SESSION_ID to first?.sessionId))
+            // Not ID_SERVICE: the plain notification's intent (no extras) would replace this one's conversation (FLAG_UPDATE_CURRENT).
+            .setContentIntent(openMainActivity(ID_WORK_OPEN, EXTRA_SESSION_ID to first?.sessionId))
             .addAction(Notification.Action.Builder(null, "停止", stop).build())
             .setOngoing(true)
             .build()
@@ -132,6 +133,24 @@ class Notifier(private val context: Context) {
                 .setContentIntent(openMainActivity(id, EXTRA_SESSION_ID to sessionId))
                 .setAutoCancel(true),
         )
+    }
+
+    /**
+     * dsh waits on an approval or a question while nobody looks (final review A-I3): one notice (a newer one replaces it) whose
+     * tap opens [sessionId], the top-level conversation that asks. [cancelWaitingForAnswer] withdraws it once nothing waits.
+     */
+    fun showWaitingForAnswer(sessionId: String?, title: String?) {
+        val name = title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: context.getString(R.string.notify_untitled)
+        post(
+            ID_WAITING,
+            builder(CHANNEL_ALERTS, context.getString(R.string.notify_waiting_title), name)
+                .setContentIntent(openMainActivity(ID_WAITING, EXTRA_SESSION_ID to sessionId))
+                .setAutoCancel(true),
+        )
+    }
+
+    fun cancelWaitingForAnswer() {
+        manager.cancel(ID_WAITING)
     }
 
     private fun clip(s: String): String {
@@ -181,6 +200,8 @@ class Notifier(private val context: Context) {
         const val ACTION_STOP_WORK = "stop_work"
         private const val MAX_TITLE = 40
         private const val ID_WORK_STOP = 7
+        private const val ID_WAITING = 8
+        private const val ID_WORK_OPEN = 9
         const val ID_SERVICE = 1
         private const val ID_COST = 2
         private const val ID_RATE_GUARD = 3 // 3 and 4: one per provider

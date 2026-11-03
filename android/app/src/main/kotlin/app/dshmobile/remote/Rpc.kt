@@ -60,4 +60,15 @@ object DshErrors {
     private val CODE = Regex("[A-Za-z0-9/_.-]{1,80}")
 
     fun safeCode(code: String?): String = code?.takeIf { CODE.matches(it) } ?: REFUSED
+
+    /**
+     * Codes that will not change by asking again (the session is gone, the request itself is wrong): a stream that ends with one
+     * is not reopened on its own. Everything else (dsh internal errors, cancellations, busy) is treated as transient.
+     */
+    private val PERMANENT = setOf(
+        "session/not-found", "subagent/not-found", "subagent/unauthorized", "subagent/catalog-diagnostic", "workspace/not-found",
+        "gateway/bad-request", "gateway/protocol", "session/migration-required", "remote-access/denied",
+    )
+
+    fun isPermanent(code: String?): Boolean = code in PERMANENT
 }

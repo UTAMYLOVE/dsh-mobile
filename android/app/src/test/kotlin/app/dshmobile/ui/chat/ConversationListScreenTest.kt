@@ -48,7 +48,10 @@ class ConversationListScreenTest {
     private var closes = 0
     private var query = ""
 
+    private var back: androidx.activity.OnBackPressedDispatcher? = null
+
     private fun show(g: List<Pair<DayGroup, List<SessionRow>>> = groups) = rule.setContent {
+        back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
         FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) {
             ConversationListScreen(g, query, { query = it }, { opened += it }, { news++ }, { id, t -> renamed += id to t }, { deleted += it }, { closes++ })
         }
@@ -140,5 +143,26 @@ class ConversationListScreenTest {
         val del = rule.onNodeWithTag(Tags.DELETE).getUnclippedBoundsInRoot()
         assertTrue("menu actions do not overlap", ren.right <= del.left || del.right <= ren.left || ren.bottom <= del.top || del.bottom <= ren.top)
         assertTrue(del.right <= 412.dp && ren.right <= 412.dp)
+    }
+
+    /** Final review B2-M6: back closes the rename or delete card (and an open row menu) before it leaves the list. */
+    @Test fun backClosesTheCardsAndTheMenuFirst() {
+        show()
+        rule.onNodeWithTag(Tags.SESSION_MENU + "a").performClick()
+        rule.onNodeWithTag(Tags.DELETE).performClick()
+        rule.onNodeWithTag(Tags.DELETE_CONFIRM).assertExists()
+        rule.runOnIdle { back!!.onBackPressed() }
+        rule.onNodeWithTag(Tags.DELETE_CONFIRM).assertDoesNotExist()
+        assertTrue(deleted.isEmpty())
+        rule.onNodeWithTag(Tags.SESSION_MENU + "b").performClick()
+        rule.onNodeWithTag(Tags.RENAME).performClick()
+        rule.onNodeWithTag(Tags.RENAME_FIELD).assertExists()
+        rule.runOnIdle { back!!.onBackPressed() }
+        rule.onNodeWithTag(Tags.RENAME_FIELD).assertDoesNotExist()
+        rule.onNodeWithTag(Tags.SESSION_MENU + "b").performClick()
+        rule.onNodeWithTag(Tags.RENAME).assertExists()
+        rule.runOnIdle { back!!.onBackPressed() }
+        rule.onNodeWithTag(Tags.RENAME).assertDoesNotExist()
+        assertEquals("the list itself did not close", 0, closes)
     }
 }

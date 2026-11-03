@@ -10,6 +10,7 @@ import app.dshmobile.chat.SessionTree
 import app.dshmobile.remote.DshEvents
 import app.dshmobile.remote.MuxState
 import app.dshmobile.service.RunningDsh
+import app.dshmobile.ui.chat.ChatUiCache
 import app.dshmobile.runtime.LaunchUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
@@ -38,20 +39,31 @@ class ShellSession(val remote: ShellRemote, val events: DshEvents?, val scope: C
 
     @Volatile private var closed = false
 
+    /** One open conversation: its store and the chat page's cache for it. */
+    private class Open(val store: ConversationStore, val ui: ChatUiCache)
+
     /** Open conversations, least recently used first (access order); guarded by itself. */
-    private val stores = LinkedHashMap<String, ConversationStore>(4, .75f, true)
+    private val stores = LinkedHashMap<String, Open>(4, .75f, true)
 
     /**
      * The store of conversation [id], kept while it is one of the [MAX_STORES] most recently used: going back to a conversation
-     * just opened shows it at once. The least recently used one beyond that is closed (its follow ends).
+     * just opened shows it at once. The least recently used one beyond that is closed (its follow ends), unless it holds a send
+     * dsh has not recorded or that failed: evicting it would lose those bubbles (final review B2-M11).
      */
-    fun conversation(id: String): ConversationStore = synchronized(stores) {
-        stores[id] ?: ConversationStore(remote, id, scope).also { fresh ->
+    fun conversation(id: String): ConversationStore = open(id).store
+
+    /** The chat page's cache for conversation [id] (parsed Markdown, open thinking, scroll), kept and evicted with its store. */
+    fun chatUi(id: String): ChatUiCache = open(id).ui
+
+    private fun open(id: String): Open = synchronized(stores) {
+        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }), ChatUiCache()).also { fresh ->
             stores[id] = fresh
-            while (stores.size > MAX_STORES) {
-                val eldest = stores.entries.iterator().next()
-                stores.remove(eldest.key)
-                eldest.value.close()
+            if (stores.size > MAX_STORES) {
+                val evictable = stores.entries.filter { it.key != id && it.value.store.pending.value.isEmpty() }
+                evictable.take(stores.size - MAX_STORES).forEach { (key, old) ->
+                    stores.remove(key)
+                    old.store.close()
+                }
             }
         }
     }
@@ -60,7 +72,7 @@ class ShellSession(val remote: ShellRemote, val events: DshEvents?, val scope: C
         if (closed) return
         closed = true
         synchronized(stores) {
-            stores.values.forEach { it.close() }
+            stores.values.forEach { it.store.close() }
             stores.clear()
         }
         remote.close()

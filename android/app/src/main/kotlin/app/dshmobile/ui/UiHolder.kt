@@ -3,6 +3,9 @@ package app.dshmobile.ui
 import android.os.Handler
 import android.os.Looper
 import app.dshmobile.service.DshHolderRuntime
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** How long dsh keeps running after the app left the foreground (Ruling: a quick app switch must not kill a working agent). */
 const val BACKGROUND_GRACE_MS = 600_000L
@@ -34,12 +37,14 @@ class UiHolder(
     /** The hold comes first (before anything starts or calls `ensureRunning`), then a pending countdown is dropped. */
     fun onUiStart() {
         startedScreens++
+        _foreground.value = true
         runtime.retain(HOLDER)
         cancelGrace()
     }
 
     fun onUiStop() {
         if (startedScreens > 0 && --startedScreens > 0) return
+        _foreground.value = false
         runtime.release(HOLDER)
         handler.removeCallbacks(check)
         handler.postDelayed(check, graceMs)
@@ -48,6 +53,11 @@ class UiHolder(
 
     /** True while any screen is started (the owner is looking at the app). */
     val isForeground: Boolean get() = startedScreens > 0
+
+    private val _foreground = MutableStateFlow(false)
+
+    /** [isForeground] as a flow, readable from any thread (the service watches it for prompts waiting on the owner). */
+    val foreground: StateFlow<Boolean> = _foreground.asStateFlow()
 
     /**
      * Background work just ended: the usual idle countdown starts now (nothing to do while a screen is up, which holds dsh

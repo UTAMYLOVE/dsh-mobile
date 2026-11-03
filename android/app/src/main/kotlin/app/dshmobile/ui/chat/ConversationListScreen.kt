@@ -1,5 +1,6 @@
 package app.dshmobile.ui.chat
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -80,6 +81,10 @@ fun ConversationListScreen(
 ) {
     var menuFor by remember { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<Dialog?>(null) }
+    // Back closes a card, then an open row menu, before the shell's back leaves the list (final review B2-M6).
+    BackHandler(enabled = dialog != null || menuFor != null) {
+        if (dialog != null) dialog = null else menuFor = null
+    }
     val closeLabel = stringResource(R.string.list_close)
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {

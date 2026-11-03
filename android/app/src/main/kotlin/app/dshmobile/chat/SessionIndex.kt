@@ -3,6 +3,8 @@ package app.dshmobile.chat
 import app.dshmobile.remote.obj
 import app.dshmobile.remote.string
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -78,7 +80,7 @@ fun groupByDay(rows: List<SessionRow>, today: LocalDate, zone: ZoneId): List<Pai
 }
 
 /** The conversation list: rows derived from [SessionTree], plus search, create, rename and delete (archive). */
-class SessionIndex(private val tree: SessionTree, private val remote: IndexRemote, scope: CoroutineScope) {
+class SessionIndex(private val tree: SessionTree, private val remote: IndexRemote, private val scope: CoroutineScope) {
     val rows: StateFlow<List<SessionRow>> = tree.state.map(SessionRows::rows)
         .stateIn(scope, SharingStarted.Eagerly, SessionRows.rows(tree.state.value))
 
@@ -90,11 +92,22 @@ class SessionIndex(private val tree: SessionTree, private val remote: IndexRemot
         return remote.searchSessions(query).mapNotNull { hit -> byId[hit.sessionId]?.copy(lastLine = hit.snippet) }
     }
 
-    /** A new conversation in the app workspace (its id when known, else its path); returns the session id. */
+    private val createLock = Any()
+    private var creating: Deferred<String>? = null // guarded by createLock
+
+    /**
+     * A new conversation in the app workspace (its id when known, else its path); returns the session id. A call while another
+     * create runs joins it (final review B2-M7: a double tap on 新對話, or two quick sends from the dock, make one conversation).
+     */
     suspend fun create(): String {
-        val id = remote.createSession(tree.state.value.workspaceId)
-        tree.refreshNow()
-        return id
+        val job = synchronized(createLock) {
+            creating?.takeIf { it.isActive } ?: scope.async {
+                val id = remote.createSession(tree.state.value.workspaceId)
+                tree.refreshNow()
+                id
+            }.also { creating = it }
+        }
+        return job.await()
     }
 
     suspend fun rename(id: String, title: String) {

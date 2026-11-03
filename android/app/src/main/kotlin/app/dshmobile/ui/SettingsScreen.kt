@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -58,7 +59,11 @@ import app.dshmobile.security.KeyVault
 import app.dshmobile.service.DshRuntime
 import app.dshmobile.system.PhantomState
 import app.dshmobile.ui.fog.EffectLevel
+import app.dshmobile.ui.fog.FogButton
+import app.dshmobile.ui.fog.FogButtonKind
+import app.dshmobile.ui.fog.FogDimens
 import app.dshmobile.ui.fog.FogPanel
+import app.dshmobile.ui.fog.glass
 import app.dshmobile.ui.fog.Segmented
 import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.theme.Sakura
@@ -108,6 +113,10 @@ class SettingsEnv(
     val onEffectLevel: (app.dshmobile.ui.fog.EffectLevel) -> Unit = {},
     /** The user's chosen level (`EffectsController.level`), what the effect control shows; not the governor-capped one. */
     val effectLevel: StateFlow<app.dshmobile.ui.fog.EffectLevel> = kotlinx.coroutines.flow.MutableStateFlow(app.dshmobile.ui.fog.EffectLevel.FULL),
+    /** The level really drawn (`EffectsController.effective`): below [effectLevel] when the jank governor lowered it. */
+    val effectiveLevel: StateFlow<app.dshmobile.ui.fog.EffectLevel> = effectLevel,
+    /** Whether a conversation or subagent runs right now: apply, update and rollback stop dsh and would cut it off, so they ask. */
+    val workRunning: () -> Boolean = { false },
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
@@ -133,11 +142,15 @@ class SettingsDraft(
     var capText by mutableStateOf(capText)
     internal var budgetMessage by mutableStateOf<BudgetMessage?>(null)
     var exportMessage by mutableStateOf<String?>(null)
+    /** The lead model saved by the last apply (or found stored): a different choice in [settings] is not in effect yet. */
+    var appliedLeadModel by mutableStateOf(agent.leadModel)
+    /** The action waiting for the owner's yes because a conversation runs (final review B2-I4); null when nothing asks. */
+    internal var confirming by mutableStateOf<StopAction?>(null)
 
     companion object {
-        /** The stored values, as the screen shows them when nothing was edited yet (one vault read for the Claude key). */
+        /** The stored values, as the screen shows them when nothing was edited yet (a presence check for the Claude key, no decrypt). */
         fun from(env: SettingsEnv): SettingsDraft = SettingsDraft(
-            agent = env.store.load(env.phantomState(), env.vault.get(Provider.ANTHROPIC) != null),
+            agent = env.store.load(env.phantomState(), env.vault.has(Provider.ANTHROPIC)),
             alertText = formatUsd(env.meter.alertUsd),
             capEnabled = env.meter.hardCapUsd != null,
             capText = formatUsd(env.meter.hardCapUsd ?: BUDGET_DEFAULT_CAP),
@@ -173,9 +186,9 @@ fun SettingsScreen(
     // Leaving the screen is not possible while something runs (the jobs would survive it, but the user should see the result).
     BackHandler(enabled = busy) {}
 
-    // The vault reads below are one AES-GCM decrypt each (as at app start); everything that can block runs on IO.
-    var hasDeepseek by remember { mutableStateOf(env.vault.get(Provider.DEEPSEEK) != null) }
-    var hasClaude by remember { mutableStateOf(env.vault.get(Provider.ANTHROPIC) != null) }
+    // Presence checks only (no decrypt); everything that can block runs on IO.
+    var hasDeepseek by remember { mutableStateOf(env.vault.has(Provider.DEEPSEEK)) }
+    var hasClaude by remember { mutableStateOf(env.vault.has(Provider.ANTHROPIC)) }
     var editing by draft::editing
     var keyInput by draft::keyInput
     var keyError by draft::keyError
@@ -200,12 +213,14 @@ fun SettingsScreen(
     val versionMessage by env.jobs.versionMessage.collectAsStateWithLifecycle()
     val dshRunning by env.isRunning.collectAsStateWithLifecycle()
     val effectLevel by env.effectLevel.collectAsStateWithLifecycle()
+    val effectiveLevel by env.effectiveLevel.collectAsStateWithLifecycle()
     val verified = remember { runCatching { env.versions.verified() }.getOrDefault(emptyList()) }
     var novelModel by remember { mutableStateOf(env.store.novelModel) }
 
     var phantom by remember { mutableStateOf(env.phantomState()) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { phantom = env.phantomState() } // back from the system settings
     var exportMessage by draft::exportMessage
+    var confirming by draft::confirming
 
     val context = LocalContext.current.applicationContext // (the jobs outlive the activity) for the messages built inside callbacks (stringResource is composable-only)
 
@@ -267,6 +282,12 @@ fun SettingsScreen(
         if (env.isRunning.value) runCatching { env.supervise() }
     }
 
+    /** Runs [action] now, or asks first while a conversation runs (final review B2-I4). */
+    fun askOrRun(action: StopAction, run: () -> Unit) {
+        if (busy) return
+        if (runCatching { env.workRunning() }.getOrDefault(false)) confirming = action else run()
+    }
+
     fun apply() {
         if (busy) return
         val toSave = settings.copy(leadModel = AgentModels.resolve(settings.leadModel, hasClaude).id)
@@ -278,6 +299,7 @@ fun SettingsScreen(
                 val failure = context.getString(R.string.set_apply_failed)
                 val teamsNow = try {
                     env.store.save(toSave)
+                    draft.appliedLeadModel = toSave.leadModel
                     env.runtime.stop()
                     // dsh's own profile file is only touched while dsh is stopped.
                     env.applyAgentTeams(toSave.agentTeams)
@@ -334,21 +356,21 @@ fun SettingsScreen(
 
     fun rollback() {
         if (busy) return
-        env.jobs.launch {
-            env.jobs.versionMessage.value = null
-            env.jobs.versionMessage.value = withContext(NonCancellable) {
-                val outcome = try {
-                    env.versions.rollback()
-                } catch (_: Exception) {
-                    MainOps.RollbackOutcome.Failed("rollback failed")
-                }
-                superviseIfRunning()
-                when (outcome) {
-                    is MainOps.RollbackOutcome.RolledBack -> context.getString(R.string.set_rollback_done, outcome.version)
-                    MainOps.RollbackOutcome.NoPrevious -> context.getString(R.string.set_rollback_none)
-                    is MainOps.RollbackOutcome.Failed -> context.getString(R.string.set_rollback_failed)
-                }
+        env.jobs.rollback(step = env.versions::rollback, isRunning = { env.isRunning.value }, supervise = env.supervise) { outcome ->
+            env.jobs.versionMessage.value = when (outcome) {
+                is MainOps.RollbackOutcome.RolledBack -> context.getString(R.string.set_rollback_done, outcome.version)
+                MainOps.RollbackOutcome.NoPrevious -> context.getString(R.string.set_rollback_none)
+                is MainOps.RollbackOutcome.Failed -> context.getString(R.string.set_rollback_failed)
             }
+        }
+    }
+
+    fun confirmed(action: StopAction) {
+        confirming = null
+        when (action) {
+            StopAction.APPLY -> apply()
+            StopAction.UPDATE -> checkUpdate()
+            StopAction.ROLLBACK -> rollback()
         }
     }
 
@@ -462,7 +484,14 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = model.id == selected, onClick = null, enabled = !busy)
-                        Text(model.id, Modifier.padding(start = 8.dp))
+                        Text(AgentModels.displayName(model.id) ?: model.id, Modifier.padding(start = 8.dp).weight(1f))
+                        // Chosen but not in effect: the lead model changes with "apply and restart" (final review B2-M3).
+                        if (model.id == selected && selected != AgentModels.resolve(draft.appliedLeadModel, hasClaude).id) {
+                            Text(
+                                stringResource(R.string.set_model_unapplied), color = Sakura.TextSecondary,
+                                style = MaterialTheme.typography.labelMedium, modifier = Modifier.testTag(Tags.LEAD_UNAPPLIED),
+                            )
+                        }
                     }
                 }
                 Text(stringResource(R.string.set_novel_model), style = MaterialTheme.typography.titleSmall)
@@ -488,12 +517,20 @@ fun SettingsScreen(
 
             Section(R.string.set_section_effects, R.string.set_en_effects, 3) {
                 // The control shows the app's level and calls onEffectLevel only when a cell is tapped (never on recomposition).
+                val names = listOf(stringResource(R.string.set_effect_full), stringResource(R.string.set_effect_balanced), stringResource(R.string.set_effect_saver))
                 Segmented(
-                    options = listOf(stringResource(R.string.set_effect_full), stringResource(R.string.set_effect_balanced), stringResource(R.string.set_effect_saver)),
+                    options = names,
                     selected = effectLevel.ordinal,
-                    onSelect = { env.onEffectLevel(EffectLevel.entries[it]) },
+                    // Re-tapping the chosen cell is not a choice: it would reset the jank governor's cap (final review B2-M2).
+                    onSelect = { if (it != effectLevel.ordinal) env.onEffectLevel(EffectLevel.entries[it]) },
                     tagPrefix = Tags.EFFECT,
                 )
+                if (effectiveLevel.ordinal > effectLevel.ordinal) {
+                    Text(
+                        stringResource(R.string.set_effect_lowered, names[effectiveLevel.ordinal]),
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag(Tags.EFFECT_LOWERED),
+                    )
+                }
                 Text(stringResource(R.string.set_effect_hint), style = MaterialTheme.typography.bodySmall)
             }
 
@@ -546,9 +583,10 @@ fun SettingsScreen(
                 Text(stringResource(R.string.set_version_current, currentVersion))
                 Text(stringResource(R.string.set_version_previous, previousVersion ?: stringResource(R.string.set_version_none)))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { checkUpdate() }, enabled = !busy, modifier = Modifier.testTag("check-update")) { Text(stringResource(R.string.set_version_check)) }
-                    OutlinedButton(onClick = { rollback() }, enabled = !busy && previousVersion != null, modifier = Modifier.testTag("rollback")) { Text(stringResource(R.string.set_version_rollback)) }
+                    Button(onClick = { askOrRun(StopAction.UPDATE, ::checkUpdate) }, enabled = !busy, modifier = Modifier.testTag("check-update")) { Text(stringResource(R.string.set_version_check)) }
+                    OutlinedButton(onClick = { askOrRun(StopAction.ROLLBACK, ::rollback) }, enabled = !busy && previousVersion != null, modifier = Modifier.testTag("rollback")) { Text(stringResource(R.string.set_version_rollback)) }
                 }
+                confirming?.takeIf { it != StopAction.APPLY }?.let { action -> StopConfirmCard(action, { confirming = null }) { confirmed(action) } }
                 versionMessage?.let { Text(it) }
                 // Whatever the result was, say whether dsh is up: a failed switch back leaves it stopped.
                 Text(stringResource(if (dshRunning) R.string.set_dsh_running else R.string.set_dsh_stopped), color = if (dshRunning) Sakura.Text else MaterialTheme.colorScheme.error)
@@ -580,7 +618,8 @@ fun SettingsScreen(
 
             Section(R.string.set_apply, R.string.set_en_apply, 9) {
                 Text(stringResource(R.string.set_apply_note), style = MaterialTheme.typography.bodySmall)
-                Button(onClick = { apply() }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("apply")) { Text(stringResource(R.string.set_apply)) }
+                Button(onClick = { askOrRun(StopAction.APPLY, ::apply) }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("apply")) { Text(stringResource(R.string.set_apply)) }
+                if (confirming == StopAction.APPLY) StopConfirmCard(StopAction.APPLY, { confirming = null }) { confirmed(StopAction.APPLY) }
                 applyMessage?.let { Text(it) }
             }
         }
@@ -588,6 +627,35 @@ fun SettingsScreen(
 }
 
 internal enum class BudgetMessage { SAVED, INVALID }
+
+/** The settings actions that stop dsh: each asks first while a conversation runs, with its own words. */
+internal enum class StopAction(val question: Int, val go: Int) {
+    APPLY(R.string.set_confirm_apply, R.string.set_confirm_apply_go),
+    UPDATE(R.string.set_confirm_update, R.string.set_confirm_update_go),
+    ROLLBACK(R.string.set_confirm_rollback, R.string.set_confirm_rollback_go),
+}
+
+/**
+ * 「有對話正在進行，套用會中斷它」: a glass card in the section of the action that asks (it pushes the content down and covers
+ * nothing). 「等做完」 drops the action; the other button runs it.
+ */
+@Composable
+private fun StopConfirmCard(action: StopAction, onWait: () -> Unit, onGo: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(FogDimens.Sheet))
+            .testTag(Tags.CONFIRM_CARD)
+            .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(stringResource(action.question), color = Sakura.Text, style = MaterialTheme.typography.bodyLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FogButton(stringResource(R.string.set_confirm_wait), FogButtonKind.GHOST, onWait, Modifier.testTag(Tags.CONFIRM_WAIT))
+            FogButton(stringResource(action.go), FogButtonKind.PINK, onGo, Modifier.testTag(Tags.CONFIRM_GO))
+        }
+    }
+}
 
 @Composable
 private fun Section(title: Int, en: Int, index: Int, content: @Composable () -> Unit) {

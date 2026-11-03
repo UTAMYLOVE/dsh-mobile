@@ -16,6 +16,12 @@ import javax.crypto.spec.GCMParameterSpec
 /** Holds the real provider API keys. Implementations must never log or print a key. */
 interface KeyVault {
     fun get(p: Provider): String?
+
+    /**
+     * Whether a key for [p] is stored, without decrypting it (final review B2-I2: screens ask this on the main thread). A stored
+     * key the Keystore can no longer decrypt still counts here; [get] is the authority for using it.
+     */
+    fun has(p: Provider): Boolean = get(p) != null
     fun put(p: Provider, key: String)
     fun clear(p: Provider)
 }
@@ -38,6 +44,8 @@ class AndroidKeyVault(context: Context) : KeyVault {
             String(cipher.doFinal(ciphertext), Charsets.UTF_8)
         }
     }
+
+    override fun has(p: Provider): Boolean = prefs.contains(p.name)
 
     @Synchronized override fun put(p: Provider, key: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)

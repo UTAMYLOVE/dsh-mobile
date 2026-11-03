@@ -52,9 +52,12 @@ private class FakeChatRemote : ChatRemote {
 class ConversationStoreTest {
     private val parts = listOf(PromptPart.Text("hello"))
 
-    private fun TestScope.store(remote: FakeChatRemote): ConversationStore {
+    private fun TestScope.store(remote: FakeChatRemote, runningHint: () -> Boolean? = { null }): ConversationStore {
         var n = 0
-        return ConversationStore(remote, "s1", CoroutineScope(StandardTestDispatcher(testScheduler)), { "r${++n}" }, StandardTestDispatcher(testScheduler))
+        return ConversationStore(
+            remote, "s1", CoroutineScope(StandardTestDispatcher(testScheduler)), { "r${++n}" }, StandardTestDispatcher(testScheduler),
+            runningHint = runningHint,
+        )
     }
 
     private fun FakeChatRemote.emit(v: JsonElement) { signals.trySend(StreamSignal.Value(v)) }
@@ -323,6 +326,85 @@ class ConversationStoreTest {
         remote.modelError = DshRpcException("session/model-unavailable", "x")
         assertFalse(store.selectModel(AgentModels.find("deepseek-flash")!!))
         assertEquals("session/model-unavailable", store.sendError.value)
+        store.close()
+    }
+
+    // ---- final review A-I1: joining a reply that is already streaming ----
+
+    /** dsh's reconnect baseline: the in-flight attempt folded into the snapshot (history.js), then only chunks follow. */
+    private fun snapshotWithAttempt(vararg events: String, stream: String, hasMore: Boolean = false): JsonElement = kotlinx.serialization.json.Json.parseToJsonElement(
+        """{"type":"snapshot","header":{"version":4},"cursor":4,"records":[${events.joinToString(",") { """{"type":"event","event":$it}""" }}],"hasMore":$hasMore,""" +
+            """"assistantStream":{"revision":6,"activeAttempt":{"attemptId":"a1","startedAfterSeq":4,"turn":1,"step":1,"nextIndex":4,"stream":$stream}}}""",
+    )
+
+    private val inFlight = """[{"type":"reasoning-chunks","time0":1,"index":0,"dt":[],"texts":["想一下"]},""" +
+        """{"type":"chunk","time":2,"chunk":{"type":"block-start","index":1,"blockType":"text"}},""" +
+        """{"type":"text-chunks","time0":3,"index":1,"dt":[1],"texts":["Hel","lo"]},""" +
+        """{"type":"tool-call-chunks","time0":5,"index":2,"dt":[],"id":"c1","name":"bash","args":["{"]}]"""
+
+    @Test fun aSnapshotWithAnActiveAttemptShowsTheReplyAndTakesItsChunks() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        remote.emit(snapshotWithAttempt(userMsg(3, "hi"), ev("turn/start", 4), stream = inFlight)); runCurrent()
+        val seeded = store.state.value.live
+        assertEquals("a1", seeded?.attemptId)
+        assertEquals("Hello", seeded?.text)
+        assertEquals("想一下", seeded?.reasoning)
+        assertEquals(listOf("bash"), seeded?.toolNames)
+        remote.emit(chunk("text-delta", " world", index = 4)); runCurrent(); advanceTimeBy(100); runCurrent()
+        assertEquals("the chunks after the snapshot are not dropped", "Hello world", store.state.value.live?.text)
+        assertTrue(store.state.value.running)
+        store.close()
+    }
+
+    @Test fun anActiveAttemptPastTheMessageCapStillCountsAsRunning() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        // The 500-message window cut inside the turn: no turn/start among the records.
+        remote.emit(snapshotWithAttempt(asstMsg(400, """{"type":"text","text":"step"}"""), stream = "[]", hasMore = true)); runCurrent()
+        assertTrue(store.state.value.running)
+        assertEquals("a1", store.state.value.live?.attemptId)
+        store.close()
+    }
+
+    @Test fun aCappedSnapshotFallsBackToTheTreesRunningState() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote) { true }
+        remote.emit(snapshot(asstMsg(400, """{"type":"text","text":"tool step"}"""), hasMore = true)); runCurrent()
+        assertTrue("the turn began before the window: STOP stays", store.state.value.running)
+        remote.emit(live(ev("turn/end", 401, """{"reason":{"kind":"completed"}}"""))); runCurrent()
+        assertFalse(store.state.value.running)
+        store.close()
+    }
+
+    @Test fun aWholeSnapshotIgnoresAStaleRunningHint() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote) { true }
+        remote.emit(snapshot(userMsg(3, "hi"), ev("turn/end", 4))); runCurrent()
+        assertFalse(store.state.value.running)
+        store.close()
+    }
+
+    @Test fun aPermanentFollowFailureIsNotRetriedUntilAsked() = runTest {
+        val remote = FakeChatRemote()
+        remote.followQueue += flowOf(StreamSignal.Failed("session/not-found", "x"))
+        val store = store(remote)
+        runCurrent()
+        assertEquals("session/not-found", store.followError.value)
+        advanceTimeBy(60_000); runCurrent()
+        assertEquals("not retried on its own", 1, remote.followCalls)
+        store.retry(); runCurrent()
+        assertEquals(2, remote.followCalls)
+        store.close()
+    }
+
+    // ---- final review A-I4: running out of memory while sending ----
+
+    @Test fun runningOutOfMemoryWhileSendingIsReportedNotThrown() = runTest {
+        val remote = object : ChatRemote by FakeChatRemote() {
+            override suspend fun prompt(sessionId: String, requestId: String, parts: List<PromptPart>) = throw OutOfMemoryError("big")
+        }
+        var n = 0
+        val store = ConversationStore(remote, "s1", CoroutineScope(StandardTestDispatcher(testScheduler)), { "r${++n}" }, StandardTestDispatcher(testScheduler))
+        assertFalse(store.send(parts, "hello", emptyList()))
+        assertTrue(store.pending.value.isEmpty())
+        assertEquals(ConversationStore.OUT_OF_MEMORY, store.sendError.value)
         store.close()
     }
 }
