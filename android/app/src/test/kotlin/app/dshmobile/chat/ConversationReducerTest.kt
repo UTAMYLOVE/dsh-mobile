@@ -30,7 +30,7 @@ internal fun end(outcome: String = "committed", id: String = "a1") =
 
 class ConversationReducerTest {
     private val s0 = ConversationState("s1")
-    private fun ConversationState.then(vararg frames: JsonElement?) = frames.fold(this) { s, f -> ConversationReducer.reduce(s, f) }
+    private fun ConversationState.then(vararg frames: JsonElement?) = frames.fold(this) { s, f -> ConversationReducer.reduceLive(ConversationReducer.reduce(s, f), f) }
 
     @Test fun snapshotShowsOnlyRealPromptsAndReplies() {
         val s = s0.then(snapshot(
@@ -145,6 +145,25 @@ class ConversationReducerTest {
         assertEquals("notes/a.md", share("/root/workspace/notes/a.md"))
         assertNull(share("/tmp/x")); assertNull(share("/root/workspace/../etc/passwd"))
         assertEquals("b.md", share("/root/workspace/a/../b.md"))
+    }
+
+    @Test fun aReplayedApprovalAskedDoesNotReviveADoneCard() {
+        val asked = ev("approval/asked", 12, """{"id":"ap1","toolName":"bash","callId":"c1","reason":"r"}""")
+        val s = s0.then(snapshot(call("c1", "bash", "{}"), asked, result("c1", "ok").replace("\"seq\":11", "\"seq\":13")))
+        assertEquals(ToolStatus.DONE, tool(s).status)
+        assertEquals(ToolStatus.DONE, tool(s.then(live(asked))).status)
+    }
+
+    @Test fun aReplayedTurnStartAfterTurnEndKeepsRunningFalse() {
+        val s = s0.then(snapshot(ev("turn/start", 1), ev("turn/end", 2, """{"reason":{"kind":"completed"}}""")))
+        assertFalse(s.running)
+        assertFalse(s.then(live(ev("turn/start", 1))).running)
+        assertFalse(s.then(live(ev("turn/start", 2))).running)
+        assertTrue(s.then(live(ev("turn/start", 3))).running)
+    }
+
+    @Test fun reduceIgnoresStreamFramesSoOnlyTheStoreAccumulatesLiveText() {
+        assertEquals(s0, ConversationReducer.reduce(s0, start()))
     }
 
     @Test fun prependAddsOlderItemsFirst() {

@@ -8,6 +8,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.launch
@@ -31,7 +34,9 @@ private class FakeChatRemote : ChatRemote {
     var pageCalls = mutableListOf<Pair<Long, Int>>()
     var pageAnswer: JsonElement = JsonNull
     var model: Pair<String, String>? = null
-    override fun follow(sessionId: String): Flow<StreamSignal> = signals.receiveAsFlow()
+    val followQueue = ArrayDeque<Flow<StreamSignal>>()
+    var followCalls = 0
+    override fun follow(sessionId: String): Flow<StreamSignal> { followCalls++; return followQueue.removeFirstOrNull() ?: signals.receiveAsFlow() }
     override suspend fun prompt(sessionId: String, requestId: String, parts: List<PromptPart>) {
         promptError?.let { throw it }
         prompts += Triple(sessionId, requestId, parts)
@@ -154,6 +159,70 @@ class ConversationStoreTest {
         val remote = FakeChatRemote(); val store = store(remote)
         store.selectModel(AgentModels.find("claude-sonnet-5-5")!!)
         assertEquals("anthropic" to "claude-sonnet-5-5", remote.model)
+        store.close()
+    }
+
+    @Test fun aFailedFollowSetsFollowErrorThenRecoversAfterRefollow() = runTest {
+        val remote = FakeChatRemote()
+        remote.followQueue += flowOf(StreamSignal.Failed("session/gone", "x"))
+        val store = store(remote)
+        runCurrent()
+        assertEquals("session/gone", store.followError.value)
+        assertEquals(1, remote.followCalls)
+        advanceTimeBy(1_001); runCurrent()
+        assertEquals(2, remote.followCalls)
+        remote.emit(snapshot(userMsg(3, "hi"))); runCurrent()
+        assertNull(store.followError.value)
+        assertEquals(1, store.state.value.items.size)
+        store.close()
+    }
+
+    @Test fun anEndedFollowSetsEndedAndBacksOffThenRetryRefollowsNow() = runTest {
+        val remote = FakeChatRemote()
+        remote.followQueue += flowOf(); remote.followQueue += flowOf(); remote.followQueue += flowOf()
+        val store = store(remote)
+        runCurrent()
+        assertEquals("ended", store.followError.value); assertEquals(1, remote.followCalls)
+        advanceTimeBy(1_001); runCurrent(); assertEquals(2, remote.followCalls)
+        advanceTimeBy(1_500); runCurrent(); assertEquals(2, remote.followCalls)   // second wait is 2 s
+        store.retry(); runCurrent()
+        assertEquals(3, remote.followCalls)
+        store.close()
+    }
+
+    @Test fun aThrowingFollowIsContained() = runTest {
+        val remote = FakeChatRemote()
+        remote.followQueue += flow { throw IllegalStateException("boom") }
+        val store = store(remote)
+        runCurrent()
+        assertEquals("IllegalStateException", store.followError.value)
+        advanceTimeBy(1_001); runCurrent()
+        remote.emit(snapshot(userMsg(3, "hi"))); runCurrent()
+        assertNull(store.followError.value)
+        store.close()
+    }
+
+    @Test fun anOlderPageWithoutRecordsReportsAnUnexpectedAnswer() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        remote.emit(snapshot(userMsg(30, "new"), hasMore = true)); runCurrent()
+        remote.pageAnswer = JsonNull
+        store.loadOlder()
+        assertEquals("unexpected-answer", store.sendError.value)
+        assertEquals(1, store.state.value.items.size)
+        store.close()
+    }
+
+    @Test fun aBubbleDshNeverRecordsTimesOutAndCanBeRetried() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        store.send(parts, "hello", emptyList())
+        advanceTimeBy(59_000); runCurrent()
+        assertFalse(store.pending.value.single().failed)
+        advanceTimeBy(2_000); runCurrent()
+        assertTrue(store.pending.value.single().failed)
+        assertTrue(store.retrySend("r1"))
+        assertEquals(listOf("r2"), store.pending.value.map { it.requestId })
+        assertFalse(store.pending.value.single().failed)
+        assertEquals(2, remote.prompts.size)
         store.close()
     }
 }

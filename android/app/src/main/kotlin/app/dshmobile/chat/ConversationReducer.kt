@@ -24,10 +24,26 @@ object ConversationReducer {
         val o = frame as? JsonObject
         when (o?.str("type")) {
             "snapshot" -> if (o["records"] is JsonArray) snapshot(state, o) else state
-            "event" -> (o.obj("event"))?.let { applyEvent(state, it) } ?: state
-            "assistant-stream" -> o.obj("frame")?.let { live(state, it) } ?: state
+            "event" -> o.obj("event")?.let { event ->
+                val seq = event.num("seq")
+                val last = state.lastSeq
+                if (seq != null && last != null && seq <= last) state // replayed durable event
+                else applyEvent(state, event).let { if (seq != null) it.copy(lastSeq = maxOf(seq, last ?: seq)) else it }
+            } ?: state
             else -> state
         }
+    } catch (_: RuntimeException) {
+        state
+    }
+
+    /**
+     * Folds one `assistant-stream` frame by plain concatenation. The store does NOT use this (it would be quadratic over a
+     * 100k-character reply): it accumulates with StringBuilders and publishes at a bounded rate. [reduce] ignores
+     * `assistant-stream` frames, so this is the reference behaviour for tests only.
+     */
+    internal fun reduceLive(state: ConversationState, frame: JsonElement?): ConversationState = try {
+        val f = (frame as? JsonObject)?.takeIf { it.str("type") == "assistant-stream" }?.obj("frame")
+        if (f == null) state else live(state, f)
     } catch (_: RuntimeException) {
         state
     }
@@ -63,6 +79,7 @@ object ConversationReducer {
             title = rebuilt.title ?: projected,
             hasMore = o.bool("hasMore") ?: false,
             firstSeq = minSeq(records),
+            lastSeq = listOfNotNull(records.mapNotNull { it.num("seq") }.maxOrNull(), o.num("cursor")).maxOrNull(),
             acceptedRequestIds = state.acceptedRequestIds + rebuilt.acceptedRequestIds,
         )
     }

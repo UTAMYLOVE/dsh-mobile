@@ -16,6 +16,8 @@ data class ConversationState(
     val acceptedRequestIds: Set<String> = emptySet(),
     /** Approval id to tool callId, so `approval/decided` (which only names the approval) finds its card. */
     internal val approvals: Map<String, String> = emptyMap(),
+    /** Highest durable event seq applied (snapshot max or cursor); a replayed event frame at or below it is dropped. */
+    internal val lastSeq: Long? = null,
 )
 
 sealed interface ChatItem {
