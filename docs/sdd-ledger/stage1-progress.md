@@ -100,3 +100,4 @@ T5: fix round 1/5 (5 addressed, 1 new conditional Important — 60 s timeout als
 - Ruling: the pending-bubble timer pauses while state.running and starts/restarts when running becomes false; idle sends unchanged.
 T5: fix round 2/5 dispatched (resume implementer)
 T5: minor (deferred): retrySend after a merely slow dsh can show the message twice (inherent)
+T16 merge flake: cause = test race (events before first baseline overwritten by the fake's stale list); fixed on lane-t16fix 5ee1b0b (20/20 green). Full suite then showed MuxConnectionTest.closeWhileTheUpgradeIsStartingCancelsTheNewSocket flake (lateinit race predicted by the T2 re-review) — dispatched to the T2 implementer on lane-t16fix
