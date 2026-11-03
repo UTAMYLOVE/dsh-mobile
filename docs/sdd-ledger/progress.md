@@ -243,3 +243,4 @@ Follow-up 1: implementer DONE_WITH_CONCERNS (878581b..97ad8c1; CI 41589224274 gr
 Follow-up 1 (items 2+3+picker, cf74cd0..ad4996a): review = spec ✅, quality Approved (sonnet), 0 Critical/Important
 Follow-up 1: complete (commits 572e5a5..97ad8c1, reviews clean); release v0.1.2+3 from ad4996a
 Follow-up 1: minor (deferred): backdrop-filter makes composer/dialog/menu a containing block (fixed children may drift — check on device); pill radius on every button/input; button transitions override dsh's; deepseek-700..900 not overridden in light mode; primary button text ~4:1; managed-settings mark() runs 8 document queries per frame during DOM churn (debounce if lag); reduced-motion also stops spinners; documentsLookupTimeoutMs key name unverified from diff (e2e passed)
+Stage-1 UI plan drafted (opus planner, 15 tasks, 23 planner's calls): docs/superpowers/plans/2026-11-03-dsh-mobile-fogcity-ui-stage1.md — awaiting boss review
