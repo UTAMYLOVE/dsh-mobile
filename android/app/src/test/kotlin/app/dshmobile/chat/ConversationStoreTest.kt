@@ -225,4 +225,30 @@ class ConversationStoreTest {
         assertEquals(2, remote.prompts.size)
         store.close()
     }
+
+    @Test fun aQueuedBubbleDuringALongTurnIsNotFailedUntilSixtySecondsAfterItEnds() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        remote.emit(snapshot()); remote.emit(live(ev("turn/start", 2))); runCurrent()
+        store.send(parts, "more", emptyList())
+        assertTrue(store.pending.value.single().queued)
+        advanceTimeBy(5 * 60_000L); runCurrent()
+        assertFalse(store.pending.value.single().failed)
+        remote.emit(live(ev("turn/end", 3, """{"reason":{"kind":"completed"}}"""))); runCurrent()
+        advanceTimeBy(59_000); runCurrent()
+        assertFalse(store.pending.value.single().failed)
+        advanceTimeBy(2_000); runCurrent()
+        assertTrue(store.pending.value.single().failed)
+        store.close()
+    }
+
+    @Test fun anIdleSentBubbleStillFailsAtSixtySeconds() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        remote.emit(snapshot(ev("turn/end", 1))); runCurrent()
+        store.send(parts, "hello", emptyList())
+        advanceTimeBy(59_000); runCurrent()
+        assertFalse(store.pending.value.single().failed)
+        advanceTimeBy(2_000); runCurrent()
+        assertTrue(store.pending.value.single().failed)
+        store.close()
+    }
 }

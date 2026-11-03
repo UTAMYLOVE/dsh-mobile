@@ -13,6 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import java.util.concurrent.ConcurrentHashMap
@@ -206,7 +207,12 @@ class ConversationStore(
         _pending.update { it + PendingSend(requestId, displayText, attachmentNames, queued = _state.value.running) }
         sent[requestId] = parts
         timeouts[requestId] = scope.launch(reduceContext) {
-            delay(PENDING_TIMEOUT_MS)
+            // Only an idle conversation can time out: a queued prompt is recorded when its turn dequeues it, so the
+            // clock is paused while a turn runs and restarts when it ends.
+            while (true) {
+                _state.first { !it.running }
+                if (withTimeoutOrNull(PENDING_TIMEOUT_MS) { _state.first { it.running } } == null) break
+            }
             _pending.update { list -> list.map { if (it.requestId == requestId) it.copy(failed = true) else it } }
         }
         return try {
