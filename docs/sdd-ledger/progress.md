@@ -209,3 +209,7 @@ Task 13: implementer DONE_WITH_CONCERNS (a143f8e..988fb1b; base for review edc4a
 - Ruling: e2e-reports artifact of run 41547715244 holds the login token of a throwaway emulator dsh that no longer exists — harmless (token per-launch, bound to 127.0.0.1 of a destroyed emulator, private repo, artifact expires in 7 days); not deleting (outward action) — listed in the boss handoff — Cost if wrong: none beyond a dead token visible to repo collaborators for 7 days.
 - Ruling: CI rootfs build cache keyed on rootfs/** + plugins/** accepted for CI speed; release.yml builds fresh — Why: CI is a test gate, release is the artifact — Cost if wrong: CI tests against slightly stale Debian packages.
 Task 13: review dispatched (package review-edc4a6c..988fb1b.diff, opus — whole-stack integration fixes in DshController concurrency)
+Task 13: review 1 = spec ✅, quality Approved (opus), 0 Critical/Important
+Task 13: complete (commits a143f8e..988fb1b, review clean)
+Task 13: minor (deferred): last commit title "test: emulator end-to-end suite" carries only the report (suite landed in a143f8e "(work in progress)"); t3 accepts yesterday's note too (stale mark on a persistent device could pass); t4 not hermetic — real DailyUpdateCheck hits GitHub from the emulator (pre-mark today's check in DailyUpdateCheck.PREFS), Result.success() assertion weak; CI rootfs cache key misses .github/workflows/ci.yml (staging step lives there); report typo "bug 4"→"bug 5"
+Final review: dispatching (whole branch, most capable model)
