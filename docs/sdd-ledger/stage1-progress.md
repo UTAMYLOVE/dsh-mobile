@@ -49,3 +49,7 @@ T3: review dispatched (sonnet)
 T1: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
 T1: complete (lane-t1 d143f12..8d85b62, review clean)
 T1: minor (deferred): concurrent 401s each re-login (harmless); deeply nested JSON could StackOverflow in parse (loopback, capped); fileUploads/upload arg shape unverified live → T9/e2e must confirm
+T7: review 1 = spec ✅, quality Needs fixes (sonnet) — Important: rememberMarkdown discards uninterruptible parses under fast streaming → long replies never update until stream end
+- Ruling: Minors 1 (cap tables/lists at 500 rows/items), 2 (surrogate-safe truncation) and 4 (3–4 digit list markers) join round 1 — same file, and huge tables hit the lag the boss reported.
+T7: fix round 1/5 dispatched (resume implementer)
+T7: minor (deferred): single 200k-char code line untested
