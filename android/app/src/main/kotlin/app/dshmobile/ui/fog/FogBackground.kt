@@ -44,10 +44,17 @@ import androidx.compose.ui.unit.dp
 import app.dshmobile.ui.theme.Sakura
 
 object FogSemantics {
-    /** True while a glass surface actually blurs what is behind it. */
+    /** True while a glass surface actually blurs what is behind it. Reported only while [exposeBlur]. */
     val Blur = SemanticsPropertyKey<Boolean>("FogBlur")
     /** True while the background (glows, grid) is being animated. */
     val Animating = SemanticsPropertyKey<Boolean>("FogAnimating")
+
+    /**
+     * Whether glass surfaces report [Blur]. Reporting it makes every glass surface a semantics node of its own, which nothing but
+     * tests reads, so it is off in the app; Robolectric tests start with it on (and may set it), so a glass surface composed
+     * after a change follows the new value.
+     */
+    @JvmField @Volatile var exposeBlur: Boolean = "robolectric" == android.os.Build.FINGERPRINT
 }
 
 /** The background drawn into a [GraphicsLayer], which [glass] surfaces blur behind themselves, plus where that layer sits in the window. */

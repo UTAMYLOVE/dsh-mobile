@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -91,7 +92,9 @@ import androidx.compose.ui.unit.sp
 import app.dshmobile.R
 import app.dshmobile.remote.MuxState
 import app.dshmobile.ui.MainUiState
+import app.dshmobile.ui.fog.BlurFloor
 import app.dshmobile.ui.fog.FogBackground
+import app.dshmobile.ui.fog.LocalBlurFloor
 import app.dshmobile.ui.fog.FogDimens
 import app.dshmobile.ui.fog.FogFonts
 import app.dshmobile.ui.fog.FogMotion
@@ -169,6 +172,7 @@ fun FogShell(
     // The floating stack's own height (chips, menu, chip and dock; no insets): changes when those change, not with the keyboard.
     var stackHeight by remember { mutableIntStateOf(0) }
     val edge = remember { FloatingEdge() }
+    val blurFloor = remember { BlurFloor() }
     var attachMenu by remember { mutableStateOf(false) }
     val showReconnecting = rememberReconnectingChip(connection, reconnectChipDelayMs)
     BackHandler(enabled = attachMenu) { attachMenu = false }
@@ -209,7 +213,8 @@ fun FogShell(
                     .onGloballyPositioned { edge.stageTop = it.positionInRoot().y }
                     .fadeAbove(edge),
             ) {
-                CompositionLocalProvider(LocalPagePadding provides padding) {
+                // A page's glass under the floating stack is faded out: it blurs only what shows above it.
+                CompositionLocalProvider(LocalPagePadding provides padding, LocalBlurFloor provides blurFloor) {
                     Pages(nav.tab) { tab ->
                       // Only the current page animates; the one sliding out is already still.
                       CompositionLocalProvider(LocalPageActive provides (started && tab == nav.tab)) {
@@ -239,7 +244,10 @@ fun FogShell(
                 .then(hidden)
                 .testTag(Tags.DOCK)
                 .onSizeChanged { stackHeight = it.height }
-                .onGloballyPositioned { edge.stackTop = it.positionInRoot().y },
+                .onGloballyPositioned {
+                    edge.stackTop = it.positionInRoot().y
+                    blurFloor.y = it.positionInWindow().y
+                },
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (showReconnecting) ReconnectingChip(Modifier.align(Alignment.CenterHorizontally))
