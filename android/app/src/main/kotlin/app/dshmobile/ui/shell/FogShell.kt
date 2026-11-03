@@ -1,6 +1,14 @@
 package app.dshmobile.ui.shell
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.testTag
+import app.dshmobile.ui.fog.fogShadowPaint
+import kotlin.math.tan
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -213,6 +221,7 @@ fun FogShell(
                       }
                     }
                 }
+                PageSweep(nav.tab)
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -351,6 +360,63 @@ private fun Pages(tab: ShellTab, content: @Composable (ShellTab) -> Unit) {
         },
         label = "page",
     ) { current -> content(current) }
+}
+
+/**
+ * The mockup's sweep: on every tab change (not the first show) one 2 dp white line with a white and pink glow, skewed -12°,
+ * crosses the page viewport in [FogMotion.SWEEP_MS], fading in over the first 15 % and out over the rest. Only with depth
+ * transitions (full and balanced; never in saver or with the system's animations off). The line exists only while it runs and
+ * the frames only redraw it (the progress is read while drawing).
+ */
+@Composable
+private fun PageSweep(tab: ShellTab) {
+    val depth = LocalEffects.current.depthTransitions
+    val allowed by rememberUpdatedState(depth)
+    val progress = remember { Animatable(1f) }
+    var shown by remember { mutableStateOf(tab) }
+    LaunchedEffect(tab) {
+        if (tab == shown) return@LaunchedEffect
+        shown = tab
+        if (!allowed) return@LaunchedEffect
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(FogMotion.SWEEP_MS, easing = FogMotion.EaseOut))
+    }
+    LaunchedEffect(depth) { if (!depth) progress.snapTo(1f) }
+    if (!depth || !progress.isRunning) return
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clearAndSetSemantics { testTag = Tags.PAGE_SWEEP }
+            .drawWithCache {
+                val line = 2.dp.toPx()
+                val core = Brush.verticalGradient(0f to Color.Transparent, .2f to Color.White, .8f to Color.White, 1f to Color.Transparent)
+                val near = fogShadowPaint(Color.White.copy(alpha = .9f), 18.dp.toPx())
+                val far = fogShadowPaint(Sakura.Primary.copy(alpha = .45f), 40.dp.toPx())
+                val nearSpread = 6.dp.toPx()
+                val farSpread = 12.dp.toPx()
+                val start = -10.dp.toPx()
+                val travel = size.width - start
+                val skew = tan(Math.toRadians(-12.0)).toFloat()
+                onDrawBehind {
+                    val p = progress.value
+                    val alpha = if (p < .15f) p / .15f else (1f - p) / .85f
+                    if (alpha <= 0f) return@onDrawBehind
+                    val x = start + travel * p
+                    val canvas = drawContext.canvas
+                    canvas.save()
+                    // skewX about the line's own middle, like CSS transform-origin: center
+                    canvas.translate(x, size.height / 2f)
+                    canvas.skew(skew, 0f)
+                    canvas.translate(-x, -size.height / 2f)
+                    near.alpha = .9f * alpha
+                    far.alpha = .45f * alpha
+                    canvas.drawRect(x - farSpread, 0f, x + line + farSpread, size.height, far)
+                    canvas.drawRect(x - nearSpread, 0f, x + line + nearSpread, size.height, near)
+                    drawRect(core, topLeft = Offset(x, 0f), size = Size(line, size.height), alpha = alpha)
+                    canvas.restore()
+                }
+            },
+    )
 }
 
 @Composable
