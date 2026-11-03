@@ -32,3 +32,11 @@ Branch `lane-t9`, based on 093b21c (Task 8 plus Tasks 10-14).
 - `inspect` reads each picked file once (up to 20 MB) to count it, and `read` reads it again at send; this is by design (bytes are not kept) but costs IO for large files. Counting is on IO and sequential.
 - `attachments` and `sending` are Activity fields (like `composerText`): a recreated Activity loses them; the URI grant of a picker result is not persisted.
 - Red lines: no new permissions, no names, URIs or contents logged (error classes and dsh safe codes only), nothing uploaded except to the local dsh.
+
+## Fix round 1
+- `AttachmentLoader.read` now allocates one array of exactly `a.size` and reads into it (no `ByteArrayOutputStream`, no double copy). A file that shrank is `copyOf`-trimmed to the bytes read; one that grew within 20 MB grows the array; one past 20 MB throws `AttachmentTooLarge`. Exact-size files cost no extra allocation (a single-byte probe at the end).
+- `DshRemote.upload` builds the base64 inside the request (no named local); wire shape unchanged. Limit: the caller's raw bytes and the request still coexist during the call, since `ChatRemote.upload(bytes)` keeps its signature.
+- `AttachmentSender.toParts` catches `OutOfMemoryError` around read, encode and upload and fails with `AttachmentReason.OUT_OF_MEMORY` (string 「附件太大，手機記憶體不夠，沒有送出」); text and tiles stay, no prompt is sent.
+- Upload failure reasons: `IOException` is 「連線中斷」, a `DshRpcException` shows its safe code, anything else 「未知錯誤」 (template unchanged). The sender emits reason constants (`CONNECTION`, `UNKNOWN`) and MainActivity maps them to strings.
+- Dock: STOP shows while running with empty text even with tiles; send shows when there is text; attachment-only send when idle is unchanged.
+- Tests added: `aDshUploadErrorShowsItsCodeAndAnythingElseIsUnknown`, `runningOutOfMemoryInAnUploadSendsNothing`, `runningOutOfMemoryWhileReadingSendsNothing`, `readReturnsExactlyTheBytesThereAre`, `stopShowsWhileRunningWithEmptyTextEvenWithChips`. Full unit suite and `assembleDebug` pass.

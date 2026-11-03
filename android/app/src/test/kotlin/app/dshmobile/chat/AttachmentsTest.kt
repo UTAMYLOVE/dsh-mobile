@@ -29,6 +29,7 @@ private class UploadRemote : ChatRemote {
     val prompts = mutableListOf<List<PromptPart>>()
     val uploads = mutableListOf<Pair<String, Int>>()
     var promptError: Exception? = null
+    var uploadError: Throwable? = null
     /** Throws on the n-th upload (1-based). */
     var failUploadAt: Int? = null
     override fun follow(sessionId: String): Flow<StreamSignal> = Channel<StreamSignal>().receiveAsFlow()
@@ -40,6 +41,7 @@ private class UploadRemote : ChatRemote {
     override suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): JsonElement = JsonNull
     override suspend fun selectModel(sessionId: String, provider: String, model: String) {}
     override suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String {
+        uploadError?.let { throw it }
         uploads += name to bytes.size
         if (failUploadAt == uploads.size) throw IOException("boom")
         return "receipt-${uploads.size}"
@@ -145,7 +147,7 @@ class AttachmentsTest {
         val remote = UploadRemote().apply { failUploadAt = 2 }; val store = store(remote)
         val list = listOf(attach(uri("a.pdf", "application/pdf", 10)), attach(uri("b.pdf", "application/pdf", 10)))
         val out = sendWithAttachments(store, AttachmentSender(remote, loader), "x", list)
-        assertEquals(SendOutcome.AttachmentFailed("b.pdf", "IOException"), out)
+        assertEquals(SendOutcome.AttachmentFailed("b.pdf", AttachmentReason.CONNECTION), out)
         assertEquals(0, remote.prompts.size)
         assertTrue(store.pending.value.isEmpty())
         store.close()
@@ -169,6 +171,48 @@ class AttachmentsTest {
         assertEquals(listOf("1.png"), listOf((parts[1] as PromptPart.Image).name))
         assertEquals(listOf("1.png", "2.pdf", "3.gif"), store.pending.value.single().attachments)
         store.close()
+    }
+
+    @Test fun aDshUploadErrorShowsItsCodeAndAnythingElseIsUnknown() = runTest {
+        val remote = UploadRemote(); val store = store(remote)
+        val a = attach(uri("a.pdf", "application/pdf", 10))
+        remote.uploadError = DshRpcException("upload/denied", "m")
+        assertEquals(SendOutcome.AttachmentFailed("a.pdf", "upload/denied"), sendWithAttachments(store, AttachmentSender(remote, loader), "x", listOf(a)))
+        remote.uploadError = IllegalStateException("x")
+        assertEquals(SendOutcome.AttachmentFailed("a.pdf", AttachmentReason.UNKNOWN), sendWithAttachments(store, AttachmentSender(remote, loader), "x", listOf(a)))
+        store.close()
+    }
+
+    @Test fun runningOutOfMemoryInAnUploadSendsNothing() = runTest {
+        val remote = UploadRemote().apply { uploadError = OutOfMemoryError() }; val store = store(remote)
+        val a = attach(uri("a.pdf", "application/pdf", 10))
+        assertEquals(SendOutcome.AttachmentFailed("a.pdf", AttachmentReason.OUT_OF_MEMORY), sendWithAttachments(store, AttachmentSender(remote, loader), "x", listOf(a)))
+        assertTrue(remote.prompts.isEmpty()); assertTrue(store.pending.value.isEmpty())
+        store.close()
+    }
+
+    @Test fun runningOutOfMemoryWhileReadingSendsNothing() = runTest {
+        val remote = UploadRemote(); val store = store(remote)
+        val u = uri("a.png", "image/png", 10)
+        val a = attach(u)
+        val oom = AttachmentLoader(open = { throw OutOfMemoryError() }, describe = { names[it] to null }, mimeOf = { mimes[it] })
+        assertEquals(SendOutcome.AttachmentFailed("a.png", AttachmentReason.OUT_OF_MEMORY), sendWithAttachments(store, AttachmentSender(remote, oom), "x", listOf(a)))
+        assertTrue(remote.prompts.isEmpty())
+        store.close()
+    }
+
+    @Test fun readReturnsExactlyTheBytesThereAre() {
+        val u = uri("a.bin", "application/octet-stream", 1000)
+        val a = attach(u)
+        assertEquals(1000, loader.read(a).size)
+        sizes[u] = 400 // shrank
+        assertEquals(400, loader.read(a).size)
+        sizes[u] = 5000 // grew, still within the limit
+        assertEquals(5000, loader.read(a).size)
+        sizes[u] = 20 * mb // exactly the limit is fine
+        assertEquals(20 * mb.toInt(), loader.read(attach(u)).size)
+        sizes[u] = 20 * mb + 1
+        try { loader.read(a); org.junit.Assert.fail() } catch (_: AttachmentTooLarge) {}
     }
 
     @Test fun pendingAttachmentHoldsNoBytes() {

@@ -9,7 +9,6 @@ import app.dshmobile.remote.PromptPart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.Base64
@@ -74,17 +73,23 @@ class AttachmentLoader(
         } ?: throw AttachmentUnreadable()
         try {
             stream.use {
-                val out = ByteArrayOutputStream(a.size.coerceIn(1, FILE_LIMIT.toLong()).toInt())
-                val buf = ByteArray(BUFFER)
-                var total = 0L
+                // One array of the size seen at pick time; it only grows if the file grew, and never past FILE_LIMIT.
+                var buf = ByteArray(a.size.coerceIn(0, FILE_LIMIT.toLong()).toInt())
+                var n = 0
                 while (true) {
-                    val n = it.read(buf)
-                    if (n < 0) break
-                    total += n
-                    if (total > FILE_LIMIT) throw AttachmentTooLarge()
-                    out.write(buf, 0, n)
+                    if (n == buf.size) {
+                        val extra = it.read() // full: is there more?
+                        if (extra < 0) break
+                        if (n >= FILE_LIMIT) throw AttachmentTooLarge()
+                        buf = buf.copyOf(minOf(FILE_LIMIT.toLong(), maxOf(n * 2L, BUFFER.toLong())).toInt())
+                        buf[n++] = extra.toByte()
+                        continue
+                    }
+                    val r = it.read(buf, n, buf.size - n)
+                    if (r < 0) break
+                    n += r
                 }
-                return out.toByteArray()
+                return if (n == buf.size) buf else buf.copyOf(n) // copied only when the file shrank
             }
         } catch (e: AttachmentTooLarge) {
             throw e
@@ -127,6 +132,11 @@ class AttachmentLoader(
 object AttachmentReason {
     const val TOO_LARGE = "too-large"
     const val UNREADABLE = "unreadable"
+    /** The phone ran out of memory reading or encoding the file. */
+    const val OUT_OF_MEMORY = "out-of-memory"
+    /** An upload failed on the connection (an IOException). */
+    const val CONNECTION = "connection"
+    const val UNKNOWN = "unknown"
 }
 
 /** Thrown by [AttachmentSender.toParts]: [reason] is an [AttachmentReason] or a [DshErrors.safeCode] / exception class name. */
@@ -143,32 +153,35 @@ class AttachmentSender(private val remote: ChatRemote, private val loader: Attac
         val parts = ArrayList<PromptPart>(attachments.size + 1)
         if (text.isNotBlank()) parts += PromptPart.Text(text)
         for (a in attachments) {
-            val bytes = try {
-                withContext(Dispatchers.IO) { loader.read(a) }
+            try {
+                val bytes = withContext(Dispatchers.IO) { loader.read(a) }
+                if (a.isImage && bytes.size <= AttachmentLoader.IMAGE_LIMIT) {
+                    val encoded = withContext(Dispatchers.IO) { Base64.getEncoder().encodeToString(bytes) }
+                    parts += PromptPart.Image(a.mime, encoded, a.name)
+                } else {
+                    parts += PromptPart.File(remote.upload(sessionId, a.name, bytes), a.name)
+                }
             } catch (_: AttachmentTooLarge) {
                 throw AttachmentFailure(a.name, AttachmentReason.TOO_LARGE)
             } catch (_: AttachmentUnreadable) {
                 throw AttachmentFailure(a.name, AttachmentReason.UNREADABLE)
-            }
-            if (a.isImage && bytes.size <= AttachmentLoader.IMAGE_LIMIT) {
-                val encoded = withContext(Dispatchers.IO) { Base64.getEncoder().encodeToString(bytes) }
-                parts += PromptPart.Image(a.mime, encoded, a.name)
-            } else {
-                val receipt = try {
-                    remote.upload(sessionId, a.name, bytes)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    throw AttachmentFailure(a.name, errorName(e))
-                }
-                parts += PromptPart.File(receipt, a.name)
+            } catch (_: OutOfMemoryError) {
+                throw AttachmentFailure(a.name, AttachmentReason.OUT_OF_MEMORY)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                throw AttachmentFailure(a.name, uploadReason(e))
             }
         }
         return parts
     }
 
-    private fun errorName(e: Exception): String =
-        if (e is DshRpcException) DshErrors.safeCode(e.code) else e.javaClass.simpleName.ifEmpty { DshErrors.REFUSED }
+    /** A dsh code as is, [AttachmentReason.CONNECTION] for an IOException, else [AttachmentReason.UNKNOWN]; never a class name. */
+    private fun uploadReason(e: Exception): String = when (e) {
+        is DshRpcException -> DshErrors.safeCode(e.code)
+        is IOException -> AttachmentReason.CONNECTION
+        else -> AttachmentReason.UNKNOWN
+    }
 }
 
 sealed interface SendOutcome {

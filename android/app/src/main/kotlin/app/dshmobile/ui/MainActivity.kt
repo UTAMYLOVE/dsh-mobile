@@ -404,6 +404,9 @@ class MainActivity : ComponentActivity() {
                 is DockSend.AttachmentFailed -> when (outcome.reason) {
                     AttachmentReason.TOO_LARGE -> getString(R.string.attach_too_large, outcome.name, AttachmentLoader.FILE_LIMIT / MB)
                     AttachmentReason.UNREADABLE -> getString(R.string.attach_unreadable, outcome.name)
+                    AttachmentReason.OUT_OF_MEMORY -> getString(R.string.attach_out_of_memory)
+                    AttachmentReason.CONNECTION -> getString(R.string.attach_upload_failed, getString(R.string.attach_reason_connection))
+                    AttachmentReason.UNKNOWN -> getString(R.string.attach_upload_failed, getString(R.string.attach_reason_unknown))
                     else -> getString(R.string.attach_upload_failed, outcome.reason)
                 }
             }

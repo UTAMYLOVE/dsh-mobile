@@ -147,7 +147,7 @@ internal fun Dock(
                     .background(Brush.radialGradient(listOf(Sakura.Background.copy(alpha = a), Sakura.Primary.copy(alpha = a))), CircleShape)
                     .border(1.dp, Color.White.copy(alpha = .9f * a), CircleShape)
             }
-            if (composer.running && composer.text.isBlank() && composer.chips.isEmpty()) {
+            if (composer.running && composer.text.isBlank()) {
                 RoundButton(stringResource(R.string.shell_stop), enabled, Tags.STOP, composer.onStop, pink) { tint -> StopIcon(tint) }
             } else {
                 RoundButton(stringResource(R.string.shell_send), enabled && composer.canSend, Tags.SEND, composer.onSend, pink) { tint -> SendIcon(tint) }

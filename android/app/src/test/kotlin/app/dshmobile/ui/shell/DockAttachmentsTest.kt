@@ -30,12 +30,13 @@ class DockAttachmentsTest {
     private var error by mutableStateOf<String?>(null)
     private val removed = mutableListOf<String>()
     private var canSend = false
+    private var running = false
 
     private fun show() = rule.setContent {
         FogTheme(effectsFor(EffectLevel.FULL, reducedMotion = false)) {
             Dock(
                 ComposerUi(
-                    text = text, onText = { text = it }, enabled = true, canSend = canSend, running = false, onSend = {}, onStop = {},
+                    text = text, onText = { text = it }, enabled = true, canSend = canSend, running = running, onSend = {}, onStop = {},
                     chips = chips, onRemoveChip = { id -> removed += id; chips = chips.filterNot { it.id == id } }, error = error,
                 ),
                 enabled = true, tab = ShellTab.CHAT, onSelect = {}, onToggleAttachMenu = {},
@@ -62,6 +63,17 @@ class DockAttachmentsTest {
         rule.onNodeWithTag(Tags.COMPOSER_ERROR).assertTextEquals("附件上傳失敗，訊息沒有送出（IOException）")
         rule.onNodeWithTag(Tags.COMPOSER_INPUT).assertTextEquals("留著的字")
         rule.onNodeWithTag(Tags.ATTACHMENT_CHIP + "a").assertExists()
+    }
+
+    @Test fun stopShowsWhileRunningWithEmptyTextEvenWithChips() {
+        running = true
+        show()
+        rule.onNodeWithTag(Tags.STOP).assertExists()
+        rule.onNodeWithTag(Tags.SEND).assertDoesNotExist()
+        text = "more"
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.SEND).assertExists()
+        rule.onNodeWithTag(Tags.STOP).assertDoesNotExist()
     }
 
     @Test fun sendIsEnabledWithOnlyAnAttachment() {

@@ -139,12 +139,15 @@ class DshRemote(
         call("session/selectModel", request { put("sessionId", sessionId); put("provider", provider); put("model", model) })
     }
 
-    /** Stages [bytes] for [sessionId]'s next prompt; returns the receipt id for [PromptPart.File]. */
+    /**
+     * Stages [bytes] for [sessionId]'s next prompt; returns the receipt id for [PromptPart.File]. The base64 text is made inside
+     * the request and not kept in a variable of its own, so only the raw bytes (the caller's) and the request exist at once.
+     */
     override suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String {
         val value = call(UPLOAD, buildJsonObject {
             put("agentId", sessionId)
             putJsonObject("request") {
-                put("data", Base64.getEncoder().encodeToString(bytes))
+                put("data", String(Base64.getEncoder().encode(bytes), Charsets.ISO_8859_1))
                 put("name", name)
             }
         })
