@@ -202,6 +202,7 @@ class MainActivity : ComponentActivity() {
 
     private fun startJankTracking() {
         val governor = app.effectsController.governor
+        governor.onStart()
         framesAtStart = governor.frames
         jankyAtStart = governor.janky
         jankStats?.isTrackingEnabled = true

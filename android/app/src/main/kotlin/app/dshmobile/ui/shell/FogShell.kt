@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -145,7 +146,9 @@ fun FogShell(
     page: @Composable (ShellTab) -> Unit,
 ) {
     val backdrop = rememberBackdrop()
-    val started = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(Lifecycle.State.STARTED)
+    val lifecycleState = LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    // RESUMED <-> STARTED (a dialog or the shade over the screen) must not recompose the shell: only the STARTED threshold counts.
+    val started by remember { derivedStateOf { lifecycleState.value.isAtLeast(Lifecycle.State.STARTED) } }
     val idle = rememberIdle(started)
     val density = LocalDensity.current
     // Composition reads only insets that do not animate frame by frame: the navigation bar, and the keyboard's target (it

@@ -79,4 +79,38 @@ class JankGovernorTest {
         assertEquals(EffectLevel.FULL, effectiveLevel(EffectLevel.FULL, EffectLevel.FULL))
         assertEquals(EffectLevel.SAVER, effectiveLevel(EffectLevel.BALANCED, EffectLevel.SAVER))
     }
+
+    @Test fun aBalancedUserFirstStepsDownToSaver() {
+        val g = JankGovernor()
+        val seen = mutableListOf<EffectLevel>()
+        g.onDegrade = { level, _, _ -> seen += level }
+        g.floor = EffectLevel.BALANCED
+        g.window(24); g.window(24)
+        assertEquals(EffectLevel.SAVER, g.cap.value)
+        assertEquals(listOf(EffectLevel.SAVER), seen)
+    }
+
+    @Test fun aSaverUserNeverChangesAnythingNorLogs() {
+        val g = JankGovernor()
+        var calls = 0
+        g.onDegrade = { _, _, _ -> calls++ }
+        g.floor = EffectLevel.SAVER
+        repeat(6) { g.window(60) }
+        assertEquals(0, calls)
+        assertEquals(EffectLevel.FULL, g.cap.value)
+    }
+
+    @Test fun theFirstFramesAfterAStartAreIgnored() {
+        val g = JankGovernor()
+        g.onStart()
+        repeat(30) { g.onFrame(true) } // the start-up hitch: not counted
+        assertEquals(0L, g.frames)
+        g.window(0)
+        g.window(30)
+        assertEquals("one bad window only", EffectLevel.FULL, g.cap.value)
+        g.onStart()
+        repeat(30) { g.onFrame(true) }
+        g.window(30)
+        assertEquals("the ignored frames did not join the window", EffectLevel.FULL, g.cap.value)
+    }
 }

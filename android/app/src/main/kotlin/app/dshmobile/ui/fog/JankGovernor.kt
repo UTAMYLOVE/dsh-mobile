@@ -26,6 +26,12 @@ class JankGovernor(
     /** Told after every change of [cap], including [reset]; the [EffectsController] keeps its effective level in step with it. */
     @Volatile internal var onCapChanged: (() -> Unit)? = null
 
+    /** The user's chosen level: what is on screen is the thriftier of it and [cap], and a step goes one below that. */
+    @Volatile var floor: EffectLevel = EffectLevel.FULL
+
+    /** Frames still to ignore after [onStart]: the hitch of coming to the front is not the screen's smoothness. */
+    private var warmup = 0
+
     private var inWindow = 0
     private var jankyInWindow = 0
     private var badStreak = 0
@@ -37,9 +43,24 @@ class JankGovernor(
     @Volatile var janky: Long = 0L
         private set
 
+    /** The screen was started (tracking turns on): the first [WARMUP_FRAMES] frames and any half window are dropped. */
+    fun onStart() {
+        synchronized(this) {
+            warmup = WARMUP_FRAMES
+            inWindow = 0
+            jankyInWindow = 0
+            badStreak = 0
+            streakJanky = 0
+        }
+    }
+
     fun onFrame(isJank: Boolean) {
         var stepped: Triple<EffectLevel, Int, Int>? = null
         synchronized(this) {
+            if (warmup > 0) {
+                warmup--
+                return
+            }
             frames++
             if (isJank) {
                 janky++
@@ -55,7 +76,9 @@ class JankGovernor(
                 streakJanky = 0
             }
             if (badStreak >= windowsInARow) {
-                val next = EffectLevel.entries.getOrNull(_cap.value.ordinal + 1)
+                // One below what is really on screen; nothing to do (and nothing to log) when that is already the last level.
+                val shown = effectiveLevel(floor, _cap.value)
+                val next = EffectLevel.entries.getOrNull(shown.ordinal + 1)
                 if (autoDegrade && next != null) {
                     _cap.value = next
                     stepped = Triple(next, streakJanky, badStreak * windowFrames)
@@ -84,6 +107,8 @@ class JankGovernor(
         onCapChanged?.invoke()
     }
 }
+
+private const val WARMUP_FRAMES = 30
 
 /** The thriftier of the user's choice and the cap. */
 fun effectiveLevel(user: EffectLevel, cap: EffectLevel): EffectLevel = if (cap.ordinal > user.ordinal) cap else user

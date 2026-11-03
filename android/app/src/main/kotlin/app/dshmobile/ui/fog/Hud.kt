@@ -64,35 +64,52 @@ fun CountUpText(value: Double, format: (Double) -> String, style: TextStyle, mod
     val measurer = rememberTextMeasurer()
     val finalText = format(value)
     val drawStyle = if (style.color == Color.Unspecified) style.copy(color = Sakura.Text) else style
-    // One layout per distinct string: the final text (measured by every layout pass) and the digits already shown are not measured again.
-    val layouts = remember(measurer, drawStyle) {
-        StringCache<TextLayoutResult>(CountLayoutsKept) { measurer.measure(it, drawStyle, softWrap = false, maxLines = 1) }
-    }
+    // One layout per glyph (digits and a few signs, about fifteen in all): the digits are tabular, so a count-up draws the
+    // same few layouts side by side every frame instead of measuring a new string each time.
+    val glyphs = remember(measurer, drawStyle) { GlyphCache { measurer.measure(it, drawStyle, softWrap = false, maxLines = 1) } }
     Spacer(
         modifier
             .semantics { text = AnnotatedString(finalText) }
             .layout { measurable, constraints ->
                 // Sized for the final text, so the layout does not move while the digits run.
-                val r = layouts[finalText]
-                val p = measurable.measure(Constraints.fixed(r.size.width, r.size.height))
+                val w = glyphs.width(finalText)
+                val h = glyphs.height(finalText)
+                val p = measurable.measure(Constraints.fixed(w, h))
                 layout(p.width, p.height) { p.place(0, 0) }
             }
             .drawWithCache {
-                onDrawBehind { drawText(layouts[format(shown.doubleValue)]) }
+                onDrawBehind {
+                    var x = 0f
+                    glyphs.forEach(format(shown.doubleValue)) { g ->
+                        drawText(g, topLeft = Offset(x, 0f))
+                        x += g.size.width
+                    }
+                }
             },
     )
 }
 
-private const val CountLayoutsKept = 48
+/** Layouts of single characters, each measured once. Main thread only. */
+internal class GlyphCache<T : Any>(private val measure: (String) -> T) {
+    private val map = HashMap<Char, T>()
 
-/** Remembers the result of [compute] for the last [max] distinct strings asked for (least recently used goes first). Main thread only. */
-internal class StringCache<T : Any>(private val max: Int, private val compute: (String) -> T) {
-    private val map = object : LinkedHashMap<String, T>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, T>?): Boolean = size > max
-    }
-    val size: Int get() = map.size
+    operator fun get(c: Char): T = map.getOrPut(c) { measure(c.toString()) }
+}
 
-    operator fun get(key: String): T = map.getOrPut(key) { compute(key) }
+internal inline fun <T : Any> GlyphCache<T>.forEach(text: String, block: (T) -> Unit) {
+    for (c in text) block(get(c))
+}
+
+private fun GlyphCache<TextLayoutResult>.width(text: String): Int {
+    var w = 0
+    forEach(text) { w += it.size.width }
+    return w
+}
+
+private fun GlyphCache<TextLayoutResult>.height(text: String): Int {
+    var h = 0
+    forEach(text) { h = maxOf(h, it.size.height) }
+    return h
 }
 
 /** The 240-unit HUD ring of the mockup: ticks (40 s spin), track, value arc from 12 o'clock with a glow, dashed aqua ring (26 s, reverse). */

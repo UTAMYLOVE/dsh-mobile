@@ -46,4 +46,17 @@ class EffectsControllerTest {
         assertFalse(c.effects(reducedMotion = false).blur)
         assertEquals(effectsFor(EffectLevel.BALANCED, true), c.effects(reducedMotion = true))
     }
+
+    @Test fun settingALevelSetsTheGovernorsFloor() {
+        val c = EffectsController(prefs)
+        c.set(EffectLevel.BALANCED)
+        assertEquals(EffectLevel.BALANCED, c.governor.floor)
+        c.governor.bad(2)
+        assertEquals(EffectLevel.SAVER, c.effective.value)
+    }
+
+    @Test fun theFloorStartsAtThePrefsLevel() {
+        prefs.effectLevel = EffectLevel.SAVER
+        assertEquals(EffectLevel.SAVER, EffectsController(prefs).governor.floor)
+    }
 }

@@ -143,15 +143,17 @@ class GlassLayersTest {
         assertFalse(FogDebug.enabled.not())
     }
 
-    @Test fun textLayoutsAreComputedOncePerStringAndBounded() {
-        var computed = 0
-        val cache = StringCache<String>(3) { computed++; it.uppercase() }
-        repeat(10) { assertEquals("A", cache["a"]) }
-        assertEquals(1, computed)
-        cache["b"]; cache["c"]; cache["d"]
-        assertEquals(3, cache.size)
-        cache["a"]
-        assertEquals("the oldest was dropped", 5, computed)
+    @Test fun aFullCountUpMeasuresOnlyAboutFifteenGlyphs() {
+        var measured = 0
+        val cache = GlyphCache { measured++; it }
+        val seen = StringBuilder()
+        // 0 to 1,234,567.89 in 57 frames, formatted like the overview's numbers.
+        for (frame in 0..57) {
+            val v = 1_234_567.89 * frame / 57
+            cache.forEach("$" + String.format(java.util.Locale.US, "%,.2f", v)) { seen.append(it) }
+        }
+        assertTrue("measured $measured glyphs for ${seen.length} drawn", measured <= 15)
+        assertTrue(seen.length > 300)
     }
 
     /** The panel's rise is a graphicsLayer move, which never reaches onGloballyPositioned: arriving has to redraw the blur anyway. */

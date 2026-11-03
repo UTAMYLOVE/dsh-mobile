@@ -222,7 +222,12 @@ private class GlassNode(var shape: Shape, var settled: Boolean) :
     /** Whether any of the surface is inside what its parents clip to the window (a panel scrolled away is not): it blurs only then. */
     private var onScreen = true
 
-    private fun blurs(): Boolean = onScreen && currentValueOf(LocalEffects).blur && currentValueOf(LocalBackdrop) != null
+    private fun blurs(): Boolean {
+        // Both locals are always read (before the onScreen check), so observeReads keeps watching them while the surface is off screen.
+        val effectsBlur = currentValueOf(LocalEffects).blur
+        val hasBackdrop = currentValueOf(LocalBackdrop) != null
+        return effectsBlur && hasBackdrop && onScreen
+    }
 
     /** Draws the blurred backdrop afresh from the surface's current position. */
     fun relock() {

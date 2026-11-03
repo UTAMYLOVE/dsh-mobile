@@ -15,6 +15,7 @@ class EffectsController(private val prefs: UiPrefs, val governor: JankGovernor =
     val effective: StateFlow<EffectLevel> = _effective
 
     init {
+        governor.floor = _level.value
         governor.onCapChanged = ::recompute
     }
 
@@ -25,6 +26,7 @@ class EffectsController(private val prefs: UiPrefs, val governor: JankGovernor =
     fun set(level: EffectLevel) {
         prefs.effectLevel = level
         _level.value = level
+        governor.floor = level
         governor.reset() // also recomputes
         recompute()
     }

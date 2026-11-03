@@ -318,7 +318,12 @@ class MainActivityTest {
     // What the shell draws for a level (blur, animation, paused when stopped) is pinned in FogShellEffectsTest with compose's own
     // rule: a Robolectric activity has no composition until its window is shown, and showing it makes every idle() render frames.
 
-    private fun feedWindows(activity: MainActivity, windows: Int, janky: Int) =
+    private fun feedWindows(activity: MainActivity, windows: Int, janky: Int) {
+        repeat(30) { activity.governorForTest.onFrame(true) } // the warm-up after a start: ignored, not counted
+        feedCounted(activity, windows, janky)
+    }
+
+    private fun feedCounted(activity: MainActivity, windows: Int, janky: Int) =
         repeat(windows * 120) { activity.governorForTest.onFrame(it % 120 < janky) }
 
     @Test fun degradingStepsTheLevelTheShellDrawsWithDown() {
