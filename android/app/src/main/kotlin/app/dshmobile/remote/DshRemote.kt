@@ -43,6 +43,8 @@ class DshRemote(
      * pictures, an upload's base64 or a long `session/list` must not be built or read there.
      */
     private val codec: CoroutineContext = Dispatchers.Default,
+    /** The request text to the UTF-8 bytes that are sent; runs on [codec] (a seam for the test that checks where). */
+    private val encodeBody: (String) -> ByteArray = { it.toByteArray(Charsets.UTF_8) },
 ) : ShellRemote {
     private val loginLock = Mutex()
     @Volatile private var loggedIn = false
@@ -86,7 +88,8 @@ class DshRemote(
         require(METHOD.matches(method)) { "not a dsh method name" }
         if (closed) throw IOException("dsh remote closed")
         ensureLoggedIn()
-        val body = withContext(codec) { RpcEnvelope.request(method, args, "dshm-${UUID.randomUUID()}") }
+        // Serialized and UTF-8 encoded on the codec: the client sends these bytes as they are, nothing is encoded on the caller.
+        val body = withContext(codec) { encodeBody(RpcEnvelope.request(method, args, "dshm-${UUID.randomUUID()}")) }
         var response = post(method, body)
         if (response.code == 401) {
             loginLock.withLock { client.login() }
@@ -152,8 +155,9 @@ class DshRemote(
 
     /**
      * Stages [bytes] for [sessionId]'s next prompt; returns the receipt id for [PromptPart.File]. The base64 text is made on
-     * [codec], off the caller's thread. While it is sent, the caller's bytes, the base64 text (4/3 of them, as UTF-16 chars) and
-     * the serialized request (another 4/3) are all in memory: about four times the file at the peak.
+     * [codec], off the caller's thread, and so are the serialized request and its UTF-8 bytes. While it is sent, the caller's
+     * bytes, the base64 text (4/3 of them), the serialized request (another 4/3) and its UTF-8 body (another 4/3) are all in
+     * memory: about five times the file at the peak, none of it made on the caller's thread.
      */
     override suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String {
         val args = withContext(codec) {
@@ -191,7 +195,7 @@ class DshRemote(
     }
 
     /** Answers are read whole up to [MAX_ANSWER_BYTES] (a long `session/list` or `session/page`); longer ones fail. */
-    private suspend fun post(method: String, body: String): DshClient.TextResponse = try {
+    private suspend fun post(method: String, body: ByteArray): DshClient.TextResponse = try {
         client.postJsonForBoundedText("/api/$method", body, MAX_ANSWER_BYTES)
     } catch (_: DshClient.ResponseTooLargeException) {
         throw rpcError(method, ANSWER_TOO_LARGE)
