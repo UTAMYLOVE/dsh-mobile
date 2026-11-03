@@ -5,6 +5,12 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
+import androidx.compose.ui.unit.width
+import org.junit.Assert.assertTrue
 import app.dshmobile.R
 import app.dshmobile.ui.theme.SakuraTheme
 import org.junit.Assert.assertEquals
@@ -63,4 +69,20 @@ class MainScreenTest {
     @Test fun settingsButtonWhileLoading() = settingsClicks(MainUiState.Loading)
     @Test fun settingsButtonOnError() = settingsClicks(MainUiState.Error)
     @Test fun settingsButtonWhenReady() = settingsClicks(MainUiState.Ready)
+
+    /** Follow-up 1 (lag): when dsh is shown the overlay is only as big as the settings button, not a full-screen layer. */
+    @Test fun readyTakesOnlyTheSettingsButtonsSpace() {
+        show(MainUiState.Ready)
+        val bounds = rule.onNodeWithTag(MAIN_OVERLAY_TAG).getUnclippedBoundsInRoot()
+        assertTrue("ready overlay is ${bounds.width} x ${bounds.height}", bounds.width < 64.dp && bounds.height < 64.dp)
+    }
+
+    private fun coversTheScreen(state: MainUiState) {
+        show(state)
+        val bounds = rule.onNodeWithTag(MAIN_OVERLAY_TAG).getUnclippedBoundsInRoot()
+        assertTrue("$state overlay is ${bounds.width} x ${bounds.height}", bounds.width > 200.dp && bounds.height > 200.dp)
+    }
+
+    @Test fun loadingCoversTheScreen() = coversTheScreen(MainUiState.Loading)
+    @Test fun errorCoversTheScreen() = coversTheScreen(MainUiState.Error)
 }

@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -27,9 +28,13 @@ import app.dshmobile.R
 
 enum class MainUiState { Loading, Error, Ready }
 
+/** Test tag of [MainOverlay]'s root. */
+const val MAIN_OVERLAY_TAG = "main-overlay"
+
 /**
  * Drawn over the WebView: a full-screen loading or error screen until dsh's page is up, and always the small settings button
- * in the top-right corner. In [MainUiState.Ready] it draws nothing else, so touches reach the page below.
+ * in the top-right corner. In [MainUiState.Ready] it is only as big as that button (MainActivity shrinks its view to match), so
+ * touches reach the page and no full-screen layer is composited over the WebView on every frame.
  */
 @Composable
 fun MainOverlay(
@@ -39,7 +44,8 @@ fun MainOverlay(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize()) {
+    val size = if (state == MainUiState.Ready) Modifier else Modifier.fillMaxSize()
+    Box(modifier.then(size).testTag(MAIN_OVERLAY_TAG)) {
         when (state) {
             MainUiState.Loading -> FullScreen {
                 CircularProgressIndicator()

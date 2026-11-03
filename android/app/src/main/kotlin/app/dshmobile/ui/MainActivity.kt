@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Process
+import android.os.SystemClock
+import android.view.Gravity
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebSettings
@@ -60,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var webClient: DshWebViewClient
     private lateinit var chromeClient: DshChromeClient
+    private lateinit var overlay: ComposeView
     /** The system document picker for `<input type=file>` (registered before the activity starts, as the API requires). */
     private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         chromeClient.onPickerResult(result.resultCode, result.data)
@@ -73,10 +77,13 @@ class MainActivity : ComponentActivity() {
     /** The page of [loadedLaunchUrl] has finished loading (onPageFinished); only then may the screen say Ready. */
     private var pageFinished = false
     private var rollingBack = false
+    /** When this screen was created (elapsed realtime); the first Ready after it is logged under `perf`, then cleared. */
+    private var openedAt: Long? = null
     private var updating = false
     private val pendingUpdate by lazy { PendingUpdate(getSharedPreferences(DailyUpdateCheck.PREFS, Context.MODE_PRIVATE)) }
 
     internal val webViewForTest: WebView get() = webView
+    internal val overlayForTest: android.view.View get() = overlay
     internal val uiStateForTest: kotlinx.coroutines.flow.StateFlow<MainUiState> get() = uiState
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,10 +94,18 @@ class MainActivity : ComponentActivity() {
             return
         }
         ready = true
+        openedAt = SystemClock.elapsedRealtime()
         enableEdgeToEdge()
         // DshVersions is built on first use (a rollback), not at every launch.
         ops = MainOps(app.controller, { app.dshVersions.previous() }, { app.dshVersions.rollback() }, app.errorLog)
         setContentView(buildContent())
+        // Ready: the overlay shrinks to the settings button; Loading/Error: it covers the page again.
+        lifecycleScope.launch {
+            uiState.collect { state ->
+                overlay.layoutParams = overlayLayout(state)
+                if (state == MainUiState.Ready) logTimeToReady()
+            }
+        }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (webView.canGoBack()) {
@@ -214,11 +229,14 @@ class MainActivity : ComponentActivity() {
                 builtInZoomControls = false
             }
             setDownloadListener { url, _, disposition, mime, _ -> download(url, disposition, mime) }
+            // dsh's renderer is the app: keep it at the foreground app's priority (waived while the app is not visible).
+            // Hardware acceleration stays on (the manifest never turns it off; no software layer here).
+            setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
         }
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         CookieManager.getInstance().setAcceptCookie(true)
 
-        val overlay = ComposeView(this).apply {
+        overlay = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
                 SakuraTheme {
@@ -234,7 +252,7 @@ class MainActivity : ComponentActivity() {
         val root = FrameLayout(this)
         root.setBackgroundColor(Color.parseColor("#FFF5F8"))
         root.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(overlay, overlayLayout(uiState.value))
         // Edge-to-edge is enforced; keep the page clear of the system bars and the keyboard.
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
@@ -242,6 +260,23 @@ class MainActivity : ComponentActivity() {
             WindowInsetsCompat.CONSUMED
         }
         return root
+    }
+
+    /** Full screen for the loading and error screens; only the settings button's corner when dsh is shown. */
+    private fun overlayLayout(state: MainUiState): FrameLayout.LayoutParams =
+        if (state == MainUiState.Ready) {
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END)
+        } else {
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+    /** Once per screen: how long it took from opening it to dsh's page (and from the process start, for cold starts). No URL. */
+    private fun logTimeToReady() {
+        val opened = openedAt ?: return
+        openedAt = null
+        val now = SystemClock.elapsedRealtime()
+        val sinceProcess = opened - Process.getStartElapsedRealtime()
+        app.errorLog.append("perf", "main screen ready ${now - opened} ms after it opened (process started $sinceProcess ms before that)")
     }
 
     // ---------- dsh ----------

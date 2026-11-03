@@ -42,6 +42,10 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadows.ShadowWebView
 import org.robolectric.shadows.ShadowAlertDialog
 import java.io.File
 import java.nio.file.Files
@@ -423,6 +427,62 @@ class MainActivityTest {
         ctl.pause().stop().restart().start().resume() // back from the background with the page loaded: straight to Ready
         idleFor(500)
         assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
+    }
+
+    /**
+     * Follow-up 1 (lag): while dsh is shown, the Compose overlay is only the settings button in the top-right corner (no
+     * full-screen layer composited over the WebView every frame); loading and error screens cover the screen again.
+     */
+    @Test fun whenReadyTheOverlayShrinksToTheSettingsButtonAndGrowsBackForLoading() {
+        completeSetup()
+        val ctl = build().create().start().resume()
+        val activity = ctl.get()
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        val overlay = activity.overlayForTest
+        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.width)
+        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.height)
+
+        shadowOf(activity.webView).webViewClient.onPageFinished(activity.webView, "http://127.0.0.1:45678/")
+        idleFor(200)
+        assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
+        val small = overlay.layoutParams as android.widget.FrameLayout.LayoutParams
+        assertEquals(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, small.width)
+        assertEquals(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, small.height)
+        assertEquals(android.view.Gravity.TOP or android.view.Gravity.END, small.gravity)
+
+        controller!!.stop() // dsh gone: Loading covers the page again
+        waitUntil { activity.uiStateForTest.value == MainUiState.Loading }
+        idleFor(200)
+        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.width)
+        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.height)
+    }
+
+    /** Follow-up 1 (lag): the time from opening the screen to Ready goes to the error log (tag perf), once, without URL or token. */
+    @Test fun theTimeToReadyIsLoggedOnceUnderPerf() {
+        completeSetup()
+        val ctl = build().create().start().resume()
+        val activity = ctl.get()
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        shadowOf(activity.webView).webViewClient.onPageFinished(activity.webView, "http://127.0.0.1:45678/")
+        ctl.pause().stop().restart().start().resume() // Ready again from the background: not a new measurement
+        idleFor(300)
+        val lines = errorLogText().lines().filter { "[perf]" in it }
+        assertEquals(lines.toString(), 1, lines.size)
+        assertTrue(lines.single(), Regex("""\[perf] main screen ready \d+ ms after it opened \(process started \d+ ms before that\)""").containsMatchIn(lines.single()))
+        assertFalse(lines.single().contains("127.0.0.1"))
+        assertFalse(lines.single().contains("token"))
+    }
+
+    /** Follow-up 1 (lag): the WebView's renderer gets Android's "important" priority and stays hardware accelerated. */
+    @Config(shadows = [RendererPriorityWebViewShadow::class]) // Robolectric's WebView drops the renderer priority
+    @Test fun theWebViewRendererIsImportantAndHardwareAccelerated() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        assertEquals(WebView.RENDERER_PRIORITY_IMPORTANT, activity.webView.rendererRequestedPriority)
+        assertTrue(activity.webView.rendererPriorityWaivedWhenNotVisible)
+        assertTrue(activity.webView.layerType != android.view.View.LAYER_TYPE_SOFTWARE)
+        val info = app.packageManager.getActivityInfo(ComponentName(app, MainActivity::class.java), 0)
+        assertTrue("hardware acceleration is off for MainActivity", info.flags and android.content.pm.ActivityInfo.FLAG_HARDWARE_ACCELERATED != 0)
     }
 
     @Test fun theRollbackActionAfterAGiveUpClearsTheFlagAndRestartsDsh() {
@@ -969,4 +1029,23 @@ class MainActivityTest {
     private fun currentOf(opt: File): String = Files.readSymbolicLink(File(opt, "current").toPath()).fileName.toString()
 
     private val MainActivity.webView: WebView get() = this.webViewForTest
+}
+
+/** Robolectric's ShadowWebView plus the renderer priority, which the stock shadow silently drops. */
+@Implements(WebView::class)
+class RendererPriorityWebViewShadow : ShadowWebView() {
+    private var priority = WebView.RENDERER_PRIORITY_WAIVED
+    private var waived = false
+
+    @Implementation
+    fun setRendererPriorityPolicy(rendererRequestedPriority: Int, waivedWhenNotVisible: Boolean) {
+        priority = rendererRequestedPriority
+        waived = waivedWhenNotVisible
+    }
+
+    @Implementation
+    fun getRendererRequestedPriority(): Int = priority
+
+    @Implementation
+    fun getRendererPriorityWaivedWhenNotVisible(): Boolean = waived
 }
