@@ -8,6 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Looper
 import androidx.core.content.FileProvider
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import app.dshmobile.ui.shell.Tags
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.config.DshPatch
 import app.dshmobile.BuildConfig
@@ -61,6 +65,9 @@ class MainActivityTest {
     /** One fake dsh (HTTP + mux) per start, in start order; the n-th start prints servers[n]'s launch URL. */
     private val servers = java.util.concurrent.CopyOnWriteArrayList<FakeDshServer>()
     private val muxes = java.util.concurrent.CopyOnWriteArrayList<FakeMux>()
+    /** Every RPC body the fake dshes received (e.g. the `${'$'}events/result` answers). */
+    private val rpcBodies = java.util.concurrent.CopyOnWriteArrayList<String>()
+    @get:org.junit.Rule val compose = androidx.compose.ui.test.junit4.createEmptyComposeRule()
     /** The next fake dsh's mux holds its upgrade until this completes (the shell stays Loading). */
     @Volatile private var nextUpgradeGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
@@ -108,7 +115,11 @@ class MainActivityTest {
                 if (failLaunches) throw java.io.IOException("fake dsh does not start")
                 // every start is a new fake dsh with its own port and launch URL, so a restart is visible in the shell
                 val mux = FakeMux().also { m -> nextUpgradeGate?.let { m.upgradeGate = it; nextUpgradeGate = null } }
-                val server = FakeDshServer(mux = mux)
+                val server = FakeDshServer(mux = mux, rpc = { req ->
+                    rpcBodies.add(req.body.readUtf8())
+                    okhttp3.mockwebserver.MockResponse().setResponseCode(200)
+                        .setBody("""{"type":"server-response","rpcId":"x","result":{"ok":true}}""")
+                })
                 muxes.add(mux)
                 servers.add(server)
                 val url = server.launch.url
@@ -323,6 +334,51 @@ class MainActivityTest {
         activity.onBackPressedDispatcher.onBackPressed() // then back to the first tab
         assertEquals(ShellTab.OVERVIEW, activity.navForTest.tab)
         assertFalse(activity.isFinishing)
+    }
+
+    // --- permission and question cards ---
+
+    private fun hasTag(tag: String) = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+
+    private fun sendOnEvents(n: Int, json: String) {
+        waitUntil { muxes.size > n && muxes[n].opened("\$events").isNotEmpty() }
+        muxes[n].sendItem(muxes[n].opened("\$events").last(), json)
+    }
+
+    @Test fun anApprovalShowsOverAnyTabAndIsAnsweredWithTheClientId() {
+        completeSetup()
+        val ctl = build().create().start().resume().visible()
+        val activity = ctl.get()
+        waitForShellOn(0, activity)
+        activity.navForTest.select(ShellTab.SETTINGS)
+        sendOnEvents(0, """{"type":"ready","clientId":"c-main","host":{"home":"/root"}}""")
+        sendOnEvents(0, """{"type":"waterfall","event":"approval/request","eventId":"e1","agentId":"session-a","request":{"toolName":"write","callId":"t1","reason":"escalate"}}""")
+        waitUntil { hasTag(Tags.PROMPT_SHEET) }
+        assertEquals(ShellTab.SETTINGS, activity.navForTest.tab)
+        compose.onNodeWithTag(Tags.APPROVE_ONCE).performClick()
+        waitUntil { rpcBodies.any { it.contains("allowed-once") } }
+        val body = kotlinx.serialization.json.Json.parseToJsonElement(rpcBodies.last { it.contains("allowed-once") })
+        val args = (((body as kotlinx.serialization.json.JsonObject)["payload"] as kotlinx.serialization.json.JsonObject)["args"]) as kotlinx.serialization.json.JsonObject
+        assertEquals(
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"clientId":"c-main","eventId":"e1","outcome":{"kind":"result","value":"allowed-once"}}"""),
+            args,
+        )
+        waitUntil { !hasTag(Tags.PROMPT_SHEET) }
+    }
+
+    @Test fun backDoesNotDismissAPendingPrompt() {
+        completeSetup()
+        val ctl = build().create().start().resume().visible()
+        val activity = ctl.get()
+        waitForShellOn(0, activity)
+        sendOnEvents(0, """{"type":"ready","clientId":"c-main","host":{"home":"/root"}}""")
+        sendOnEvents(0, """{"type":"waterfall","event":"approval/request","eventId":"e1","agentId":"session-a","request":{"toolName":"write","callId":"t1","reason":"escalate"}}""")
+        waitUntil { hasTag(Tags.PROMPT_SHEET) }
+        activity.onBackPressedDispatcher.onBackPressed()
+        idleFor(300)
+        assertTrue(hasTag(Tags.PROMPT_SHEET))
+        assertFalse(activity.isFinishing)
+        assertTrue(rpcBodies.none { it.contains("allowed-once") || it.contains("rejected") })
     }
 
     @Test fun stopReleasesUiAndSchedulesTheGraceCheck() {

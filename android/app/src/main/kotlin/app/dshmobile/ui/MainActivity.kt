@@ -42,6 +42,8 @@ import app.dshmobile.ui.fog.systemReducedMotion
 import app.dshmobile.ui.shell.ComposerUi
 import app.dshmobile.ui.shell.FogShell
 import app.dshmobile.ui.shell.LocalPagePadding
+import app.dshmobile.ui.shell.PromptHost
+import app.dshmobile.ui.shell.rememberHasPrompt
 import app.dshmobile.ui.shell.ShellNav
 import app.dshmobile.ui.shell.ShellSession
 import app.dshmobile.ui.shell.ShellTab
@@ -213,6 +215,9 @@ class MainActivity : ComponentActivity() {
             ),
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,
+            // dsh waits on these: the cards are global and never dismissed (Task 11 wires originOf for subagents)
+            overlay = { PromptHost(session?.events, session?.tree) },
+            modalOverlay = rememberHasPrompt(session?.events),
         ) { tab ->
             when (tab) {
                 ShellTab.SETTINGS -> {
