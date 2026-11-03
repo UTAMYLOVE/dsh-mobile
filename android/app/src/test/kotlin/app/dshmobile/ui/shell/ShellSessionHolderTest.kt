@@ -18,6 +18,14 @@ import org.junit.Test
 
 class ShellSessionHolderTest {
     private class FakeRemote : ShellRemote {
+        override suspend fun listSessions(): List<app.dshmobile.remote.SessionSummary> = emptyList()
+        override suspend fun searchSessions(query: String): List<app.dshmobile.remote.SearchHit> = emptyList()
+        override suspend fun createSession(workspaceId: String?): String = ""
+        override suspend fun rename(sessionId: String, title: String): String = title
+        override suspend fun archive(sessionId: String) = Unit
+        override fun control(): kotlinx.coroutines.flow.Flow<app.dshmobile.remote.StreamSignal> = kotlinx.coroutines.flow.emptyFlow()
+        override fun workspaces(): kotlinx.coroutines.flow.Flow<app.dshmobile.remote.StreamSignal> = kotlinx.coroutines.flow.emptyFlow()
+        override val hostEvents: kotlinx.coroutines.flow.Flow<app.dshmobile.remote.HostEvent> = kotlinx.coroutines.flow.emptyFlow()
         override val muxState: StateFlow<MuxState> = MutableStateFlow(MuxState.CONNECTING)
         var closes = 0
         override fun close() { closes++ }

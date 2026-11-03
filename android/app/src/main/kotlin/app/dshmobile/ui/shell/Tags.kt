@@ -31,4 +31,22 @@ object Tags {
     const val ATTACHMENT_CHIP = "attachment-chip-"
     /** + [AttachmentChip.id]: its remove button. */
     const val ATTACHMENT_REMOVE = "attachment-remove-"
+
+    /** + [app.dshmobile.chat.SessionRow.id]: the tappable part of a conversation row. */
+    const val SESSION_ROW = "session-row-"
+    /** + id: the row's menu button. */
+    const val SESSION_MENU = "session-menu-"
+    /** + [app.dshmobile.chat.DayGroup.name]: a group heading. */
+    const val SESSION_GROUP = "session-group-"
+    const val NEW_SESSION = "new-session"
+    const val SESSION_SEARCH = "session-search"
+    const val SESSION_LIST = "session-list"
+    const val SESSION_CLOSE = "session-close"
+    const val RENAME = "rename"
+    const val RENAME_FIELD = "rename-field"
+    const val RENAME_SAVE = "rename-save"
+    const val RENAME_CANCEL = "rename-cancel"
+    const val DELETE = "delete"
+    const val DELETE_CONFIRM = "delete-confirm"
+    const val DELETE_CANCEL = "delete-cancel"
 }
