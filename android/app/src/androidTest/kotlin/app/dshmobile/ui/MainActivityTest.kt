@@ -60,6 +60,18 @@ class MainActivityTest {
         fail("timed out waiting for $what")
     }
 
+    /**
+     * Waits until the WebView is on dsh's own page: past the launch URL (dsh answers it with a 303 to the clean `/`) and fully
+     * loaded. URLs are never put into a message: the launch URL carries dsh's login token.
+     */
+    private fun ActivityScenario<MainActivity>.awaitDshPage() {
+        waitFor(150_000, "dsh to load in the WebView") {
+            val url = currentUrl()
+            url != null && url.startsWith("http://127.0.0.1:") && !url.contains("token=")
+        }
+        waitFor(60_000, "dsh's page to finish loading") { eval("document.readyState") == "\"complete\"" }
+    }
+
     private fun ActivityScenario<MainActivity>.currentUrl(): String? {
         var url: String? = null
         InstrumentationRegistry.getInstrumentation().runOnMainSync { url = webView().url }
@@ -68,7 +80,7 @@ class MainActivityTest {
 
     @Test fun showsTheDshPageInSakuraPink() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            waitFor(150_000, "dsh to load in the WebView") { scenario.currentUrl()?.startsWith("http://127.0.0.1:") == true }
+            scenario.awaitDshPage()
             // the page itself (not only the URL) must be there, then the plugin's stylesheet must have taken effect
             waitFor(60_000, "the sakura background") {
                 scenario.eval("getComputedStyle(document.body).backgroundColor") == "\"rgb(255, 245, 248)\""
@@ -79,7 +91,7 @@ class MainActivityTest {
 
     @Test fun anExternalLinkDoesNotNavigateTheWebView() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            waitFor(150_000, "dsh to load in the WebView") { scenario.currentUrl()?.startsWith("http://127.0.0.1:") == true }
+            scenario.awaitDshPage()
             val before = scenario.currentUrl()
             scenario.eval(
                 "(function(){var a=document.createElement('a');a.href='https://example.com/';a.id='dshm-ext';" +
@@ -87,8 +99,8 @@ class MainActivityTest {
             )
             Thread.sleep(3_000)
             val after = scenario.currentUrl()
-            assertTrue("stayed on dsh: $after", after?.startsWith("http://127.0.0.1:") == true)
-            assertEquals(before, after)
+            assertTrue("the WebView left dsh", after?.startsWith("http://127.0.0.1:") == true)
+            assertTrue("the WebView navigated away from dsh's page", before == after)
         }
     }
 }
