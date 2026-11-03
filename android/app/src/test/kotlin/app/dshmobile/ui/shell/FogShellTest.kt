@@ -190,12 +190,13 @@ class FogShellTest {
             .assertExists()
     }
 
-    @Test fun libraryShowsOnlyThePlaceholder() {
+    @Test fun libraryShowsItsOwnPageEvenBeforeDshIsReady() {
         h.show(rule)
         tab(ShellTab.LIBRARY).performClick()
         rule.waitForIdle()
-        rule.onNodeWithTag(Tags.LIBRARY_PLACEHOLDER).assertIsDisplayed().assertTextEquals("書架會在下一版推出：Claude 寫的小說會收在這裡。")
-        rule.onNodeWithTag(ShellHarness.PAGE + "LIBRARY").assertDoesNotExist()
+        // Stage 2 §D: the bookshelf is a real page now (stored books read without dsh), never the status panel.
+        rule.onNodeWithTag(ShellHarness.PAGE + "LIBRARY").assertExists()
+        rule.onNodeWithTag(Tags.LIBRARY_PLACEHOLDER).assertDoesNotExist()
         rule.onNodeWithTag(Tags.STATUS_PANEL).assertDoesNotExist()
     }
 

@@ -228,7 +228,6 @@ fun FogShell(
                       // Only the current page animates; the one sliding out is already still.
                       CompositionLocalProvider(LocalPageActive provides (started && tab == nav.tab)) {
                         when {
-                            tab == ShellTab.LIBRARY -> LibraryPlaceholder()
                             tab.needsDsh && !ready -> StatusPage(status, onRetry, onExportErrorLog)
                             else -> page(tab)
                         }
@@ -523,20 +522,6 @@ private fun erf(x: Float): Float {
 private fun StatusPage(status: MainUiState, onRetry: () -> Unit, onExportErrorLog: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(LocalPagePadding.current)) {
         StatusPanel(status, onRetry, onExportErrorLog)
-    }
-}
-
-/** Stage one has no library yet: only the note of what is coming. */
-@Composable
-private fun LibraryPlaceholder() {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(LocalPagePadding.current)) {
-        app.dshmobile.ui.fog.FogPanel(title = ShellTab.LIBRARY.zh, en = ShellTab.LIBRARY.en) {
-            Text(
-                stringResource(R.string.shell_library_placeholder),
-                color = Sakura.Text, fontSize = 15.sp, lineHeight = 24.sp,
-                modifier = Modifier.testTag(Tags.LIBRARY_PLACEHOLDER),
-            )
-        }
     }
 }
 

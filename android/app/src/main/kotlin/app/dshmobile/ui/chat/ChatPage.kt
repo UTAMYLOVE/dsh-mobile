@@ -244,7 +244,10 @@ private fun ConversationPage(
     }
     val usageFlow = remember(session, id) { session.tree.state.map { teamUsage(it, id) }.distinctUntilChanged() }
     val usage by usageFlow.collectAsState(SessionUsage())
-    val statsLine = remember(usage, conversation.context) { conversationStatsLine(usage, conversation.context) }
+    // dsh's tokenUsage/sessionStats projections can be missing (not yet sent, or an older dsh): then the loaded replies' own stats.
+    val statsLine = remember(usage, conversation.context, conversation.replyStats) {
+        conversationStatsLine(if (usage.isEmpty) usageOfReplies(conversation.replyStats.values) else usage, conversation.context)
+    }
     LaunchedEffect(conversation.items) { session.warRoom.observeConversation(conversation) }
     // The team (lead + children) as a flow that only emits real changes: the tree ticks while subagents work (timing), and a
     // streaming chat must not recompose for that. Elapsed time is left out here (the war room shows it).
@@ -330,6 +333,14 @@ internal fun conversationStatsLine(u: SessionUsage, context: ContextFill?): Stri
         }
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
+/** The loaded replies summed as a [SessionUsage] (fallback when dsh's projections are not there). */
+internal fun usageOfReplies(replies: Collection<app.dshmobile.chat.ReplyStats>): SessionUsage = replies.fold(SessionUsage()) { a, r ->
+    a + SessionUsage(
+        inputTokens = r.inputTokens, outputTokens = r.outputTokens, cacheReadTokens = r.cacheReadTokens, turns = 1, steps = r.steps.toLong(),
+        ttftMs = r.ttftMs ?: 0, ttftSteps = if (r.ttftMs != null) 1 else 0, decodeMs = r.decodeMs, decodeTokens = r.outputTokens,
+    )
 }
 
 /** How a send from the dock ended. */

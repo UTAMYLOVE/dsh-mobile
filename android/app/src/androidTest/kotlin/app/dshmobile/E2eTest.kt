@@ -17,6 +17,8 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.TextUnit
 import androidx.core.content.FileProvider
@@ -656,7 +658,10 @@ class E2eTest {
             card.isNotEmpty()
         }
         val childId = card.removePrefix(Tags.WAR_CARD)
-        ui.tap(card)
+        // The card is tall: on the 640 dp CI screen its centre can sit under the floating dock, so it is clicked the way
+        // TalkBack does (its click action), not by a touch at its centre.
+        ui.onAllNodes(hasTestTag(card), useUnmergedTree = true).onFirst().performScrollTo()
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         ui.awaitTag(Tags.WAR_DETAIL + childId, 30_000)
     }
 
