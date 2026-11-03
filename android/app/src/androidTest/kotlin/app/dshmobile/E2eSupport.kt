@@ -29,7 +29,11 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -277,13 +281,24 @@ fun ComposeUiTest.textsOf(tag: String): List<String> {
 }
 
 /** Waits (pumping the shell's frames) until [cond] holds; fails with [what] and the app's masked error log. */
-fun ComposeUiTest.await(what: String, timeoutMs: Long = 120_000, cond: () -> Boolean) {
+fun ComposeUiTest.await(what: String, timeoutMs: Long = 120_000, diagnose: () -> String = { "" }, cond: () -> Boolean) {
     try {
         waitUntil(what, timeoutMs) { runCatching(cond).getOrDefault(false) }
     } catch (e: ComposeTimeoutException) {
-        throw AssertionError("timed out after ${timeoutMs / 1000} s waiting for $what\n--- error log tail ---\n${E2e.errorLogTail()}")
+        val state = runCatching(diagnose).getOrElse { "(no state: ${it.javaClass.simpleName})" }.let { if (it.isEmpty()) "" else "\n--- state ---\n$it" }
+        throw AssertionError("timed out after ${timeoutMs / 1000} s waiting for $what$state\n--- error log tail ---\n${E2e.errorLogTail()}")
     }
 }
+
+/**
+ * Waits for a node tagged [tag] inside the lazy list tagged [list], scrolling the list to it when it is not composed (a lazy
+ * list composes only what shows, and the CI screen is 640 dp tall).
+ */
+fun ComposeUiTest.awaitInList(list: String, tag: String, timeoutMs: Long = 120_000, diagnose: () -> String = { "" }) =
+    await("a node tagged $tag in $list", timeoutMs, diagnose) {
+        if (!has(tag)) runCatching { onNode(hasTestTag(list)).performScrollToNode(hasTestTag(tag)) }
+        has(tag)
+    }
 
 /** Runs [check] on each of [frames] frames that the test advances itself (no idling wait in between). */
 fun ComposeUiTest.onEachFrame(frames: Int = 10, check: () -> Unit) {
@@ -307,7 +322,8 @@ fun <T> ComposeUiTest.awaitStable(what: String, timeoutMs: Long = 30_000, times:
     return last as T
 }
 
-fun ComposeUiTest.awaitTag(tag: String, timeoutMs: Long = 120_000) = await("a node tagged $tag", timeoutMs) { has(tag) }
+fun ComposeUiTest.awaitTag(tag: String, timeoutMs: Long = 120_000, diagnose: () -> String = { "" }) =
+    await("a node tagged $tag", timeoutMs, diagnose) { has(tag) }
 
 fun ComposeUiTest.awaitNoTag(tag: String, timeoutMs: Long = 120_000) = await("no node tagged $tag", timeoutMs) { !has(tag) }
 
@@ -351,6 +367,25 @@ fun ComposeUiTest.newConversation(): String {
 fun ComposeUiTest.send(text: String) {
     type(Tags.COMPOSER_INPUT, text)
     tap(Tags.SEND)
+    hideKeyboard()
+}
+
+/**
+ * Closes the soft keyboard that typing into the dock opened. On the CI emulator's 640 dp screen it leaves the page a strip
+ * only a bubble high, so the rows a test looks for next (the thinking toggle, the search card, the list's rows) are not
+ * composed at all.
+ */
+fun ComposeUiTest.hideKeyboard() {
+    E2e.onMain {
+        val window = E2e.mainActivity()?.window ?: return@onMain
+        WindowCompat.getInsetsController(window, window.decorView).hide(WindowInsetsCompat.Type.ime())
+    }
+    await("the keyboard to close", 15_000) {
+        E2e.onMain {
+            val decor = E2e.mainActivity()?.window?.decorView ?: return@onMain true
+            ViewCompat.getRootWindowInsets(decor)?.isVisible(WindowInsetsCompat.Type.ime()) != true
+        }
+    }
 }
 
 private fun clickable(n: SemanticsNode) =
