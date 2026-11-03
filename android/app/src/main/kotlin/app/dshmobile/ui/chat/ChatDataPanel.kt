@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicText
@@ -40,7 +42,10 @@ import java.util.Locale
  * context fill and cache hit as ring gauges, the estimated cost of the loaded replies and the tool-call log.
  */
 @Composable
-fun ChatDataPanel(team: List<AgentStatus>, speeds: List<Double>, costUsd: Double?, contextFill: Float?, cacheHit: Double?, tools: List<ChatItem.Tool>) {
+fun ChatDataPanel(
+    team: List<AgentStatus>, speeds: List<Double>, costUsd: Double?, contextFill: Float?, cacheHit: Double?, tools: List<ChatItem.Tool>,
+    files: List<app.dshmobile.chat.WorkspaceFile> = emptyList(), onShare: (String) -> Unit = {},
+) {
     FogPanel(title = "對話數據", en = "DATA", index = 0, modifier = Modifier.testTag(Tags.CHAT_DATA_PANEL)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (team.isNotEmpty()) SpiritFlow(team, onTap = {}, height = 130.dp, compact = true)
@@ -64,6 +69,19 @@ fun ChatDataPanel(team: List<AgentStatus>, speeds: List<Double>, costUsd: Double
                 tools.takeLast(8).asReversed().forEach { t ->
                     val mark = when (t.status) { ToolStatus.DONE -> "✓"; ToolStatus.FAILED -> "✗"; ToolStatus.WAITING_APPROVAL -> "⏸"; ToolStatus.RUNNING -> "…" }
                     Text("$mark ${stageOf(t.name, t.summary).third}", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Sakura.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (files.isNotEmpty()) {
+                Text("工作區檔案（點一下分享）", style = FogText.Label.copy(fontSize = 10.sp))
+                files.take(12).forEach { f ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 40.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) { onShare(f.path) }
+                            .testTag(Tags.CHAT_FILE + f.path),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(f.path, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Sakura.Text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(app.dshmobile.chat.shortTokens(f.bytes) + "B", style = FogText.Label.copy(fontSize = 9.sp))
+                    }
                 }
             }
         }

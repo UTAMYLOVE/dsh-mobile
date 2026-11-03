@@ -54,6 +54,7 @@ import app.dshmobile.chat.NoticeKind
 import app.dshmobile.chat.PendingSend
 import app.dshmobile.chat.ToolStatus
 import app.dshmobile.chat.WebSource
+import app.dshmobile.chat.friendlyToolError
 import app.dshmobile.ui.fog.FogButton
 import app.dshmobile.ui.fog.FogButtonKind
 import app.dshmobile.ui.fog.FogDimens
@@ -378,8 +379,8 @@ internal fun ToolCard(item: ChatItem.Tool, onShare: (String) -> Unit) {
         if (item.summary.isNotBlank()) {
             Text(item.summary, color = Sakura.Text, fontSize = 13.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        item.error?.takeIf { item.status == ToolStatus.FAILED && it.isNotBlank() }?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        item.error?.takeIf { item.status == ToolStatus.FAILED && it.isNotBlank() }?.let { e -> friendlyToolError(e) }?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 7, overflow = TextOverflow.Ellipsis)
         }
         item.sharePath?.let { path ->
             val label = stringResource(R.string.chat_share_file, path)
@@ -436,7 +437,7 @@ internal fun SearchCard(item: ChatItem.Tool, onLink: (String) -> Unit) {
                 }
             }
         }
-        item.error?.takeIf { item.status == ToolStatus.FAILED && it.isNotBlank() }?.let {
+        item.error?.takeIf { item.status == ToolStatus.FAILED && it.isNotBlank() }?.let { e -> friendlyToolError(e) }?.let {
             Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -448,7 +449,7 @@ internal fun SearchCard(item: ChatItem.Tool, onLink: (String) -> Unit) {
 @Composable
 internal fun NoticeLine(item: ChatItem.Notice) {
     val stopped = stringResource(R.string.chat_stopped)
-    val text = if (item.kind == NoticeKind.STOPPED) item.text.ifBlank { stopped } else item.text
+    val text = if (item.kind == NoticeKind.STOPPED) item.text.ifBlank { stopped } else friendlyToolError(item.text)
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
             text,

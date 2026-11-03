@@ -1,5 +1,8 @@
 package app.dshmobile.ui.chat
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.imePadding
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -205,18 +208,24 @@ private fun ConversationRow(
     }
 }
 
-/** A card over a scrim that fills the screen; the scrim swallows taps so nothing behind it can be hit. */
+/**
+ * A card over a scrim that fills the screen. The scrim swallows taps but no longer dismisses (stage 2 §F: on a small screen with the
+ * keyboard up a tap meant for the card landed on the scrim and lost the edit); back or 取消 closes it. The card sits near the top,
+ * above the keyboard, and scrolls when the space left is too short.
+ */
 @Composable
 private fun ModalCard(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
     Box(
         Modifier.fillMaxSize().background(Sakura.Text.copy(alpha = .28f))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
-        contentAlignment = Alignment.Center,
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {})
+            .imePadding().padding(top = 24.dp, bottom = 12.dp).testTag(Tags.MODAL_SCRIM),
+        contentAlignment = Alignment.TopCenter,
     ) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {})
-                .glass(RoundedCornerShape(FogDimens.Sheet)).padding(20.dp),
+                .glass(RoundedCornerShape(FogDimens.Sheet)).verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) { content() }
     }

@@ -31,6 +31,8 @@ data class AgentSettings(
         @Suppress("UNUSED_PARAMETER") // kept in the signature on purpose: the default model does not depend on it (see below)
         fun defaults(phantom: PhantomState, hasClaudeKey: Boolean): AgentSettings = AgentSettings(
             maxConcurrent = if (phantom == PhantomState.DISABLED) 16 else 6,
+            // Stage 2 §I.2: with the limit off a team can be as large as the concurrency allows.
+            teamSize = if (phantom == PhantomState.DISABLED) 16 else 8,
             // DeepSeek is the default whatever keys exist: a Claude key only makes the Claude models selectable.
             leadModel = AgentModels.DEFAULT_MODEL,
         )

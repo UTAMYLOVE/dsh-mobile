@@ -238,6 +238,18 @@ function registerRoutes(ctx: PluginCtx, store: MemoryStore): void {
   );
 }
 
+/**
+ * What the agent must know about running inside the DSH Mobile app (stage 2 §I.2/§I.3): limits are app settings, dsh's own
+ * config is regenerated, workflows have no sandbox here.
+ */
+export const PHONE_NOTE = [
+  "# Running inside the DSH Mobile Android app",
+  "- Agent limits (concurrent subagents, team size, delegation depth), models and permissions are set by the owner in the app: 設定 → 代理人, then 「套用並重啟」. If a limit stops you, tell the owner which app setting to change. Never edit dsh config files under /opt/dsh or ~/.dsh: the app rewrites them on every start.",
+  "- dsh runs in proot on Android, so the workflow sandbox (workspace-write) is not available. Do not start workflows; do the work directly or dispatch subagents instead.",
+  "- Files you write under the workspace can be shared from the app (對話 → 數據 → 檔案). Long prose replies in a book conversation become chapters on the app's bookshelf.",
+  "- Reply in the owner's language (Traditional Chinese unless asked otherwise).",
+].join("\n");
+
 export function apply(ctx: PluginCtx): void {
   // Keys are managed by the app whether or not memory is usable.
   registerCredentialGuard(ctx);
@@ -249,6 +261,12 @@ export function apply(ctx: PluginCtx): void {
   }
   const store = new MemoryStore(workspace);
 
+  ctx.systemPrompt.context({
+    name: "dshm-phone",
+    order: 8990,
+    interpolate: false,
+    text: () => PHONE_NOTE,
+  });
   ctx.systemPrompt.context({
     name: "dshm-memory",
     order: 9000,

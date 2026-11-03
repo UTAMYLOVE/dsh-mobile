@@ -116,10 +116,12 @@ describe("plugin shape", () => {
     mount(fake);
     expect([...fake.tools.keys()].sort()).toEqual(["memory_get", "memory_search", "memory_write"]);
     expect([...fake.routes.keys()].sort()).toEqual(["/dshm/health/memory", "/dshm/heartbeat"]);
-    expect(fake.contexts).toHaveLength(1);
-    expect(fake.contexts[0]).toMatchObject({ name: "dshm-memory", order: 9000, interpolate: false });
+    expect(fake.contexts).toHaveLength(2);
+    expect(fake.contexts[0]).toMatchObject({ name: "dshm-phone", order: 8990, interpolate: false });
+    expect(fake.contexts[0]!.text()).toContain("設定 → 代理人");
+    expect(fake.contexts[1]).toMatchObject({ name: "dshm-memory", order: 9000, interpolate: false });
     writeNote("2026-11-04", "- yesterday");
-    expect(fake.contexts[0]!.text()).toContain("## memory/2026-11-04.md");
+    expect(fake.contexts[1]!.text()).toContain("## memory/2026-11-04.md");
   });
 
   it("without webServer the tools still register and no route is attempted", () => {

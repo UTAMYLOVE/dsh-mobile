@@ -29,6 +29,8 @@ object Tags {
     const val LIB_CARD_BODY = "lib-card-body"
     const val LIB_CARD_SAVE = "lib-card-save"
     const val CHAT_ADD_SHELF = "chat-add-shelf"
+    const val CHAT_FILE = "chat-file-"
+    const val MODAL_SCRIM = "modal-scrim"
     const val REPLY_STATS = "reply-stats"
     const val CHAT_STATS = "chat-stats"
     const val OVERVIEW_STATS = "overview-stats"

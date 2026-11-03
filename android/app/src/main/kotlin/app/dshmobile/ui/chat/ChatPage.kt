@@ -279,9 +279,14 @@ private fun ConversationPage(
         onAddToShelf = library?.let { lib -> { lib.addBook(title, id, null, current) } },
         onShelf = onShelf,
         dataPanel = {
+            val root = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.appPaths?.workspace
+            val files by androidx.compose.runtime.produceState(emptyList<app.dshmobile.chat.WorkspaceFile>(), root, conversation.items.size) {
+                value = if (root == null) emptyList() else kotlinx.coroutines.withContext(Dispatchers.IO) { app.dshmobile.chat.WorkspaceFiles.list(root) }
+            }
             ChatDataPanel(
                 team, speeds, loadedCost, conversation.context?.fraction, usage.cacheHit,
                 conversation.items.filterIsInstance<app.dshmobile.chat.ChatItem.Tool>(),
+                files, onShare,
             )
         },
         onOpenList = { nav.listOpen = true },

@@ -130,3 +130,18 @@ fun replyLine(r: ReplyStats, costUsd: Double?): String = buildList {
     costUsd?.let { add(shortUsd(it)) }
     r.durationMs?.let { add("共 ${shortDuration(it)}") }
 }.joinToString(" · ")
+
+/**
+ * dsh's tool error plus what to do in this app (stage 2 §I.2/§I.3): a team or agent limit names the app setting (never dsh's own
+ * config files, which the app rewrites); a missing sandbox explains that workflows cannot run inside Android's proot.
+ */
+fun friendlyToolError(error: String): String {
+    val e = error.lowercase()
+    return when {
+        "limit" in e && ("reached" in e || "exceed" in e) && ("team" in e || "member" in e || "agent" in e || "concurren" in e) ->
+            "$error\n→ 上限在 app 的「設定 → 代理人」（並行上限、團隊上限）調整，改完按「套用並重啟」。不要改 dsh 的設定檔，app 會蓋掉。"
+        "sandbox" in e || "沙盒" in error || "bubblewrap" in e || "landlock" in e ->
+            "$error\n→ 手機上的 dsh 跑在 proot 裡，沒有工作流需要的沙盒，所以 workflow 暫時不能用。請叫它直接做，或派子代理人分工。"
+        else -> error
+    }
+}
