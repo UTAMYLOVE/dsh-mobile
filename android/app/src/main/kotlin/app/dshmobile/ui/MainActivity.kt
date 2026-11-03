@@ -38,6 +38,7 @@ import app.dshmobile.system.OnboardingState
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.agents.AgentsTab
 import app.dshmobile.ui.fog.FogPanel
+import app.dshmobile.ui.overview.OverviewScreen
 import app.dshmobile.ui.fog.FogTheme
 import app.dshmobile.ui.fog.effectsFor
 import app.dshmobile.ui.fog.systemReducedMotion
@@ -233,6 +234,11 @@ class MainActivity : ComponentActivity() {
                     }
                     AgentsTab(sess.agents, sess.tree, sess.scope, limit, nav::openSession)
                 } ?: EmptyPage(tab)
+                ShellTab.OVERVIEW -> {
+                    // Collected only while the overview is the current page (the page lambda is composed for the current tab only).
+                    val overview by remember { app.overviewSource.state() }.collectAsState(initial = null)
+                    overview?.let { OverviewScreen(it, nav::openSession) { nav.select(ShellTab.AGENTS) } } ?: EmptyPage(tab)
+                }
                 else -> EmptyPage(tab)
             }
         }

@@ -8,7 +8,10 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -75,5 +78,14 @@ class HeartbeatSchedulerTest {
         HeartbeatScheduler.schedule(context)
         HeartbeatScheduler.cancel(context)
         assertTrue(infos().all { it.state == WorkInfo.State.CANCELLED })
+    }
+
+    @Test fun nextRunAtReportsTheScheduledTime() {
+        runBlocking { assertNull(HeartbeatScheduler.nextRunAt(context).first()) }
+        HeartbeatScheduler.schedule(context, 45)
+        val before = System.currentTimeMillis()
+        val next = runBlocking { HeartbeatScheduler.nextRunAt(context).first() }
+        assertEquals(infos().single().nextScheduleTimeMillis, next)
+        assertTrue("the next run is at most one interval away", next!! in (before - 60_000)..(before + 45 * 60_000 + 60_000))
     }
 }
