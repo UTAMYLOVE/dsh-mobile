@@ -181,3 +181,4 @@ T15: review dispatched (sonnet) in parallel with the CI e2e run on bb25aa7
 T15: review 1 = spec ✅ (CI-unverifiable parts ⚠️), quality Needs fixes (sonnet) — Important: t21 autoDegrade on + ActivityScenario at FULL; t20 passes vacuously (cumulative spend); waitForIdle stand-ins in t12/t18/t23/t24; t19 only checks STOP gone; t18 not independent and doesn't prove dsh deleted
 - Ruling: all Important + listed Minors into fix round 1, alongside whatever the bb25aa7 CI run reports.
 T15: fix round 1/5 dispatched (resume implementer)
+CI: run 85 (bb25aa7) — every job failed in 2 s with no runner assigned and no logs (HTTP 404 on logs): GitHub Actions quota/billing block, not code. Asked the owner to check Settings → Billing (Actions minutes). T15 fix round resumed after the 5-hour usage limit reset.
