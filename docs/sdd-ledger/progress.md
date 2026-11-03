@@ -219,4 +219,4 @@ Final review: done (opus) — With fixes; 0 Critical; Important I-1 gateway %2f/
 - Ruling: Termux debs vendored into the private repo under third_party/termux with provenance — Why: availability; the public releases repo must hold only APKs — Cost if wrong: ~1–2 MB of binaries in git history.
 - Ruling: release gates on the tagged commit's CI check runs (incl. e2e) instead of re-running e2e; rootfs still built fresh at release (dsh pinned, transitive deps float) — Cost if wrong: a transitive npm change between CI and tag ships untested.
 - Ruling: M-8 (grace timer on uptime) and M-11 (activity-alias, filterTouchesWhenObscured) parked — reviewer triaged both can-ship; foreign-app actions all need user confirmation — Cost if wrong: dsh lingers longer than 10 min across device sleep; a foreign app can raise the rollback dialog.
-Final fix wave: dispatched (opus, base 9e8…see next line)
+Final fix wave: dispatched (opus, base 52e0c4d)
