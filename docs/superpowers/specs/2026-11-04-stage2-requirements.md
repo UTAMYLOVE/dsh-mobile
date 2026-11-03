@@ -127,3 +127,52 @@ Apply it everywhere a status is shown.
   - port health.
   - number of running agents.
   - the last error.
+
+## H. 「戰情室」(war-room) look — owner's newest direction, 2026-11-04 02:40
+- **References**
+  - `docs/design-reference/dashboard-reference-agents-orb.jpg`. A dense multi-panel dashboard:
+    - a live feed ticker
+    - big numbers
+    - line charts
+    - a central particle network ("THE ORB") with streams of particles flowing into it
+    - a decision stack
+    - six agent icons with counts
+    - a "last actions" log
+    - **jellyfish-like creatures ("MEDUSA readers") that drift and move around the data.** The owner pointed these out specifically: 「很像章魚的東西 會跑來跑去」, and said they show the agents' work process.
+  - `docs/design-reference/dashboard-reference-terminal.jpg`. A trading-terminal dashboard:
+    - huge % numbers
+    - comparative line charts
+    - gauge
+    - ranked bar lists
+    - news list
+- **The owner's words:** 「對啦就是戰情室超級帥」. 「顏色一樣用我們自己的」 means only the FOGCITY palette. No copied art.
+- **Agents as living creatures.** On the monitor wall and the overview, each agent is an original animated jellyfish/medusa creature, drawn in code with our palette.
+  - It drifts toward the data it is working on: search, file, subagent, model.
+  - Its tentacles pulse while it generates.
+  - Its colour shows its state: aqua running, pink waiting, milk-tea done, rose-brown blinking error.
+  - Dispatching a subagent spawns a new creature from its parent.
+  - Tapping a creature opens the detailed status (section G).
+- **Where it goes**
+  - **代理人 (monitor wall):** a war room with:
+    - the creatures and a particle network of dispatch relations
+    - per-agent icon tiles with numbers
+    - a live "last actions" log
+    - a decision/approval stack
+    - token/cost meters
+  - **總覽:** a war room with:
+    - big spend numbers
+    - usage curves over time
+    - a per-model ranking
+    - a live ticker of recent events (dsh state, replies finished, tools run)
+    - gauges for context and cache hit
+  - **對話:** a pull-out data panel beside the chat with:
+    - a tokens/s curve for the current reply
+    - context fill
+    - cost
+    - a tool-call log for this conversation
+- **Background colour (controller ruling, 2026-11-04):** keep the existing FOGCITY base and glass, and build the dense war-room layout with our palette on it. The owner answered only "our colours", so a dark "night war-room" theme is NOT added in 0.3.0. If he asks for it later, add it as a theme switch.
+- **Performance still rules.**
+  - Particles and creatures animate only on the visible page, and are capped in count.
+  - At SAVER, a static drawing.
+  - With reduced motion, no drift.
+  - The 120 Hz target on S25 Ultra stands.
