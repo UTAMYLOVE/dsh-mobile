@@ -58,8 +58,11 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
     var sending by mutableStateOf(false)
         private set
 
-    /** Unsaved settings fields live here, outside the tab, so switching tabs (and turning the phone) keeps them. Memory only. */
-    var settingsDraft: SettingsDraft? = null
+    /**
+     * Unsaved settings fields live here, outside the tab, so switching tabs (and turning the phone) keeps them. Memory only.
+     * Compose state, so the busy watch below sees the draft arrive and its [SettingsDraft.localBusy] change.
+     */
+    var settingsDraft: SettingsDraft? by mutableStateOf(null)
 
     /** A conversation a notification asked for while settings could not be left; opened once it can (final review B2-M5). */
     var pendingOpen: String? = null
@@ -88,14 +91,7 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
         } else {
             nav.openSessionId = app.uiPrefs.lastSessionId
         }
-        handle.setSavedStateProvider(STATE) {
-            Bundle().apply {
-                putString(TAB, nav.tab.name)
-                putString(OPEN, nav.openSessionId)
-                putBoolean(LIST, nav.listOpen)
-                putString(TEXT, composerText)
-            }
-        }
+        handle.setSavedStateProvider(STATE, ::saveState)
         // Leaving settings while one of its actions runs would cancel it (a key save, an export) or hide its result.
         nav.canLeave = { from -> from != ShellTab.SETTINGS || !settingsBusy() }
         nav.onLeaveRefused = { toast(app.getString(R.string.shell_settings_busy)) }
@@ -103,6 +99,18 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
             combine(snapshotFlow { settingsDraft?.localBusy == true }, app.settingsJobs.busy) { local, job -> local || job }
                 .collect { busy -> if (!busy) openPending() }
         }
+    }
+
+    /**
+     * What a process death keeps. The composer's text only up to [MAX_SAVED_TEXT] characters: the saved state crosses Binder, and
+     * a pasted chapter would make onStop throw TransactionTooLargeException (a crash that loses the draft too). A longer draft
+     * stays in memory and survives everything but a process death.
+     */
+    internal fun saveState(): Bundle = Bundle().apply {
+        putString(TAB, nav.tab.name)
+        putString(OPEN, nav.openSessionId)
+        putBoolean(LIST, nav.listOpen)
+        if (composerText.length <= MAX_SAVED_TEXT) putString(TEXT, composerText)
     }
 
     fun settingsBusy(): Boolean = settingsDraft?.localBusy == true || app.settingsJobs.busy.value
@@ -234,7 +242,9 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
 
     private fun toast(text: String) = Toast.makeText(app, text, Toast.LENGTH_SHORT).show()
 
-    private companion object {
+    internal companion object {
+        /** About 100 KB of UTF-16 at most in the Bundle; Binder's whole transaction is limited to about 1 MB. */
+        const val MAX_SAVED_TEXT = 50_000
         const val STATE = "dshm.shell"
         const val TAB = "tab"
         const val OPEN = "open"
