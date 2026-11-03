@@ -42,3 +42,7 @@ Full unit suite: 751 tests, 0 failures.
 - Stream handling removed from `ConversationReducer.reduce` (it now ignores `assistant-stream` frames, so the store is the only production path). The concatenating version stays as `internal reduceLive`, documented as test reference only.
 - Pending bubbles: after 60 s without dsh recording them, `PendingSend.failed = true` (new defaulted field); `retrySend(requestId)` resends under a new id, `dismissSend(requestId)` drops it.
 - RED: new tests fail to compile against the old main code (`followError`, `reduceLive` unresolved). GREEN: 8 new tests (replayed approval, replayed turn/start, reduce ignores stream, failed follow recovers, ended + retry, throwing flow, page without records, bubble timeout and retry); chat suite passes, full suite 759 tests, 0 failures.
+
+## Fix round 2
+- The 60 s pending-bubble timeout now runs only while `state.running` is false: it starts once the conversation is idle and restarts after each turn ends, so a queued prompt behind a long turn is not marked failed (and retry cannot double-send it). A bubble sent while idle still fails at 60 s.
+- RED: `aQueuedBubbleDuringALongTurnIsNotFailedUntilSixtySecondsAfterItEnds` failed against the old timer. GREEN: it and `anIdleSentBubbleStillFailsAtSixtySeconds` pass; full suite 761 tests, 0 failures.
