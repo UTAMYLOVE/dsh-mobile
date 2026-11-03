@@ -36,3 +36,16 @@ Table and 26 findings: .superpowers/sdd/stage1/preflight.md (sonnet scan of plan
 
 ## Execution
 Wave A (base d143f12): lane-t1 T1 dispatched (opus, worktree /home/user/wt-t1); lane-t3 T3 dispatched (sonnet, /home/user/wt-t3); lane-t7 T7 dispatched (sonnet, /home/user/wt-t7). Lanes commit locally only; controller merges after review.
+T1: implementer DONE_WITH_CONCERNS (lane-t1 d143f12..8d85b62, 643 unit tests); concern: DshClient.postJsonForText caps responses at 1 MiB → large session/list or session/page would fail
+- Ruling: the 1 MiB cap is raised for DshRemote's calls in T2 (DshRemote gets its own response reader capped at 16 MiB; DshClient's cap for health/registrar stays) — Why: novels make session/page large; T2 already edits DshRemote — Cost if wrong: very long sessions fail to load until fixed.
+T1: review dispatched (sonnet); T2 dispatched on lane-t1 in parallel (review overlaps next task per parallel ruling)
+T7: implementer DONE_WITH_CONCERNS (lane-t7 d143f12..a6e508b, 643 unit); concerns: licence copyright kept verbatim (Robin Stocker, brief said Atlassian); soft breaks as newlines; square inline-code background; MarkdownView is a plain Column; rememberMarkdown throttle untested; links use body colour + underline
+- Ruling: licence text stays verbatim from the 0.32.0 tag — Why: the upstream file is authoritative — Cost if wrong: none.
+- Ruling: T8 must not put a whole long reply into one lazy item: it hosts MarkdownParser blocks as separate LazyColumn items (carry into the T8 dispatch) — Why: novels of 100k chars in one Column item would jank the chat list — Cost if wrong: scroll jank on long chapters.
+T7: review dispatched (sonnet)
+T3: implementer DONE_WITH_CONCERNS (lane-t3 d143f12..32a7d03, 649 unit); concerns: look unchecked on a screen; glass shows no blur until T14 provides LocalBackdrop; glass silently skips blur if RenderEffect throws; co-author trailer names the serving model (Sonnet) — accepted
+- Ruling: a visual check of the design system is added to T4's review (Robolectric native-graphics screenshot of the shell at 412 dp) rather than waiting for T15 — Why: catching a wrong look early is cheap — Cost if wrong: one extra screenshot test.
+T3: review dispatched (sonnet)
+T1: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
+T1: complete (lane-t1 d143f12..8d85b62, review clean)
+T1: minor (deferred): concurrent 401s each re-login (harmless); deeply nested JSON could StackOverflow in parse (loopback, capped); fileUploads/upload arg shape unverified live → T9/e2e must confirm
