@@ -126,3 +126,7 @@ T10: fix round 1/5 dispatched (resume implementer)
 T10: fix round 1/5 (1 Important + 2 Minor addressed, 0 open; eeb3f73..9a1f896; re-review haiku)
 T10: complete (lane-t10 41393f1..9a1f896, review clean after 1 fix round) — merged
 T10: minor (deferred): scrim focusable without label (hideFromAccessibility); whole card is a live region (narrow it if it re-announces on device); connecting derivation untested; import order nits
+T11: implementer DONE (lane-t11 b70babf..0189e17, 826 unit); extra failed-stop param; 停止中 has no timeout; finished rows uncapped; label formula doubles 子代理人 for unlabelled children; review dispatched (sonnet)
+T11: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
+- Ruling: Minor 1 (stop launched on rememberCoroutineScope is cancelled by leaving the tab) and the doubled 「子代理人」 label get a tiny round before merge; no timeout on 停止中 (reviewer: a timeout would mislead); finished rows uncapped for the simple version (stage 3 replaces the page).
+T11: minor (deferred): no "nothing running" line when only finished rows exist; error line not a live region; Column+verticalScroll composes every finished row
