@@ -101,3 +101,7 @@ T5: fix round 1/5 (5 addressed, 1 new conditional Important — 60 s timeout als
 T5: fix round 2/5 dispatched (resume implementer)
 T5: minor (deferred): retrySend after a merely slow dsh can show the message twice (inherent)
 T16 merge flake: cause = test race (events before first baseline overwritten by the fake's stale list); fixed on lane-t16fix 5ee1b0b (20/20 green). Full suite then showed MuxConnectionTest.closeWhileTheUpgradeIsStartingCancelsTheNewSocket flake (lateinit race predicted by the T2 re-review) — dispatched to the T2 implementer on lane-t16fix
+T4: review 1 = spec ✅, quality Needs fixes (opus, with 412 dp native-graphics screenshots in scratchpad/t4-shots) — Important: mux reconnect loop leaks after dsh stops with no screen started; page content runs under the transparent header; page text shows sharp through the dock; disabled send glow clipped square
+- Ruling: Minors 5 (pill offset at layout), 6 (keyboard-driven page padding recomposition), 7 (block tab switch while settings busy; keep pending fields outside the tab), 8 (hide embedded settings title) join round 1.
+T4: fix round 1/5 dispatched (resume implementer)
+T4: minor (deferred): settings page still Material-styled (stage-1 T13 restyles it); page-switch sweep line deferred to T14; Error persists after the 60 s remote-open timeout until Retry; FogShellLayoutTest uses a stand-in SETTINGS page; captureToImage() hangs under NATIVE graphics (use decorView.draw)
