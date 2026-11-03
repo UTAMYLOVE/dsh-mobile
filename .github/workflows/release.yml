@@ -44,7 +44,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100&filter=all" \
             --jq '.check_runs[] | select(.app.slug == "github-actions") | [.name, (.conclusion // "pending")] | @tsv' > runs.tsv
           missing=0
           for job in "android" "plugins" "rootfs (arm64)" "rootfs (x86_64)" "e2e"; do
