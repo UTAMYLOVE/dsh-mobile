@@ -29,7 +29,7 @@
         android:allowBackup="false"
         android:networkSecurityConfig="@xml/network_security_config">
 
-        <!-- configChanges: a rotation, font change or dark mode switch must not reload the WebView (it would lose the page state).
+        <!-- configChanges：轉向、深色模式不重建殼 (a rotation or dark mode switch keeps the shell and its state).
              exported=true is required by the LAUNCHER filter; notification actions arrive as extras and are validated by LaunchRequest. -->
         <activity
             android:name=".ui.MainActivity"
@@ -47,13 +47,6 @@
         <activity
             android:name=".ui.OnboardingActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection" />
-
-        <!-- Opened by name from MainActivity's gear button only. configChanges: a rotation must not interrupt a restart or update running in this screen. -->
-        <activity
-            android:name=".ui.SettingsActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection" />
 
         <service

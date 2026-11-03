@@ -2,6 +2,7 @@ package app.dshmobile.remote
 
 import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshClient
+import app.dshmobile.ui.shell.ShellRemote
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,7 +34,7 @@ class DshRemote(
     private val client: DshClient,
     private val scope: CoroutineScope,
     private val zone: ZoneId = ZoneId.systemDefault(),
-) {
+) : ShellRemote {
     private val loginLock = Mutex()
     @Volatile private var loggedIn = false
     @Volatile private var closed = false
@@ -50,7 +51,7 @@ class DshRemote(
     val events: DshEvents = DshEvents(mux, ::call, scope)
 
     val hostEvents: SharedFlow<HostEvent> get() = events.hostEvents
-    val muxState: StateFlow<MuxState> get() = mux.state
+    override val muxState: StateFlow<MuxState> get() = mux.state
 
     /** History and live events of [sessionId] (`session/follow`, with the live assistant stream). */
     fun follow(sessionId: String): Flow<StreamSignal> = mux.stream("session/follow", request {
@@ -164,7 +165,7 @@ class DshRemote(
     }
 
     /** Later calls fail with an [IOException]; the mux closes and every stream completes. */
-    fun close() {
+    override fun close() {
         closed = true
         mux.close()
     }

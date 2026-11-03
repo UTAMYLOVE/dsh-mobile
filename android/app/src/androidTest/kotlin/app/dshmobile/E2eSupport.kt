@@ -3,6 +3,8 @@ package app.dshmobile
 import android.Manifest
 import android.content.Context
 import android.util.Log
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -10,12 +12,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.dshmobile.gateway.Provider
 import app.dshmobile.system.OnboardingState
 import app.dshmobile.ui.MainActivity
+import app.dshmobile.ui.MainUiState
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
-/** Waiting, page access and diagnostics shared by the end-to-end tests. Nothing here prints a URL (they carry tokens). */
+/** Waiting, shell access and diagnostics shared by the end-to-end tests. Nothing here prints a URL (they carry tokens). */
 object E2e {
     val app: DshMobileApp get() = ApplicationProvider.getApplicationContext<Context>() as DshMobileApp
 
@@ -50,41 +51,25 @@ object E2e {
         throw AssertionError("timed out after ${timeoutMs / 1000} s waiting for $what\n--- error log tail ---\n${errorLogTail()}")
     }
 
-    fun ActivityScenario<MainActivity>.webView(): WebView {
-        var view: WebView? = null
-        onActivity { view = it.webViewForTest }
-        return view!!
-    }
-
-    /** Runs [js] in the page and returns its JSON-encoded result (`"null"` while there is no page). */
-    fun ActivityScenario<MainActivity>.eval(js: String): String {
-        val latch = CountDownLatch(1)
-        var result = "null"
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            webView().evaluateJavascript(js) { result = it ?: "null"; latch.countDown() }
+    /** Waits until the main screen's shell is Ready: dsh runs and the native interface's remote to it is open. */
+    fun awaitShellReady(scenario: ActivityScenario<MainActivity>) {
+        waitFor(300_000, "the native shell to be ready (dsh up, remote open)") {
+            var ready = false
+            scenario.onActivity { ready = it.uiStateForTest.value == MainUiState.Ready }
+            ready
         }
-        check(latch.await(10, TimeUnit.SECONDS)) { "no answer from the page" }
-        return result
     }
 
-    fun ActivityScenario<MainActivity>.onDsh(): Boolean {
-        var url: String? = null
-        InstrumentationRegistry.getInstrumentation().runOnMainSync { url = webView().url }
-        return url?.startsWith("http://127.0.0.1:") == true
-    }
-
-    /** Waits until the main screen shows dsh's own page (title set, app root rendered) painted in FOGCITY's blush pink. */
-    fun ActivityScenario<MainActivity>.awaitDshInFogcity() {
-        waitFor(300_000, "dsh to load in the WebView") { onDsh() }
-        waitFor(120_000, "dsh's page (document.title and a rendered body)") {
-            eval("document.title.length > 0 && document.body != null && document.body.children.length > 0") == "true"
+    /** Class names of every WebView in [activity]'s view tree (the main flow must have none). */
+    fun webViewsIn(activity: MainActivity): List<String> {
+        val found = mutableListOf<String>()
+        fun walk(v: View) {
+            if (v is WebView) found += v.javaClass.name
+            if (v is ViewGroup) (0 until v.childCount).forEach { walk(v.getChildAt(it)) }
         }
-        waitFor(60_000, "the FOGCITY background") { eval(BG) == FOGCITY }
+        walk(activity.window.decorView)
+        return found
     }
-
-    const val BG = "getComputedStyle(document.body).backgroundColor"
-    /** FOGCITY's blush background #FEDFE1 (packages/ui/src/fogcity.ts). */
-    const val FOGCITY = "\"rgb(254, 223, 225)\""
 
     /** On failure, puts the masked error log into logcat (uploaded by CI on failure). */
     class DumpErrorLogOnFailure : TestWatcher() {

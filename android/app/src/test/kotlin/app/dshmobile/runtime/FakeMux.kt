@@ -1,6 +1,9 @@
 package app.dshmobile.runtime
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -35,6 +38,12 @@ class FakeMux {
 
     /** Answer the next upgrade with this status instead of 101. */
     @Volatile var rejectNextUpgradeWith: Int? = null
+
+    /**
+     * When set, an upgrade request is not answered until this completes (the client stays CONNECTING); bounded by
+     * [UPGRADE_GATE_MAX_MS] so a test that forgets to complete it cannot hang the server's shutdown.
+     */
+    @Volatile var upgradeGate: CompletableDeferred<Unit>? = null
 
     /** Called for every client `open`, on the server's reader thread. */
     @Volatile var onOpen: (streamId: String, endpoint: String, args: JsonObject) -> Unit = { _, _, _ -> }
@@ -80,6 +89,7 @@ class FakeMux {
 
     internal fun upgrade(): MockResponse {
         upgrades.incrementAndGet()
+        upgradeGate?.let { gate -> runBlocking { withTimeoutOrNull(UPGRADE_GATE_MAX_MS) { gate.await() } } }
         rejectNextUpgradeWith?.let {
             rejectNextUpgradeWith = null
             return MockResponse().setResponseCode(it)
@@ -141,6 +151,10 @@ class FakeMux {
     }
 
     private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+    companion object {
+        const val UPGRADE_GATE_MAX_MS = 30_000L
+    }
 }
 
 /** Polls [cond] every 10 ms until it holds; fails with [what] after [timeoutMs]. */

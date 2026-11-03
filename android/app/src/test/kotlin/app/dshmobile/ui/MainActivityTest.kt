@@ -7,7 +7,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Looper
-import android.webkit.WebView
 import androidx.core.content.FileProvider
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.config.DshPatch
@@ -23,6 +22,10 @@ import app.dshmobile.log.ErrorLog
 import app.dshmobile.notify.Notifier
 import app.dshmobile.runtime.CommandResult
 import app.dshmobile.runtime.DshVersions
+import app.dshmobile.runtime.FakeDshServer
+import app.dshmobile.runtime.FakeMux
+import app.dshmobile.remote.MuxState
+import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.runtime.RootfsInstaller
 import app.dshmobile.security.KeyVault
 import app.dshmobile.service.DshController
@@ -42,18 +45,10 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.Implementation
-import org.robolectric.annotation.Implements
-import org.robolectric.shadows.ShadowWebView
 import org.robolectric.shadows.ShadowAlertDialog
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
-
-private const val LAUNCH_URL = "http://127.0.0.1:45678/?token=abc"
-
-private fun launchUrl(n: Int) = "http://127.0.0.1:${45678 + n}/?token=abc"
 
 @RunWith(RobolectricTestRunner::class)
 class MainActivityTest {
@@ -63,6 +58,11 @@ class MainActivityTest {
     private var controller: DshController? = null
     /** When set, the fake dsh no longer starts (e.g. the version a rollback switched to is broken). */
     @Volatile private var failLaunches = false
+    /** One fake dsh (HTTP + mux) per start, in start order; the n-th start prints servers[n]'s launch URL. */
+    private val servers = java.util.concurrent.CopyOnWriteArrayList<FakeDshServer>()
+    private val muxes = java.util.concurrent.CopyOnWriteArrayList<FakeMux>()
+    /** The next fake dsh's mux holds its upgrade until this completes (the shell stays Loading). */
+    @Volatile private var nextUpgradeGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
     @Before fun setUp() {
         // FileProvider caches its path strategy statically; every Robolectric test has a fresh cache dir.
@@ -74,7 +74,10 @@ class MainActivityTest {
     @After fun tearDown() {
         // End the activities first: their collectors and timers must not outlive the test.
         activities.forEach { runCatching { it.pause().stop().destroy() } }
+        app.shellSessions.detach()
         controller?.stop()
+        muxes.forEach { it.upgradeGate?.complete(Unit) }
+        servers.forEach { it.close() }
         processes.forEach { it.destroyForcibly() }
         tmp.deleteRecursively()
         File(app.cacheDir, "export").deleteRecursively()
@@ -103,8 +106,12 @@ class MainActivityTest {
             filesDir = tmp, isRootfsInstalled = { true },
             launcher = { _, _ ->
                 if (failLaunches) throw java.io.IOException("fake dsh does not start")
-                // every start prints its own launch URL (port 45678, 45679, ...), so a restart is visible in the WebView
-                val url = launchUrl(processes.size)
+                // every start is a new fake dsh with its own port and launch URL, so a restart is visible in the shell
+                val mux = FakeMux().also { m -> nextUpgradeGate?.let { m.upgradeGate = it; nextUpgradeGate = null } }
+                val server = FakeDshServer(mux = mux)
+                muxes.add(mux)
+                servers.add(server)
+                val url = server.launch.url
                 ProcessBuilder("sh", "-c", """echo "dsh web: $url"; exec sleep 60""").start().also { processes.add(it) }
             },
             vault = object : KeyVault {
@@ -136,6 +143,17 @@ class MainActivityTest {
     }
 
     private fun errorLogText(): String = app.errorLog.file().takeIf { it.exists() }?.readText().orEmpty()
+
+    /** The launch URL the n-th fake dsh printed. */
+    private fun launchUrl(n: Int): String = servers[n].launch.url
+
+    /** The launch URL the shell's current session talks to (null: none attached). */
+    private fun attachedUrl(): String? = app.shellSessions.current.value?.let { app.shellSessions.launch?.url }
+
+    /** The shell is attached to the n-th fake dsh and its remote is open. */
+    private fun waitForShellOn(n: Int, activity: MainActivity) {
+        waitUntil { servers.size > n && attachedUrl() == launchUrl(n) && activity.uiStateForTest.value == MainUiState.Ready }
+    }
 
     // --- onboarding gate ---
 
@@ -187,14 +205,88 @@ class MainActivityTest {
 
     // --- start / stop ---
 
-    @Test fun startRetainsUiStartsTheServiceAndLoadsTheLaunchUrl() {
+    @Test fun startRetainsUiStartsTheServiceAndAttachesTheShell() {
         completeSetup()
         val c = controller!!
         val activity = build().create().start().resume().get()
         assertTrue("ui" in c.holders)
         assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == LAUNCH_URL }
+        waitUntil { servers.isNotEmpty() && attachedUrl() == launchUrl(0) }
+        assertEquals(launchUrl(0), app.shellSessions.launch!!.url)
+        waitForShellOn(0, activity)
         assertTrue(c.isRunning.value)
+        assertEquals(MuxState.OPEN, app.shellSessions.current.value!!.remote.muxState.value)
+    }
+
+    @Test fun readyOnlyAfterTheRemoteIsOpen() {
+        completeSetup()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        nextUpgradeGate = gate
+        val activity = build().create().start().resume().get()
+        waitUntil { muxes.isNotEmpty() && muxes[0].upgrades.get() > 0 }
+        idleFor(500)
+        assertEquals(launchUrl(0), attachedUrl())
+        assertEquals("dsh runs but the remote is not open yet", MainUiState.Loading, activity.uiStateForTest.value)
+        gate.complete(Unit)
+        waitUntil { activity.uiStateForTest.value == MainUiState.Ready }
+    }
+
+    @Test fun aRemoteThatNeverOpensEndsInAnErrorWithTheReason() {
+        completeSetup()
+        nextUpgradeGate = kotlinx.coroutines.CompletableDeferred()
+        val ctl = build().create()
+        val activity = ctl.get()
+        activity.remoteOpenTimeoutMs = 1_000
+        ctl.start().resume()
+        waitUntil { muxes.isNotEmpty() && muxes[0].upgrades.get() > 0 }
+        assertEquals(MainUiState.Loading, activity.uiStateForTest.value)
+        // The timeout runs on the main looper, whose clock Robolectric only moves when told to.
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1_100))
+        waitUntil { activity.uiStateForTest.value == MainUiState.Error }
+        val text = errorLogText()
+        assertTrue(text, text.contains("[remote] no connection (TimeoutCancellationException)"))
+        assertFalse(text.contains("token="))
+    }
+
+    @Test fun noWebViewAnywhereInTheContentTree() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        waitForShellOn(0, activity)
+        val found = mutableListOf<String>()
+        fun walk(v: android.view.View) {
+            if (v is android.webkit.WebView) found += v.javaClass.name
+            if (v is android.view.ViewGroup) (0 until v.childCount).forEach { walk(v.getChildAt(it)) }
+        }
+        walk(activity.window.decorView)
+        assertEquals(emptyList<String>(), found)
+    }
+
+    @Test fun theErrorLogNeverHoldsTheLaunchUrl() {
+        completeSetup()
+        val c = controller!!
+        val activity = build().create().start().resume().get()
+        waitForShellOn(0, activity)
+        c.stop() // and a second instance, so every path that logs has run
+        waitUntil { !c.isRunning.value }
+        kotlinx.coroutines.runBlocking { c.ensureRunning() }
+        waitForShellOn(1, activity)
+        val text = errorLogText()
+        assertTrue("the perf line is there", text.contains("[perf]"))
+        assertFalse(text, text.contains("token="))
+        servers.forEach { assertFalse(text.contains(it.launch.url)) }
+    }
+
+    @Test fun backFirstClosesShellNavigation() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        activity.navForTest.openSession("s1")
+        assertEquals(ShellTab.CHAT, activity.navForTest.tab)
+        activity.onBackPressedDispatcher.onBackPressed()
+        assertNull(activity.navForTest.openSessionId)
+        assertFalse(activity.isFinishing)
+        activity.onBackPressedDispatcher.onBackPressed() // then back to the first tab
+        assertEquals(ShellTab.OVERVIEW, activity.navForTest.tab)
+        assertFalse(activity.isFinishing)
     }
 
     @Test fun stopReleasesUiAndSchedulesTheGraceCheck() {
@@ -211,89 +303,6 @@ class MainActivityTest {
         assertFalse(app.uiHolder.graceScheduled)
     }
 
-    @Test fun theWebViewIsConfiguredStrictly() {
-        completeSetup()
-        val activity = build().create().get()
-        val s = activity.webView.settings
-        assertTrue(s.javaScriptEnabled)
-        assertTrue(s.domStorageEnabled)
-        assertFalse(s.allowFileAccess)
-        assertFalse(s.allowContentAccess)
-        assertEquals(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW, s.mixedContentMode)
-        assertFalse(s.javaScriptCanOpenWindowsAutomatically)
-        assertFalse(s.supportMultipleWindows())
-    }
-
-    @Test fun theWebViewNeverGetsAJavascriptBridge() {
-        completeSetup()
-        val activity = build().create().get()
-        assertTrue(shadowOf(activity.webView).getJavascriptInterface("anything") == null)
-    }
-
-    // --- I-7: file inputs and JavaScript dialogs ---
-
-    private class FakeChooserParams(private val intent: Intent?) : android.webkit.WebChromeClient.FileChooserParams() {
-        override fun getMode() = MODE_OPEN
-        override fun getAcceptTypes() = arrayOf("*/*")
-        override fun isCaptureEnabled() = false
-        override fun getTitle(): CharSequence? = null
-        override fun getFilenameHint(): String? = null
-        override fun createIntent(): Intent = intent ?: throw android.content.ActivityNotFoundException("no picker")
-    }
-
-    private fun pickerIntent() = Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
-
-    @Test fun aFileInputOpensTheSystemPickerAndGetsThePickedUri() {
-        completeSetup()
-        val activity = build().create().start().resume().get()
-        val chrome = shadowOf(activity.webView).webChromeClient
-        assertTrue(chrome is DshChromeClient)
-        var answer: Array<android.net.Uri>? = arrayOf()
-        var answers = 0
-        assertTrue(chrome!!.onShowFileChooser(activity.webView, { answer = it; answers++ }, FakeChooserParams(pickerIntent())))
-        val started = shadowOf(activity).nextStartedActivityForResult
-        assertEquals(Intent.ACTION_GET_CONTENT, started.intent.action)
-        val picked = android.net.Uri.parse("content://com.example.docs/document/42")
-        shadowOf(activity).receiveResult(started.intent, android.app.Activity.RESULT_OK, Intent().setData(picked))
-        shadowOf(Looper.getMainLooper()).idle()
-        assertEquals(1, answers)
-        assertEquals(listOf(picked), answer!!.toList())
-    }
-
-    @Test fun aCancelledPickerAnswersNull() {
-        completeSetup()
-        val activity = build().create().start().resume().get()
-        val chrome = shadowOf(activity.webView).webChromeClient!!
-        var answer: Array<android.net.Uri>? = arrayOf()
-        var answers = 0
-        chrome.onShowFileChooser(activity.webView, { answer = it; answers++ }, FakeChooserParams(pickerIntent()))
-        val started = shadowOf(activity).nextStartedActivityForResult
-        shadowOf(activity).receiveResult(started.intent, android.app.Activity.RESULT_CANCELED, null)
-        shadowOf(Looper.getMainLooper()).idle()
-        assertEquals(1, answers)
-        assertNull(answer)
-    }
-
-    @Test fun withoutAPickerTheFileInputIsAnsweredNullAtOnce() {
-        completeSetup()
-        val activity = build().create().start().resume().get()
-        var answers = 0
-        var answer: Array<android.net.Uri>? = arrayOf()
-        shadowOf(activity.webView).webChromeClient!!.onShowFileChooser(activity.webView, { answer = it; answers++ }, FakeChooserParams(null))
-        assertEquals(1, answers)
-        assertNull(answer)
-    }
-
-    @Test fun javascriptDialogsUseTheWebViewsDefaultDialogs() {
-        completeSetup()
-        val activity = build().create().get()
-        val chrome = shadowOf(activity.webView).webChromeClient!!
-        // false = not handled here: the WebView shows its own dialog (without a chrome client they are silently dismissed).
-        assertFalse(chrome.onJsAlert(activity.webView, "http://127.0.0.1/", "hi", null))
-        assertFalse(chrome.onJsConfirm(activity.webView, "http://127.0.0.1/", "sure?", null))
-        assertFalse(chrome.onJsPrompt(activity.webView, "http://127.0.0.1/", "name?", "", null))
-    }
-
     // --- the activity never starts dsh on its own ---
 
     private fun idleFor(ms: Long) {
@@ -308,7 +317,7 @@ class MainActivityTest {
         completeSetup()
         val c = controller!!
         val activity = build().create().start().resume().get()
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        waitForShellOn(0, activity)
         assertEquals(1, processes.size)
 
         c.stop() // what DshService does on GIVE_UP (or anyone on a deliberate stop)
@@ -317,14 +326,15 @@ class MainActivityTest {
 
         assertFalse(c.isRunning.value)
         assertEquals("no new dsh was started", 1, processes.size)
-        assertEquals(launchUrl(0), shadowOf(activity.webView).lastLoadedUrl)
+        assertNull("the shell let go of the stopped dsh", app.shellSessions.current.value)
+        assertEquals(MainUiState.Loading, activity.uiStateForTest.value)
     }
 
     @Test fun afterTheServiceGaveUpTheActivityShowsTheErrorScreenAndStaysStopped() {
         completeSetup()
         val c = controller!!
         val activity = build().create().start().resume().get()
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        waitForShellOn(0, activity)
 
         app.serviceGaveUp.value = true // DshService sets this before its controller.stop() on GIVE_UP
         c.stop()
@@ -334,13 +344,14 @@ class MainActivityTest {
         assertEquals(1, processes.size)
         assertFalse(c.isRunning.value)
         assertEquals(MainUiState.Error, activity.uiStateForTest.value)
+        assertNull(app.shellSessions.current.value)
     }
 
     @Test fun retryAfterAGiveUpClearsTheFlagAndStartsTheServiceAgain() {
         completeSetup()
         val c = controller!!
         val activity = build().create().start().resume().get()
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        waitForShellOn(0, activity)
         shadowOf(app as Application).clearStartedServices()
         app.serviceGaveUp.value = true
         c.stop()
@@ -358,7 +369,7 @@ class MainActivityTest {
         val c = controller!!
         val ctl = build().create().start().resume()
         val activity = ctl.get()
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        waitForShellOn(0, activity)
         app.serviceGaveUp.value = true
         c.stop()
         waitUntil { activity.uiStateForTest.value == MainUiState.Error }
@@ -398,63 +409,38 @@ class MainActivityTest {
         assertFalse(app.serviceGaveUp.value)
         val activity = build().create().start().resume().get()
         assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        waitForShellOn(0, activity)
         assertTrue(c.isRunning.value)
         assertTrue("ui" in c.holders)
     }
 
     /**
-     * A second start of the same dsh while its page is still loading (here a stop/start of the screen; in the rollback tests the
-     * collector racing the explicit restart) must not claim Ready: Ready only follows onPageFinished. This used to flake
-     * `rollbackAfterAGiveUpWithNothingToGoBackToWhileDshRunsShowsDsh` (Ready instead of Loading).
+     * A second start of the same dsh while its remote is still connecting (a stop/start of the screen; in the rollback tests the
+     * collector racing the explicit restart) must neither claim Ready nor make a new session: Ready only follows the open mux.
      */
-    @Test fun aSecondStartOfTheSameDshBeforeThePageFinishedStaysLoading() {
+    @Test fun aSecondStartOfTheSameDshBeforeTheRemoteOpensStaysLoading() {
         completeSetup()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        nextUpgradeGate = gate
         val ctl = build().create().start().resume()
         val activity = ctl.get()
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        waitUntil { servers.isNotEmpty() && attachedUrl() == launchUrl(0) }
+        val session = app.shellSessions.current.value
         idleFor(300)
         assertEquals(MainUiState.Loading, activity.uiStateForTest.value)
 
-        ctl.pause().stop().restart().start().resume() // same dsh, same launch URL, page not finished yet
+        ctl.pause().stop().restart().start().resume() // same dsh, same launch URL, remote not open yet
         idleFor(500)
         assertEquals(MainUiState.Loading, activity.uiStateForTest.value)
-        assertEquals(launchUrl(0), shadowOf(activity.webView).lastLoadedUrl)
+        assertTrue("the same session is kept", session === app.shellSessions.current.value)
 
-        shadowOf(activity.webView).webViewClient.onPageFinished(activity.webView, "http://127.0.0.1:45678/")
-        assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
+        gate.complete(Unit)
+        waitUntil { activity.uiStateForTest.value == MainUiState.Ready }
 
-        ctl.pause().stop().restart().start().resume() // back from the background with the page loaded: straight to Ready
+        ctl.pause().stop().restart().start().resume() // back from the background with the remote open: straight to Ready
         idleFor(500)
         assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
-    }
-
-    /**
-     * Follow-up 1 (lag): while dsh is shown, the Compose overlay is only the settings button in the top-right corner (no
-     * full-screen layer composited over the WebView every frame); loading and error screens cover the screen again.
-     */
-    @Test fun whenReadyTheOverlayShrinksToTheSettingsButtonAndGrowsBackForLoading() {
-        completeSetup()
-        val ctl = build().create().start().resume()
-        val activity = ctl.get()
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
-        val overlay = activity.overlayForTest
-        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.width)
-        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.height)
-
-        shadowOf(activity.webView).webViewClient.onPageFinished(activity.webView, "http://127.0.0.1:45678/")
-        idleFor(200)
-        assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
-        val small = overlay.layoutParams as android.widget.FrameLayout.LayoutParams
-        assertEquals(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, small.width)
-        assertEquals(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, small.height)
-        assertEquals(android.view.Gravity.TOP or android.view.Gravity.END, small.gravity)
-
-        controller!!.stop() // dsh gone: Loading covers the page again
-        waitUntil { activity.uiStateForTest.value == MainUiState.Loading }
-        idleFor(200)
-        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.width)
-        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, overlay.layoutParams.height)
+        assertTrue(session === app.shellSessions.current.value)
     }
 
     /** Follow-up 1 (lag): the time from opening the screen to Ready goes to the error log (tag perf), once, without URL or token. */
@@ -462,8 +448,7 @@ class MainActivityTest {
         completeSetup()
         val ctl = build().create().start().resume()
         val activity = ctl.get()
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
-        shadowOf(activity.webView).webViewClient.onPageFinished(activity.webView, "http://127.0.0.1:45678/")
+        waitForShellOn(0, activity)
         ctl.pause().stop().restart().start().resume() // Ready again from the background: not a new measurement
         idleFor(300)
         val lines = errorLogText().lines().filter { "[perf]" in it }
@@ -471,18 +456,6 @@ class MainActivityTest {
         assertTrue(lines.single(), Regex("""\[perf] main screen ready \d+ ms after it opened \(process started \d+ ms before that\)""").containsMatchIn(lines.single()))
         assertFalse(lines.single().contains("127.0.0.1"))
         assertFalse(lines.single().contains("token"))
-    }
-
-    /** Follow-up 1 (lag): the WebView's renderer gets Android's "important" priority and stays hardware accelerated. */
-    @Config(shadows = [RendererPriorityWebViewShadow::class]) // Robolectric's WebView drops the renderer priority
-    @Test fun theWebViewRendererIsImportantAndHardwareAccelerated() {
-        completeSetup()
-        val activity = build().create().start().resume().get()
-        assertEquals(WebView.RENDERER_PRIORITY_IMPORTANT, activity.webView.rendererRequestedPriority)
-        assertTrue(activity.webView.rendererPriorityWaivedWhenNotVisible)
-        assertTrue(activity.webView.layerType != android.view.View.LAYER_TYPE_SOFTWARE)
-        val info = app.packageManager.getActivityInfo(ComponentName(app, MainActivity::class.java), 0)
-        assertTrue("hardware acceleration is off for MainActivity", info.flags and android.content.pm.ActivityInfo.FLAG_HARDWARE_ACCELERATED != 0)
     }
 
     @Test fun theRollbackActionAfterAGiveUpClearsTheFlagAndRestartsDsh() {
@@ -498,7 +471,7 @@ class MainActivityTest {
         waitUntil { !app.serviceGaveUp.value }
 
         assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService.component!!.className)
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(1) }
+        waitForShellOn(1, activity)
     }
 
     // --- every rollback outcome after a give-up: the screen follows dsh's real state ---
@@ -513,14 +486,14 @@ class MainActivityTest {
         waitUntil { org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == text }
     }
 
-    /** Dsh runs: the give-up is over, the service supervises again and the page shows the running dsh's launch URL. */
-    private fun assertShowsDsh(activity: MainActivity, url: String) {
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == url }
+    /** Dsh runs: the give-up is over, the service supervises again and the shell is attached to the n-th dsh and Ready. */
+    private fun assertShowsDsh(activity: MainActivity, n: Int) {
+        waitForShellOn(n, activity)
         idleFor(300)
         assertTrue(controller!!.isRunning.value)
         assertFalse("the gave-up flag is cleared", app.serviceGaveUp.value)
         assertEquals(DshService::class.java.name, shadowOf(app as Application).nextStartedService?.component?.className)
-        assertEquals(MainUiState.Loading, activity.uiStateForTest.value) // Ready only follows onPageFinished
+        assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
     }
 
     /** Dsh is down: Error with Retry, the flag stays set, nothing starts the service or dsh. */
@@ -531,7 +504,7 @@ class MainActivityTest {
         assertEquals(MainUiState.Error, activity.uiStateForTest.value)
         assertNull("DshService must not be started", shadowOf(app as Application).nextStartedService)
         assertEquals(processCount, processes.size)
-        assertEquals(launchUrl(0), shadowOf(activity.webView).lastLoadedUrl)
+        assertNull("no shell session on a stopped dsh", app.shellSessions.current.value)
     }
 
     @Test fun rollbackAfterAGiveUpRolledBackAndRunningShowsTheNewDsh() {
@@ -543,7 +516,7 @@ class MainActivityTest {
         waitForToast(R.string.main_rollback_done, "0.2.0")
 
         assertEquals("0.2.0", currentOf(opt))
-        assertShowsDsh(activity, launchUrl(1))
+        assertShowsDsh(activity, 1)
     }
 
     @Test fun rollbackAfterAGiveUpRolledBackButDshDiedStaysOnError() {
@@ -577,7 +550,7 @@ class MainActivityTest {
         confirmRollbackFromTheNotification(ctl)
         waitForToast(R.string.main_rollback_none)
 
-        assertShowsDsh(activity, launchUrl(1))
+        assertShowsDsh(activity, 1)
     }
 
     @Test fun rollbackAfterAGiveUpWithNothingToGoBackToWhileDshIsDownStaysOnError() {
@@ -603,7 +576,7 @@ class MainActivityTest {
         confirmRollbackFromTheNotification(ctl)
         waitForToast(R.string.main_rollback_failed)
 
-        assertShowsDsh(activity, launchUrl(1))
+        assertShowsDsh(activity, 1)
     }
 
     @Test fun rollbackAfterAGiveUpThatFailedWithDshDownStaysOnError() {
@@ -618,20 +591,22 @@ class MainActivityTest {
         assertStaysOnError(activity, processCount = 1)
     }
 
-    @Test fun whenDshComesBackElsewhereTheActivityReloadsTheNewLaunchUrl() {
+    @Test fun aNewDshInstanceReattachesTheShellToItsLaunchUrl() {
         completeSetup()
         val c = controller!!
         val activity = build().create().start().resume().get()
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        waitForShellOn(0, activity)
+        val first = app.shellSessions.current.value!!
 
         c.stop()
         waitUntil { !c.isRunning.value }
-        idleFor(300)
+        waitUntil { app.shellSessions.current.value == null && activity.uiStateForTest.value == MainUiState.Loading }
+        assertEquals("the old session's remote is closed", MuxState.CLOSED, first.remote.muxState.value)
         kotlinx.coroutines.runBlocking { c.ensureRunning() } // e.g. the service's delayed restart after a crash
-        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(1) }
+        waitForShellOn(1, activity)
 
         assertEquals(2, processes.size)
-        assertEquals(MainUiState.Loading, activity.uiStateForTest.value) // Ready only follows onPageFinished
+        assertTrue(first !== app.shellSessions.current.value)
     }
 
     // --- intent dispatch ---
@@ -1005,16 +980,6 @@ class MainActivityTest {
         }
     }
 
-    // --- settings button ---
-
-    @Test fun settingsOpensTheSettingsActivityByName() {
-        completeSetup()
-        val activity = build().create().get()
-        activity.openSettings()
-        val i = shadowOf(activity).nextStartedActivity
-        assertEquals(ComponentName(app.packageName, "app.dshmobile.ui.SettingsActivity"), i.component)
-    }
-
     // --- helpers ---
 
     private fun versionsDir(previous: String?, current: String): File {
@@ -1027,25 +992,4 @@ class MainActivityTest {
     }
 
     private fun currentOf(opt: File): String = Files.readSymbolicLink(File(opt, "current").toPath()).fileName.toString()
-
-    private val MainActivity.webView: WebView get() = this.webViewForTest
-}
-
-/** Robolectric's ShadowWebView plus the renderer priority, which the stock shadow silently drops. */
-@Implements(WebView::class)
-class RendererPriorityWebViewShadow : ShadowWebView() {
-    private var priority = WebView.RENDERER_PRIORITY_WAIVED
-    private var waived = false
-
-    @Implementation
-    fun setRendererPriorityPolicy(rendererRequestedPriority: Int, waivedWhenNotVisible: Boolean) {
-        priority = rendererRequestedPriority
-        waived = waivedWhenNotVisible
-    }
-
-    @Implementation
-    fun getRendererRequestedPriority(): Int = priority
-
-    @Implementation
-    fun getRendererPriorityWaivedWhenNotVisible(): Boolean = waived
 }

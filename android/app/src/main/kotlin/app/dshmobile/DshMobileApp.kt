@@ -36,11 +36,16 @@ import app.dshmobile.service.DshService
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.SettingsJobs
 import app.dshmobile.ui.UiHolder
+import app.dshmobile.ui.fog.UiPrefs
+import app.dshmobile.ui.shell.ShellSession
+import app.dshmobile.ui.shell.ShellSessionHolder
+import app.dshmobile.remote.DshRemote
 import app.dshmobile.update.ApkInstaller
 import app.dshmobile.update.ApkUpdateChecker
 import app.dshmobile.update.DailyUpdateCheck
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.HttpUrl
@@ -174,6 +179,21 @@ class DshMobileApp : Application(), Configuration.Provider {
             holders = { controller.holders },
             stopService = { stopService(Intent(this, DshService::class.java)) },
         )
+    }
+
+    /** Small per-install UI choices (effect level, last conversation). */
+    val uiPrefs: UiPrefs by lazy { UiPrefs(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)) }
+
+    /**
+     * The native interface's link to the running dsh: one [ShellSession] per dsh instance, in a scope of its own (a child of
+     * [applicationScope], cancelled when that instance's session closes).
+     */
+    val shellSessions: ShellSessionHolder by lazy {
+        val loopback = OkHttpClient()
+        ShellSessionHolder { running ->
+            val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
+            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope) }
+        }
     }
 
     /** Asks the public releases repo for a newer shell app (no credentials; a failure is the caller's to log). */

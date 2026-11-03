@@ -137,7 +137,7 @@ class SettingsScreenTest {
 
     private fun str(id: Int, vararg args: Any) = rule.activity.getString(id, *args)
 
-    private fun show() = rule.setContent {
+    private fun show(onClose: (() -> Unit)? = { closed++ }) = rule.setContent {
         SakuraTheme {
             SettingsScreen(
                 SettingsEnv(
@@ -153,7 +153,7 @@ class SettingsScreenTest {
                     exportWorkspace = { workspaceExports++ },
                     jobs = jobs,
                 ),
-                onClose = { closed++ },
+                onClose = onClose,
             )
         }
     }
@@ -690,7 +690,13 @@ class SettingsScreenTest {
         rule.onNodeWithTag("busy").assertDoesNotExist()
     }
 
-    @Test fun closeButtonCloses() {
+    @Test fun withoutOnCloseThereIsNoCloseButton() {
+        show(onClose = null) // embedded in the shell's settings tab: the dock is the way out
+        rule.onNodeWithTag("close").assertDoesNotExist()
+        rule.onNodeWithTag("apply").assertExists()
+    }
+
+    @Test fun withOnCloseTheCloseButtonCloses() {
         show()
         click("close")
         assertEquals(1, closed)

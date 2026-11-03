@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -68,7 +70,7 @@ import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.util.Locale
 
-/** What the version section needs from `DshVersions` and `MainOps`; the production implementation is in SettingsActivity. */
+/** What the version section needs from `DshVersions` and `MainOps`; the production implementation is in `buildSettingsEnv`. */
 interface SettingsVersions {
     fun current(): String
     fun previous(): String?
@@ -110,9 +112,19 @@ private const val MAX_REASON_CHARS = 300
  * slow (vault, restart, update, export) runs off the main thread; while one runs every action is disabled and a progress bar
  * shows. Agent settings are only saved by [apply]; budget and heartbeat have their own save/step actions. Keys are only ever in
  * a password field and the vault, and never shown.
+ *
+ * With [onClose] it is a screen of its own (opaque, clear of the system bars, a close button); without it, it is embedded in
+ * the shell's settings tab: transparent over the shell's background, no close button, laid out with [contentPadding] (the
+ * shell's page padding, which already keeps it clear of the bars, the header and the dock).
  */
 @Composable
-fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    env: SettingsEnv,
+    onClose: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+) {
+    val embedded = onClose == null
     val scope = rememberCoroutineScope() // keys and exports only: cancelling those half way is harmless
     var localBusy by remember { mutableStateOf(false) }
     val jobBusy by env.jobs.busy.collectAsState()
@@ -328,17 +340,19 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
         env.scheduleHeartbeat(next)
     }
 
-    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    Surface(modifier = modifier.fillMaxSize(), color = if (embedded) Color.Transparent else MaterialTheme.colorScheme.background) {
         Column(
             modifier = Modifier
-                .safeDrawingPadding()
+                .then(if (embedded) Modifier else Modifier.safeDrawingPadding())
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.set_title), style = MaterialTheme.typography.headlineSmall, color = Sakura.Text, modifier = Modifier.weight(1f))
-                TextButton(onClick = onClose, enabled = !busy, modifier = Modifier.testTag("close")) { Text(stringResource(R.string.set_close)) }
+                if (onClose != null) {
+                    TextButton(onClick = onClose, enabled = !busy, modifier = Modifier.testTag("close")) { Text(stringResource(R.string.set_close)) }
+                }
             }
             if (busy) {
                 Column(Modifier.testTag("busy"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
