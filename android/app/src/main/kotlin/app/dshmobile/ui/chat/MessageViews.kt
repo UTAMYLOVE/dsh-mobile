@@ -514,7 +514,7 @@ internal fun ReplyStatsLine(text: String) {
 /** How full the model's context is (a thin bar, rose past 80 %) and the conversation's totals beside it (stage 2 §C.2). */
 @Composable
 internal fun ContextBar(fill: Float?, text: String) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag(Tags.CHAT_STATS), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).semantics(mergeDescendants = true) {}.testTag(Tags.CHAT_STATS), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (fill != null) {
             Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .6f))) {
                 Box(
