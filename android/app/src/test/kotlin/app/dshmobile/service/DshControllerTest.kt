@@ -48,6 +48,7 @@ class DshControllerTest {
     private var installed = true
     private var script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 30"""
     private var healthy = true
+    private var duringHealthCheck: () -> Unit = {}
     private val healthChecked = CopyOnWriteArrayList<LaunchUrl>()
     private var launchTimeoutMs = 10_000L
     private var beforeLaunch: () -> Unit = {}
@@ -68,7 +69,7 @@ class DshControllerTest {
         vault = vault,
         meter = CostMeter(InMemorySharedPreferences(), PriceTable(), clock = MutableClock()),
         errorLog = errorLog,
-        healthCheck = { launch -> healthChecked.add(launch); healthy },
+        healthCheck = { launch -> healthChecked.add(launch); duringHealthCheck(); healthy },
         dnsServers = { listOf("9.9.9.9") },
         onNotify = {},
         onCostAlert = {},
@@ -96,6 +97,34 @@ class DshControllerTest {
         val end = System.currentTimeMillis() + timeoutMs
         while (!cond() && System.currentTimeMillis() < end) Thread.sleep(20)
         assertTrue("condition not met in time", cond())
+    }
+
+    /**
+     * dsh printed its launch line and died while the start was still checking it (found on CI as a DshServiceTest flake: the
+     * service never saw the crash). The exit watcher, seeing no published run, took the exit as expected and tore down; the
+     * start then published the dead run as running. Now exactly one side reports it: here the start fails.
+     */
+    @Test fun aDshThatDiesBeforeItIsPublishedIsAFailedStartNotARunningOne() = runBlocking {
+        script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 1; exit 7""" // dies once the start is checking it
+        val patch = File(rootfs, "opt/dshm/dshm.cordis.yml")
+        duringHealthCheck = {
+            waitUntil { processes.single().let { !it.isAlive } }
+            waitUntil { !patch.exists() } // the exit watcher has torn the run down meanwhile
+        }
+        val c = newController()
+        val exits = CopyOnWriteArrayList<Int>()
+        c.onExit { exits.add(it) }
+
+        val failure = runCatching { c.ensureRunning() }.exceptionOrNull()
+
+        assertTrue("a dead dsh was published as running (got $failure)", failure is IllegalStateException)
+        assertFalse(c.isRunning.value)
+        assertTrue("the failure is the start's to report, not also an exit: $exits", exits.isEmpty())
+        // The next start is a normal fresh start.
+        script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 30"""
+        duringHealthCheck = {}
+        c.ensureRunning()
+        assertTrue(c.isRunning.value)
     }
 
     @Test fun concurrentEnsureRunningStartsDshOnce() = runBlocking {

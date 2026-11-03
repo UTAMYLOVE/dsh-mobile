@@ -87,6 +87,8 @@ class DshController(
         @Volatile var info: RunningDsh? = null
         var tornDown = false // guarded by the run itself
         @Volatile var stopRequested = false
+        /** The exit code once the process has ended (set by the exit watcher, under stateLock); null while it runs. */
+        var exitCode: Int? = null
         val launched = CompletableDeferred<LaunchUrl>()
     }
 
@@ -196,6 +198,8 @@ class DshController(
             synchronized(stateLock) {
                 // A stop() that raced with this start wins: nothing is published for a dsh somebody asked to end.
                 if (stopPending || run.stopRequested) throw CancellationException("dsh start cancelled by stop()")
+                // Died after its launch line while being checked: the exit watcher saw no published run, so the start reports it.
+                run.exitCode?.let { throw IllegalStateException("dsh exited with code $it before it was ready") }
                 run.info = info
                 _isRunning.value = true
             }
@@ -232,7 +236,12 @@ class DshController(
         scope.launch {
             val code = run.process.waitFor()
             run.launched.completeExceptionally(IllegalStateException("dsh exited with code $code before it was ready"))
-            val unexpected = !run.stopRequested && run.info != null
+            // One atomic decision with start()'s publish: either the run was published (an unexpected exit, reported to the
+            // listeners) or it was not (start() sees exitCode and fails). Never both, never neither.
+            val unexpected = synchronized(stateLock) {
+                run.exitCode = code
+                !run.stopRequested && run.info != null
+            }
             teardown(run)
             if (unexpected) {
                 errorLog.append("controller", "dsh exited with code $code")
