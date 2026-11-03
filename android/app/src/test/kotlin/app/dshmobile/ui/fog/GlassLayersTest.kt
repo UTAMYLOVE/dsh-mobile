@@ -22,7 +22,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.runBlocking
@@ -162,6 +165,31 @@ class GlassLayersTest {
         frames(3)
         assertEquals(3, BlurLayers.active - base)
         assertEquals(3, blurFlags().count { it })
+    }
+
+    /** The dock is drawn after the page: at the cap it still blurs, taking a page panel's layer (that panel draws the plain fill). */
+    @Test fun theFloatingChromeOutranksPagePanelsAtTheCap() {
+        val floor = BlurFloor() // only pages get one (FogShell)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            view = LocalView.current
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                val backdrop = rememberBackdrop()
+                CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides false) {
+                    Box(Modifier.size(300.dp)) {
+                        FogBackground(backdrop)
+                        CompositionLocalProvider(LocalBlurFloor provides floor) {
+                            Column { repeat(5) { Box(Modifier.size(40.dp).glass(RoundedCornerShape(16.dp))) } }
+                        }
+                        Box(Modifier.offset(y = 250.dp).size(200.dp, 40.dp).testTag("dock").glass(RoundedCornerShape(30.dp)))
+                    }
+                }
+            }
+        }
+        frames(3)
+        assertEquals(BlurLayers.MAX, BlurLayers.active - base)
+        rule.onNodeWithTag("dock").assert(SemanticsMatcher.expectValue(FogSemantics.Blur, true))
+        assertEquals(BlurLayers.MAX, blurFlags().count { it })
     }
 
     /** A panel taller than the screen records only the part the window shows (a full-size layer can pass the GPU's texture limit). */

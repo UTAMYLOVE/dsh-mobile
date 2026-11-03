@@ -93,31 +93,49 @@ internal object FogDebug {
 /**
  * The glass surfaces that hold a blur layer right now: one exists only while its surface blurs and is on screen, and never more
  * than [MAX] at once (each one re-blurs the background every frame it moves). A surface turned away at the cap draws the no-blur
- * fill and is told to try again as soon as a layer is given back. Main thread only (drawing), apart from reading [active].
+ * fill and is told to try again as soon as a layer is given back. The floating chrome (dock, attach menu, chip: glass outside a
+ * page) outranks the pages' glass: at the cap it takes the layer of a page surface, which then draws without blur until a
+ * layer frees up. Main thread only (drawing), apart from reading [active].
  */
 internal object BlurLayers {
     const val MAX = 4
+    private class Holder(val priority: Int, val evict: () -> Unit)
     private val live = AtomicInteger()
+    private val holders = LinkedHashMap<Any, Holder>()
     private val waiting = LinkedHashMap<Any, () -> Unit>()
     val active: Int get() = live.get()
 
-    /** Takes a layer slot, or false at the cap (then [retry] runs when a slot frees up). */
-    fun open(owner: Any, retry: () -> Unit): Boolean {
+    /**
+     * Takes a layer slot for [owner]. At the cap it takes the newest slot of a lower [priority] (that holder's [evict] gives
+     * its layer back), or answers false; then [retry] runs when a slot frees up.
+     */
+    fun open(owner: Any, priority: Int, retry: () -> Unit, evict: () -> Unit): Boolean {
         if (live.get() >= MAX) {
-            waiting[owner] = retry
-            return false
+            val victim = holders.entries.lastOrNull { it.value.priority < priority }
+            if (victim == null) {
+                waiting[owner] = retry
+                return false
+            }
+            victim.value.evict() // gives its layer back through closed()
         }
         waiting.remove(owner)
+        holders[owner] = Holder(priority, evict)
         live.incrementAndGet()
         return true
     }
 
-    fun closed() {
+    fun closed(owner: Any) {
+        if (holders.remove(owner) == null) return
         live.decrementAndGet()
         // Everyone turned away may try again: the first to draw gets the slot, the others are turned away anew.
         val retry = waiting.values.toList()
         waiting.clear()
         retry.forEach { it() }
+    }
+
+    /** [owner] waits for a slot (it was evicted). */
+    fun await(owner: Any, retry: () -> Unit) {
+        waiting[owner] = retry
     }
 
     fun forget(owner: Any) {
@@ -325,11 +343,19 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
 
     private val retry: () -> Unit = { if (isAttached) invalidateDraw() }
 
+    /** Another surface outranks this one at the cap: give the layer back and draw without blur until one frees up. */
+    private val evict: () -> Unit = {
+        releaseLayer()
+        denied = true
+        BlurLayers.await(this, retry)
+        invalidateDraw()
+    }
+
     private fun releaseLayer() {
         layer?.let {
             requireGraphicsContext().releaseGraphicsLayer(it)
             layer = null
-            BlurLayers.closed()
+            BlurLayers.closed(this)
         }
         effect = null
         effectRadius = -1f
@@ -381,8 +407,11 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
     override fun ContentDrawScope.draw() {
         FogDebug.count("glass.draw")
         val backdrop = currentValueOf(LocalBackdrop)
-        val floor = currentValueOf(LocalBlurFloor)?.y ?: Float.POSITIVE_INFINITY // a snapshot read: a moving dock redraws
+        val floorHolder = currentValueOf(LocalBlurFloor)
+        val floor = floorHolder?.y ?: Float.POSITIVE_INFINITY // a snapshot read: a moving dock redraws
         val visible = visibleRect(size, floor)
+        // Glass in a page (it has a floor) gives way to the floating chrome at the cap.
+        val priority = if (floorHolder == null) 1 else 0
         val wants = currentValueOf(LocalEffects).blur && backdrop != null && visible != null
         val blur = when {
             !wants -> {
@@ -393,7 +422,7 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
                 false
             }
             layer != null -> true
-            BlurLayers.open(this@GlassNode, retry) -> { denied = false; true }
+            BlurLayers.open(this@GlassNode, priority, retry, evict) -> { denied = false; true }
             else -> { denied = true; false }
         }
         if (blur != drewBlur) {
