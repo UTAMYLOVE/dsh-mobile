@@ -119,3 +119,7 @@ T6: review = spec ✅, quality Approved (sonnet), 0 Critical; reviewer's non-blo
 - Ruling: debounced SessionTree.refresh() on a status for an unknown id, search debounce + stale-result guard (collectLatest), and midnight regrouping in Asia/Taipei are carried into the T8 dispatch (T8 wires the list into the chat page). A shared BaselineSync helper for SessionTree/WorkTracker is deferred to the final review triage.
 T6: complete (lane-t6 de1c788..86d98f8, review clean) — merged
 T8 dispatched (opus, wt-t1 lane-t8 from 41393f1; folds in T6 follow-ups + T5/T7 rulings); T10 dispatched (sonnet, wt-t7 lane-t10 from 41393f1)
+T10: implementer DONE (lane-t10 41393f1..eeb3f73, 805 unit; renders in scratchpad/t10-shots); deviations: promptOrigin isTopLevel param, Kotlin constant strings, 60% #FEDFE1 base under card gradient; TalkBack can still focus the dock under the scrim; review dispatched (sonnet)
+T10: review 1 = spec ✅, quality Approved-with-follow-up (sonnet) — Important: sheet not modal/announced for TalkBack (dsh-stuck anti-goal for accessibility users)
+- Ruling: TalkBack fix + theme error colour (not hard-coded) + 「連線中…」 line while waiting on a reconnecting mux go into fix round 1. The error red #B3261E stays (plan Global Constraints allow it as the only non-palette colour, for error text) — listed for the boss in the final rulings.
+T10: fix round 1/5 dispatched (resume implementer)
