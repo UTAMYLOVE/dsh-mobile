@@ -109,3 +109,4 @@ T5: fix round 2/5 (1 addressed, 0 open; commits 3343dd3..31eaad2; re-review haik
 T5: complete (lane-t5 c9e6212..01a58a3, review clean after 2 fix rounds) — merged; ShellRemote : ChatRemote line pending the T4 merge
 T5: minor (deferred): reopened() sets running=false so a long follow outage (>60 s) during a running turn can still fail a queued bubble; an idle-sent bubble unrecorded when another turn starts waits out that turn
 - Ruling: pushed the local merges (T16, T5, WorkTracker flake fix) before the MuxConnectionTest flake fix lands — Why: CI coverage of the merged work and the flake is rare (load-only); a CI failure on that one test is re-run, not investigated — Cost if wrong: one red CI run.
+Flake fixes complete: MuxConnectionTest closeWhileTheUpgradeIsStarting deterministic (aae3ad4, 20/20) — merged
