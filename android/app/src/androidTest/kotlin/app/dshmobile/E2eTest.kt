@@ -1,23 +1,50 @@
+@file:OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
+
 package app.dshmobile
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.content.Intent
+import android.net.Uri
 import android.util.Log
-import androidx.test.core.app.ActivityScenario
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.ComposeUiTest
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.TextUnit
+import androidx.core.content.FileProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
-import app.dshmobile.E2e.awaitShellReady
+import app.dshmobile.E2e.launchShell
 import app.dshmobile.E2e.waitFor
 import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.heartbeat.HeartbeatWorker
+import app.dshmobile.notify.Notifier
+import app.dshmobile.remote.DshRemote
+import app.dshmobile.remote.MuxState
 import app.dshmobile.runtime.CommandResult
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.DshVersions
 import app.dshmobile.runtime.GuestCommand
 import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.UpdateOutcome
+import app.dshmobile.runtime.VerifiedDsh
+import app.dshmobile.runtime.VerifiedUpdatePolicy
 import app.dshmobile.ui.MainActivity
+import app.dshmobile.ui.chat.circled
+import app.dshmobile.ui.fog.EffectLevel
+import app.dshmobile.ui.fog.FogSemantics
+import app.dshmobile.ui.shell.ShellTab
+import app.dshmobile.ui.shell.Tags
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -32,24 +59,32 @@ import org.junit.Before
 import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
 import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
  * The whole stack on a real Android (x86_64 emulator in CI): shell app -> proot -> Debian rootfs with Node 24 -> the official
- * dsh -> our memory/notify/ui plugins -> the app's gateway, native shell, heartbeat and updater. The model is [FakeModel] in this
- * process (the gateway is pointed at it by [E2eRunner]); the key is the fake `sk-e2e-fake`. One test per item of spec §9.
- * The tests run in name order and share the running dsh (held as "e2e"), but each one also works on its own.
+ * dsh -> our memory/notify/ui plugins -> the app's gateway, native FOGCITY shell, heartbeat and updater. The model is
+ * [FakeModel] in this process (the gateway is pointed at it by [E2eRunner]); the key is the fake `sk-e2e-fake`.
+ *
+ * The tests run in name order (two-digit numbers, Ruling 23) and share only the running dsh (held as "e2e"): every chat test
+ * opens its own conversation and makes the data it checks, so each one also works on its own. t05 stops and restarts dsh and
+ * runs before the chat tests. The screen is driven by test tags ([Tags]) through Compose's semantics, at the SAVER effect level
+ * (a test-setup choice, see [E2e.prepareApp]); t21 alone asks for FULL.
  */
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class E2eTest {
-    @get:Rule val dumpOnFailure = E2e.DumpErrorLogOnFailure()
+    private val compose = E2eCompose()
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(E2e.DumpErrorLogOnFailure()).around(compose)
+    private val ui: ComposeUiTest get() = compose.ui
 
     private val app get() = E2e.app
     private val rootfs get() = File(app.filesDir, "rootfs")
@@ -67,11 +102,10 @@ class E2eTest {
 
     /** §9.1 (stage 1): the main screen is the native shell, Ready on the real dsh, with no WebView anywhere in it. */
     @Test fun t01_theNativeShellIsReadyWithoutAWebView() {
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            awaitShellReady(scenario)
-            var webViews: List<String> = listOf("not checked")
-            scenario.onActivity { webViews = E2e.webViewsIn(it) }
-            assertEquals(emptyList<String>(), webViews)
+        launchShell().use {
+            assertEquals(emptyList<String>(), E2e.onMain { E2e.webViewsIn(E2e.shellActivity()) })
+            ShellTab.entries.forEach { ui.awaitTag(Tags.TAB + it.name) }
+            ui.awaitTag(Tags.SHELL_BACKGROUND)
         }
     }
 
@@ -98,7 +132,7 @@ class E2eTest {
 
         val created = rpc(client, "session/create", JSONObject().put("request", JSONObject().put("cwd", "/root/workspace")))
         val sessionId = created.getString("sessionId")
-        val content = JSONArray().put(JSONObject().put("type", "text").put("text", "Please remember the E2E mark."))
+        val content = JSONArray().put(JSONObject().put("type", "text").put("text", "Please ${FakeModel.MEMORY_PROMPT}."))
         rpc(
             client, "session/prompt",
             JSONObject().put(
@@ -112,15 +146,15 @@ class E2eTest {
             notesOfToday().any { it.isFile && addedSince(it, sizesBefore.getValue(it)).contains(MARK) }
         }
         waitFor(120_000, "the follow-up request with the tool result") {
-            FakeModel.instance.seen.drop(seenBefore).any { it.kind == FakeModel.Kind.FOLLOW_UP }
+            FakeModel.instance.since(seenBefore).any { it.kind == FakeModel.Kind.FOLLOW_UP }
         }
-        val mine = FakeModel.instance.seen.drop(seenBefore)
+        val mine = FakeModel.instance.since(seenBefore)
         assertTrue("no tool_use turn: $mine", mine.any { it.kind == FakeModel.Kind.TOOL_USE })
         assertTrue("dsh reached the model without the vault's key (gateway did not swap it): $mine", mine.all { it.apiKeyIsTheVaultKey })
         assertTrue("requests went past the gateway's /deepseek route: $mine", mine.all { it.path == "/deepseek/v1/messages" })
     }
 
-    /** §9.4: the heartbeat dreams over yesterday's note and posts the reminder the model returned as a notification. */
+    /** §9.4: the heartbeat dreams over yesterday's note and posts the reminder the model returned; the overview lists it. */
     @Test fun t04_theHeartbeatPostsTheDreamReminder() {
         val nm = app.getSystemService(NotificationManager::class.java)
         nm.cancelAll()
@@ -142,9 +176,17 @@ class E2eTest {
         }
         assertTrue("the model never got the dream prompt", FakeModel.instance.seen.any { it.kind == FakeModel.Kind.DREAM })
         assertTrue("dsh stopped although the test holds it", app.controller.isRunning.value)
+
+        launchShell().use {
+            ui.tap(Tags.TAB + ShellTab.OVERVIEW.name)
+            ui.await("$REMIND on the overview's reminders") { ui.textsOf(Tags.OVERVIEW_REMINDERS).any { it.contains(REMIND) } }
+        }
     }
 
-    /** §9.5: a "new version" that installs but cannot start is rolled back automatically; the old one runs and the UI works. */
+    /**
+     * §9.5: a "new version" that installs but cannot start is rolled back automatically; the old one runs and the UI works.
+     * Then settings' update check on a verified current version: UpToDate, without asking npm anything.
+     */
     @Test fun t05_aBrokenUpdateRollsBackAndTheAppStillWorks() {
         val optDsh = File(rootfs, "opt/dsh")
         val versions = DshVersions(optDsh, BrokenReleaseNpm(rootfs), app.errorLog, BuildConfig.DSH_PINNED_VERSION)
@@ -159,7 +201,16 @@ class E2eTest {
         assertFalse("the failed version is still on disk", File(optDsh, BROKEN).exists())
         val running = runBlocking { app.controller.ensureRunning() }
         assertTrue("health check after the rollback", runBlocking { HealthCheck(http).check(running.launch) })
-        ActivityScenario.launch(MainActivity::class.java).use { awaitShellReady(it) }
+        launchShell().use { }
+
+        // Settings' checkUpdate (SettingsEnvFactory) with npm recorded instead of run: the same policy and DshVersions.
+        val npm = RecordingNpm()
+        val checked = DshVersions(optDsh, npm, app.errorLog, BuildConfig.DSH_PINNED_VERSION)
+        assertTrue("the current dsh ${checked.current()} is not a verified version", VerifiedDsh.isVerified(checked.current()))
+        val target = VerifiedUpdatePolicy.target(checked.current())
+        val check = target?.let { runBlocking { checked.updateWithAutoRollback(app.controller, HealthCheck(http), it) } } ?: UpdateOutcome.UpToDate
+        assertEquals(UpdateOutcome.UpToDate, check)
+        assertEquals("npm was asked: ${npm.calls}", emptyList<String>(), npm.calls)
     }
 
     /**
@@ -190,14 +241,394 @@ class E2eTest {
         assertTrue("/root lists $names", "workspace" in names)
     }
 
-    /** The paths of every workspace in dsh's own registry file (`$DSH_HOME/storages/workspace.json`). */
-    private fun workspacePaths(store: File): List<String> {
-        if (!store.isFile) return emptyList()
-        val tables = JSONObject(store.readText()).optJSONObject("tables")?.optJSONObject("workspaces") ?: return emptyList()
-        return tables.keys().asSequence().map { tables.getJSONObject(it).optString("path") }.toList()
+    // ---------- the native chat ----------
+
+    /** A reply streams in as Markdown (bold, list, table); its thinking is folded until tapped. */
+    @Test fun t10_aReplyStreamsAsMarkdownWithCollapsibleThinking() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.HELLO)
+        awaitBubble("reply")
+        val texts = bubbleTexts()
+        assertTrue("the list items: $texts", texts.any { it.contains("one") } && texts.any { it.contains("two") })
+        assertTrue("the table's cell: $texts", texts.any { it.trim() == "2" })
+        ui.awaitTag(Tags.THINKING)
+        assertFalse("the thinking shows before it is opened", ui.nodes(hasText("E2E thinking", substring = true)).isNotEmpty())
+        ui.tap(Tags.THINKING)
+        ui.awaitText("E2E thinking", 30_000)
+    }
+
+    /** web_search shows its source card (two sources) and the answer's citation line; the answer's link is its own accessible node. */
+    @Test fun t11_webSearchShowsTheSourceCardAndCitations() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.SEARCH)
+        val sources = app.getString(R.string.chat_search_sources, 2)
+        ui.await("the search card with two sources") { ui.textsOf(Tags.SEARCH_CARD).any { it.contains(sources) } }
+        assertEquals(listOf("E2E Weather"), ui.textsOf(Tags.SOURCE_CHIP + 1))
+        val cites = app.getString(R.string.chat_cites, circled(listOf(1)))
+        ui.await("the citation line $cites") { ui.textsOf(Tags.CITES).any { it.contains(cites) } }
+        awaitBubble("Sunny today")
+        // TalkBack: the link inside the answer is a separate node with its own click action (Compose's link annotation), not
+        // just a styled span of the bubble's text.
+        val answer = ui.nodes(hasTestTag(Tags.ASSISTANT_BUBBLE)).first { n -> n.texts().any { it.contains("Sunny today") } }.id
+        val links = ui.nodes(hasClickAction() and hasAnyAncestor(SemanticsMatcher("the answer") { it.id == answer }), unmerged = true)
+        assertTrue("the answer's link is not exposed as its own accessible node", links.isNotEmpty())
+    }
+
+    /** An approval card stays up while another tab shows (it is global) and must be answered; then the tool runs. */
+    @Test fun t12_anApprovalMustBeAnsweredAndThenTheToolRuns() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.APPROVE)
+        ui.awaitTag(Tags.PROMPT_SHEET)
+        // The dock is hidden from accessibility under the modal card, so the tab is switched the way the dock would.
+        E2e.nav { select(ShellTab.SETTINGS) }
+        ui.await("the settings tab") { E2e.nav { tab } == ShellTab.SETTINGS }
+        ui.waitForIdle()
+        assertTrue("the card went away with the tab change", ui.has(Tags.PROMPT_SHEET))
+        ui.tap(Tags.APPROVE_ONCE)
+        ui.awaitNoTag(Tags.PROMPT_SHEET, 30_000)
+        ui.tap(Tags.TAB + ShellTab.CHAT.name)
+        awaitBubble(FakeModel.APPROVED_REPLY)
+        val done = app.getString(R.string.chat_tool_done)
+        ui.await("the write tool's card says $done") {
+            ui.nodes(hasTagPrefix(Tags.TOOL_STATUS), unmerged = true).any { n -> n.texts().any { it == done } }
+        }
+    }
+
+    /** ask_user_question: the card's option and submit answer it; the model gets the answer. */
+    @Test fun t13_aQuestionIsAnsweredFromTheCard() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.ASK)
+        ui.awaitTag(Tags.PROMPT_SHEET)
+        ui.tap(Tags.OPTION + "q1-0")
+        ui.tap(Tags.QUESTION_SUBMIT)
+        awaitBubble(FakeModel.PICKED_REPLY)
+    }
+
+    /** STOP ends a streaming reply: 「已停止」 shows within 15 s and the stop button goes. */
+    @Test fun t14_stopEndsAStreamingReply() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.SLOW)
+        ui.awaitTag(Tags.LIVE_BUBBLE)
+        ui.tap(Tags.STOP)
+        val stopped = app.getString(R.string.chat_stopped)
+        ui.await("「$stopped」 and no stop button", 15_000) {
+            ui.nodes(hasTestTag(Tags.NOTICE), unmerged = true).any { n -> n.texts().any { it.contains(stopped) } } && !ui.has(Tags.STOP)
+        }
+    }
+
+    /** A prompt sent while a reply runs waits as 「排隊中」 and is answered after it. */
+    @Test fun t15_aPromptSentWhileRunningIsQueuedThenAnswered() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.SLOW)
+        ui.awaitTag(Tags.LIVE_BUBBLE)
+        ui.send("${FakeModel.HELLO} again")
+        ui.awaitTag(Tags.QUEUED, 30_000)
+        awaitBubble("reply", timeoutMs = 180_000)
+        ui.awaitNoTag(Tags.QUEUED, 30_000)
+    }
+
+    /** A file picked through the system picker (here: a FileProvider URI) reaches the model with the prompt. */
+    @Test fun t16_aFileAttachmentReachesTheModel() = shell {
+        val uri = exportFile("e2e-note.txt", FILE_CONTENT)
+        ui.newConversation()
+        E2e.onMain { E2e.shellActivity().attachForTest(listOf(uri)) }
+        ui.await("the attachment's chip") { ui.nodes(hasTagPrefix(Tags.ATTACHMENT_CHIP), unmerged = true).isNotEmpty() }
+        val before = FakeModel.instance.seen.size
+        ui.send("${FakeModel.FILE} read it")
+        awaitBubble(FakeModel.FILE_REPLY)
+        val mine = FakeModel.instance.since(before).filter { it.kind == FakeModel.Kind.FILE }
+        assertTrue("the model never got the prompt: ${FakeModel.instance.since(before)}", mine.isNotEmpty())
+        assertTrue("the file did not reach the model: $mine", mine.any { it.body.contains("e2e-note") || it.body.contains(FILE_CONTENT) })
+    }
+
+    /** The model chip switches this conversation's model at once; the next turn goes to it. */
+    @Test fun t17_theModelSwitchSendsTheNextTurnToThePickedModel() = shell {
+        ui.newConversation()
+        ui.tap(Tags.MODEL_CHIP)
+        ui.tap(Tags.MODEL_OPTION + PRO)
+        ui.await("the chip shows DEEPSEEK PRO", 10_000) { ui.textsOf(Tags.MODEL_CHIP).any { it == "DEEPSEEK PRO" } }
+        val before = FakeModel.instance.seen.size
+        ui.send(FakeModel.HELLO)
+        awaitBubble("reply")
+        val turns = FakeModel.instance.since(before).filter { it.kind == FakeModel.Kind.HELLO }
+        assertTrue("the turn did not go to $PRO: $turns", turns.isNotEmpty() && turns.all { it.model == PRO })
+    }
+
+    /** Rename and delete from the conversation list; the deleted conversation stays gone after the app starts again. */
+    @Test fun t18_renameAndDeleteAConversation() {
+        var id = ""
+        launchShell().use {
+            id = ui.newConversation()
+            ui.send(FakeModel.HELLO)
+            awaitBubble("reply")
+            ui.tap(Tags.CHAT_LIST_BUTTON)
+            ui.tap(Tags.SESSION_MENU + id)
+            ui.tap(Tags.RENAME)
+            ui.type(Tags.RENAME_FIELD, RENAMED)
+            ui.tap(Tags.RENAME_SAVE)
+            ui.await("the row titled $RENAMED") { ui.textsOf(Tags.SESSION_ROW + id).any { it.contains(RENAMED) } }
+            ui.tap(Tags.SESSION_MENU + id)
+            ui.tap(Tags.DELETE)
+            ui.tap(Tags.DELETE_CONFIRM)
+            ui.awaitNoTag(Tags.SESSION_ROW + id, 60_000)
+        }
+        launchShell().use {
+            ui.tap(Tags.TAB + ShellTab.CHAT.name)
+            ui.await("the chat tab") { ui.has(Tags.NEW_SESSION) || ui.has(Tags.CHAT_LIST_BUTTON) }
+            if (!ui.has(Tags.NEW_SESSION)) ui.tap(Tags.CHAT_LIST_BUTTON)
+            // dsh's list has arrived when the other conversations (every chat test made one) are listed.
+            ui.await("the conversation list from dsh") { ui.nodes(hasTagPrefix(Tags.SESSION_ROW), unmerged = true).isNotEmpty() }
+            ui.waitForIdle()
+            assertFalse("the deleted conversation is listed again", ui.has(Tags.SESSION_ROW + id))
+            assertFalse("dsh still lists the deleted conversation", app.shellSessions.current.value!!.index.rows.value.any { it.id == id })
+        }
+    }
+
+    /** A running subagent shows on the agents tab and its stop ends it. */
+    @Test fun t19_theAgentsTabListsARunningSubagentAndStopsIt() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.SUB)
+        ui.tap(Tags.TAB + ShellTab.AGENTS.name)
+        var child = ""
+        ui.await("a running agent row labelled E2E child", 180_000) {
+            val row = ui.nodes(hasTagPrefix(Tags.AGENT_ROW)).firstOrNull { n -> n.texts().any { it.contains("E2E child") } }
+            val id = row?.tag()?.removePrefix(Tags.AGENT_ROW)
+            if (id != null && ui.has(Tags.AGENT_STOP + id)) child = id
+            child.isNotEmpty()
+        }
+        ui.tap(Tags.AGENT_STOP + child)
+        ui.awaitNoTag(Tags.AGENT_STOP + child, 30_000)
+    }
+
+    /** The overview shows today's spend (the fake model reports usage on every reply) and the conversation just used. */
+    @Test fun t20_overviewShowsTodaysSpendAndRecentConversations() = shell {
+        val id = ui.newConversation()
+        ui.send(FakeModel.HELLO)
+        awaitBubble("reply")
+        ui.tap(Tags.TAB + ShellTab.OVERVIEW.name)
+        val zero = app.getString(R.string.overview_ring_desc, "0.0000")
+        ui.await("a spend above zero on the ring") { ui.textsOf(Tags.OVERVIEW_RING).let { it.isNotEmpty() && it.none { t -> t == zero } } }
+        ui.awaitTag(Tags.OVERVIEW_RECENT + id)
+    }
+
+    /** Ruling 3: at FULL the background really animates; SAVER (from settings) is saved and calms it; FULL brings it back. */
+    @Test fun t21_effectStrengthPersistsAndCalmsTheShell() {
+        try {
+            E2e.withAnimationsOn {
+                E2e.useEffects(EffectLevel.FULL)
+                launchShell().use {
+                    ui.await("the background animating at FULL", 30_000) { backgroundAnimating() == true }
+                    ui.tap(Tags.TAB + ShellTab.SETTINGS.name)
+                    ui.tap(Tags.EFFECT + 2)
+                    ui.await("SAVER saved and the background still", 30_000) {
+                        app.uiPrefs.effectLevel == EffectLevel.SAVER && backgroundAnimating() == false
+                    }
+                    ui.tap(Tags.EFFECT + 0)
+                    ui.await("the background animating again at FULL", 30_000) {
+                        app.uiPrefs.effectLevel == EffectLevel.FULL && backgroundAnimating() == true
+                    }
+                }
+            }
+        } finally {
+            E2e.useEffects(EffectLevel.SAVER)
+        }
+    }
+
+    /** A notification's deep link (EXTRA_SESSION_ID) opens that conversation in the chat tab. */
+    @Test fun t22_aNotificationDeepLinkOpensTheConversation() {
+        var id = ""
+        launchShell().use {
+            id = ui.newConversation()
+            ui.send(FakeModel.HELLO)
+            awaitBubble("reply")
+        }
+        val title = conversationTitle(id)
+        app.uiPrefs.lastSessionId = null // the link, not the remembered conversation, must open it
+        val intent = Intent(app, MainActivity::class.java).putExtra(Notifier.EXTRA_SESSION_ID, id)
+        launchShell(intent).use {
+            ui.await("the chat tab on $id") { E2e.nav { tab == ShellTab.CHAT && openSessionId == id } }
+            ui.await("the title $title") { ui.textsOf(Tags.CHAT_TITLE) == listOf(title) }
+        }
+    }
+
+    /** Review Focus 1: an approval asked before the mux drops is still one card after the reconnect, and answering it works. */
+    @Test fun t23_anApprovalPendingAcrossAReconnectIsStillAnswerable() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.APPROVE)
+        ui.awaitTag(Tags.PROMPT_SHEET)
+        val remote = app.shellSessions.current.value!!.remote as DshRemote
+        remote.mux.dropForTest()
+        ui.await("the mux to notice the drop", 30_000) { remote.muxState.value != MuxState.OPEN }
+        // The card is watched on every frame of the reconnect: it must neither vanish nor double.
+        val counts = mutableSetOf<Int>()
+        ui.await("the mux to reconnect", 120_000) {
+            counts += ui.nodes(hasTestTag(Tags.PROMPT_SHEET), unmerged = true).size
+            remote.muxState.value == MuxState.OPEN
+        }
+        assertEquals("cards seen during the reconnect", setOf(1), counts)
+        ui.waitForIdle()
+        assertEquals("cards after the reconnect", 1, ui.nodes(hasTestTag(Tags.PROMPT_SHEET), unmerged = true).size)
+        ui.tap(Tags.APPROVE_ONCE)
+        awaitBubble(FakeModel.APPROVED_REPLY)
+    }
+
+    /**
+     * The phone layout on the emulator (plan: "T15 的模擬器測試各檢查一次"): every tab, the attach menu, two attachment chips and
+     * an approval card; nothing floating overlaps, each page's last control scrolled to the end sits above the dock, and no text
+     * is squeezed into a vertical column. The screen is first set to about 412 dp wide (`wm density`, put back afterwards);
+     * should that not give 360..480 dp, the measurements are only logged.
+     */
+    @Test fun t24_atPhoneWidthNoFloatingControlOverlapsAnother() {
+        val density = phoneDensity()
+        try {
+            if (density != null) E2e.shell("wm density $density")
+            launchShell().use {
+                val widthDp = with(ui.density) { ui.onRoot().fetchSemanticsNode().boundsInRoot.width.toDp().value }
+                val enforce = widthDp in 360f..480f
+                Log.i(FakeModel.TAG, "t24: root width $widthDp dp (density override $density); layout checks ${if (enforce) "enforced" else "logged only"}")
+                val problems = mutableListOf<String>()
+                fun check(where: String, block: () -> Unit) {
+                    try {
+                        block()
+                    } catch (e: AssertionError) {
+                        if (enforce) throw e
+                        problems += "$where: ${e.message}"
+                    }
+                }
+                fun everyTab(where: String) = ShellTab.entries.forEach { t ->
+                    ui.tap(Tags.TAB + t.name)
+                    ui.await("the ${t.name} tab") { E2e.nav { tab } == t }
+                    if (t == ShellTab.CHAT) {
+                        E2e.nav { listOpen = true } // the conversation list: a page that scrolls to an end like the others
+                        ui.awaitTag(Tags.NEW_SESSION)
+                    }
+                    ui.waitForIdle()
+                    check("$where/${t.name}") { ui.assertNoFloatingOverlap("$where/${t.name}") }
+                    check("$where/${t.name}") { assertNoVerticalText("$where/${t.name}") }
+                    check("$where/${t.name}") { assertLastPageControlClearsTheDock("$where/${t.name}") }
+                }
+
+                everyTab("ready")
+                ui.tap(Tags.ATTACH)
+                ui.awaitTag(Tags.ATTACH_IMAGE)
+                check("attach menu") { ui.assertNoFloatingOverlap("attach menu") }
+                ui.tap(Tags.ATTACH)
+                ui.awaitNoTag(Tags.ATTACH_IMAGE)
+
+                val uris = listOf(exportFile("e2e-layout-one.txt", "one"), exportFile("e2e-layout-two-with-a-long-name.txt", "two"))
+                E2e.onMain { E2e.shellActivity().attachForTest(uris) }
+                ui.await("two attachment chips") { ui.nodes(hasTagPrefix(Tags.ATTACHMENT_CHIP), unmerged = true).size >= 2 }
+                everyTab("chips")
+                // Remove them again: the approval below must not carry them along.
+                while (true) {
+                    val remove = ui.nodes(hasTagPrefix(Tags.ATTACHMENT_REMOVE), unmerged = true).firstOrNull()?.tag() ?: break
+                    ui.tap(remove)
+                    ui.awaitNoTag(remove)
+                }
+
+                ui.newConversation()
+                ui.send(FakeModel.APPROVE)
+                ui.awaitTag(Tags.PROMPT_SHEET)
+                check("approval card") { ui.assertNoFloatingOverlap("approval card") }
+                check("approval card") { assertNoVerticalText("approval card") }
+                ui.tap(Tags.APPROVE_ONCE)
+                awaitBubble(FakeModel.APPROVED_REPLY)
+
+                if (problems.isNotEmpty()) Log.w(FakeModel.TAG, "t24: problems at $widthDp dp (not enforced):\n" + problems.joinToString("\n"))
+            }
+        } finally {
+            if (density != null) E2e.shell("wm density reset")
+        }
     }
 
     // ---------- helpers ----------
+
+    /** Runs [block] with the shell started and Ready. */
+    private fun shell(block: () -> Unit) {
+        launchShell().use { block() }
+    }
+
+    private fun bubbleTexts(): List<String> =
+        ui.nodes(hasTestTag(Tags.ASSISTANT_BUBBLE)).flatMap { it.texts() }
+
+    /** Waits until a finished assistant bubble contains [text]. */
+    private fun awaitBubble(text: String, timeoutMs: Long = 120_000) =
+        ui.await("an answer containing '$text'", timeoutMs) { bubbleTexts().any { it.contains(text) } }
+
+    private fun backgroundAnimating(): Boolean? =
+        ui.nodes(hasTestTag(Tags.SHELL_BACKGROUND), unmerged = true).firstOrNull()?.config?.getOrNull(FogSemantics.Animating)
+
+    /** The title the chat header shows for [id] (dsh's title once it has one, else the untitled label), as the chat page picks it. */
+    private fun conversationTitle(id: String): String {
+        val rows = app.shellSessions.current.value?.index?.rows
+        val end = System.currentTimeMillis() + 60_000
+        while (System.currentTimeMillis() < end) {
+            val title = rows?.value?.firstOrNull { it.id == id }?.title
+            if (!title.isNullOrBlank()) return title
+            Thread.sleep(500)
+        }
+        return app.getString(R.string.chat_untitled)
+    }
+
+    /** A file under cache/export/ (the FileProvider's shared directory), as a content URI the app reads like a picked one. */
+    private fun exportFile(name: String, content: String): Uri {
+        val file = File(app.cacheDir, "export/$name")
+        file.parentFile!!.mkdirs()
+        file.writeText(content)
+        return FileProvider.getUriForFile(app, "${app.packageName}.export", file)
+    }
+
+    /** The density that makes the emulator's screen about 412 dp wide, or null when it already is (or the size is unknown). */
+    private fun phoneDensity(): Int? {
+        val size = Regex("""Physical size: (\d+)x(\d+)""").find(E2e.shell("wm size"))?.groupValues ?: return null
+        val widthPx = size[1].toInt()
+        val metrics = app.resources.displayMetrics
+        val widthDp = metrics.widthPixels / metrics.density
+        if (widthDp in 360f..480f) return null
+        return (widthPx * 160.0 / 412.0).toInt().coerceAtLeast(60)
+    }
+
+    private fun ComposeUiTest.onRoot() = onAllNodes(SemanticsMatcher("root") { it.parent == null }).onFirst()
+
+    private val inDock = hasAnyAncestor(hasTestTag(Tags.DOCK))
+    private val inSheet = hasAnyAncestor(hasTestTag(Tags.PROMPT_SHEET))
+
+    /** Scrolled to the end, the page's last control ends above the floating dock. */
+    private fun assertLastPageControlClearsTheDock(where: String) {
+        val scrollers = ui.nodes(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and !inDock and !inSheet)
+        scrollers.forEach { s ->
+            runCatching {
+                ui.onNode(SemanticsMatcher("node ${s.id}") { it.id == s.id }).performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 100_000f) }
+            }
+        }
+        ui.waitForIdle()
+        val dockTop = ui.nodes(hasTestTag(Tags.DOCK), unmerged = true).first().boundsInRoot.top
+        val controls = ui.nodes(hasClickAction() and !inDock and !inSheet and !hasTestTag(Tags.DOCK), unmerged = true)
+            .filter { it.boundsInRoot.height > 0f && it.boundsInRoot.width > 0f }
+        val lowest = controls.maxByOrNull { it.boundsInRoot.bottom } ?: return
+        assertTrue("$where: ${lowest.describe()} ends at ${lowest.boundsInRoot.bottom}, under the dock's top $dockTop", lowest.boundsInRoot.bottom <= dockTop + 0.5f)
+    }
+
+    /** No text of two or more characters wraps into a column narrower than two of its characters (vertical text). */
+    private fun assertNoVerticalText(where: String) {
+        val texts = ui.nodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text) and SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult), unmerged = true)
+            .filter { it.boundsInRoot.width > 0f && it.boundsInRoot.height > 0f }
+        for (n in texts) {
+            val text = n.texts().joinToString("").filterNot { it.isWhitespace() }
+            if (text.length < 2) continue
+            val layouts = Collections.synchronizedList(mutableListOf<TextLayoutResult>())
+            ui.runOnUiThread { n.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts) }
+            val layout = layouts.firstOrNull() ?: continue
+            val fontSize: TextUnit = layout.layoutInput.style.fontSize
+            if (!fontSize.isSp) continue
+            val em = with(ui.density) { fontSize.toPx() }
+            val width = n.boundsInRoot.width
+            assertFalse(
+                "$where: '${text.take(20)}' is ${layout.lineCount} lines in $width px (< two characters of ${em}px): vertical text",
+                layout.lineCount >= 2 && width < 2 * em,
+            )
+        }
+    }
 
     private fun code(url: String): Int = http.newCall(Request.Builder().url(url).build()).execute().use { it.code }
 
@@ -211,6 +642,13 @@ class E2eTest {
         assertTrue("$method failed: ${r.body.take(500)}", result.optBoolean("ok"))
         Log.i(FakeModel.TAG, "$method ok")
         return result.optJSONObject("value") ?: JSONObject()
+    }
+
+    /** The paths of every workspace in dsh's own registry file (`$DSH_HOME/storages/workspace.json`). */
+    private fun workspacePaths(store: File): List<String> {
+        if (!store.isFile) return emptyList()
+        val tables = JSONObject(store.readText()).optJSONObject("tables")?.optJSONObject("workspaces") ?: return emptyList()
+        return tables.keys().asSequence().map { tables.getJSONObject(it).optString("path") }.toList()
     }
 
     /** The text appended to [note] after it had [sizeBefore] bytes (a note is only ever appended to). */
@@ -243,11 +681,23 @@ class E2eTest {
         }
     }
 
+    /** Records every guest command and runs none of them (settings' update check must not need npm on a verified version). */
+    private class RecordingNpm : GuestCommand {
+        val calls: MutableList<String> = Collections.synchronizedList(mutableListOf())
+        override fun run(args: List<String>, timeoutMs: Long): CommandResult {
+            calls += args.take(2).joinToString(" ")
+            return CommandResult(1, "", "not run in this test")
+        }
+    }
+
     companion object {
         private const val HOLDER = "e2e"
         private const val MARK = FakeModel.MEMORY_MARK
         private const val REMIND = FakeModel.REMIND_TITLE
         private const val BROKEN = "9.9.9"
+        private const val PRO = "deepseek-v4-pro"
+        private const val RENAMED = "E2E 改名"
+        private const val FILE_CONTENT = "E2E-FILE-CONTENT"
         private val TAIPEI = ZoneId.of("Asia/Taipei")
 
         @AfterClass @JvmStatic fun releaseDsh() {
