@@ -66,6 +66,18 @@ class DshServiceTest {
         return c
     }
 
+    /**
+     * Spec §11: dsh is not resident while the app is not in the foreground. A sticky service would be restarted by the system
+     * after a process death (null intent) and start dsh with no screen, grace timer or holder to end it.
+     */
+    @Test fun theServiceIsNotRestartedByTheSystemAfterItsProcessDies() {
+        shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val c = installFakeController()
+        val service = Robolectric.buildService(DshService::class.java).create().get()
+        assertEquals(android.app.Service.START_NOT_STICKY, service.onStartCommand(null, 0, 1))
+        waitUntil { c.isRunning.value }
+    }
+
     @Test fun destroyReleasesTheServiceHoldButLeavesDshRunningForAnotherHolder() {
         shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val c = installFakeController()

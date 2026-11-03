@@ -46,7 +46,9 @@ class DshService : Service() {
         app.controller.retain(HOLDER)
         app.serviceGaveUp.value = false // a new start (the user opened the app) begins a fresh attempt
         startDsh()
-        return START_STICKY
+        // Spec §11: dsh is not resident while the app is not in the foreground. After a process death the system must not
+        // restart this service (and dsh) with nobody to end it: the next screen start or heartbeat starts dsh again.
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
