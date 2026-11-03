@@ -154,4 +154,29 @@ class NotifierTest {
         assertEquals(setOf("action"), tapIntent(n).extras!!.keySet())
         assertTrue(n.text().contains("已下載") && n.text().contains("0.7.0"))
     }
+
+    @Test fun workDoneOpensThatConversation() {
+        notifier.showWorkDone("sess-7", "寫小說")
+        val n = posted().single()
+        assertEquals("dshm_messages", n.channelId)
+        assertEquals("DSH 完成了", n.title())
+        assertEquals("寫小說", n.text())
+        val intent = tapIntent(n)
+        assertEquals("app.dshmobile.ui.MainActivity", intent.component!!.className)
+        assertEquals("sess-7", intent.getStringExtra("sessionId"))
+        assertTrue(n.flags and Notification.FLAG_AUTO_CANCEL != 0)
+    }
+
+    @Test fun aLongConversationTitleIsClippedTo40Characters() {
+        notifier.showWorkDone("s", "字".repeat(100))
+        assertEquals(40, posted().single().text().length)
+    }
+
+    @Test fun aClipNeverSplitsASurrogatePair() {
+        notifier.showWorkDone("s", "字".repeat(38) + "\uD83D\uDE00".repeat(5)) // the 40-char cut falls inside the first emoji
+        val text = posted().single().text()
+        assertTrue(text.length <= 40)
+        assertTrue(text.endsWith("…"))
+        assertTrue("no lone high surrogate before the ellipsis", !Character.isHighSurrogate(text[text.length - 2]))
+    }
 }

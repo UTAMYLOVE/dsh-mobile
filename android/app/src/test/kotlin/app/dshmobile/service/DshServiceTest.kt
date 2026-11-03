@@ -179,4 +179,199 @@ class DshServiceTest {
         controller.destroy()
         assertTrue(app.controller.holders.isEmpty())
     }
+
+    // --- Task 16: work in the background (spec §5.11) ---
+
+    private fun startWithFakeRemote(remote: FakeWorkRemote, script: (Int) -> String = { """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 60""" }):
+        Triple<DshController, org.robolectric.android.controller.ServiceController<DshService>, DshService> {
+        shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val c = installFakeController(script)
+        app.workRemoteFactory = { _, _ -> remote }
+        val sc = Robolectric.buildService(DshService::class.java)
+        val service = sc.create().startCommand(0, 0).get()
+        waitUntil { service.tracker != null }
+        return Triple(c, sc, service)
+    }
+
+    private fun idleMain(ms: Long = 0) = shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(ms))
+
+    /** The service posts to the main thread; the test's paused looper only runs what [idleMain] lets it. */
+    private fun waitUntilMain(timeoutMs: Long = 10_000, cond: () -> Boolean) {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (!cond() && System.currentTimeMillis() < end) { idleMain(); Thread.sleep(10) }
+        assertTrue("condition not met in time", cond())
+    }
+
+    private fun stoppedServiceName() = shadowOf(app as Application).nextStoppedService?.component?.className
+
+    private fun doneNotices() = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+        .count { it.extras.getCharSequence(android.app.Notification.EXTRA_TITLE) == "DSH 完成了" }
+
+    private fun serviceTitle(service: DshService) =
+        shadowOf(service).lastForegroundNotification?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)
+
+    @Test fun swipingTheTaskAwayWhileWorkingKeepsTheServiceAndDsh() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        val (c, sc, service) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+        waitUntil { c.isRunning.value }
+
+        // The owner leaves and swipes the app away; the ten minutes run out while dsh still works.
+        app.uiHolder.onUiStart()
+        app.uiHolder.onUiStop()
+        service.onTaskRemoved(null)
+        idleMain(11 * 60_000)
+        assertEquals("the UI's countdown must not stop a working service", null, stoppedServiceName())
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        assertEquals(setOf("service", "work"), c.holders)
+        assertTrue(processes.single().isAlive)
+
+        // The work ends: the usual ten minutes start again and then stop the service.
+        remote.status("a", false)
+        waitUntilMain { app.uiHolder.graceScheduled }
+        assertEquals(null, stoppedServiceName())
+        idleMain(11 * 60_000)
+        assertEquals(DshService::class.java.name, stoppedServiceName())
+        sc.destroy()
+    }
+
+    @Test fun swipingTheTaskAwayWhenIdleBehavesAsBefore() {
+        val remote = FakeWorkRemote()
+        val (c, sc, service) = startWithFakeRemote(remote)
+        waitUntil { c.isRunning.value }
+
+        app.uiHolder.onUiStart()
+        app.uiHolder.onUiStop()
+        service.onTaskRemoved(null)
+        idleMain(11 * 60_000) // the countdown ends: service stop requested as before
+        assertEquals(DshService::class.java.name, stoppedServiceName())
+        assertEquals(setOf("service"), c.holders)
+        sc.destroy()
+        waitUntil { !c.isRunning.value }
+    }
+
+    @Test fun workEndingWhileTheScreenIsUpPostsNoNoticeAndNoCountdown() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        val (c, sc, service) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+        app.uiHolder.onUiStart()
+
+        remote.status("a", false)
+        waitUntil { "work" !in c.holders && serviceTitle(service) == "DSH Mobile 執行中" }
+        Thread.sleep(150); idleMain() // a wrongful notice or countdown would be posted to the main thread right after
+        assertEquals(0, doneNotices())
+        assertFalse(app.uiHolder.graceScheduled)
+        sc.destroy()
+    }
+
+    @Test fun workEndingInTheBackgroundPostsTheNoticeAndStartsTheCountdown() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        val (c, sc, _) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+
+        remote.status("a", false)
+        waitUntilMain { app.uiHolder.graceScheduled }
+        assertFalse("work" in c.holders)
+        assertEquals(1, doneNotices())
+        sc.destroy()
+    }
+
+    @Test fun pressingStopPostsNoDoneNotice() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        val (c, sc, service) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+
+        service.onStartCommand(android.content.Intent().putExtra("action", "stop_work"), 0, 2)
+        waitUntil { remote.cancelled.toList() == listOf("a") }
+        remote.status("a", false)
+        waitUntilMain { app.uiHolder.graceScheduled } // the notice, if any, is posted before this in the same step
+        assertEquals(0, doneNotices())
+        sc.destroy()
+    }
+
+    @Test fun aCrashRestartInTheBackgroundThatFindsNoWorkAppliesTheNormalEndRule() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        // dsh #0 dies a second after it came up, while working; #1 stays up.
+        val (c, sc, _) = startWithFakeRemote(remote) { n -> if (n == 0) "$line sleep 1; exit 1" else "$line exec sleep 60" }
+        waitUntil { "work" in c.holders }
+        remote.sessions = listOf(FakeWorkRemote.row("a", false)) // by the time the new dsh is watched, nothing is running
+
+        waitUntil(30_000) { processes.size == 2 && c.isRunning.value }
+        waitUntilMain { app.uiHolder.graceScheduled }
+        assertFalse("work" in c.holders)
+        assertEquals("a quiet end, not a done notice", 0, doneNotices())
+        assertEquals(null, stoppedServiceName())
+        idleMain(11 * 60_000)
+        assertEquals(DshService::class.java.name, stoppedServiceName())
+        sc.destroy()
+    }
+
+    @Test fun anotherStartCommandForTheSameDshKeepsTheWatcher() {
+        val remote = FakeWorkRemote()
+        var built = 0
+        val (c, sc, service) = startWithFakeRemote(remote)
+        app.workRemoteFactory = { _, _ -> built++; remote }
+        val first = service.tracker
+        waitUntil { c.isRunning.value }
+
+        service.onStartCommand(null, 0, 2) // the UI opened again; ensureRunning answers with the same dsh
+        Thread.sleep(300)
+        assertEquals(0, built)
+        assertTrue(first === service.tracker)
+        sc.destroy()
+    }
+
+    @Test fun theStopActionStopsAllWork() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true), FakeWorkRemote.row("k", true, parent = "a")))
+        val (_, sc, service) = startWithFakeRemote(remote)
+        waitUntil { service.tracker!!.running.value.size == 2 }
+
+        service.onStartCommand(android.content.Intent().putExtra("action", "stop_work"), 0, 2)
+        waitUntil { remote.cancelled.toList() == listOf("a") && remote.interrupted.toList() == listOf("k" to "a") }
+        sc.destroy()
+    }
+
+    @Test fun theWorkingNotificationNamesTheConversationAndOffersStop() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說"), FakeWorkRemote.row("b", true, title = "整理筆記")))
+        val (_, sc, service) = startWithFakeRemote(remote)
+        waitUntil { shadowOf(service).lastForegroundNotification?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE) == "DSH 正在工作…" }
+
+        val n = shadowOf(service).lastForegroundNotification!!
+        assertEquals("寫小說 等 2 件", n.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString())
+        val stop = n.actions.single()
+        assertEquals("停止", stop.title.toString())
+        val intent = shadowOf(stop.actionIntent).savedIntent
+        assertTrue(shadowOf(stop.actionIntent).isService)
+        assertEquals(DshService::class.java.name, intent.component!!.className)
+        assertEquals("stop_work", intent.getStringExtra("action"))
+
+        remote.status("a", false)
+        remote.status("b", false)
+        waitUntil { shadowOf(service).lastForegroundNotification?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE) == "DSH Mobile 執行中" }
+        sc.destroy()
+    }
+
+    @Test fun aCrashWhileWorkIsHeldStillFollowsTheCrashPolicy() {
+        // Work is in flight the whole time (the fake always lists one running session), yet three quick crashes still give up.
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        val (c, sc, service) = startWithFakeRemote(remote) { "$line exit 1" }
+
+        waitUntil(30_000) { app.serviceGaveUp.value }
+        waitUntil { shadowOf(service).isStoppedBySelf }
+        assertEquals(3, processes.size)
+        assertFalse(c.isRunning.value)
+        sc.destroy()
+        assertFalse("the work hold dies with the service", "work" in c.holders)
+    }
+
+    @Test fun theWorkingNotificationClipsALongTitleAndLeaksNoUrlOrToken() {
+        val long = "字".repeat(100)
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = long), FakeWorkRemote.row("b", true, title = "x"), FakeWorkRemote.row("c", true)))
+        val (_, sc, service) = startWithFakeRemote(remote)
+        waitUntil { serviceTitle(service) == "DSH 正在工作…" && shadowOf(service).lastForegroundNotification!!.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().endsWith("等 3 件") }
+        val text = shadowOf(service).lastForegroundNotification!!.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString()
+        assertEquals("字".repeat(39) + "…" + " 等 3 件", text)
+        assertFalse(text.contains("http") || text.contains("token"))
+        sc.destroy()
+    }
 }

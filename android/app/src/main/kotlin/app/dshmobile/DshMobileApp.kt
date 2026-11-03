@@ -32,7 +32,11 @@ import app.dshmobile.security.KeyVault
 import app.dshmobile.service.CrashPolicy
 import app.dshmobile.service.DshController
 import app.dshmobile.service.DshLauncher
+import app.dshmobile.remote.DshRemote
 import app.dshmobile.service.DshService
+import app.dshmobile.service.RunningDsh
+import app.dshmobile.service.WorkRemote
+import app.dshmobile.service.asWorkRemote
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.SettingsJobs
 import app.dshmobile.ui.UiHolder
@@ -72,6 +76,12 @@ class DshMobileApp : Application(), Configuration.Provider {
      * screen shows its error screen for it and never restarts dsh by itself (Retry is the user's explicit action).
      */
     val serviceGaveUp = MutableStateFlow(false)
+
+    /** Builds the [WorkRemote] [DshService] watches for work; a test seam (production: a [DshRemote] on the running dsh). */
+    @VisibleForTesting
+    internal var workRemoteFactory: (RunningDsh, CoroutineScope) -> WorkRemote = { dsh, scope ->
+        DshRemote(DshClient(OkHttpClient(), dsh.launch), scope).asWorkRemote()
+    }
 
     /** Starts [DshService]; a test seam (Robolectric cannot make `startForegroundService` refuse). */
     @VisibleForTesting
@@ -172,7 +182,8 @@ class DshMobileApp : Application(), Configuration.Provider {
         UiHolder(
             runtime = controller,
             holders = { controller.holders },
-            stopService = { stopService(Intent(this, DshService::class.java)) },
+            // Work in flight keeps the service (and dsh); DshService ends itself when the work is done and nobody is looking.
+            stopService = { if (DshService.WORK_HOLDER !in controller.holders) stopService(Intent(this, DshService::class.java)) },
         )
     }
 
