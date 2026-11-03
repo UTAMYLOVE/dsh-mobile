@@ -89,4 +89,8 @@ object Tags {
     const val SEND_DISMISS = "send-dismiss-"
     /** + requestId: a bubble that is waiting for dsh. */
     const val PENDING_BUBBLE = "pending-bubble-"
+    /** The chat page's header panel (「☰ 對話」, title, model chip). */
+    const val CHAT_HEADER = "chat-header"
+    /** The ↓ pill: new messages arrived below while the list was scrolled up. */
+    const val SCROLL_TO_NEWEST = "scroll-to-newest"
 }

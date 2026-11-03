@@ -376,7 +376,11 @@ class MainActivity : ComponentActivity() {
             LaunchRequest.Rollback -> confirmRollback()
             LaunchRequest.ExportErrorLog -> exportErrorLog()
             LaunchRequest.InstallUpdate -> installUpdate()
-            is LaunchRequest.OpenSession -> nav.openSession(request.id)
+            // Like a tab tap: while settings is busy the tab stays (and says why), and the link does nothing.
+            is LaunchRequest.OpenSession -> {
+                nav.select(ShellTab.CHAT)
+                if (nav.tab == ShellTab.CHAT) nav.openSession(request.id)
+            }
         }
         // Consumed: a later recreation must not run it again.
         intent?.removeExtra(Notifier.EXTRA_ACTION)

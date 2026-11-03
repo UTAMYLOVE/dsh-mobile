@@ -43,7 +43,8 @@ private class FakeChatRemote : ChatRemote {
     }
     override suspend fun cancel(sessionId: String) { cancelled++ }
     override suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): JsonElement { pageCalls += beforeSeq to maxMessages; return pageAnswer }
-    override suspend fun selectModel(sessionId: String, provider: String, model: String) { this.model = provider to model }
+    var modelError: Exception? = null
+    override suspend fun selectModel(sessionId: String, provider: String, model: String) { modelError?.let { throw it }; this.model = provider to model }
     override suspend fun upload(sessionId: String, name: String, bytes: ByteArray) = "r"
 }
 
@@ -250,6 +251,78 @@ class ConversationStoreTest {
         assertFalse(store.pending.value.single().failed)
         advanceTimeBy(2_000); runCurrent()
         assertTrue(store.pending.value.single().failed)
+        store.close()
+    }
+
+    // ---- fix round 1: a committed reply stays until its message arrives ----
+
+    private fun committed(seq: Long) =
+        streamFrame("""{"type":"end","attemptId":"a1","revision":9,"outcome":{"kind":"committed","eventType":"assistant/message","seq":$seq}}""")
+
+    private fun TestScope.streamHello(remote: FakeChatRemote) {
+        remote.emit(snapshot(userMsg(3, "hi"), ev("turn/start", 4))); remote.emit(start()); remote.emit(chunk("text-delta", "Hello"))
+        runCurrent(); advanceTimeBy(100); runCurrent()
+    }
+
+    @Test fun aCommittedReplyStaysUntilItsMessageArrives() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        streamHello(remote)
+        remote.emit(chunk("text-delta", " world")) // not published yet when the end comes: the held reply is the whole text
+        remote.emit(committed(7)); runCurrent()
+        assertEquals("the reply does not blink out", "Hello world", store.state.value.live?.text)
+        remote.emit(live(asstMsg(7, """{"type":"text","text":"Hello world"}"""))); runCurrent()
+        assertNull(store.state.value.live)
+        assertEquals("Hello world", (store.state.value.items.last() as ChatItem.Assistant).text)
+        store.close()
+    }
+
+    @Test fun aCommittedReplyWhoseMessageNeverComesIsDroppedAfterTenSeconds() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        streamHello(remote)
+        remote.emit(committed(9)); runCurrent()
+        advanceTimeBy(9_990); runCurrent()
+        assertEquals("Hello", store.state.value.live?.text)
+        advanceTimeBy(20); runCurrent()
+        assertNull(store.state.value.live)
+        store.close()
+    }
+
+    @Test fun theNextBaselineDropsAHeldReply() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        streamHello(remote)
+        remote.emit(committed(9)); runCurrent()
+        remote.emit(snapshot(userMsg(3, "hi"))); runCurrent()
+        assertNull(store.state.value.live)
+        store.close()
+    }
+
+    @Test fun anAbandonedOrUnnumberedEndDropsTheReplyAtOnce() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        streamHello(remote)
+        remote.emit(end("abandoned")); runCurrent()
+        assertNull(store.state.value.live)
+        remote.emit(start()); remote.emit(chunk("text-delta", "again")); runCurrent(); advanceTimeBy(100); runCurrent()
+        assertEquals("again", store.state.value.live?.text)
+        remote.emit(end()); runCurrent() // committed without a seq: nothing to wait for
+        assertNull(store.state.value.live)
+        store.close()
+    }
+
+    @Test fun aMessageThatArrivedBeforeTheEndDropsTheReplyAtOnce() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        streamHello(remote)
+        remote.emit(live(asstMsg(7, """{"type":"text","text":"Hello"}"""))); remote.emit(committed(7)); runCurrent()
+        assertNull(store.state.value.live)
+        store.close()
+    }
+
+    /** M7: a refused model change says so, so the chip can go back. */
+    @Test fun aRefusedModelChangeReturnsFalse() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        assertTrue(store.selectModel(AgentModels.find("deepseek-v4-pro")!!))
+        remote.modelError = DshRpcException("session/model-unavailable", "x")
+        assertFalse(store.selectModel(AgentModels.find("deepseek-flash")!!))
+        assertEquals("session/model-unavailable", store.sendError.value)
         store.close()
     }
 }

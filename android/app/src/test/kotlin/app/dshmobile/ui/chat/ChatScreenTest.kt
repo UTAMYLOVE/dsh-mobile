@@ -1,10 +1,13 @@
 package app.dshmobile.ui.chat
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
@@ -23,7 +26,10 @@ import app.dshmobile.chat.PendingSend
 import app.dshmobile.chat.ToolStatus
 import app.dshmobile.chat.WebSource
 import app.dshmobile.ui.fog.EffectLevel
+import app.dshmobile.ui.fog.FogSemantics
 import app.dshmobile.ui.fog.FogTheme
+import app.dshmobile.ui.fog.LocalBackdrop
+import app.dshmobile.ui.fog.rememberBackdrop
 import app.dshmobile.ui.fog.effectsFor
 import app.dshmobile.ui.shell.Tags
 import org.junit.Assert.assertEquals
@@ -294,5 +300,64 @@ class ChatScreenTest {
 
     private fun hasTestTagPrefix(prefix: String) = androidx.compose.ui.test.SemanticsMatcher("tag starts with $prefix") {
         it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
+    }
+
+    // ---- fix round 1 ----
+
+    /** I1: messages are glass without blur (a blurred backdrop per bubble would cost every frame); the header keeps its blur. */
+    @Test fun bubblesNeverBlurButTheHeaderDoes() {
+        h.state = ChatHarness.chatState(listOf(ChatItem.User("e1", "嗨", emptyList()), ChatItem.Assistant("e2", 2, null, "你好")))
+            .copy(live = LiveReply("a9", "", "正在寫", emptyList()), running = true)
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.FULL, reducedMotion = true)) {
+                CompositionLocalProvider(LocalBackdrop provides rememberBackdrop()) { h.Screen() }
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.CHAT_HEADER).assert(SemanticsMatcher.expectValue(FogSemantics.Blur, true))
+        rule.onNodeWithTag(Tags.ASSISTANT_BUBBLE).assert(SemanticsMatcher.expectValue(FogSemantics.Blur, false))
+        rule.onNodeWithTag(Tags.LIVE_BUBBLE).assert(SemanticsMatcher.expectValue(FogSemantics.Blur, false))
+    }
+
+    private fun conversation(n: Int) =
+        (1..n).flatMap { listOf(ChatItem.User("u$it", "問題 $it", emptyList()), ChatItem.Assistant("a$it", it.toLong(), null, "回答 $it")) }
+
+    /** I2 (a): resting at the bottom, a new message comes into view. */
+    @Test fun atTheBottomANewRowComesIntoView() {
+        show(*conversation(40).toTypedArray())
+        h.state = h.state.copy(items = h.state.items + ChatItem.User("u41", "問題 41", emptyList()))
+        rule.waitForIdle()
+        rule.onNode(hasText("問題 41")).assertIsDisplayed()
+        assertEquals(0, rule.onAllNodesWithTag(Tags.SCROLL_TO_NEWEST).fetchSemanticsNodes().size)
+    }
+
+    /** I2 (b): scrolled up, a new message keeps the reading place and offers the ↓ pill, which goes down to it. */
+    @Test fun scrolledUpANewRowKeepsThePlaceAndOffersThePill() {
+        show(*conversation(40).toTypedArray())
+        rule.onNodeWithTag(Tags.CHAT_MESSAGES).performScrollToNode(hasText("問題 5"))
+        rule.waitForIdle()
+        val before = rule.onNode(hasText("問題 5")).fetchSemanticsNode().boundsInRoot
+        assertEquals("nothing new yet", 0, rule.onAllNodesWithTag(Tags.SCROLL_TO_NEWEST).fetchSemanticsNodes().size)
+        h.state = h.state.copy(items = h.state.items + ChatItem.User("u41", "問題 41", emptyList()))
+        rule.waitForIdle()
+        val after = rule.onNode(hasText("問題 5")).fetchSemanticsNode().boundsInRoot
+        assertEquals("the place is kept", before.top, after.top, 1f)
+        assertEquals(0, rule.onAllNodes(hasText("問題 41")).fetchSemanticsNodes().size)
+        val pill = rule.onNodeWithTag(Tags.SCROLL_TO_NEWEST).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("a 48 dp target", pill.height >= 47.5f * rule.density.density && pill.width >= 47.5f * rule.density.density)
+        rule.onNodeWithTag(Tags.SCROLL_TO_NEWEST).performClick()
+        rule.waitForIdle()
+        rule.onNode(hasText("問題 41")).assertIsDisplayed()
+        assertEquals(0, rule.onAllNodesWithTag(Tags.SCROLL_TO_NEWEST).fetchSemanticsNodes().size)
+    }
+
+    /** I2 (c): scrolled up, sending a message goes back down to it. */
+    @Test fun scrolledUpASendReturnsToTheBottom() {
+        show(*conversation(40).toTypedArray())
+        rule.onNodeWithTag(Tags.CHAT_MESSAGES).performScrollToNode(hasText("問題 5"))
+        rule.waitForIdle()
+        h.state = h.state.copy(pending = listOf(PendingSend("r9", "新的一句", emptyList(), queued = false)))
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.PENDING_BUBBLE + "r9").assertIsDisplayed()
     }
 }

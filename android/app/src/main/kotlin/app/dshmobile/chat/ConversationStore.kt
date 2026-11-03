@@ -78,6 +78,9 @@ class ConversationStore(
     private var liveAttempt: String? = null
     private var liveTools = emptyList<String>()
     private var publishJob: Job? = null
+    /** A committed reply's outcome seq: its live text stays up until that `assistant/message` is in the state (bounded). */
+    private var heldSeq: Long? = null
+    private var heldJob: Job? = null
 
     /** Why the follow stream is not delivering: a [DshErrors.safeCode], `ended`, or an exception class name; null when fine. */
     private val _followError = MutableStateFlow<String?>(null)
@@ -131,6 +134,7 @@ class ConversationStore(
             else -> {
                 if (o != null && (o["type"] as? JsonPrimitive)?.content == "snapshot") dropLive()
                 _state.update { ConversationReducer.reduce(it, frame) }
+                releaseHeld()
                 dropAccepted()
             }
         }
@@ -146,8 +150,27 @@ class ConversationStore(
                 publishLive()
             }
             "end" -> {
+                // The whole text, not the last throttled publish, is what stays up.
+                publishLive()
                 dropLive()
-                _state.update { it.copy(live = null) }
+                val outcome = f["outcome"] as? JsonObject
+                val seq = (outcome?.get("seq") as? JsonPrimitive)?.takeUnless { it.isString }?.content?.toLongOrNull()
+                val committed = (outcome?.get("kind") as? JsonPrimitive)?.content == "committed"
+                if (committed && seq != null && (_state.value.lastSeq ?: Long.MIN_VALUE) < seq) {
+                    // Keep the reply on screen until dsh's durable message for it arrives, so it never blinks out. The next
+                    // baseline, a new reply or a reconnect drops it as well (dropLive); after HOLD_MS it goes anyway.
+                    heldSeq = seq
+                    heldJob = scope.launch(reduceContext) {
+                        delay(HOLD_MS)
+                        if (heldSeq == seq) {
+                            heldSeq = null
+                            heldJob = null
+                            _state.update { it.copy(live = null) }
+                        }
+                    }
+                } else {
+                    _state.update { it.copy(live = null) }
+                }
             }
             "chunk" -> {
                 val attempt = liveAttempt ?: return
@@ -167,7 +190,21 @@ class ConversationStore(
         }
     }
 
+    /** The held reply goes once the state holds its message. */
+    private fun releaseHeld() {
+        val seq = heldSeq ?: return
+        if ((_state.value.lastSeq ?: Long.MIN_VALUE) >= seq) {
+            heldSeq = null
+            heldJob?.cancel()
+            heldJob = null
+            _state.update { it.copy(live = null) }
+        }
+    }
+
     private fun dropLive() {
+        heldSeq = null
+        heldJob?.cancel()
+        heldJob = null
         liveAttempt = null
         liveText = StringBuilder()
         liveReasoning = StringBuilder()
@@ -275,7 +312,16 @@ class ConversationStore(
                 _olderError.value = DshErrors.UNEXPECTED_ANSWER
                 return
             }
-            withContext(reduceContext) { _state.update { ConversationReducer.prepend(it, page) } }
+            withContext(reduceContext) {
+                _state.update { ConversationReducer.prepend(it, page) }
+                // A page is as good as a baseline for a reply still held up: let it go (bounded wait).
+                if (heldSeq != null) {
+                    heldSeq = null
+                    heldJob?.cancel()
+                    heldJob = null
+                    _state.update { it.copy(live = null) }
+                }
+            }
             _olderError.value = null
         } catch (e: CancellationException) {
             throw e
@@ -284,19 +330,21 @@ class ConversationStore(
         }
     }
 
-    suspend fun selectModel(model: AgentModels.Model) {
-        try {
-            remote.selectModel(sessionId, model.provider, model.id)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            report(e)
-        }
+    /** False when dsh refused it ([sendError] holds the code). */
+    suspend fun selectModel(model: AgentModels.Model): Boolean = try {
+        remote.selectModel(sessionId, model.provider, model.id)
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        report(e)
+        false
     }
 
     fun close() {
         job.cancel()
         publishJob?.cancel()
+        heldJob?.cancel()
         timeouts.values.forEach { it.cancel() }
     }
 
@@ -312,6 +360,7 @@ class ConversationStore(
         private const val ENDED = "ended"
         private val BACKOFF_MS = listOf(1_000L, 2_000L, 5_000L, 10_000L)
         private const val PUBLISH_MS = 50L
+        private const val HOLD_MS = 10_000L
         private const val PAGE_MESSAGES = 200
     }
 }

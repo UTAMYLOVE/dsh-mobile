@@ -198,4 +198,7 @@
     <string name="chat_no_browser">找不到可以開啟連結的瀏覽器</string>
     <string name="chat_share_failed">沒有辦法分享這個檔案</string>
     <string name="chat_list_failed">對話清單的動作沒有完成（%1$s）</string>
+    <string name="chat_stopped">已停止</string>
+    <string name="chat_attachments">附件：</string>
+    <string name="chat_scroll_to_newest">到最新的訊息</string>
 </resources>

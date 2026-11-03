@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -187,12 +188,12 @@ internal fun RawBubble(kind: BubbleKind, text: String) {
  * above this piece inside the bubble (0 when it continues the paragraph before it).
  */
 @Composable
-internal fun BubbleSegment(kind: BubbleKind, block: MdBlock, pos: SegPos, gapTop: Dp, cites: List<Int>, onLink: (String) -> Unit) {
+internal fun BubbleSegment(kind: BubbleKind, block: MdBlock, pos: SegPos, gapTop: Dp, cites: List<Int>, shade: Shade, onLink: (String) -> Unit) {
     BubbleBox(kind.user, fixedWidth = true) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .segmentBackground(kind.user, pos)
+                .segmentBackground(kind.user, pos, shade)
                 .testTag(kind.tag)
                 .semantics(mergeDescendants = true) {}
                 .padding(start = 16.dp, end = 16.dp, top = if (pos == SegPos.FIRST) 12.dp else gapTop, bottom = if (pos == SegPos.LAST) 12.dp else 0.dp),
@@ -207,7 +208,7 @@ internal fun BubbleSegment(kind: BubbleKind, block: MdBlock, pos: SegPos, gapTop
  * A slice of a bubble's background: the rounded rectangle is drawn as if it went on past the cut edges, clipped to this piece,
  * so the pieces join without seams. A flat fill (a gradient across a 50 000-pixel bubble would be flat anyway) and a rim.
  */
-private fun Modifier.segmentBackground(user: Boolean, pos: SegPos): Modifier = drawWithCache {
+private fun Modifier.segmentBackground(user: Boolean, pos: SegPos, shade: Shade): Modifier = drawWithCache {
     val r = Corner.toPx()
     val tail = Tail.toPx()
     val over = r * 2 + 4f
@@ -224,7 +225,7 @@ private fun Modifier.segmentBackground(user: Boolean, pos: SegPos): Modifier = d
             ),
         )
     }
-    val fill: Brush = if (user) Brush.horizontalGradient(listOf(Sakura.Background, Sakura.Primary)) else SolidColor(Color.White.copy(alpha = .44f))
+    val fill: Brush = if (user) diagonalShade(shade, size.width, size.height) else SolidColor(Color.White.copy(alpha = .44f))
     val rim = Brush.horizontalGradient(0f to Color.White.copy(alpha = .95f), .5f to Sakura.Primary.copy(alpha = .75f), 1f to Sakura.Aqua.copy(alpha = .9f))
     val stroke = Stroke(1.2.dp.toPx())
     // The glass's lit corner, faded out inside this first piece so the next one joins it.
@@ -241,6 +242,22 @@ private fun Modifier.segmentBackground(user: Boolean, pos: SegPos): Modifier = d
             if (!user) drawPath(path, rim, style = stroke)
         }
     }
+}
+
+/**
+ * The user's 135° pink for one piece of a long bubble: t = across·x/w + (1 − across)·(from + (to − from)·y/h), so a piece ends on
+ * exactly the colour the next one starts with. A linear gradient whose axis is that gradient of t.
+ */
+private fun diagonalShade(shade: Shade, w: Float, h: Float): Brush {
+    if (w <= 0f || h <= 0f) return SolidColor(Sakura.Primary)
+    val dx = shade.across / w
+    val dy = (1f - shade.across) * (shade.to - shade.from) / h
+    val c = (1f - shade.across) * shade.from
+    val len2 = dx * dx + dy * dy
+    if (len2 == 0f) return SolidColor(Sakura.Primary)
+    val start = Offset(-c * dx / len2, -c * dy / len2)
+    val end = Offset(start.x + dx / len2, start.y + dy / len2)
+    return Brush.linearGradient(listOf(Sakura.Background, Sakura.Primary), start = start, end = end)
 }
 
 @Composable
@@ -285,6 +302,7 @@ internal fun TypingBubble(tools: List<String>) {
 internal fun ThinkingToggle(expanded: Boolean, onToggle: () -> Unit) {
     Row(
         Modifier
+            .minimumInteractiveComponentSize()
             .heightIn(min = 40.dp)
             .clip50()
             .clickable(role = Role.Button, onClick = onToggle)
@@ -406,6 +424,7 @@ internal fun SearchCard(item: ChatItem.Tool, onLink: (String) -> Unit) {
                     Text(
                         sourceLabel(s), color = Sakura.Text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
+                            .minimumInteractiveComponentSize()
                             .heightIn(min = 32.dp)
                             .background(Color.White.copy(alpha = .7f), Round)
                             .clip50()
@@ -427,7 +446,8 @@ internal fun SearchCard(item: ChatItem.Tool, onLink: (String) -> Unit) {
 /** 「已停止」 and dsh's error notices, small and centred between the messages. */
 @Composable
 internal fun NoticeLine(item: ChatItem.Notice) {
-    val text = if (item.kind == NoticeKind.STOPPED) item.text.ifBlank { "已停止" } else item.text
+    val stopped = stringResource(R.string.chat_stopped)
+    val text = if (item.kind == NoticeKind.STOPPED) item.text.ifBlank { stopped } else item.text
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
             text,
@@ -457,7 +477,7 @@ internal fun PendingBubble(p: PendingSend, onRetry: (String) -> Unit, onDismiss:
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 val text = if (p.text.length > PENDING_PREVIEW_CHARS) p.text.take(PENDING_PREVIEW_CHARS) + "…" else p.text
-                Text(text, color = Sakura.Text.copy(alpha = .75f), fontSize = 15.sp, lineHeight = 25.5.sp)
+                Text(text, color = Sakura.TextSecondary, fontSize = 15.sp, lineHeight = 25.5.sp)
             }
         }
         val label = TextStyle(fontFamily = FogFonts.ChakraPetch, fontSize = 11.sp, letterSpacing = 0.08.em, color = Sakura.TextSecondary)

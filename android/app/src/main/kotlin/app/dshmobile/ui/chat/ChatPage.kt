@@ -212,11 +212,10 @@ private fun ConversationPage(
     // Deleted elsewhere (or a stale "last conversation"): back to the list.
     LaunchedEffect(archived) { if (archived && nav.openSessionId == id) nav.openSessionId = null }
 
-    // The chosen model shows at once; dsh's own `modelSelection.next` takes over when it arrives (or the choice failed).
+    // The chosen model shows at once; dsh's own `modelSelection.next` takes over when it arrives, and a refused change goes back.
     var picked by remember { mutableStateOf<String?>(null) }
     val next = row?.nextModel
     LaunchedEffect(next) { if (next != null && next == picked) picked = null }
-    LaunchedEffect(sendError) { if (sendError != null) picked = null }
     val current = picked ?: next ?: row?.model ?: leadModel
     val models = remember(hasClaudeKey, current) { modelChoices(hasClaudeKey, current) }
     val title = conversation.title?.takeIf { it.isNotBlank() } ?: row?.title?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_untitled)
@@ -230,7 +229,7 @@ private fun ConversationPage(
         onPickModel = { mid ->
             AgentModels.find(mid)?.let { m ->
                 picked = mid
-                session.scope.launch { store.selectModel(m) }
+                session.scope.launch(Dispatchers.Main.immediate) { if (!store.selectModel(m) && picked == mid) picked = null }
             }
         },
         onLink = onLink,

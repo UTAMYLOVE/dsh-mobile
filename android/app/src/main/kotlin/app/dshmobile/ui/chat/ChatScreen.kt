@@ -1,6 +1,10 @@
 package app.dshmobile.ui.chat
 
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.launch
+import app.dshmobile.ui.fog.LocalBackdrop
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -119,6 +123,12 @@ private const val LIST_PIECE_ITEMS = 10
 private const val LIST_SPLIT_OVER = 12
 private const val REASON_PIECE_CHARS = 600
 
+/** Counters the tests read (cheap, allocation free). */
+internal object ChatDebug {
+    /** Messages parsed off the main thread. */
+    val backgroundParses = java.util.concurrent.atomic.AtomicInteger()
+}
+
 /** One block for a lazy item of its own; [gap] is the space above it inside its bubble (0: it carries on the block before). */
 internal data class Piece(val block: MdBlock, val gap: Int)
 
@@ -208,8 +218,10 @@ internal sealed interface ChatRow {
     data class Whole(override val key: String, val kind: BubbleKind, val blocks: List<MdBlock>, val cites: List<Int>, override val gap: Int) : ChatRow {
         override val type get() = "whole-" + kind.name
     }
+    /** [shade] places this piece on its bubble's 135° gradient (user bubbles only). */
     data class Segment(
         override val key: String, val kind: BubbleKind, val block: MdBlock, val pos: SegPos, val inner: Int, val cites: List<Int>, override val gap: Int,
+        val shade: Shade = Shade.NONE,
     ) : ChatRow { override val type get() = "segment-" + kind.name }
     data class Raw(override val key: String, val text: String) : ChatRow { override val type = "raw"; override val gap = 12 }
     data class Placeholder(override val key: String, val kind: BubbleKind) : ChatRow { override val type = "placeholder"; override val gap = 12 }
@@ -251,8 +263,14 @@ internal class BlockCache {
     /** The live reply's last parse when [text] carries it on: shown until [text]'s own parse lands, so a finished reply never blinks. */
     fun provisional(text: String): Entry? = live?.takeIf { it.text.isNotEmpty() && text.startsWith(it.text) }
 
-    fun put(key: String, entry: Entry) {
+    /** Stores a background parse without redrawing; [published] redraws once for a whole batch. */
+    fun store(key: String, entry: Entry) {
         entries[key] = entry
+    }
+
+    fun has(key: String, text: String): Boolean = entries[key]?.text == text
+
+    fun published() {
         revision++
     }
 
@@ -263,6 +281,59 @@ internal class BlockCache {
     fun retain(keys: Set<String>) {
         entries.keys.retainAll(keys)
     }
+}
+
+/**
+ * Where each piece of a long user bubble sits on the bubble's 135° gradient: the vertical share of the gradient runs from [from]
+ * to [to] (estimated from the pieces' text lengths), so neighbouring pieces meet on the same colour; [across] is the horizontal
+ * share (small for a tall bubble, as CSS `135deg` over a box much taller than wide).
+ */
+@Immutable
+internal data class Shade(val from: Float, val to: Float, val across: Float) {
+    companion object {
+        val NONE = Shade(0f, 1f, .5f)
+    }
+}
+
+private fun weight(b: MdBlock): Int = when (b) {
+    is MdBlock.Paragraph -> b.text.length
+    is MdBlock.Heading -> b.text.length
+    is MdBlock.Code -> b.code.length
+    is MdBlock.ListBlock -> b.items.size * 40
+    is MdBlock.Table -> (b.rows.size + 1) * 40
+    is MdBlock.Quote -> 100
+    MdBlock.Rule -> 10
+}.coerceAtLeast(1)
+
+internal fun shades(ps: List<Piece>): List<Shade> {
+    val weights = ps.map { weight(it.block) }
+    val total = weights.sum().toFloat()
+    // About 20 characters a line, 25.5 dp a line, 340 dp wide: height / width.
+    val tall = total / 20f * 25.5f / 340f
+    val across = 1f / (1f + tall)
+    var at = 0
+    return weights.map { w -> Shade(at / total, (at + w) / total, across).also { at += w } }
+}
+
+/**
+ * Parses the long messages [missing] off the main thread: the whole batch, then one redraw. Each parse is kept as soon as it is
+ * done, so a restart (the conversation changed meanwhile) skips what is already parsed instead of parsing it again.
+ */
+internal suspend fun parseMissing(
+    missing: List<Pair<String, String>>,
+    cache: BlockCache,
+    parse: (String) -> List<MdBlock> = MarkdownParser::parse,
+) {
+    if (missing.isEmpty()) return
+    for ((key, text) in missing) {
+        if (cache.has(key, text)) continue
+        val e = withContext(Dispatchers.Default) {
+            ChatDebug.backgroundParses.incrementAndGet()
+            BlockCache.Entry(text, parse(text)).also { it.pieces }
+        }
+        cache.store(key, e)
+    }
+    cache.published()
 }
 
 private class Built(val rows: List<ChatRow>, val missing: List<Pair<String, String>>)
@@ -301,15 +372,23 @@ private class RowBuilder(private val cache: BlockCache, private val expanded: Se
             add(ChatRow.Whole(key, kind, e.blocks, cites, gap))
             return
         }
+        val shades = if (kind.user) shades(ps) else null
         ps.forEachIndexed { i, p ->
             val pos = when (i) { 0 -> SegPos.FIRST; ps.lastIndex -> SegPos.LAST; else -> SegPos.MIDDLE }
-            add(ChatRow.Segment("$key#$i", kind, p.block, pos, p.gap, if (i == ps.lastIndex) cites else emptyList(), if (i == 0) gap else 0))
+            add(
+                ChatRow.Segment(
+                    "$key#$i", kind, p.block, pos, p.gap, if (i == ps.lastIndex) cites else emptyList(), if (i == 0) gap else 0,
+                    shades?.get(i) ?: Shade.NONE,
+                ),
+            )
         }
     }
 }
 
 /** The durable part of the list, oldest first: what only changes when dsh records something. */
-private fun durableRows(items: List<ChatItem>, hasMore: Boolean, olderError: String?, cache: BlockCache, expanded: Set<String>): Built {
+private fun durableRows(
+    items: List<ChatItem>, hasMore: Boolean, olderError: String?, cache: BlockCache, expanded: Set<String>, attachments: String,
+): Built {
     val b = RowBuilder(cache, expanded)
     if (hasMore) b.add(ChatRow.Older(olderError))
     var lastSearch: ChatItem.Tool? = null
@@ -319,7 +398,7 @@ private fun durableRows(items: List<ChatItem>, hasMore: Boolean, olderError: Str
             is ChatItem.User -> {
                 val key = "u:" + item.key
                 val text = if (item.attachments.isEmpty()) item.text
-                else listOf(item.text, item.attachments.joinToString("、", prefix = "附件：")).filter { it.isNotBlank() }.joinToString("\n\n")
+                else listOf(item.text, item.attachments.joinToString("、", prefix = attachments)).filter { it.isNotBlank() }.joinToString("\n\n")
                 used += key
                 if (text.isNotBlank()) b.message(BubbleKind.USER, key, text, emptyList(), 12)
             }
@@ -426,15 +505,11 @@ fun ChatScreen(
     val cache = remember { BlockCache() }
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val revision = cache.revision
-    val durable = remember(state.items, state.hasMore, state.olderError, expanded, revision) {
-        durableRows(state.items, state.hasMore, state.olderError, cache, expanded)
+    val attachments = stringResource(R.string.chat_attachments)
+    val durable = remember(state.items, state.hasMore, state.olderError, expanded, revision, attachments) {
+        durableRows(state.items, state.hasMore, state.olderError, cache, expanded, attachments)
     }
-    LaunchedEffect(durable.missing) {
-        for ((key, text) in durable.missing) {
-            val e = withContext(Dispatchers.Default) { BlockCache.Entry(text, MarkdownParser.parse(text)).also { it.pieces } }
-            cache.put(key, e)
-        }
-    }
+    LaunchedEffect(durable.missing) { parseMissing(durable.missing, cache) }
     val liveEntry = rememberLiveEntry(state.live, cache)
     val tail = remember(state.live, liveEntry, state.pending, expanded) { tailRows(state.live, liveEntry, state.pending, cache, expanded) }
     // The list is drawn bottom-up: index 0 is the newest row, at the bottom.
@@ -442,6 +517,23 @@ fun ChatScreen(
     val oldest = remember(durable) { durable.rows.asReversed() }
 
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // The ↓ pill: shown while the list is scrolled up and something newer arrived since the user left the bottom.
+    val newestKey = newest.firstOrNull()?.key ?: oldest.firstOrNull()?.key
+    val latestNewestKey by rememberUpdatedState(newestKey)
+    var keyWhenLeft by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex > 0 }.collect { up -> keyWhenLeft = if (up) latestNewestKey else null }
+    }
+    val showPill = keyWhenLeft != null && newestKey != keyWhenLeft
+    // A message the user just sent: go down to it, wherever the list was.
+    val pendingIds = remember(state.pending) { state.pending.mapTo(HashSet()) { it.requestId } }
+    var knownPending by remember { mutableStateOf(pendingIds) }
+    LaunchedEffect(pendingIds) {
+        val fresh = pendingIds.any { it !in knownPending }
+        knownPending = pendingIds
+        if (fresh) listState.animateScrollToItem(0)
+    }
     val link by rememberUpdatedState(onLink)
     val share by rememberUpdatedState(onShare)
     val older by rememberUpdatedState(onLoadOlder)
@@ -466,24 +558,43 @@ fun ChatScreen(
             state.sendError?.let { ErrorLine(stringResource(R.string.chat_action_failed, it), Tags.CHAT_ERROR) }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            LazyColumn(
-                state = listState,
-                reverseLayout = true,
-                modifier = Modifier.fillMaxSize().testTag(Tags.CHAT_MESSAGES),
-                contentPadding = PaddingValues(
-                    start = pad.calculateStartPadding(dir), end = pad.calculateEndPadding(dir), top = 6.dp, bottom = pad.calculateBottomPadding(),
-                ),
-            ) {
-                // Runs when the rows change, before they are measured: a list resting at the very bottom stays there, so a new row
-                // below comes into view. Scrolled up, or while a scroll runs, the list keeps its place (rows keep their keys). Read
-                // without observation, so scrolling never re-runs this.
-                Snapshot.withoutReadObservation {
-                    if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 && !listState.isScrollInProgress) {
-                        listState.requestScrollToItem(0)
+            // Messages are glass without blur: a blurred backdrop per bubble would be redrawn on every scroll frame. Panels, the
+            // header and the dock keep theirs.
+            CompositionLocalProvider(LocalBackdrop provides null) {
+                LazyColumn(
+                    state = listState,
+                    reverseLayout = true,
+                    modifier = Modifier.fillMaxSize().testTag(Tags.CHAT_MESSAGES),
+                    contentPadding = PaddingValues(
+                        start = pad.calculateStartPadding(dir), end = pad.calculateEndPadding(dir), top = 6.dp, bottom = pad.calculateBottomPadding(),
+                    ),
+                ) {
+                    // Runs when the rows change, before they are measured: a list resting at the very bottom stays there, so a new row
+                    // below comes into view. Scrolled up, or while a scroll runs, the list keeps its place (rows keep their keys). Read
+                    // without observation, so scrolling never re-runs this.
+                    Snapshot.withoutReadObservation {
+                        if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 && !listState.isScrollInProgress) {
+                            listState.requestScrollToItem(0)
+                        }
                     }
+                    rows(newest, actions)
+                    rows(oldest, actions)
                 }
-                rows(newest, actions)
-                rows(oldest, actions)
+            }
+            if (showPill) {
+                val label = stringResource(R.string.chat_scroll_to_newest)
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = pad.calculateBottomPadding() + 4.dp)
+                        .size(48.dp)
+                        .glass(CircleShape)
+                        .clip(CircleShape)
+                        .clickable(role = Role.Button) { scope.launch { listState.animateScrollToItem(0) } }
+                        .testTag(Tags.SCROLL_TO_NEWEST)
+                        .semantics { contentDescription = label },
+                    contentAlignment = Alignment.Center,
+                ) { Text("↓", color = Sakura.Text, fontSize = 20.sp) }
             }
             // Messages soften under the header instead of being cut (like the shell's fade under its own header).
             Box(Modifier.fillMaxWidth().height(10.dp).background(Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .9f), Color.Transparent))))
@@ -513,7 +624,7 @@ private fun RowContent(row: ChatRow, a: RowActions) {
     when (row) {
         is ChatRow.Older -> OlderRow(row.error, a.onLoadOlder)
         is ChatRow.Whole -> Bubble(row.kind, row.blocks, row.cites, a.onLink)
-        is ChatRow.Segment -> BubbleSegment(row.kind, row.block, row.pos, row.inner.dp, row.cites, a.onLink)
+        is ChatRow.Segment -> BubbleSegment(row.kind, row.block, row.pos, row.inner.dp, row.cites, row.shade, a.onLink)
         is ChatRow.Raw -> RawBubble(BubbleKind.LIVE, row.text)
         is ChatRow.Placeholder -> PlaceholderBubble(row.kind)
         is ChatRow.Typing -> TypingBubble(row.tools)
@@ -540,7 +651,7 @@ private val Pill = RoundedCornerShape(50)
 @Composable
 private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onChip: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().glass(RoundedCornerShape(FogDimens.Panel)).padding(horizontal = 10.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().glass(RoundedCornerShape(FogDimens.Panel)).testTag(Tags.CHAT_HEADER).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

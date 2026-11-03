@@ -774,6 +774,25 @@ class MainActivityTest {
         assertEquals(ShellTab.CHAT, activity.navForTest.tab)
     }
 
+    /** M1: a deep link asks the same as a tab tap: while settings is busy it does nothing (settings says why). */
+    @Test fun aDeepLinkWaitsWhileSettingsIsBusy() {
+        completeSetup()
+        val ctl = build().create().start().resume()
+        val activity = ctl.get()
+        activity.navForTest.select(ShellTab.SETTINGS)
+        idleFor(300)
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        try {
+            assertTrue(app.settingsJobs.launch { gate.await() })
+            ctl.newIntent(Intent().putExtra(Notifier.EXTRA_SESSION_ID, "s2"))
+            assertEquals(ShellTab.SETTINGS, activity.navForTest.tab)
+            assertFalse(activity.navForTest.openSessionId == "s2")
+            assertEquals(activity.getString(R.string.shell_settings_busy), org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+        } finally {
+            gate.complete(Unit)
+        }
+    }
+
     @Test fun stopShowsWhileRunningWithAnEmptyInput() {
         completeSetup()
         answerChatRpc()
