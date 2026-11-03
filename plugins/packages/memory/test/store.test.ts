@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MemoryPathError, MemoryStore } from "../src/store.js";
+import { MemoryPathError, MemoryStore, STARTUP_CONTEXT_MAX_BYTES, STARTUP_CONTEXT_TRUNCATED } from "../src/store.js";
 
 // Local-time instant: 2026-11-02 14:05 (the store formats dates in local time).
 const NOW = new Date(2026, 10, 2, 14, 5, 0);
@@ -55,6 +55,43 @@ describe("loadStartupContext", () => {
     const s = new MemoryStore(root, () => new Date(2026, 11, 1, 0, 30));
     write("memory/2026-11-30.md", "end of november");
     expect(s.loadStartupContext()).toContain("## memory/2026-11-30.md");
+  });
+
+  it("caps the injected context at 32 KiB, MEMORY.md first, and says it was cut", () => {
+    write("MEMORY.md", "m".repeat(40 * 1024));
+    write("memory/2026-11-02.md", "- 09:00 today note");
+    const ctx = store.loadStartupContext();
+    expect(Buffer.byteLength(ctx, "utf8")).toBeLessThanOrEqual(STARTUP_CONTEXT_MAX_BYTES);
+    expect(STARTUP_CONTEXT_MAX_BYTES).toBe(32 * 1024);
+    expect(ctx.startsWith("## MEMORY.md\nmmm")).toBe(true);
+    expect(ctx.endsWith(STARTUP_CONTEXT_TRUNCATED)).toBe(true);
+    expect(ctx).not.toContain("today note");
+  });
+
+  it("keeps newer daily notes over older ones when the cap is reached", () => {
+    write("MEMORY.md", "long term fact");
+    write("memory/2026-11-02.md", "t".repeat(20 * 1024));
+    write("memory/2026-11-01.md", "y".repeat(20 * 1024));
+    const ctx = store.loadStartupContext();
+    expect(Buffer.byteLength(ctx, "utf8")).toBeLessThanOrEqual(STARTUP_CONTEXT_MAX_BYTES);
+    expect(ctx).toContain("## MEMORY.md\nlong term fact");
+    expect(ctx).toContain("## memory/2026-11-02.md\n" + "t".repeat(20 * 1024));
+    expect(ctx).toContain("## memory/2026-11-01.md\nyyy");
+    expect(ctx).not.toContain("y".repeat(20 * 1024));
+    expect(ctx.endsWith(STARTUP_CONTEXT_TRUNCATED)).toBe(true);
+  });
+
+  it("never cuts a multi-byte character in half", () => {
+    write("MEMORY.md", "記".repeat(20 * 1024)); // 3 bytes each: 60 KiB
+    const ctx = store.loadStartupContext();
+    expect(Buffer.byteLength(ctx, "utf8")).toBeLessThanOrEqual(STARTUP_CONTEXT_MAX_BYTES);
+    expect(ctx).not.toContain("�");
+    expect(ctx.replace(STARTUP_CONTEXT_TRUNCATED, "")).toMatch(/^## MEMORY\.md\n記+\s*$/);
+  });
+
+  it("leaves a context under the cap untouched", () => {
+    write("MEMORY.md", "x".repeat(1000));
+    expect(store.loadStartupContext()).toBe("## MEMORY.md\n" + "x".repeat(1000));
   });
 
   it("does not leak a MEMORY.md symlinked outside the workspace", () => {

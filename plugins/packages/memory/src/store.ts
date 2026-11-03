@@ -35,6 +35,25 @@ const LOCK_OPTIONS = {
   onCompromised: () => {},
 } as const;
 
+/** Upper bound (UTF-8 bytes) of the context injected into every conversation: it rides along in each request's system prompt. */
+export const STARTUP_CONTEXT_MAX_BYTES = 32 * 1024;
+/** The last line of a context cut at [STARTUP_CONTEXT_MAX_BYTES]. */
+export const STARTUP_CONTEXT_TRUNCATED =
+  "[dshm: memory context truncated at 32 KiB; use memory_search / memory_get for the rest]";
+
+/** The longest prefix of `text` that fits in `maxBytes` UTF-8 bytes, never splitting a character. */
+function truncateUtf8(text: string, maxBytes: number): string {
+  let used = 0;
+  let out = "";
+  for (const ch of text) {
+    const n = Buffer.byteLength(ch, "utf8");
+    if (used + n > maxBytes) break;
+    used += n;
+    out += ch;
+  }
+  return out;
+}
+
 const pad = (n: number): string => String(n).padStart(2, "0");
 /** Local-time (TZ) calendar date, YYYY-MM-DD. */
 export const formatDate = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -74,7 +93,10 @@ export class MemoryStore {
     return formatDate(this.now());
   }
 
-  /** Context injected at conversation start; "" when no file exists. */
+  /**
+   * Context injected at conversation start; "" when no file exists. In priority order (MEMORY.md, USER.md, then the daily
+   * notes newest first) and at most [STARTUP_CONTEXT_MAX_BYTES]: what does not fit is cut off and a last line says so.
+   */
   loadStartupContext(): string {
     const now = this.now();
     const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
@@ -89,7 +111,10 @@ export class MemoryStore {
       const text = this.tryRead(rel);
       if (text !== undefined) sections.push(`## ${rel}\n${text.trimEnd()}`);
     }
-    return sections.join("\n\n");
+    const full = sections.join("\n\n");
+    if (Buffer.byteLength(full, "utf8") <= STARTUP_CONTEXT_MAX_BYTES) return full;
+    const note = `\n\n${STARTUP_CONTEXT_TRUNCATED}`;
+    return truncateUtf8(full, STARTUP_CONTEXT_MAX_BYTES - Buffer.byteLength(note, "utf8")).trimEnd() + note;
   }
 
   /** Case-insensitive all-terms line search, daily notes newest first. */
