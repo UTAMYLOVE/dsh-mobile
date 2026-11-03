@@ -425,6 +425,10 @@ class E2eTest {
      * Ruling 3: at FULL the background really animates; SAVER (from settings) is saved and calms it; FULL brings it back. The
      * jank governor may not step the level down meanwhile, and the shell is started without ActivityScenario (see
      * [E2e.startShell]): at FULL it animates on every frame.
+     *
+     * What this reads is `FogSemantics.Animating`, the shell's *intent* flag (the effects it asked for at this level), not frames
+     * actually drawn: a background that asked to animate but never redrew would still pass here. Real animation and its cost are
+     * measured by [PerfGateTest] (final review A, minor).
      */
     @Test fun t21_effectStrengthPersistsAndCalmsTheShell() {
         val governor = app.effectsController.governor

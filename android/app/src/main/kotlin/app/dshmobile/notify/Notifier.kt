@@ -140,10 +140,10 @@ class Notifier(private val context: Context) {
      * tap opens [sessionId], the top-level conversation that asks. [cancelWaitingForAnswer] withdraws it once nothing waits.
      */
     fun showWaitingForAnswer(sessionId: String?, title: String?) {
-        val name = title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
+        val name = title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: context.getString(R.string.notify_untitled)
         post(
             ID_WAITING,
-            builder(CHANNEL_ALERTS, "DSH 在等你回答", name)
+            builder(CHANNEL_ALERTS, context.getString(R.string.notify_waiting_title), name)
                 .setContentIntent(openMainActivity(ID_WAITING, EXTRA_SESSION_ID to sessionId))
                 .setAutoCancel(true),
         )

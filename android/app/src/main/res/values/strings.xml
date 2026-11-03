@@ -277,6 +277,9 @@
     <string name="overview_recent_untitled">新對話</string>
     <string name="overview_yesterday">昨天</string>
     <string name="overview_unverified">目前的 dsh %1$s 未經這版 App 驗證，請到設定更新</string>
+    <!-- final review A-I3: dsh waits on an approval or a question while nobody looks -->
+    <string name="notify_waiting_title">DSH 在等你回答</string>
+    <string name="notify_untitled">未命名對話</string>
     <!-- final review B2-I4: a running conversation is not cut off without asking -->
     <string name="set_confirm_apply">有對話正在進行，套用會中斷它</string>
     <string name="set_confirm_update">有對話正在進行，更新會中斷它</string>
