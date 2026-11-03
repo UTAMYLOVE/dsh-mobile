@@ -37,6 +37,9 @@ interface ChatRemote {
     suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): JsonElement
     suspend fun selectModel(sessionId: String, provider: String, model: String)
     suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String
+
+    /** Runs a dsh slash command in [sessionId] (e.g. `/permission auto`). The default does nothing (test fakes). */
+    suspend fun runCommand(sessionId: String, line: String) {}
 }
 
 /** A prompt shown as a bubble until dsh records it as a user message. [queued]: a turn was running when it was sent. */
@@ -67,6 +70,8 @@ class ConversationStore(
      * before the window, and without it STOP would vanish and pending sends would start timing out.
      */
     private val runningHint: () -> Boolean? = { null },
+    /** Runs before each prompt (stage 2 §J: switch the session to Auto review once); a failure never blocks the send. */
+    private val beforeSend: suspend () -> Unit = {},
 ) {
     private val _state = MutableStateFlow(ConversationState(sessionId))
     val state: StateFlow<ConversationState> = _state.asStateFlow()
@@ -282,6 +287,13 @@ class ConversationStore(
             _pending.update { list -> list.map { if (it.requestId == requestId) it.copy(failed = true) else it } }
         }
         return try {
+            try {
+                beforeSend()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Auto review could not be switched on: the prompt still goes out under the session's current permission.
+            }
             remote.prompt(sessionId, requestId, parts)
             true
         } catch (e: CancellationException) {

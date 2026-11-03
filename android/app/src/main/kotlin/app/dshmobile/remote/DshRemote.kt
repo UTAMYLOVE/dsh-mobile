@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.io.IOException
 import java.time.ZoneId
@@ -147,6 +148,14 @@ class DshRemote(
 
     override suspend fun archive(sessionId: String) {
         call("workspace/archiveSession", request { put("sessionId", sessionId); put("stopActivity", true) })
+    }
+
+    override suspend fun runCommand(sessionId: String, line: String) {
+        call("commands/execute", buildJsonObject {
+            put("agentId", sessionId)
+            put("line", line)
+            putJsonArray("submittedAttachments") {}
+        })
     }
 
     override suspend fun selectModel(sessionId: String, provider: String, model: String) {

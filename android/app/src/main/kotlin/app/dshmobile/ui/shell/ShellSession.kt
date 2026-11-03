@@ -29,7 +29,22 @@ interface ShellRemote : ChatRemote, IndexRemote, AgentsRemote {
  * dsh). [scope] belongs to this session: [close] closes [remote] and cancels it, so pass a scope of its own (a child of the
  * application's scope), never the application's scope itself. Later tasks add their stores here.
  */
-class ShellSession(val remote: ShellRemote, val events: DshEvents?, val scope: CoroutineScope) {
+class ShellSession(
+    val remote: ShellRemote,
+    val events: DshEvents?,
+    val scope: CoroutineScope,
+    /** Whether conversations should run under dsh's Auto review (stage 2 §J). */
+    private val autoReview: () -> Boolean = { false },
+) {
+    /** Conversations already switched to `/permission auto` by this session's dsh. */
+    private val autoSwitched = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    private suspend fun ensureAutoReview(id: String) {
+        if (!autoReview() || id in autoSwitched) return
+        remote.runCommand(id, "/permission auto")
+        autoSwitched += id
+    }
+
     /** The shared session tree and the conversation list built on it (later tasks derive agents and the overview from the tree). */
     val tree = SessionTree(remote, scope)
     val index = SessionIndex(tree, remote, scope)
@@ -56,7 +71,7 @@ class ShellSession(val remote: ShellRemote, val events: DshEvents?, val scope: C
     fun chatUi(id: String): ChatUiCache = open(id).ui
 
     private fun open(id: String): Open = synchronized(stores) {
-        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }), ChatUiCache()).also { fresh ->
+        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensureAutoReview(id) }), ChatUiCache()).also { fresh ->
             stores[id] = fresh
             if (stores.size > MAX_STORES) {
                 val evictable = stores.entries.filter { it.key != id && it.value.store.pending.value.isEmpty() }

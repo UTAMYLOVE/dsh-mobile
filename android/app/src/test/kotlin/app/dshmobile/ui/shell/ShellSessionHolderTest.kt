@@ -41,6 +41,8 @@ class ShellSessionHolderTest {
         override suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): kotlinx.serialization.json.JsonElement = kotlinx.serialization.json.JsonNull
         override suspend fun selectModel(sessionId: String, provider: String, model: String) = Unit
         override suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String = ""
+        val commands = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+        override suspend fun runCommand(sessionId: String, line: String) { commands += sessionId to line }
     }
 
     private val made = mutableListOf<Pair<RunningDsh, FakeRemote>>()
@@ -145,5 +147,20 @@ class ShellSessionHolderTest {
         } finally {
             session.close()
         }
+    }
+
+    @Test fun autoReviewSwitchesEachConversationOnceBeforeItsFirstSend() = kotlinx.coroutines.runBlocking {
+        var enabled = true
+        val remote = FakeRemote()
+        val session = ShellSession(remote, events = null, scope = CoroutineScope(Job()), autoReview = { enabled })
+        val parts = listOf(app.dshmobile.remote.PromptPart.Text("hi"))
+        session.conversation("s1").send(parts, "hi", emptyList())
+        session.conversation("s1").send(parts, "hi again", emptyList())
+        session.conversation("s2").send(parts, "hi", emptyList())
+        assertEquals(listOf("s1" to "/permission auto", "s2" to "/permission auto"), remote.commands.toList())
+        enabled = false
+        session.conversation("s3").send(parts, "hi", emptyList())
+        assertEquals("off: nothing is switched", 2, remote.commands.size)
+        session.close()
     }
 }

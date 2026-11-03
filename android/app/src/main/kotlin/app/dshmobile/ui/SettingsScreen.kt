@@ -505,6 +505,11 @@ fun SettingsScreen(
                     Text(stringResource(R.string.set_agent_teams), Modifier.weight(1f))
                     Switch(checked = settings.agentTeams, onCheckedChange = { settings = settings.copy(agentTeams = it) }, enabled = !busy, modifier = Modifier.testTag("switch-teams"))
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.set_auto_review), Modifier.weight(1f))
+                    Switch(checked = settings.autoReview, onCheckedChange = { settings = settings.copy(autoReview = it) }, enabled = !busy, modifier = Modifier.testTag("switch-auto-review"))
+                }
+                Text(stringResource(R.string.set_auto_review_note), style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.set_agent_worker_note), style = MaterialTheme.typography.bodySmall)
             }
 

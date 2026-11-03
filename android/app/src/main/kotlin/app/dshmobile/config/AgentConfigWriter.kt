@@ -45,7 +45,14 @@ class AgentConfigWriter(private val dshHome: File) {
      * every other field keeps its value and position. Written through a temporary file and an atomic rename.
      */
     @Synchronized
-    fun ensureAgentTeamsBundle(enabled: Boolean): Boolean {
+    fun ensureAgentTeamsBundle(enabled: Boolean): Boolean = ensureBundle(TEAM_BUNDLE, enabled)
+
+    /** dsh's experimental Auto review layer (stage 2 §J), added to or removed from the web profile like [ensureAgentTeamsBundle]. */
+    @Synchronized
+    fun ensureAutoReviewBundle(enabled: Boolean): Boolean = ensureBundle(AUTO_REVIEW_BUNDLE, enabled)
+
+    private fun ensureBundle(name: String, enabled: Boolean): Boolean {
+        fun isIt(e: kotlinx.serialization.json.JsonElement) = e is JsonPrimitive && e.isString && e.content == name
         val file = packageJson
         if (!file.isFile) return false
         return try {
@@ -53,9 +60,9 @@ class AgentConfigWriter(private val dshHome: File) {
             val dsh = root["dsh"] as? JsonObject ?: return false
             val profile = dsh["profile"] as? JsonObject ?: return false
             val bundles = profile["bundles"] as? JsonArray ?: return false
-            val present = bundles.any(::isTeamBundle)
+            val present = bundles.any(::isIt)
             if (present == enabled) return true
-            val changed = if (enabled) JsonArray(bundles + JsonPrimitive(TEAM_BUNDLE)) else JsonArray(bundles.filterNot(::isTeamBundle))
+            val changed = if (enabled) JsonArray(bundles + JsonPrimitive(name)) else JsonArray(bundles.filterNot(::isIt))
             write(file, root.with("dsh", dsh.with("profile", profile.with("bundles", changed))))
             true
         } catch (_: IOException) {
@@ -77,14 +84,13 @@ class AgentConfigWriter(private val dshHome: File) {
         }
     }
 
-    private fun isTeamBundle(e: kotlinx.serialization.json.JsonElement) = e is JsonPrimitive && e.isString && e.content == TEAM_BUNDLE
-
     /** A copy with [key] set; an existing key keeps its position. */
     private fun JsonObject.with(key: String, value: kotlinx.serialization.json.JsonElement): JsonObject =
         JsonObject(LinkedHashMap(this).also { it[key] = value })
 
     companion object {
         const val TEAM_BUNDLE = "@deepseek-ai/dsh-experimental-agent-team-profile"
+        const val AUTO_REVIEW_BUNDLE = "@deepseek-ai/dsh-experimental-auto-review"
         private val JSON = Json {
             prettyPrint = true
             prettyPrintIndent = "  "
@@ -109,6 +115,7 @@ class AgentPatchProvider(
         val settings = store.load(phantom(), hasClaudeKey)
         // dsh warns "entry not found" for an agent-team row whose bundle is not loaded: write the row only when the bundle is in place.
         val teamsActive = writer.ensureAgentTeamsBundle(settings.agentTeams)
+        writer.ensureAutoReviewBundle(settings.autoReview)
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)
         return DshPatch.render(gatewayBase, pluginDir, section, includeAnthropic = hasClaudeKey)
     }

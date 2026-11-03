@@ -13,6 +13,8 @@ data class AgentSettings(
     val teamSize: Int = 8,
     val leadModel: String,
     val agentTeams: Boolean = true,
+    /** dsh's experimental Auto review (stage 2 §J): every conversation switches to `/permission auto`; off by default. */
+    val autoReview: Boolean = false,
 ) {
     init {
         require(maxConcurrent in MAX_CONCURRENT_RANGE) { "maxConcurrent $maxConcurrent not in $MAX_CONCURRENT_RANGE" }

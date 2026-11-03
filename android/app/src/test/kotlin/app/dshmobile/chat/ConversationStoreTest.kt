@@ -52,12 +52,25 @@ private class FakeChatRemote : ChatRemote {
 class ConversationStoreTest {
     private val parts = listOf(PromptPart.Text("hello"))
 
-    private fun TestScope.store(remote: FakeChatRemote, runningHint: () -> Boolean? = { null }): ConversationStore {
+    private fun TestScope.store(remote: FakeChatRemote, runningHint: () -> Boolean? = { null }, beforeSend: suspend () -> Unit = {}): ConversationStore {
         var n = 0
         return ConversationStore(
             remote, "s1", CoroutineScope(StandardTestDispatcher(testScheduler)), { "r${++n}" }, StandardTestDispatcher(testScheduler),
-            runningHint = runningHint,
+            runningHint = runningHint, beforeSend = beforeSend,
         )
+    }
+
+    @Test fun theBeforeSendHookRunsFirstAndItsFailureNeverBlocksTheSend() = runTest {
+        val remote = FakeChatRemote()
+        val order = mutableListOf<String>()
+        val ok = store(remote, beforeSend = { order += "hook:" + remote.prompts.size })
+        assertTrue(ok.send(parts, "hello", emptyList()))
+        assertEquals(listOf("hook:0"), order)
+        ok.close()
+        val failing = store(remote, beforeSend = { throw IllegalStateException("permission/unavailable") })
+        assertTrue("an Auto review switch that fails still sends", failing.send(parts, "again", emptyList()))
+        assertEquals(2, remote.prompts.size)
+        failing.close()
     }
 
     private fun FakeChatRemote.emit(v: JsonElement) { signals.trySend(StreamSignal.Value(v)) }
@@ -366,7 +379,7 @@ class ConversationStoreTest {
     }
 
     @Test fun aCappedSnapshotFallsBackToTheTreesRunningState() = runTest {
-        val remote = FakeChatRemote(); val store = store(remote) { true }
+        val remote = FakeChatRemote(); val store = store(remote, runningHint = { true })
         remote.emit(snapshot(asstMsg(400, """{"type":"text","text":"tool step"}"""), hasMore = true)); runCurrent()
         assertTrue("the turn began before the window: STOP stays", store.state.value.running)
         remote.emit(live(ev("turn/end", 401, """{"reason":{"kind":"completed"}}"""))); runCurrent()
@@ -375,7 +388,7 @@ class ConversationStoreTest {
     }
 
     @Test fun aWholeSnapshotIgnoresAStaleRunningHint() = runTest {
-        val remote = FakeChatRemote(); val store = store(remote) { true }
+        val remote = FakeChatRemote(); val store = store(remote, runningHint = { true })
         remote.emit(snapshot(userMsg(3, "hi"), ev("turn/end", 4))); runCurrent()
         assertFalse(store.state.value.running)
         store.close()

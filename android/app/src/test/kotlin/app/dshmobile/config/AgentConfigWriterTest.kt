@@ -258,4 +258,14 @@ class AgentConfigWriterTest {
         assertFalse(yaml.contains("agent-team"))
         assertFalse(bundles().contains(bundle))
     }
+
+    @Test fun autoReviewBundleIsAddedAndRemovedAlongsideTheTeamBundle() {
+        profile()
+        val auto = AgentConfigWriter.AUTO_REVIEW_BUNDLE
+        assertTrue(writer.ensureAgentTeamsBundle(true))
+        assertTrue(writer.ensureAutoReviewBundle(true))
+        assertEquals(listOf("@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", bundle, auto), bundles())
+        assertTrue(writer.ensureAutoReviewBundle(false))
+        assertEquals(listOf("@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", bundle), bundles())
+    }
 }

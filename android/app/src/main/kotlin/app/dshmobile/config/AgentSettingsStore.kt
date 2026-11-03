@@ -18,6 +18,7 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
             teamSize = prefs.getInt(KEY_TEAM, d.teamSize).coerceIn(AgentSettings.TEAM_SIZE_RANGE),
             leadModel = prefs.getString(KEY_MODEL, null)?.takeIf { AgentModels.find(it) != null } ?: d.leadModel,
             agentTeams = prefs.getBoolean(KEY_TEAMS, d.agentTeams),
+            autoReview = prefs.getBoolean(KEY_AUTO_REVIEW, d.autoReview),
         )
     }
 
@@ -28,6 +29,7 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
             .putInt(KEY_TEAM, s.teamSize)
             .putString(KEY_MODEL, s.leadModel)
             .putBoolean(KEY_TEAMS, s.agentTeams)
+            .putBoolean(KEY_AUTO_REVIEW, s.autoReview)
             .apply()
     }
 
@@ -55,6 +57,7 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
         private const val KEY_TEAM = "team_size"
         private const val KEY_MODEL = "lead_model"
         private const val KEY_TEAMS = "agent_teams"
+        const val KEY_AUTO_REVIEW = "auto_review"
         private const val KEY_HEARTBEAT = "heartbeat_min"
     }
 }
