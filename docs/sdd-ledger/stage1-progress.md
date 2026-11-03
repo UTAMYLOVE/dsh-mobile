@@ -79,3 +79,7 @@ T16: implementer DONE_WITH_CONCERNS (lane-t16 bb2ba1b..adadc0a, 730 unit); no RE
 T16: review 1 = spec ❌ (10-minute rule after done not honoured in two paths), quality Needs fixes (sonnet) — Important: busy can stick forever when $events reopens while mux stays OPEN (no re-baseline/watchdog); crash restart in background leaves an idle service resident
 - Ruling: Minors 1 (restart 10-minute grace after done), 2 (no re-attach for an unchanged RunningDsh), 3 (document START_NOT_STICKY loss), 4 (no "done" notice after Stop), 5 (surrogate-safe clip + notification content asserts), 6 (non-vacuous swipe/guard tests) join round 1 — same files, and leaks cost the owner money.
 T16: fix round 1/5 dispatched (resume implementer)
+T2: hardening round implementer DONE (lane-t2fix d5934e9..8582f9a; 723 unit; 4 new tests RED→GREEN); re-review dispatched (sonnet)
+T2: hardening re-review (sonnet) = all 5 addressed, 0 new Critical/Important
+T2: hardening merged (lane-t2fix 36f606b..8582f9a)
+T2: minor (deferred): conflated OPEN→RECONNECTING→OPEN could keep a stale clientId briefly (backoff ≥ 250 ms makes it negligible); lateinit in closeWhileTheUpgradeIsStartingCancelsTheNewSocket could flake in theory; first retry after a short-lived socket waits backoffMs[1]
