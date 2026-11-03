@@ -30,6 +30,7 @@ import app.dshmobile.heartbeat.HeartbeatWorker
 import app.dshmobile.notify.Notifier
 import app.dshmobile.remote.DshRemote
 import app.dshmobile.remote.MuxState
+import app.dshmobile.remote.PendingPrompt
 import app.dshmobile.runtime.CommandResult
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.DshVersions
@@ -37,6 +38,7 @@ import app.dshmobile.runtime.GuestCommand
 import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.UpdateOutcome
 import app.dshmobile.runtime.VerifiedDsh
+import app.dshmobile.chat.ChatItem
 import app.dshmobile.ui.MainActivity
 import app.dshmobile.ui.chat.circled
 import app.dshmobile.ui.fog.EffectLevel
@@ -45,11 +47,13 @@ import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.shell.buildSettingsEnv
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.After
 import org.junit.AfterClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -97,6 +101,29 @@ class E2eTest {
         E2e.prepareApp()
         // Keeps dsh up between tests (the UI's ten-minute grace or a heartbeat would otherwise stop it).
         app.controller.retain(HOLDER)
+    }
+
+    /**
+     * Whatever a test left behind must not take the next one down: a card still waiting (the next shell would open under it),
+     * a reply or a subagent still running, a remembered conversation. Best effort, bounded, and never fails the test itself.
+     */
+    @After fun cleanUp() {
+        val session = app.shellSessions.current.value ?: return
+        runCatching {
+            runBlocking {
+                withTimeout(20_000) {
+                    session.events?.prompts?.value.orEmpty().forEach { p ->
+                        when (p) {
+                            is PendingPrompt.Approval -> session.events?.reject(p)
+                            is PendingPrompt.Question -> session.events?.decline(p)
+                        }
+                    }
+                    session.index.rows.value.filter { it.running }.forEach { session.conversation(it.id).stop() }
+                    session.agents.rows.value.filter { it.running }.forEach { session.agents.stop(it) }
+                }
+            }
+        }.onFailure { Log.w(FakeModel.TAG, "cleanup after the test: ${it.javaClass.simpleName}") }
+        app.uiPrefs.lastSessionId = null
     }
 
     /** §9.1 (stage 1): the main screen is the native shell, Ready on the real dsh, with no WebView anywhere in it. */
@@ -243,13 +270,13 @@ class E2eTest {
 
     /** A reply streams in as Markdown (bold, list, table); its thinking is folded until tapped. */
     @Test fun t10_aReplyStreamsAsMarkdownWithCollapsibleThinking() = shell {
-        ui.newConversation()
+        val id = ui.newConversation()
         ui.send(FakeModel.HELLO)
         awaitBubble("reply")
         val texts = bubbleTexts()
         assertTrue("the list items: $texts", texts.any { it.contains("one") } && texts.any { it.contains("two") })
         assertTrue("the table's cell: $texts", texts.any { it.trim() == "2" })
-        ui.awaitTag(Tags.THINKING)
+        ui.awaitInList(Tags.CHAT_MESSAGES, Tags.THINKING, 30_000) { chatState(id) }
         assertFalse("the thinking shows before it is opened", ui.nodes(hasText("E2E thinking", substring = true)).isNotEmpty())
         ui.tap(Tags.THINKING)
         ui.awaitText("E2E thinking", 30_000)
@@ -257,13 +284,18 @@ class E2eTest {
 
     /** web_search shows its source card (two sources) and the answer's citation line; the answer's link is its own accessible node. */
     @Test fun t11_webSearchShowsTheSourceCardAndCitations() = shell {
-        ui.newConversation()
+        val id = ui.newConversation()
         ui.send(FakeModel.SEARCH)
-        val sources = app.getString(R.string.chat_search_sources, 2)
-        ui.await("the search card with two sources") { ui.textsOf(Tags.SEARCH_CARD).any { it.contains(sources) } }
-        assertEquals(listOf("E2E Weather"), ui.textsOf(Tags.SOURCE_CHIP + 1))
+        awaitBubble("Sunny today")
         val cites = app.getString(R.string.chat_cites, circled(listOf(1)))
-        ui.await("the citation line $cites") { ui.textsOf(Tags.CITES).any { it.contains(cites) } }
+        ui.await("the citation line $cites", 30_000, { chatState(id) }) { ui.textsOf(Tags.CITES).any { it.contains(cites) } }
+        // The card sits above the answer: on the 640 dp CI screen it may have to be scrolled to.
+        ui.awaitInList(Tags.CHAT_MESSAGES, Tags.SEARCH_CARD, 30_000) { chatState(id) }
+        val sources = app.getString(R.string.chat_search_sources, 2)
+        ui.await("the search card with two sources", 30_000, { "card: ${ui.textsOf(Tags.SEARCH_CARD)}\n${chatState(id)}" }) {
+            ui.textsOf(Tags.SEARCH_CARD).any { it.contains(sources) }
+        }
+        assertEquals(listOf("E2E Weather"), ui.textsOf(Tags.SOURCE_CHIP + 1))
         awaitBubble("Sunny today")
         // TalkBack: the link inside the answer is a separate node with its own click action (Compose's link annotation), not
         // just a styled span of the bubble's text.
@@ -362,11 +394,14 @@ class E2eTest {
             ui.send(FakeModel.HELLO)
             awaitBubble("reply")
             ui.tap(Tags.CHAT_LIST_BUTTON)
+            ui.awaitInList(Tags.SESSION_LIST, Tags.SESSION_MENU + id, 60_000) { listState() }
             ui.tap(Tags.SESSION_MENU + id)
             ui.tap(Tags.RENAME)
             ui.type(Tags.RENAME_FIELD, RENAMED)
             ui.tap(Tags.RENAME_SAVE)
-            ui.await("the row titled $RENAMED") { ui.textsOf(Tags.SESSION_ROW + id).any { it.contains(RENAMED) } }
+            ui.hideKeyboard()
+            ui.await("the row titled $RENAMED", 60_000, { listState() }) { ui.textsOf(Tags.SESSION_ROW + id).any { it.contains(RENAMED) } }
+            ui.awaitInList(Tags.SESSION_LIST, Tags.SESSION_MENU + id, 30_000) { listState() }
             ui.tap(Tags.SESSION_MENU + id)
             ui.tap(Tags.DELETE)
             ui.tap(Tags.DELETE_CONFIRM)
@@ -382,27 +417,35 @@ class E2eTest {
             // A conversation of this test's own: once its row is listed, dsh's list has arrived.
             val witness = ui.newConversation()
             ui.tap(Tags.CHAT_LIST_BUTTON)
-            ui.awaitTag(Tags.SESSION_ROW + witness, 60_000)
+            ui.awaitInList(Tags.SESSION_LIST, Tags.SESSION_ROW + witness, 60_000) { listState() }
             ui.onEachFrame { assertFalse("the deleted conversation is listed again", ui.has(Tags.SESSION_ROW + id)) }
             assertFalse("the app's index still lists the deleted conversation", app.shellSessions.current.value!!.index.rows.value.any { it.id == id })
         }
     }
 
-    /** A running subagent shows on the agents tab and its stop ends it. */
+    /**
+     * A running subagent shows on the agents tab and its stop ends it. dsh's subagent tool returns to the parent at once (the child
+     * runs on); the stop goes through `subagents/interruptByParent`. Checked in two steps, so a failure says which side broke:
+     * dsh stops listing the child as running, then the app's row turns 「已結束」.
+     */
     @Test fun t19_theAgentsTabListsARunningSubagentAndStopsIt() = shell {
         ui.newConversation()
         ui.send(FakeModel.SUB)
         ui.tap(Tags.TAB + ShellTab.AGENTS.name)
         var child = ""
-        ui.await("a running agent row labelled E2E child", 180_000) {
+        ui.await("a running agent row labelled E2E child", 180_000, { agentsState(child) }) {
             val row = ui.nodes(hasTagPrefix(Tags.AGENT_ROW)).firstOrNull { n -> n.texts().any { it.contains("E2E child") } }
             val id = row?.tag()?.removePrefix(Tags.AGENT_ROW)
             if (id != null && ui.has(Tags.AGENT_STOP + id)) child = id
             child.isNotEmpty()
         }
         ui.tap(Tags.AGENT_STOP + child)
+        val client = loggedInClient()
+        ui.await("dsh to stop running $child (interruptByParent)", 30_000, { agentsState(child) + "\ndsh: ${dshRunning(client, child)}" }) {
+            dshRunning(client, child) != true
+        }
         val finished = app.getString(R.string.agents_finished)
-        ui.await("the row of $child to say 「$finished」", 30_000) {
+        ui.await("the row of $child to say 「$finished」", 30_000, { agentsState(child) }) {
             !ui.has(Tags.AGENT_STOP + child) && agentStatus(child) == finished
         }
         assertTrue("the stopped agent's row went away", ui.has(Tags.AGENT_ROW + child))
@@ -571,6 +614,45 @@ class E2eTest {
 
     private fun backgroundAnimating(): Boolean? =
         ui.nodes(hasTestTag(Tags.SHELL_BACKGROUND), unmerged = true).firstOrNull()?.config?.getOrNull(FogSemantics.Animating)
+
+    /** A DshClient logged in to the running dsh, for checking what dsh itself says. */
+    private fun loggedInClient(): DshClient {
+        val running = runBlocking { app.controller.ensureRunning() }
+        return DshClient(http, running.launch).also { runBlocking { it.login() } }
+    }
+
+    /** `running` of [sessionId] in dsh's own `session/list` (null when dsh does not list it or says nothing). */
+    private fun dshRunning(client: DshClient, sessionId: String): Boolean? {
+        val items = rpc(client, "session/list", JSONObject().put("_request", JSONObject())).optJSONArray("items") ?: return null
+        val item = (0 until items.length()).mapNotNull { items.optJSONObject(it) }.firstOrNull { it.optString("sessionId") == sessionId }
+        return item?.takeIf { it.has("running") }?.optBoolean("running")
+    }
+
+    /** For a failure message: the agents the app knows (no prompts or replies, only ids, labels and flags). */
+    private fun agentsState(child: String): String {
+        val agents = app.shellSessions.current.value?.agents ?: return "no session"
+        return "rows=${agents.rows.value.map { "${it.childId}:${it.label}:running=${it.running}" }} stopping=${agents.stopping.value} " +
+            "failed=${agents.failed.value} child=$child status=${runCatching { agentStatus(child) }.getOrNull()}"
+    }
+
+    /** For a failure message: the kinds of items the app holds for conversation [id] (no text). */
+    private fun chatState(id: String): String {
+        val state = app.shellSessions.current.value?.conversation(id)?.state?.value ?: return "no session"
+        val items = state.items.map { item ->
+            when (item) {
+                is ChatItem.Assistant -> "Assistant(reasoning=${item.reasoning?.length ?: "none"}, text=${item.text.length})"
+                is ChatItem.Tool -> "Tool(${item.name}, ${item.status}, sources=${item.sources.size})"
+                else -> item.javaClass.simpleName
+            }
+        }
+        return "running=${state.running} live=${state.live != null} items=$items tags=${ui.nodes(hasTagPrefix(""), unmerged = true).mapNotNull { it.tag() }.distinct()}"
+    }
+
+    /** For a failure message: the conversation list's rows as the app holds them, and the tags on screen. */
+    private fun listState(): String {
+        val rows = app.shellSessions.current.value?.index?.rows?.value ?: return "no session"
+        return "rows=${rows.take(12).map { "${it.id}@${it.updatedAt}" }} tags=${ui.nodes(hasTagPrefix(Tags.SESSION_ROW), unmerged = true).mapNotNull { it.tag() }}"
+    }
 
     /** The status the agents page gives the row of [child] (the dot beside the row's text says 執行中 or 已結束). */
     private fun agentStatus(child: String): String? {
