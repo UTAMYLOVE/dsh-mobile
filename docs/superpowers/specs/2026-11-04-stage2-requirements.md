@@ -176,3 +176,35 @@ Apply it everywhere a status is shown.
   - At SAVER, a static drawing.
   - With reduced motion, no drift.
   - The 120 Hz target on S25 Ultra stands.
+
+### H.1 Third reference: `docs/design-reference/dashboard-reference-agent-terminal.jpg` ("Grok Bot Terminal", agent-pipeline terminal; owner: 「這也很是帥」)
+Elements to adapt to our palette and our data:
+- **Header**
+  - A big mascot or status orb with 「running · clock」.
+  - The current action pill, e.g. 「EXECUTOR · ENTERED …」.
+  - A subtitle such as 「every trade gets a reason」.
+  - Big top-right stat tiles, e.g. balance, wins, losses. For us: 今日花費、完成、錯誤、執行中.
+- **Left column: one card per agent**
+  - Icon, name and a role line.
+  - A colored state badge: SCAN, PASS, IDLE, LIVE, WRITE, READING.
+  - A one-line rule in accent colour.
+  - The latest action line in mono, e.g. 「next $DOZY · spike 3.5×」.
+  - The active agent's card is highlighted with a glowing border.
+- **Centre: LIVE FLOW pipeline**
+  - The stages are chips, e.g. 「SCAN → CHECK → SIZE → EXEC → LOG」. For us: 規劃 → 搜尋/讀取 → 派出 → 撰寫 → 審查 → 完成.
+  - Item cards flow along a dotted path between glowing nodes.
+  - Small counters per stage.
+- **Detail panel**
+  - The current item, with key/value rows in mono and a 「reason:」 line.
+  - For us: the current tool call, its arguments and why, taken from the reasoning summary when available.
+- **Log**
+  - A `tail -f`-style log panel: 「time · ENTER/EXIT badge · item · reason」 rows that scroll live.
+  - For us: tool calls, approvals, subagent dispatch and finish, each with a short reason.
+- **Result strip**
+  - Start vs now. For us: session start → now, tokens and cost, with a progress dot.
+- **Mapping to dsh data**
+  - Agents are the lead plus its subagents and teammates.
+  - Each agent's role line is the subagent label/description.
+  - The state badge comes from running status and the current tool kind.
+  - The log comes from durable events: tool calls, approvals, api-session added/removed.
+- The jellyfish creatures (H) can live inside the LIVE FLOW area, moving between stage nodes. The cards and the log give the dense, detailed status (G).
