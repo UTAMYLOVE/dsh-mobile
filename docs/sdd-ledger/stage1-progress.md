@@ -71,3 +71,11 @@ T2: implementer DONE_WITH_CONCERNS (lane-t1 8d85b62..62ac66c, 669 unit); deviati
 T2: review dispatched (opus — concurrency and reconnect semantics)
 T2: minor (deferred): no client-side ping on the mux socket (add OkHttp pingInterval if T15 shows hung-socket stalls)
 T4 dispatched (opus, wt-t3 lane-t4 from bb2ba1b); T16 dispatched (sonnet, wt-t7 lane-t16 from bb2ba1b)
+T2: review = spec ✅, quality Approved (opus), 0 Critical/Important
+T2: complete (lane-t1 8d85b62..62ac66c, review clean)
+- Ruling: T2 Minors 1–4 and 6 get a small hardening round on lane-t2fix (remote/ only): clear clientId when mux leaves OPEN; close the socket when the scope is cancelled without close(); close() race after open(); reset failure count only after the socket stayed open longer than the last backoff; tests for not-connected timeout and chunked >16 MiB bodies — Why: reconnect robustness is Review Focus 1 and these are cheap now — Cost if wrong: one extra small round.
+- Ruling (carry into T5/T6/T11 dispatches): collectors of control()/follow() must not suspend long inside emit (UNLIMITED buffers); hostEvents has no replay → consumers refetch their baseline on every muxState → OPEN / Reopened.
+T16: implementer DONE_WITH_CONCERNS (lane-t16 bb2ba1b..adadc0a, 730 unit); no RED shown; onTaskRemoved explicit no-op; re-baseline could be skipped if RECONNECTING→OPEN conflates; review dispatched (sonnet)
+T16: review 1 = spec ❌ (10-minute rule after done not honoured in two paths), quality Needs fixes (sonnet) — Important: busy can stick forever when $events reopens while mux stays OPEN (no re-baseline/watchdog); crash restart in background leaves an idle service resident
+- Ruling: Minors 1 (restart 10-minute grace after done), 2 (no re-attach for an unchanged RunningDsh), 3 (document START_NOT_STICKY loss), 4 (no "done" notice after Stop), 5 (surrogate-safe clip + notification content asserts), 6 (non-vacuous swipe/guard tests) join round 1 — same files, and leaks cost the owner money.
+T16: fix round 1/5 dispatched (resume implementer)
