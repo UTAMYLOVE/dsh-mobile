@@ -111,7 +111,8 @@ jobs:
   e2e:
     needs: rootfs
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The stage-1 suite drives the native shell (t01-t24) and runs the jank gate (PerfGateTest) on a software GPU.
+    timeout-minutes: 90
     env:
       ROOTFS_FILE: ${{ github.workspace }}/rootfs-artifact/dshm-rootfs-x86_64.tar.xz
     steps:
@@ -153,7 +154,10 @@ jobs:
           disk-size: 6G
           ram-size: 4096M
           cores: 2
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          # SwANGLE (SwiftShader Vulkan behind ANGLE) instead of the legacy GLES translator: on swiftshader_indirect the emulator
+          # went silent 0.2 s after the native shell's first frame (runs 77, 80, 84: logcat ends at the app's first RenderThread
+          # buffer, then "device not found"); the WebView shell before it rendered fine there.
+          emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim
           disable-animations: true
           working-directory: android
           script: |
@@ -175,6 +179,8 @@ jobs:
                   print(f'- {state} {m[2].rsplit(".", 1)[-1]}.{m[1]} ({float(m[3]):.1f} s)')
           if not files: print('no results')
           PY
+          # The jank gate's measurements (PerfGateTest sets its thresholds from these) and t24's screen width.
+          grep -hoE "(perf-gate|t24): .*" logcat.txt 2>/dev/null | sed 's/^/    /' | tee -a "$GITHUB_STEP_SUMMARY" || true
       - name: Print failures and app crashes
         if: failure()
         run: |
@@ -186,6 +192,9 @@ jobs:
                       print(f'=== {m[1]}')
                       print('\n'.join(html.unescape(m[2]).splitlines()[:60]))
           PY
+          echo "=== runner memory (an emulator that vanishes without a word is usually the host's OOM killer)"
+          free -m || true
+          sudo dmesg 2>/dev/null | grep -iE "killed process|out of memory|oom-kill|oom_reaper" | tail -n 20 || true
           echo "=== logcat: crashes, ANRs, low-memory kills, test runner"
           grep -E "FATAL EXCEPTION|AndroidRuntime|ANR in|lowmemorykiller|Low on memory|TestRunner|app\.dshmobile" logcat.txt | grep -vE "token=|Authorization|api[_-]?key" | tail -n 200 || true
       - name: Upload test reports and logcat
