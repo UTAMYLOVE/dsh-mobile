@@ -1,5 +1,6 @@
 package app.dshmobile.ui
 
+import app.dshmobile.runtime.DesktopSignals
 import android.Manifest
 import android.app.AlertDialog
 import android.app.Application
@@ -143,7 +144,7 @@ class MainActivityTest {
             },
             meter = CostMeter(InMemorySharedPreferences(), PriceTable(), clock = MutableClock()),
             errorLog = ErrorLog(tmp), healthCheck = { true }, dnsServers = { emptyList() },
-            onNotify = {}, onCostAlert = {}, onRateGuard = {}, launchTimeoutMs = 10_000, stopGraceMs = 500,
+            onNotify = {}, onCostAlert = {}, onRateGuard = {}, launchTimeoutMs = 10_000, killer = DesktopSignals.killer(listOf("dshm-test-none-${System.nanoTime()}")),
         )
         controller = c
         swap("controller", c)
@@ -198,6 +199,7 @@ class MainActivityTest {
             meter = CostMeter(InMemorySharedPreferences(), PriceTable(), clock = MutableClock()),
             errorLog = ErrorLog(tmp), healthCheck = { true }, dnsServers = { emptyList() },
             onNotify = {}, onCostAlert = {}, onRateGuard = {},
+            killer = DesktopSignals.killer(listOf("dshm-test-none-${System.nanoTime()}")),
         )
         swap("controller", c)
         build().create().start().resume()

@@ -36,6 +36,9 @@ import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshVersions
 import app.dshmobile.runtime.VerifiedDsh
 import app.dshmobile.runtime.HealthCheck
+import app.dshmobile.runtime.AndroidSignals
+import app.dshmobile.runtime.ProcessTreeKiller
+import app.dshmobile.runtime.ProcfsSource
 import app.dshmobile.runtime.ProotGuestCommand
 import app.dshmobile.runtime.ProotRunner
 import app.dshmobile.runtime.RootfsInstaller
@@ -133,6 +136,20 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     val settingsJobs: SettingsJobs by lazy { SettingsJobs(applicationScope, controller) }
 
+    /**
+     * Ends dsh's and guest commands' process trees for real (bug-writer-held): `/proc` for the tree, `Os.kill` for the signals,
+     * only ever this app's own uid. One per process, so a guest command running now is never swept as a leftover.
+     */
+    val processKiller: ProcessTreeKiller by lazy {
+        ProcessTreeKiller(
+            procs = ProcfsSource(),
+            signals = AndroidSignals,
+            myUid = android.os.Process.myUid(),
+            myPid = android.os.Process.myPid(),
+            markers = DshController.SWEEP_MARKERS,
+        )
+    }
+
     private val proot: ProotRunner by lazy {
         ProotRunner(File(applicationInfo.nativeLibraryDir), appPaths.rootfs, File(cacheDir, "proot"), appPaths.binds)
     }
@@ -186,6 +203,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             },
             // dsh's own folder picker does not work in the WebView: list /root/workspace in dsh after every start.
             afterHealthy = { launch -> workspaces.ensure(launch) },
+            killer = processKiller,
         )
     }
 
@@ -193,7 +211,7 @@ class DshMobileApp : Application(), Configuration.Provider {
     val dshVersions: DshVersions by lazy {
         val rootfs = appPaths.rootfs
         DshVersions(
-            File(rootfs, "opt/dsh"), ProotGuestCommand(proot, rootfs, ::activeNetworkDnsServers), errorLog,
+            File(rootfs, "opt/dsh"), ProotGuestCommand(proot, rootfs, ::activeNetworkDnsServers, processKiller, errorLog), errorLog,
             bundledVersion = BuildConfig.DSH_PINNED_VERSION,
         )
     }

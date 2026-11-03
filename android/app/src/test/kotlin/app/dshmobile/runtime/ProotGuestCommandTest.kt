@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import org.junit.Assert.assertFalse
 
 /** Uses a shell script in place of `libproot.so`, so the real process plumbing runs without proot. */
 class ProotGuestCommandTest {
@@ -21,8 +22,11 @@ class ProotGuestCommandTest {
         f.setExecutable(true)
     }
 
+    private val marker = "dshm-guest-test-${System.nanoTime()}"
+    private val errorLog = app.dshmobile.log.ErrorLog(base)
+
     private fun command(dns: List<String> = listOf("9.9.9.9")) =
-        ProotGuestCommand(ProotRunner(nativeLib, rootfs, File(base, "tmp")), rootfs) { dns }
+        ProotGuestCommand(ProotRunner(nativeLib, rootfs, File(base, "tmp")), rootfs, { dns }, DesktopSignals.killer(listOf(marker)), errorLog)
 
     @Test fun runsArgsAfterEnvPrefixAndCapturesOutput() {
         fakeProot("""printf 'out:%s\n' "${'$'}@"; echo "HOME=${'$'}HOME PATH=${'$'}PATH fund=${'$'}npm_config_fund audit=${'$'}npm_config_audit upd=${'$'}npm_config_update_notifier"; echo oops >&2; exit 3""")
@@ -48,6 +52,17 @@ class ProotGuestCommandTest {
         assertEquals(-1, r.exitCode)
         assertTrue("took too long", (System.nanoTime() - t0) / 1_000_000 < 10_000)
         assertTrue(r.stdout.contains("started"))
+    }
+
+    /** Like proot: SIGTERM is ignored and the command runs as a child. A timeout must still end the whole tree. */
+    @Test fun timeoutEndsTheWholeTreeOfAProotThatIgnoresTerm() {
+        fakeProot("trap '' TERM; sleep 60 & echo child=${'$'}!; wait")
+        val r = command().run(listOf("npm", "install"), 1_000)
+        assertEquals(-1, r.exitCode)
+        val child = Regex("child=(\\d+)").find(r.stdout)!!.groupValues[1].toInt()
+        val alive = ProcfsSource().list().any { it.pid == child && it.alive }
+        assertFalse("the command's child outlived the timeout", alive)
+        assertTrue(errorLog.file().readText(), errorLog.file().readText().contains("[guest] timed out after 1000 ms, stopped: found=2"))
     }
 
     @Test fun missingProotBinaryReturnsMinusOne() {

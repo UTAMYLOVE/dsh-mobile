@@ -1,5 +1,6 @@
 package app.dshmobile.service
 
+import app.dshmobile.runtime.DesktopSignals
 import android.Manifest
 import android.app.Application
 import android.app.NotificationManager
@@ -58,7 +59,7 @@ class DshServiceTest {
             },
             meter = CostMeter(InMemorySharedPreferences(), PriceTable(), clock = MutableClock()),
             errorLog = ErrorLog(tmp), healthCheck = { true }, dnsServers = { emptyList() },
-            onNotify = {}, onCostAlert = {}, onRateGuard = {}, launchTimeoutMs = 10_000, stopGraceMs = 500,
+            onNotify = {}, onCostAlert = {}, onRateGuard = {}, launchTimeoutMs = 10_000, killer = DesktopSignals.killer(listOf("dshm-test-none-${System.nanoTime()}")),
         )
         testController = c
         val field = DshMobileApp::class.java.getDeclaredField("controller\$delegate")
