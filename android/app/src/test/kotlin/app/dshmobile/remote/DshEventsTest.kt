@@ -6,15 +6,19 @@ import app.dshmobile.runtime.FakeMux
 import app.dshmobile.runtime.eventually
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import okhttp3.OkHttpClient
@@ -28,6 +32,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 
 class DshEventsTest {
     private val scope = CoroutineScope(SupervisorJob())
@@ -45,9 +50,9 @@ class DshEventsTest {
     }
 
     /** `$events` over a logged-in mux; `call` is the plain unary RPC (`POST /api/<method>`, Task 1's envelope). */
-    private fun newEvents(graceMs: Long = 3_000): DshEvents {
+    private fun newEvents(graceMs: Long = 3_000, backoffMs: List<Long> = listOf(0)): DshEvents {
         runBlocking { client.login() }
-        mux = MuxConnection({ client.openWebSocket("/api/remote.mux", it) }, { client.login() }, scope, listOf(0))
+        mux = MuxConnection({ client.openWebSocket("/api/remote.mux", it) }, { client.login() }, scope, backoffMs)
         return DshEvents(mux, ::rpc, scope, graceMs)
     }
 
@@ -288,5 +293,52 @@ class DshEventsTest {
         ev(ready("c9"))
         withTimeout(5_000) { waiting.join() }
         assertEquals(Json.parseToJsonElement("\"c9\""), lastArgs().jsonObject["clientId"])
+    }
+
+    @Test fun anAnswerDuringReconnectingWaitsAndNeverUsesTheOldClientId() = runBlocking {
+        // A visible backoff: the socket stays down for 600 ms before the next try.
+        val events = newEvents(backoffMs = listOf(600))
+        ev(ready("c1"))
+        ev(approval("e1"))
+        eventually("e1") { events.ids == listOf("e1") }
+        val id = eventsStream()
+
+        fake.closeAll()
+        eventually("reconnecting") { mux.state.value == MuxState.RECONNECTING }
+        val answered = scope.launch { events.allowOnce(events.prompts.value.single() as PendingPrompt.Approval) }
+        delay(200)
+        assertEquals(MuxState.RECONNECTING, mux.state.value)
+        assertNull("clientId cleared as soon as the mux left OPEN", events.clientId.value)
+        assertTrue("no answer goes out while reconnecting", rpcBodies.isEmpty())
+        assertTrue(answered.isActive)
+
+        eventually("\$events reopened") { fake.opened("\$events").size == 2 }
+        fake.sendItem(id, ready("c2"))
+        fake.sendItem(id, approval("e1"))
+        withTimeout(5_000) { answered.join() }
+        val clientIds = rpcBodies.map {
+            Json.parseToJsonElement(it).jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject["clientId"]
+        }
+        assertEquals(listOf(Json.parseToJsonElement("\"c2\"")), clientIds)
+        assertEquals(emptyList<PendingPrompt>(), events.prompts.value)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class) // currentTime
+    @Test fun anAnswerWithoutReadyFailsNotConnectedAfterFiveSeconds() = runTest {
+        // Virtual clock: the mux never connects (its retry runs on real time, far away), the answer gives up at 5 s.
+        val neverUp = MuxConnection({ throw IOException("dsh is down") }, {}, backgroundScope, listOf(60_000))
+        val calls = AtomicInteger()
+        val events = DshEvents(neverUp, { _, _ -> calls.incrementAndGet(); JsonNull }, backgroundScope)
+        val started = currentTime
+        try {
+            events.allowOnce(PendingPrompt.Approval("e1", "session-a", "bash", null, "r"))
+            fail("an answer without a clientId must fail")
+        } catch (e: DshRpcException) {
+            assertEquals("not-connected", e.code)
+        }
+        assertEquals(5_000L, currentTime - started)
+        assertEquals(0, calls.get())
+        assertNull(events.clientId.value)
+        neverUp.close()
     }
 }

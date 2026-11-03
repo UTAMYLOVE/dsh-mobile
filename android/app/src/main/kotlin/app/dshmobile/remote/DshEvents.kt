@@ -10,8 +10,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -55,8 +57,9 @@ sealed interface HostEvent {
  * dsh's `$events` stream (docs/dsh-ui-protocol.md §1.4): the `clientId` that answers prompts, the pending approvals and
  * questions in arrival order, and session lifecycle notifications. Answers go out as `$events/result` through [call].
  *
- * Reconnects (planner's call): dsh re-delivers a still-pending waterfall with the same `eventId`, so on
- * [StreamSignal.Reopened] the `clientId` is cleared and every card is kept but marked unconfirmed; a card not re-delivered
+ * Reconnects (planner's call): the `clientId` is cleared as soon as the mux leaves [MuxState.OPEN]. dsh re-delivers a
+ * still-pending waterfall with the same `eventId`, so on [StreamSignal.Reopened] every card is kept but marked
+ * unconfirmed; a card not re-delivered
  * within [redeliveryGraceMs] of the new `ready` was answered elsewhere and is dropped. A re-delivered card never leaves the
  * list in between.
  */
@@ -91,6 +94,12 @@ class DshEvents(
                 delay(REOPEN_DELAY_MS)
             }
         }
+        // A clientId belongs to one socket: forget it the moment the mux is not OPEN, not only once it reopens.
+        scope.launch {
+            mux.state.transformWhile { emit(it); it != MuxState.CLOSED }.collect { state ->
+                if (state != MuxState.OPEN) synchronized(lock) { if (mux.state.value != MuxState.OPEN) _clientId.value = null }
+            }
+        }
     }
 
     suspend fun allowOnce(p: PendingPrompt.Approval) = respond(p, result(JsonPrimitive("allowed-once")))
@@ -113,12 +122,14 @@ class DshEvents(
     })
 
     /**
-     * Answers [p] (waiting up to [READY_WAIT_MS] for a `clientId` while reconnecting) and removes its card. On failure the
-     * card stays and [DshRpcException] (code through [DshErrors.safeCode]) or an [java.io.IOException] is thrown.
+     * Answers [p] (waiting up to [READY_WAIT_MS] for an OPEN mux with a fresh `clientId` while reconnecting; never with a
+     * clientId of a socket that is gone) and removes its card. On failure the card stays and [DshRpcException] (code through
+     * [DshErrors.safeCode]; `not-connected` after the wait) or an [java.io.IOException] is thrown.
      */
     private suspend fun respond(p: PendingPrompt, outcome: JsonObject) {
-        val clientId = withTimeoutOrNull(READY_WAIT_MS) { _clientId.filterNotNull().first() }
-            ?: throw DshRpcException(NOT_CONNECTED, "dsh $RESULT: $NOT_CONNECTED")
+        val clientId = withTimeoutOrNull(READY_WAIT_MS) {
+            combine(_clientId, mux.state) { id, state -> id.takeIf { state == MuxState.OPEN } }.filterNotNull().first()
+        } ?: throw DshRpcException(NOT_CONNECTED, "dsh $RESULT: $NOT_CONNECTED")
         try {
             call(RESULT, buildJsonObject {
                 put("clientId", clientId)
@@ -158,6 +169,7 @@ class DshEvents(
     }
 
     private fun onReady(clientId: String) = synchronized(lock) {
+        if (mux.state.value != MuxState.OPEN) return // a ready from a socket that is already gone
         _clientId.value = clientId
         if (unconfirmed.isEmpty()) return
         val gen = generation

@@ -312,4 +312,67 @@ class MuxConnectionTest {
         }
         assertEquals(MuxState.CLOSED, remote.muxState.value)
     }
+
+    @Test fun cancellingTheScopeWithoutCloseStillClosesTheSocket() = runBlocking {
+        client.login()
+        val own = CoroutineScope(SupervisorJob())
+        val mux = MuxConnection({ client.openWebSocket("/api/remote.mux", it) }, { client.login() }, own, listOf(0))
+        val follow = Collected(mux.stream("session/follow"))
+        eventually("open") { fake.opened("session/follow").isNotEmpty() && fake.openSockets == 1 }
+
+        own.cancel() // the shell session's scope ends; nobody calls close()
+        eventually("socket closed") { fake.openSockets == 0 }
+        eventually("closed") { mux.state.value == MuxState.CLOSED }
+        val upgrades = fake.upgrades.get()
+        delay(300)
+        assertEquals("no reconnect after the scope ended", upgrades, fake.upgrades.get())
+        assertEquals(0, fake.openSockets)
+        assertEquals(emptyList<StreamSignal>(), withTimeout(1_000) { mux.stream("session/control").toList() })
+        follow.job.cancel()
+    }
+
+    @Test fun closeWhileTheUpgradeIsStartingCancelsTheNewSocket() = runBlocking {
+        client.login()
+        lateinit var mux: MuxConnection
+        val opened = CopyOnWriteArrayList<okhttp3.WebSocket>()
+        mux = MuxConnection(
+            open = { listener ->
+                client.openWebSocket("/api/remote.mux", listener).also {
+                    opened += it
+                    mux.close() // close() lands between the attempt being registered and open() returning
+                }
+            },
+            relogin = { client.login() },
+            scope = scope,
+            backoffMs = listOf(0),
+        ).also { made += it }
+        eventually("the upgrade started") { opened.isNotEmpty() }
+        assertEquals(MuxState.CLOSED, mux.state.value)
+        delay(500)
+        assertEquals("the socket opened during close() is cancelled", 0, fake.openSockets)
+        assertEquals(1, opened.size)
+        assertFalse("a cancelled socket refuses to send", opened.single().send("{}"))
+    }
+
+    @Test fun aSocketThatClosesRightAfterOpeningBacksOff() = runBlocking {
+        val mux = newMux(backoffMs = listOf(50, 400))
+        val flapping = java.util.concurrent.atomic.AtomicBoolean(true)
+        fake.onOpen = { _, _, _ -> if (flapping.get()) fake.closeAll() }
+        val follow = Collected(mux.stream("session/follow"))
+        delay(1_000)
+        val flaps = fake.upgrades.get()
+        // Without the stable-open rule every flap would retry after 50 ms (about 15 tries a second).
+        assertTrue("$flaps upgrades in the first second", flaps in 2..5)
+
+        flapping.set(false)
+        eventually("stays open", timeoutMs = 2_000) { mux.state.value == MuxState.OPEN && fake.openSockets == 1 }
+        delay(500) // longer than the last backoff value: the next drop starts the list again
+        val before = fake.opened("session/follow").size
+        fake.closeAll()
+        val dropped = System.nanoTime()
+        eventually("reopened") { fake.opened("session/follow").size == before + 1 }
+        val reopenMs = (System.nanoTime() - dropped) / 1_000_000
+        assertTrue("reopened after $reopenMs ms; a stable socket restarts at the first backoff", reopenMs < 300)
+        follow.job.cancel()
+    }
 }

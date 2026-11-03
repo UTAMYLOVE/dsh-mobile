@@ -22,14 +22,18 @@ import org.junit.Test
 class DshRemoteAnswerSizeTest {
     private val scope = CoroutineScope(SupervisorJob())
     @Volatile private var size = 0
+    @Volatile private var chunked = false
     private val dsh = FakeDshServer(rpc = { answerOf(size) })
     private val remote = DshRemote(DshClient(OkHttpClient(), dsh.launch), scope)
 
     @After fun cleanup() { remote.close(); scope.cancel(); dsh.close() }
 
-    /** An `ok:true` answer whose body is exactly [bytes] long. */
-    private fun answerOf(bytes: Int): MockResponse =
-        MockResponse().setResponseCode(200).setBody(HEAD + "a".repeat(bytes - HEAD.length - TAIL.length) + TAIL)
+    /** An `ok:true` answer whose body is exactly [bytes] long; [chunked]: sent without a Content-Length, in 1 MiB chunks. */
+    private fun answerOf(bytes: Int): MockResponse {
+        val body = HEAD + "a".repeat(bytes - HEAD.length - TAIL.length) + TAIL
+        val response = MockResponse().setResponseCode(200)
+        return if (chunked) response.setChunkedBody(body, 1 shl 20) else response.setBody(body)
+    }
 
     @Test fun aTwoMebibyteAnswerIsReadWhole() = runBlocking {
         size = 2 shl 20
@@ -50,6 +54,21 @@ class DshRemoteAnswerSizeTest {
         size = 16 shl 20
         remote.call("session/list", buildJsonObject { putJsonObject("_request") {} }) // exactly at the cap is fine
         Unit
+    }
+
+    @Test fun aChunkedAnswerOverSixteenMebibytesFailsToo() = runBlocking {
+        // No Content-Length: the limit must hold while reading, not only from the header.
+        chunked = true
+        size = (16 shl 20) + 1
+        try {
+            remote.call("session/list", buildJsonObject { putJsonObject("_request") {} })
+            fail("a chunked answer over 16 MiB must fail")
+        } catch (e: DshRpcException) {
+            assertEquals("response-too-large", e.code)
+        }
+        size = 16 shl 20
+        val value = remote.call("session/list", buildJsonObject { putJsonObject("_request") {} })
+        assertEquals(size - HEAD.length - TAIL.length, value.jsonObject["text"]!!.jsonPrimitive.content.length)
     }
 
     private companion object {
