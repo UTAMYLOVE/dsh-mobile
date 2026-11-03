@@ -87,7 +87,9 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
@@ -543,7 +545,7 @@ private fun ReconnectingChip(modifier: Modifier = Modifier) {
     Row(
         modifier
             .testTag(Tags.RECONNECTING)
-            .semantics(mergeDescendants = true) {}
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite } // announced when it appears
             .glass(Round)
             .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,

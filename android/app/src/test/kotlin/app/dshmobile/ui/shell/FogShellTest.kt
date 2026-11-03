@@ -119,12 +119,12 @@ class FogShellTest {
 
     private fun tab(t: ShellTab) = rule.onNodeWithTag(Tags.TAB + t.name)
 
-    @Test fun fiveTabsInOrderWithChineseAndEnglishLabels() {
+    @Test fun fiveTabsInOrderWithChineseLabels() {
         h.show(rule)
         assertEquals(listOf("OVERVIEW", "CHAT", "AGENTS", "LIBRARY", "SETTINGS"), ShellTab.entries.map { it.name })
         assertEquals(listOf("總覽", "對話", "代理人", "書架", "設定"), ShellTab.entries.map { it.zh })
         val lefts = ShellTab.entries.map { t ->
-            tab(t).assertIsDisplayed().assertTextContains(t.zh).assertTextContains(t.en)
+            tab(t).assertIsDisplayed().assertTextContains(t.zh) // the English line is decoration (ShellAccessibilityTest)
             tab(t).fetchSemanticsNode().boundsInRoot.left
         }
         assertEquals("tabs left to right in enum order", lefts.sorted(), lefts)
@@ -158,7 +158,7 @@ class FogShellTest {
         h.show(rule)
         rule.onNodeWithTag(Tags.COMPOSER_INPUT).assertIsNotEnabled()
         rule.onNodeWithTag(Tags.SEND).assertIsNotEnabled()
-        rule.onNodeWithTag(Tags.COMPOSER_HINT, useUnmergedTree = true).assertTextEquals("DSH 啟動後才能傳訊息")
+        rule.onNodeWithTag(Tags.COMPOSER_HINT, useUnmergedTree = true).assertTextEquals("DSH 尚未就緒")
         h.status = MainUiState.Ready
         rule.waitForIdle()
         rule.onNodeWithTag(Tags.COMPOSER_INPUT).assertIsEnabled()

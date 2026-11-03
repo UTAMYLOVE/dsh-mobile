@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -369,7 +370,11 @@ private fun TabRow(selected: ShellTab, onSelect: (ShellTab) -> Unit) {
                         t.zh, color = if (on) Sakura.Text else Sakura.TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium,
                         letterSpacing = 0.08.em, maxLines = 1, overflow = TextOverflow.Clip,
                     )
-                    Text(t.en, style = FogText.Label.copy(fontSize = 9.sp, letterSpacing = 0.16.em), maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                    // Decoration: the tab reads as its Chinese name (the English line may clip at large font sizes on 360 dp).
+                    Text(
+                        t.en, style = FogText.Label.copy(fontSize = 9.sp, letterSpacing = 0.16.em), maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+                        modifier = Modifier.clearAndSetSemantics {},
+                    )
                 }
             }
         }
