@@ -185,6 +185,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             serviceNotification = notifier::serviceNotification,
             errorLog = errorLog,
             updateCheck = dailyUpdateCheck,
+            serviceGaveUp = { serviceGaveUp.value },
         )
     }
 

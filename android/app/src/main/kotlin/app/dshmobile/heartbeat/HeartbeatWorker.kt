@@ -38,6 +38,8 @@ class HeartbeatDeps(
     val timeoutMs: Long = HeartbeatWorker.TIMEOUT_MS,
     /** The once-a-day shell app update check that rides on the heartbeat; null = none. */
     val updateCheck: DailyUpdateCheck? = null,
+    /** `DshMobileApp.serviceGaveUp`: after a give-up only the user restarts dsh, so the heartbeat leaves it alone. */
+    val serviceGaveUp: () -> Boolean = { false },
 )
 
 /** Hands [deps] to [HeartbeatWorker]; any other worker class falls through to WorkManager's default factory. */
@@ -65,6 +67,12 @@ class HeartbeatWorker(
         goForeground()
         // Independent of dsh (needs no rootfs, no holder) and unable to fail the run: it logs its own problems.
         deps.updateCheck?.runIfDue()
+        if (deps.serviceGaveUp()) {
+            // dsh crashed repeatedly and was given up on: starting it again every period would only crash it again (and a dsh
+            // started here would run unsupervised behind the error screen). Retry or the rollback are the user's way back.
+            deps.errorLog.append(TAG, "skipped: dsh gave up after repeated crashes")
+            return Result.success()
+        }
         deps.runtime.retain(HOLDER)
         try {
             withTimeout(deps.timeoutMs) { heartbeat() }

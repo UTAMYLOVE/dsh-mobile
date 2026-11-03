@@ -95,6 +95,7 @@ class HeartbeatWorkerTest {
     }
 
     private var updateCheck: DailyUpdateCheck? = null
+    private var gaveUp = false
 
     private fun deps() = HeartbeatDeps(
         runtime = controller,
@@ -104,6 +105,7 @@ class HeartbeatWorkerTest {
         errorLog = errorLog,
         timeoutMs = timeoutMs,
         updateCheck = updateCheck,
+        serviceGaveUp = { gaveUp },
     )
 
     private fun worker() = TestListenableWorkerBuilder<HeartbeatWorker>(context)
@@ -260,6 +262,21 @@ class HeartbeatWorkerTest {
         assertTrue(controller.isRunning.value)
         assertTrue(processes.single().isAlive)
         assertEquals(setOf("service"), controller.holders)
+    }
+
+    /** M-1: after a give-up only the user restarts dsh; the heartbeat must not cold-start a known-broken dsh every period. */
+    @Test fun afterAGiveUpTheHeartbeatNeitherStartsDshNorDreamsAndSucceeds() {
+        gaveUp = true
+        heartbeatResponse = ::twoReminders
+        var checked = 0
+        updateCheck = dailyUpdate { checked++; null }
+        assertEquals(ListenableWorker.Result.success(), runHeartbeat())
+        assertEquals("no dsh was started", 0, starts.get())
+        assertTrue("no dream was asked for", heartbeatRequests.isEmpty())
+        assertTrue(notified.isEmpty())
+        assertTrue(controller.holders.isEmpty())
+        assertTrue(log(), log().contains("[heartbeat] skipped: dsh gave up"))
+        assertEquals("the daily update check does not need dsh and still runs", 1, checked)
     }
 
     @Test fun whenNobodyElseHoldsDshItIsStoppedAfterwards() {
