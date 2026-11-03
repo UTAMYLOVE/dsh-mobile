@@ -59,6 +59,7 @@ object ConversationReducer {
             hasMore = o.bool("hasMore") ?: false,
             firstSeq = listOfNotNull(minSeq(records), state.firstSeq).minOrNull(),
             acceptedRequestIds = state.acceptedRequestIds + older.acceptedRequestIds,
+            replyStats = older.replyStats + state.replyStats,
         )
     } catch (_: RuntimeException) {
         state
@@ -83,7 +84,14 @@ object ConversationReducer {
             firstSeq = minSeq(records),
             lastSeq = listOfNotNull(records.mapNotNull { it.num("seq") }.maxOrNull(), o.num("cursor")).maxOrNull(),
             acceptedRequestIds = state.acceptedRequestIds + rebuilt.acceptedRequestIds,
+            context = pressure(o.obj("projections")?.obj("values")?.obj("contextPressure")) ?: rebuilt.context,
         )
+    }
+
+    /** dsh's own `contextPressure` projection `{pressureTokens, contextWindow}`; null when empty. */
+    fun pressure(p: JsonObject?): ContextFill? {
+        val tokens = p?.num("pressureTokens") ?: return null
+        return ContextFill(tokens, p.num("contextWindow"))
     }
 
     /**
@@ -134,15 +142,22 @@ object ConversationReducer {
         val type = event.str("type") ?: return state
         val seq = event.num("seq")
         val data = event.obj("data") ?: return state
+        val time = event.num("time")
         return when (type) {
             "user/message" -> userMessage(state, seq, data)
-            "assistant/message" -> assistantMessage(state, seq, data)
+            "assistant/message" -> countReply(assistantMessage(state, seq, data), seq, time, data)
+            "step/start" -> state.copy(turn = (state.turn ?: TurnAcc()).copy(stepStartMs = time))
+            "request/context" -> state.copy(
+                turn = (state.turn ?: TurnAcc()).copy(
+                    provider = data.str("provider"), model = data.str("model"), window = data.num("contextWindow"),
+                ),
+            )
             "tool/call" -> toolCall(state, data)
             "tool/result" -> toolResult(state, data)
             "approval/asked" -> approvalAsked(state, data)
             "approval/decided" -> approvalDecided(state, data)
-            "turn/start" -> state.copy(running = true)
-            "turn/end" -> turnEnd(state, seq, data)
+            "turn/start" -> state.copy(running = true, turn = TurnAcc(startMs = time))
+            "turn/end" -> turnEnd(finishReply(state, time), seq, data)
             "session/title" -> data.str("title")?.let { state.copy(title = it) } ?: state
             else -> state
         }
@@ -253,6 +268,47 @@ object ConversationReducer {
             "allowed-once" -> replace(state, index, card.copy(status = ToolStatus.RUNNING))
             else -> state
         }
+    }
+
+    /** Adds one `assistant/message`'s usage and timing to the running turn, and updates the context fill. */
+    private fun countReply(state: ConversationState, seq: Long?, time: Long?, data: JsonObject): ConversationState {
+        val usage = data.obj("usage") ?: return state
+        val acc = state.turn ?: TurnAcc()
+        val input = usage.num("inputTokens") ?: 0
+        val cacheRead = usage.num("cacheReadTokens") ?: 0
+        val firstChunk = (data["stream"] as? JsonArray)?.firstNotNullOfOrNull { r ->
+            (r as? JsonObject)?.let { it.num("time") ?: it.num("time0") }
+        }
+        val ttft = acc.ttftMs ?: if (firstChunk != null && acc.stepStartMs != null) (firstChunk - acc.stepStartMs).coerceAtLeast(0) else null
+        val decode = if (firstChunk != null && time != null) (time - firstChunk).coerceAtLeast(0) else 0
+        val next = acc.copy(
+            input = acc.input + input,
+            output = acc.output + (usage.num("outputTokens") ?: 0),
+            cacheRead = acc.cacheRead + cacheRead,
+            ttftMs = ttft,
+            decodeMs = acc.decodeMs + decode,
+            steps = acc.steps + 1,
+            lastAssistant = seq?.let { "e$it" } ?: acc.lastAssistant,
+        )
+        return state.copy(turn = next, context = ContextFill(input + cacheRead, acc.window ?: state.context?.window))
+    }
+
+    /** At `turn/end`, files the folded turn under its last assistant item. */
+    private fun finishReply(state: ConversationState, time: Long?): ConversationState {
+        val acc = state.turn ?: return state
+        val key = acc.lastAssistant ?: return state.copy(turn = null)
+        val stats = ReplyStats(
+            provider = acc.provider,
+            model = acc.model,
+            inputTokens = acc.input,
+            outputTokens = acc.output,
+            cacheReadTokens = acc.cacheRead,
+            ttftMs = acc.ttftMs,
+            decodeMs = acc.decodeMs,
+            durationMs = if (time != null && acc.startMs != null) (time - acc.startMs).coerceAtLeast(0) else null,
+            steps = acc.steps,
+        )
+        return state.copy(turn = null, replyStats = state.replyStats + (key to stats))
     }
 
     private fun turnEnd(state: ConversationState, seq: Long?, data: JsonObject): ConversationState {

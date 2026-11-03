@@ -157,4 +157,22 @@ class CostMeterTest {
         assertEquals(0.0, m.todayUsd(Provider.ANTHROPIC), 0.0)
         assertEquals(0.0, m.monthUsd(), 0.0)
     }
+
+    @Test fun todayIsSplitPerModelAndANewDayStartsEmpty() {
+        val clock = MutableClock(at("2026-11-02T10:00:00"))
+        val m = meter(clock)
+        m.record(Provider.ANTHROPIC, "claude-sonnet-5-5", Usage(inputTokens = 100, outputTokens = 10, cacheReadTokens = 300))
+        m.record(Provider.ANTHROPIC, "claude-sonnet-5-5", Usage(inputTokens = 100, outputTokens = 10))
+        m.record(Provider.DEEPSEEK, "deepseek-v4-flash", Usage(inputTokens = 5, outputTokens = 5))
+        val all = m.todayByModel()
+        org.junit.Assert.assertEquals(listOf("claude-sonnet-5-5", "deepseek-v4-flash"), all.map { it.model })
+        val sonnet = all.first()
+        org.junit.Assert.assertEquals(2L, sonnet.requests)
+        org.junit.Assert.assertEquals(200L, sonnet.inputTokens)
+        org.junit.Assert.assertEquals(0.6, sonnet.cacheHit!!, 0.001)
+        clock.now = at("2026-11-03T10:00:00")
+        org.junit.Assert.assertTrue(m.todayByModel().isEmpty())
+        m.record(Provider.DEEPSEEK, "deepseek-v4-flash", Usage(inputTokens = 5, outputTokens = 5))
+        org.junit.Assert.assertEquals(1L, m.todayByModel().single().requests)
+    }
 }

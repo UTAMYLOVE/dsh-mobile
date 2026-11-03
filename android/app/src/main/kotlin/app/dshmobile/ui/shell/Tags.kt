@@ -6,6 +6,9 @@ package app.dshmobile.ui.shell
  * tags (ending in `-`) must never be a prefix of one another.
  */
 object Tags {
+    const val REPLY_STATS = "reply-stats"
+    const val CHAT_STATS = "chat-stats"
+    const val OVERVIEW_STATS = "overview-stats"
     /** + [ShellTab.name]. */
     const val TAB = "tab-"
     const val COMPOSER_INPUT = "composer-input"

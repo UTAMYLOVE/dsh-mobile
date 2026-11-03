@@ -106,6 +106,12 @@ data class ChatUiState(
     val effort: String? = null,
     /** Independent reviewer rounds per reply. */
     val reviewRounds: Int = 0,
+    /** The stats line under each finished reply, keyed by the [ChatItem.Assistant.key] it follows (stage 2 §C.1). */
+    val replyLines: Map<String, String> = emptyMap(),
+    /** How full the context window is, 0..1; null when unknown. */
+    val contextFill: Float? = null,
+    /** The words beside the context bar and the conversation's totals. */
+    val statsLine: String? = null,
 )
 
 /** The thinking strengths dsh's model selection accepts (stage 2 §B.1). */
@@ -250,6 +256,7 @@ internal sealed interface ChatRow {
     data class Search(val item: ChatItem.Tool) : ChatRow { override val key = "search:" + item.key; override val type = "search"; override val gap = 12 }
     data class Notice(val item: ChatItem.Notice) : ChatRow { override val key = "notice:" + item.key; override val type = "notice"; override val gap = 12 }
     data class Pending(val p: PendingSend) : ChatRow { override val key = "pending:" + p.requestId; override val type = "pending"; override val gap = 12 }
+    data class Stats(override val key: String, val text: String) : ChatRow { override val type = "stats"; override val gap = 4 }
 }
 
 /**
@@ -406,6 +413,7 @@ private class RowBuilder(private val cache: BlockCache, private val expanded: Se
 /** The durable part of the list, oldest first: what only changes when dsh records something. */
 private fun durableRows(
     items: List<ChatItem>, hasMore: Boolean, olderError: String?, cache: BlockCache, expanded: Set<String>, attachments: String,
+    replyLines: Map<String, String> = emptyMap(),
 ): Built {
     val b = RowBuilder(cache, expanded, eagerKeys(items))
     if (hasMore) b.add(ChatRow.Older(olderError))
@@ -429,6 +437,7 @@ private fun durableRows(
                     val cites = lastSearch?.let { citedSources(item.text, it.sources) }.orEmpty()
                     b.message(BubbleKind.AI, key, item.text, cites, if (reasoning != null) 4 else 12)
                 }
+                replyLines[item.key]?.let { b.add(ChatRow.Stats("stats:" + item.key, it)) }
             }
             is ChatItem.Tool -> if (item.name == WEB_SEARCH) {
                 b.add(ChatRow.Search(item))
@@ -581,8 +590,8 @@ fun ChatScreen(
     var expanded by ui::expanded
     val revision = cache.revision
     val attachments = stringResource(R.string.chat_attachments)
-    val durable = remember(state.items, state.hasMore, state.olderError, expanded, revision, attachments) {
-        durableRows(state.items, state.hasMore, state.olderError, cache, expanded, attachments)
+    val durable = remember(state.items, state.hasMore, state.olderError, expanded, revision, attachments, state.replyLines) {
+        durableRows(state.items, state.hasMore, state.olderError, cache, expanded, attachments, state.replyLines)
     }
     LaunchedEffect(durable.missing) { parseMissing(durable.missing, cache) }
     val liveEntry = rememberLiveEntry(state.live, cache)
@@ -642,6 +651,7 @@ fun ChatScreen(
                     modifier = Modifier.padding(start = 12.dp).testTag(Tags.CHAT_TUNING),
                 )
             }
+            if (state.statsLine != null) ContextBar(state.contextFill, state.statsLine)
             state.followError?.let { FollowBanner(it, onRetryFollow) }
             state.sendError?.let { code ->
                 if (code == WRITER_HELD) {
@@ -730,6 +740,7 @@ private fun RowContent(row: ChatRow, a: RowActions) {
         is ChatRow.Search -> SearchCard(row.item, a.onLink)
         is ChatRow.Notice -> NoticeLine(row.item)
         is ChatRow.Pending -> PendingBubble(row.p, a.onRetrySend, a.onDismissSend)
+        is ChatRow.Stats -> ReplyStatsLine(row.text)
     }
 }
 

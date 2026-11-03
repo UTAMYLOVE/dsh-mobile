@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -492,5 +493,35 @@ internal fun PendingBubble(p: PendingSend, onRetry: (String) -> Unit, onDismiss:
             p.queued -> Text(stringResource(R.string.chat_queued), style = label, modifier = Modifier.testTag(Tags.QUEUED))
             else -> Text(stringResource(R.string.chat_sending), style = label)
         }
+    }
+}
+
+/** The small stats line under a finished reply: speed, first token, tokens, estimated cost, duration (stage 2 §C.1). */
+@Composable
+internal fun ReplyStatsLine(text: String) {
+    Text(
+        text,
+        color = Sakura.TextSecondary,
+        fontSize = 11.sp,
+        letterSpacing = 0.04.em,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp).testTag(Tags.REPLY_STATS),
+    )
+}
+
+/** How full the model's context is (a thin bar, rose past 80 %) and the conversation's totals beside it (stage 2 §C.2). */
+@Composable
+internal fun ContextBar(fill: Float?, text: String) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag(Tags.CHAT_STATS), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (fill != null) {
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .6f))) {
+                Box(
+                    Modifier.fillMaxWidth(fill.coerceIn(0.02f, 1f)).height(4.dp).clip(CircleShape)
+                        .background(if (fill >= 0.8f) Sakura.RoseBrown else Sakura.Aqua),
+                )
+            }
+        }
+        Text(text, color = Sakura.TextSecondary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }

@@ -1,5 +1,14 @@
 package app.dshmobile.ui.chat
 
+import app.dshmobile.chat.ContextFill
+import app.dshmobile.chat.SessionUsage
+import app.dshmobile.chat.replyCostUsd
+import app.dshmobile.chat.replyLine
+import app.dshmobile.chat.shortTokens
+import app.dshmobile.chat.teamUsage
+import app.dshmobile.gateway.PriceTable
+import java.util.Locale
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -228,11 +237,21 @@ private fun ConversationPage(
     val models = remember(hasClaudeKey, current) { modelChoices(hasClaudeKey, current) }
     val title = conversation.title?.takeIf { it.isNotBlank() } ?: row?.title?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_untitled)
 
+    val prices = remember { PriceTable() }
+    val replyLines = remember(conversation.replyStats) {
+        val now = Instant.now()
+        conversation.replyStats.mapValues { (_, r) -> replyLine(r, replyCostUsd(prices, r, now)) }
+    }
+    val usageFlow = remember(session, id) { session.tree.state.map { teamUsage(it, id) }.distinctUntilChanged() }
+    val usage by usageFlow.collectAsState(SessionUsage())
+    val statsLine = remember(usage, conversation.context) { conversationStatsLine(usage, conversation.context) }
+
     ChatScreen(
         state = ChatUiState(
             title, conversation.items, conversation.live, conversation.running, pending, models, conversation.hasMore, sendError,
             followError = followError, olderError = olderError, modelLabel = AgentModels.displayName(current),
             effort = ui.effort, reviewRounds = ui.reviewRounds,
+            replyLines = replyLines, contextFill = conversation.context?.fraction, statsLine = statsLine,
         ),
         onOpenList = { nav.listOpen = true },
         onPickModel = { mid ->
@@ -255,6 +274,22 @@ private fun ConversationPage(
         onDismissSend = store::dismissSend,
         ui = ui,
     )
+}
+
+/** 「上下文 23%（46K / 200K）· 本對話 12.3K tok · 平均 45 tok/s · 快取 60%」; null before anything was counted. */
+internal fun conversationStatsLine(u: SessionUsage, context: ContextFill?): String? {
+    val parts = buildList {
+        context?.let { c ->
+            val pct = c.fraction?.let { "${(it * 100).roundToInt()}%" }
+            add("上下文 " + listOfNotNull(pct, c.window?.let { "（${shortTokens(c.tokens)} / ${shortTokens(it)}）" } ?: shortTokens(c.tokens)).joinToString(""))
+        }
+        if (!u.isEmpty) {
+            add("本對話 ${shortTokens(u.totalTokens)} tok")
+            u.tokensPerSecond?.let { add(String.format(Locale.US, "平均 %.0f tok/s", it)) }
+            u.cacheHit?.let { add("快取 ${(it * 100).roundToInt()}%") }
+        }
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 /** How a send from the dock ended. */

@@ -86,10 +86,10 @@ class SessionTreeTest {
     @Test fun controlProjectionsKeepOnlyTheUsedKeys() {
         val s = SessionTreeReducer.applyControl(
             SessionTreeState(),
-            json("""{"type":"baseline","value":{"projections":{"s1":{"asOfSeq":3,"values":{"title":"hi","tokenUsage":{"outputTokens":1},"turnOutline":[],"modelSelection":{},"subagent":{"label":"x"}}}}}}"""),
+            json("""{"type":"baseline","value":{"projections":{"s1":{"asOfSeq":3,"values":{"title":"hi","tokenUsage":{"outputTokens":1},"turnOutline":[],"modelSelection":{},"subagent":{"label":"x"},"agentPreset":"standard"}}}}}"""),
         )
-        assertEquals(setOf("title", "turnOutline", "modelSelection", "subagent"), s.projections.getValue("s1").keys)
-        val more = SessionTreeReducer.applyControl(s, json("""{"type":"projection","sessionId":"s1","key":"tokenUsage","value":{},"seq":4}"""))
+        assertEquals(setOf("title", "tokenUsage", "turnOutline", "modelSelection", "subagent"), s.projections.getValue("s1").keys)
+        val more = SessionTreeReducer.applyControl(s, json("""{"type":"projection","sessionId":"s1","key":"agentPreset","value":{},"seq":4}"""))
         assertEquals(s, more)
         val title = SessionTreeReducer.applyControl(s, json("""{"type":"projection","sessionId":"s2","key":"title","value":"yo","seq":4}"""))
         assertEquals("yo", (title.projections.getValue("s2").getValue("title") as kotlinx.serialization.json.JsonPrimitive).content)

@@ -46,14 +46,33 @@ class CostMeter(
             val own = todayUsd(p)
             val other = Provider.entries.filter { it != p }.associateWith { todayUsd(it) }
             val monthTotal = if (store.getString(KEY_MONTH, null) == month) readDouble(KEY_MONTH_USD) else 0.0
+            val sameDay = store.getString(KEY_DAY, null) == today
             val edit = store.edit().putString(KEY_DAY, today).putString(KEY_TOTAL, (total + cost).toString())
                 .putString(providerKey(p), (own + cost).toString())
                 .putString(KEY_MONTH, month).putString(KEY_MONTH_USD, (monthTotal + cost).toString())
             // A provider that did not spend today is reset too, so a new day never keeps yesterday's split.
             other.forEach { (q, v) -> edit.putString(providerKey(q), v.toString()) }
+            recordModel(edit, sameDay, model, u, cost)
             edit.apply()
             bump()
         }
+    }
+
+    /** Today's requests, tokens and spend per model, most expensive first (stage 2 §C.3). */
+    fun todayByModel(): List<ModelSpend> = synchronized(this) {
+        if (store.getString(KEY_DAY, null) != today()) return emptyList()
+        decodeModels(store.getString(KEY_MODELS, null)).values.sortedByDescending { it.usd }
+    }
+
+    private fun recordModel(edit: SharedPreferences.Editor, sameDay: Boolean, model: String, u: Usage, cost: Double) {
+        val all = if (sameDay) decodeModels(store.getString(KEY_MODELS, null)).toMutableMap() else mutableMapOf()
+        val name = model.ifBlank { "?" }
+        val old = all[name] ?: ModelSpend(name, 0, 0, 0, 0, 0.0)
+        all[name] = old.copy(
+            requests = old.requests + 1, inputTokens = old.inputTokens + u.inputTokens + u.cacheWriteTokens,
+            outputTokens = old.outputTokens + u.outputTokens, cacheReadTokens = old.cacheReadTokens + u.cacheReadTokens, usd = old.usd + cost,
+        )
+        edit.putString(KEY_MODELS, encodeModels(all.values))
     }
 
     fun todayUsd(): Double = synchronized(this) {
@@ -98,7 +117,7 @@ class CostMeter(
         _revision.value += 1
     }
 
-    private companion object {
+    internal companion object {
         const val DEFAULT_ALERT_USD = 5.0
         const val KEY_DAY = "day"
         const val KEY_TOTAL = "day_usd"
@@ -109,5 +128,31 @@ class CostMeter(
         const val KEY_ALERTED_DAY = "alerted_day"
         const val KEY_ALERT = "alert_usd"
         const val KEY_HARD_CAP = "hard_cap_usd"
+        const val KEY_MODELS = "day_models"
+
+        /** One model per line: `name<TAB>requests<TAB>input<TAB>output<TAB>cacheRead<TAB>usd` (model ids have no tabs or newlines). */
+        fun encodeModels(all: Collection<ModelSpend>): String = all.joinToString("\n") {
+            listOf(it.model.replace('\t', ' ').replace('\n', ' '), it.requests, it.inputTokens, it.outputTokens, it.cacheReadTokens, it.usd).joinToString("\t")
+        }
+
+        fun decodeModels(text: String?): Map<String, ModelSpend> = text.orEmpty().lineSequence().mapNotNull { line ->
+            val f = line.split('\t')
+            if (f.size != 6) null else runCatching {
+                ModelSpend(f[0], f[1].toLong(), f[2].toLong(), f[3].toLong(), f[4].toLong(), f[5].toDouble())
+            }.getOrNull()
+        }.associateBy { it.model }
     }
+}
+
+/** One model's share of today: [inputTokens] are uncached input plus cache writes. */
+data class ModelSpend(
+    val model: String,
+    val requests: Long,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val cacheReadTokens: Long,
+    val usd: Double,
+) {
+    /** Share of prompt tokens read from the cache, 0..1; null without input. */
+    val cacheHit: Double? get() = (inputTokens + cacheReadTokens).takeIf { it > 0 }?.let { cacheReadTokens.toDouble() / it }
 }

@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import app.dshmobile.notify.Notifier
 import app.dshmobile.export.Exporter
 import app.dshmobile.runtime.AppPaths
@@ -268,6 +269,9 @@ class DshMobileApp : Application(), Configuration.Provider {
         val sessions = shellSessions.current
         val agents: Flow<Int?> = sessions.flatMapLatest { it?.agents?.runningCount ?: flowOf(null) }
         val recent = sessions.flatMapLatest { s -> s?.index?.rows?.map { it.take(3) } ?: flowOf(emptyList()) }
+        val live = sessions.flatMapLatest { s ->
+            s?.tree?.state?.map { app.dshmobile.chat.allUsage(it) }?.distinctUntilChanged() ?: flowOf(app.dshmobile.chat.SessionUsage())
+        }
         OverviewSource(
             meter = costMeter,
             reminders = reminderLog,
@@ -278,6 +282,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             nextHeartbeatAt = HeartbeatScheduler.nextRunAt(this),
             agentsRunning = agents,
             recent = recent,
+            liveUsage = live,
             unverifiedDshVersion = { runCatching { dshVersions.current() }.getOrNull()?.takeUnless(VerifiedDsh::isVerified) },
             clock = Clock.systemUTC(),
             context = Dispatchers.IO,

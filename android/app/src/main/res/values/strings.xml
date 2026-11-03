@@ -319,4 +319,10 @@
     <string name="chat_review_title">另派審查員檢查</string>
     <string name="chat_effort_summary">思考 %1$s</string>
     <string name="chat_review_summary">審查 %1$d 輪</string>
+    <string name="overview_stats_title">用量統計</string>
+    <string name="overview_stats_speed">平均速度</string>
+    <string name="overview_stats_ttft">首字時間</string>
+    <string name="overview_stats_cache">快取命中</string>
+    <string name="overview_stats_steps">步驟</string>
+    <string name="overview_stats_model_line">%1$d 次 · 入 %2$s · 出 %3$s · 快取 %4$d%%</string>
 </resources>

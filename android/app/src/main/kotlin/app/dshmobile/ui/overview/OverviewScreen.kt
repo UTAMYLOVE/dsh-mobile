@@ -81,8 +81,57 @@ fun OverviewScreen(state: OverviewState, onOpenSession: (String) -> Unit, onOpen
             AgentsPanel(state, onOpenAgents, Modifier.weight(1f).fillMaxHeight())
             HeartbeatPanel(state, Modifier.weight(1f).fillMaxHeight())
         }
+        StatsPanel(state)
         RemindersPanel(state)
         RecentPanel(state, onOpenSession)
+    }
+}
+
+/** Today per model (requests, tokens, cache hit, spend) and dsh's live speed and first-token time (stage 2 §C.3). */
+@Composable
+private fun StatsPanel(s: OverviewState) {
+    if (s.models.isEmpty() && s.live.isEmpty) return
+    FogPanel(
+        title = stringResource(R.string.overview_stats_title), en = "STATS", index = 2,
+        modifier = Modifier.semantics(mergeDescendants = true) {}.testTag(Tags.OVERVIEW_STATS),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            val live = s.live
+            if (!live.isEmpty) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatTile(stringResource(R.string.overview_stats_speed), live.tokensPerSecond?.let { String.format(Locale.US, "%.0f", it) } ?: "—", "tok/s", Modifier.weight(1f))
+                    StatTile(stringResource(R.string.overview_stats_ttft), live.averageTtftMs?.let { String.format(Locale.US, "%.1f", it / 1000.0) } ?: "—", "秒", Modifier.weight(1f))
+                    StatTile(stringResource(R.string.overview_stats_cache), live.cacheHit?.let { "${(it * 100).toInt()}" } ?: "—", "%", Modifier.weight(1f))
+                    StatTile(stringResource(R.string.overview_stats_steps), live.steps.toString(), "", Modifier.weight(1f))
+                }
+            }
+            s.models.forEach { m ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(modelLabel(m.model) ?: m.model, color = Sakura.Text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            stringResource(
+                                R.string.overview_stats_model_line, m.requests, app.dshmobile.chat.shortTokens(m.inputTokens + m.cacheReadTokens),
+                                app.dshmobile.chat.shortTokens(m.outputTokens), ((m.cacheHit ?: 0.0) * 100).toInt(),
+                            ),
+                            color = Sakura.TextSecondary, fontSize = 11.sp, maxLines = 2,
+                        )
+                    }
+                    Text(app.dshmobile.chat.shortUsd(m.usd), style = FogText.Number.copy(fontSize = 16.sp), maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatTile(label: String, value: String, unit: String, modifier: Modifier) {
+    Column(modifier.background(Sakura.White.copy(alpha = .4f), CellShape).padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = FogText.Label.copy(fontSize = 10.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value, style = FogText.Number.copy(fontSize = 18.sp), maxLines = 1)
+            if (unit.isNotEmpty()) Text(" $unit", style = FogText.Label.copy(fontSize = 10.sp), maxLines = 1, modifier = Modifier.padding(bottom = 3.dp))
+        }
     }
 }
 

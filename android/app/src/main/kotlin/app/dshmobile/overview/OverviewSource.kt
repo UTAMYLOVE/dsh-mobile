@@ -29,6 +29,10 @@ data class OverviewState(
     val recent: List<SessionRow>,
     /** The running dsh's version when this app version has not verified it; null when verified or unknown. */
     val unverifiedDsh: String?,
+    /** Today's spend per model (gateway's own count). */
+    val models: List<app.dshmobile.gateway.ModelSpend> = emptyList(),
+    /** Live totals of every session dsh has open: average speed, first-token time, steps (dsh's `sessionStats`). */
+    val live: app.dshmobile.chat.SessionUsage = app.dshmobile.chat.SessionUsage(),
 ) {
     /** Whole minutes until the next heartbeat, rounded up, never negative; null without a schedule. */
     val nextHeartbeatMin: Int?
@@ -56,6 +60,7 @@ class OverviewSource(
     private val tickMs: Long = 60_000,
     /** Where the state is computed (the prefs and the dsh version link are file reads); the app passes IO. */
     private val context: kotlin.coroutines.CoroutineContext = kotlin.coroutines.EmptyCoroutineContext,
+    private val liveUsage: Flow<app.dshmobile.chat.SessionUsage> = kotlinx.coroutines.flow.flowOf(app.dshmobile.chat.SessionUsage()),
 ) {
     private fun ticks(): Flow<Long> = flow {
         while (true) {
@@ -75,8 +80,8 @@ class OverviewSource(
         emitAll(
             combine(
                 combine(meter.revision, reminders.revision, ticks()) { _, _, now -> now },
-                nextHeartbeatAt, agentsRunning, recent,
-            ) { now, next, running, rows ->
+                nextHeartbeatAt, agentsRunning, recent, liveUsage,
+            ) { now, next, running, rows, live ->
                 OverviewState(
                     deepseekUsd = meter.todayUsd(Provider.DEEPSEEK),
                     claudeUsd = meter.todayUsd(Provider.ANTHROPIC),
@@ -90,6 +95,8 @@ class OverviewSource(
                     reminders = reminders.recent(),
                     recent = rows,
                     unverifiedDsh = unverified,
+                    models = meter.todayByModel(),
+                    live = live,
                 )
             },
         )

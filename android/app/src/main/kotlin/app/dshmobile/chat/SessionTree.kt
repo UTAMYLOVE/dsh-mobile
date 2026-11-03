@@ -53,7 +53,9 @@ data class SessionTreeState(
 )
 
 object SessionTreeReducer {
-    private val KEPT = setOf("title", "turnOutline", "modelSelection", "subagent")
+    private val KEPT = setOf(
+        "title", "turnOutline", "modelSelection", "subagent", "tokenUsage", "sessionStats", "contextPressure", "subagentTiming", "inbox",
+    )
 
     /** The list is the new baseline (children included). */
     fun applyList(s: SessionTreeState, list: List<SessionSummary>): SessionTreeState = s.copy(summaries = list.associateBy { it.id })
