@@ -96,10 +96,17 @@ class DshMobileApp : Application(), Configuration.Provider {
      */
     val serviceGaveUp = MutableStateFlow(false)
 
+    /**
+     * The one HTTP client for talking to dsh on 127.0.0.1 (health checks, the workspace registrar, the shell's and the service's
+     * remotes, Settings' update check): one connection pool and one dispatcher instead of one per caller (final review B1-M7).
+     * [DshClient] adds its own cookie jar and `Proxy.NO_PROXY` on a derived client.
+     */
+    val loopbackHttp: OkHttpClient by lazy { OkHttpClient() }
+
     /** Builds the [WorkRemote] [DshService] watches for work; a test seam (production: a [DshRemote] on the running dsh). */
     @VisibleForTesting
     internal var workRemoteFactory: (RunningDsh, CoroutineScope) -> WorkRemote = { dsh, scope ->
-        DshRemote(DshClient(OkHttpClient(), dsh.launch), scope).asWorkRemote()
+        DshRemote(DshClient(loopbackHttp, dsh.launch), scope).asWorkRemote()
     }
 
     /** Starts [DshService]; a test seam (Robolectric cannot make `startForegroundService` refuse). */
@@ -146,7 +153,7 @@ class DshMobileApp : Application(), Configuration.Provider {
     var upstreamsOverride: Map<Provider, HttpUrl>? = null
 
     val controller: DshController by lazy {
-        val loopback = OkHttpClient()
+        val loopback = loopbackHttp
         val health = HealthCheck(loopback)
         val workspaces = WorkspaceRegistrar(loopback, errorLog)
         DshController(
@@ -224,7 +231,7 @@ class DshMobileApp : Application(), Configuration.Provider {
      * thread, like every attach, so a stop seen late can never detach the next instance's session.
      */
     val shellSessions: ShellSessionHolder by lazy {
-        val loopback = OkHttpClient()
+        val loopback = loopbackHttp
         val holder = ShellSessionHolder { running ->
             val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
             DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope) }

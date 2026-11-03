@@ -454,13 +454,18 @@ class MainActivity : ComponentActivity() {
         intent?.removeExtra(Notifier.EXTRA_SESSION_ID)
     }
 
-    /** MainActivity is exported, so another app could send this intent: the rollback needs the user's yes. */
+    /**
+     * MainActivity is exported, so another app could send this intent: the rollback needs the user's yes. While a conversation
+     * runs the question says the rollback will cut it off (final review B2-I4).
+     */
     private fun confirmRollback() {
+        val working = settingsEnv.workRunning()
+        val message = getString(R.string.main_rollback_message) + if (working) "\n\n" + getString(R.string.set_confirm_rollback) else ""
         AlertDialog.Builder(this)
             .setTitle(R.string.main_rollback_title)
-            .setMessage(R.string.main_rollback_message)
-            .setPositiveButton(R.string.main_rollback_confirm) { _, _ -> rollback() }
-            .setNegativeButton(R.string.main_cancel, null)
+            .setMessage(message)
+            .setPositiveButton(if (working) R.string.set_confirm_rollback_go else R.string.main_rollback_confirm) { _, _ -> rollback() }
+            .setNegativeButton(if (working) R.string.set_confirm_wait else R.string.main_cancel, null)
             .show()
     }
 
@@ -468,27 +473,20 @@ class MainActivity : ComponentActivity() {
     internal var rollbackStep: suspend () -> MainOps.RollbackOutcome = { ops.rollback() }
 
     /**
-     * Runs the rollback as an application job ([SettingsJobs], shared with Settings' update and rollback, one at a time): stop,
-     * switch and start must not be cut short when this activity goes away, which would leave dsh stopped. The outcome is told by a
-     * toast; this screen (if it is still there) then follows dsh's real state ([showRealStateAfterRollback]). A screen opened
-     * later follows it through its usual collector.
+     * Runs the shared rollback ([SettingsJobs.rollback], the same one as Settings', one job at a time): stop, switch and start must
+     * not be cut short when this activity goes away, which would leave dsh stopped. The outcome is told by a toast; this screen
+     * (if it is still there) then follows dsh's real state ([showRealStateAfterRollback]). A screen opened later follows it
+     * through its usual collector.
      */
     private fun rollback() {
         if (rollingBack) return
         val app = app
-        val step = rollbackStep
-        val started = app.settingsJobs.launch {
-            val outcome = withContext(NonCancellable) {
-                try {
-                    step()
-                } catch (e: Exception) {
-                    // Also a start that a stop cancelled (CancellationException): the job itself is never cancelled.
-                    app.errorLog.append("rollback", "rollback failed: ${e.javaClass.simpleName}")
-                    MainOps.RollbackOutcome.Failed("rollback failed")
-                }
-            }
-            // A dsh that is up again goes back under the service (also ends a give-up); a dsh that is down stays as it is.
-            if (app.controller.isRunning.value) app.supervise()
+        val started = app.settingsJobs.rollback(
+            step = rollbackStep,
+            isRunning = { app.controller.isRunning.value },
+            supervise = { app.supervise() },
+            onFailure = { e -> app.errorLog.append("rollback", "rollback failed: ${e.javaClass.simpleName}") },
+        ) { outcome ->
             withContext(Dispatchers.Main) {
                 val text = when (outcome) {
                     is MainOps.RollbackOutcome.RolledBack -> app.getString(R.string.main_rollback_done, outcome.version)

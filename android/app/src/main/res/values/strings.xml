@@ -138,6 +138,7 @@
     <string name="set_effect_full">全開</string>
     <string name="set_effect_balanced">平衡</string>
     <string name="set_effect_saver">省電</string>
+    <string name="set_effect_lowered">目前自動降為：%1$s</string>
     <string name="set_effect_hint">畫面一卡頓，會自動先關掉模糊效果，保持順暢。</string>
     <string name="set_novel_model">寫小說用的模型</string>
     <string name="set_novel_hint">在書架開新書或「下一章」時使用（下一版開放）</string>
@@ -275,4 +276,13 @@
     <string name="overview_recent_untitled">新對話</string>
     <string name="overview_yesterday">昨天</string>
     <string name="overview_unverified">目前的 dsh %1$s 未經這版 App 驗證，請到設定更新</string>
+    <!-- final review B2-I4: a running conversation is not cut off without asking -->
+    <string name="set_confirm_apply">有對話正在進行，套用會中斷它</string>
+    <string name="set_confirm_update">有對話正在進行，更新會中斷它</string>
+    <string name="set_confirm_rollback">有對話正在進行，退版會中斷它</string>
+    <string name="set_confirm_wait">等做完</string>
+    <string name="set_confirm_apply_go">仍要套用</string>
+    <string name="set_confirm_update_go">仍要更新</string>
+    <string name="set_confirm_rollback_go">仍要退版</string>
+    <string name="set_model_unapplied">未套用</string>
 </resources>
