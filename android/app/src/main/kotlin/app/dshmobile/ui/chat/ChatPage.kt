@@ -21,6 +21,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.dshmobile.R
+import app.dshmobile.chat.AttachmentLoader
+import app.dshmobile.chat.AttachmentSender
+import app.dshmobile.chat.PendingAttachment
+import app.dshmobile.chat.SendOutcome
+import app.dshmobile.chat.sendWithAttachments
 import app.dshmobile.chat.SessionRow
 import app.dshmobile.chat.groupByDay
 import app.dshmobile.config.AgentModels
@@ -246,15 +251,24 @@ sealed interface DockSend {
     data object Sent : DockSend
     /** No conversation was open and creating one failed. */
     data class NotCreated(val code: String) : DockSend
-    /** dsh refused the prompt; the conversation shows why ([app.dshmobile.chat.ConversationStore.sendError]). */
-    data object NotSent : DockSend
+    /** Reading or uploading an attachment failed; nothing was sent. */
+    data class AttachmentFailed(val name: String, val reason: String) : DockSend
+    /** dsh refused the prompt; [code] is its [app.dshmobile.chat.ConversationStore.sendError] (the conversation shows it too). */
+    data class Refused(val code: String) : DockSend
 }
 
 /**
- * The dock's send: [text] goes to the conversation open in the chat tab, or to a new one (created first) when none is open, and
- * that conversation is shown. Main thread (it moves [nav]).
+ * The dock's send: [text] and [attachments] go to the conversation open in the chat tab, or to a new one (created first) when
+ * none is open, and that conversation is shown. Attachments are read and uploaded first ([sendWithAttachments]); any failure
+ * sends nothing. Main thread (it moves [nav]).
  */
-suspend fun sendFromDock(session: ShellSession, nav: ShellNav, text: String): DockSend {
+suspend fun sendFromDock(
+    session: ShellSession,
+    nav: ShellNav,
+    text: String,
+    attachments: List<PendingAttachment> = emptyList(),
+    loader: AttachmentLoader,
+): DockSend {
     val id = nav.openSessionId ?: try {
         session.index.create()
     } catch (e: CancellationException) {
@@ -264,5 +278,9 @@ suspend fun sendFromDock(session: ShellSession, nav: ShellNav, text: String): Do
     }
     if (nav.openSessionId != id || nav.listOpen) nav.openSession(id)
     val store = session.conversation(id)
-    return if (store.send(listOf(PromptPart.Text(text)), text, emptyList())) DockSend.Sent else DockSend.NotSent
+    return when (val out = sendWithAttachments(store, AttachmentSender(session.remote, loader), text, attachments)) {
+        SendOutcome.Sent -> DockSend.Sent
+        is SendOutcome.AttachmentFailed -> DockSend.AttachmentFailed(out.name, out.reason)
+        is SendOutcome.Refused -> DockSend.Refused(out.code)
+    }
 }

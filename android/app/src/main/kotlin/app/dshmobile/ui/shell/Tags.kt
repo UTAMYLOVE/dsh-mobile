@@ -31,6 +31,8 @@ object Tags {
     const val ATTACHMENT_CHIP = "attachment-chip-"
     /** + [AttachmentChip.id]: its remove button. */
     const val ATTACHMENT_REMOVE = "attachment-remove-"
+    /** Why the last attach or send of attachments failed, above the input row. */
+    const val COMPOSER_ERROR = "composer-error"
 
     /** + [app.dshmobile.chat.SessionRow.id]: the tappable part of a conversation row. */
     const val SESSION_ROW = "session-row-"

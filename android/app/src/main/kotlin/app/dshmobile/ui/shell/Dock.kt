@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -32,6 +34,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,7 +86,13 @@ data class ComposerUi(
 )
 
 /** One picked attachment, shown above the input row until it is sent or removed. */
-data class AttachmentChip(val id: String, val name: String, val isImage: Boolean)
+data class AttachmentChip(
+    val id: String,
+    val name: String,
+    val isImage: Boolean,
+    /** Decodes a small preview of an image (off the main thread, subsampled); null for files or when it cannot be shown. */
+    val thumbnail: (suspend () -> ImageBitmap?)? = null,
+)
 
 private val Round = RoundedCornerShape(50)
 private val DockShape = RoundedCornerShape(30.dp)
@@ -108,7 +122,10 @@ internal fun Dock(
             Spacer(Modifier.height(10.dp))
         }
         composer.error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+            Text(
+                it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp).testTag(Tags.COMPOSER_ERROR),
+            )
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             RoundButton(
@@ -130,7 +147,7 @@ internal fun Dock(
                     .background(Brush.radialGradient(listOf(Sakura.Background.copy(alpha = a), Sakura.Primary.copy(alpha = a))), CircleShape)
                     .border(1.dp, Color.White.copy(alpha = .9f * a), CircleShape)
             }
-            if (composer.running && composer.text.isBlank()) {
+            if (composer.running && composer.text.isBlank() && composer.chips.isEmpty()) {
                 RoundButton(stringResource(R.string.shell_stop), enabled, Tags.STOP, composer.onStop, pink) { tint -> StopIcon(tint) }
             } else {
                 RoundButton(stringResource(R.string.shell_send), enabled && composer.canSend, Tags.SEND, composer.onSend, pink) { tint -> SendIcon(tint) }
@@ -256,35 +273,54 @@ private fun CrossIcon() = Canvas(Modifier.size(10.dp)) {
     drawLine(Color.White, Offset(size.width, 0f), Offset(0f, size.height), w, StrokeCap.Round)
 }
 
-/** Picked attachments in one line that scrolls sideways at phone width; each has its own remove button. */
+/**
+ * Picked attachments as 64 dp tiles in one line that scrolls sideways at phone width, so the row never covers a button. Each tile
+ * has a 24 dp cross at its top right with a 48 dp touch target.
+ */
 @Composable
 private fun ChipRow(chips: List<AttachmentChip>, onRemove: (String) -> Unit) {
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        chips.forEach { chip ->
-            val remove = stringResource(R.string.shell_remove_attachment, chip.name)
-            Row(
-                Modifier
-                    .testTag(Tags.ATTACHMENT_CHIP + chip.id)
-                    .clip(Round)
-                    .background(Color.White.copy(alpha = .7f))
-                    .border(1.dp, Sakura.Primary.copy(alpha = .6f), Round)
-                    .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (chip.isImage) Box(Modifier.size(8.dp).glow(Sakura.Aqua, 6.dp, CircleShape).background(Sakura.Aqua, CircleShape))
-                Text(chip.name, color = Sakura.Text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
-                Box(
-                    Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Sakura.Text.copy(alpha = .70f))
-                        .testTag(Tags.ATTACHMENT_REMOVE + chip.id)
-                        .semantics { contentDescription = remove }
-                        .clickable(role = Role.Button) { onRemove(chip.id) },
-                    contentAlignment = Alignment.Center,
-                ) { CrossIcon() }
+        chips.forEach { chip -> key(chip.id) { Tile(chip, onRemove) } }
+    }
+}
+
+private val TileShape = RoundedCornerShape(16.dp)
+
+@Composable
+private fun Tile(chip: AttachmentChip, onRemove: (String) -> Unit) {
+    val remove = stringResource(R.string.shell_remove_attachment, chip.name)
+    val thumb = chip.thumbnail
+    val image by produceState<ImageBitmap?>(null, chip.id) { value = thumb?.invoke() }
+    Box(Modifier.size(72.dp).testTag(Tags.ATTACHMENT_CHIP + chip.id)) {
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .size(64.dp)
+                .clip(TileShape)
+                .background(Color.White.copy(alpha = .7f))
+                .border(1.dp, Sakura.Primary.copy(alpha = .6f), TileShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            val bitmap = image
+            if (bitmap != null) {
+                Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Text(
+                    chip.name, color = Sakura.Text, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
             }
+        }
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .testTag(Tags.ATTACHMENT_REMOVE + chip.id)
+                .semantics { contentDescription = remove }
+                .clickable(role = Role.Button) { onRemove(chip.id) }
+                .minimumInteractiveComponentSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(24.dp).background(Sakura.Text.copy(alpha = .70f), CircleShape), contentAlignment = Alignment.Center) { CrossIcon() }
         }
     }
 }

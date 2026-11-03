@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Looper
 import androidx.core.content.FileProvider
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -946,6 +947,95 @@ class MainActivityTest {
         runCatching { compose.onNodeWithTag(Tags.SEND).performClick() }
         idleFor(300)
         assertTrue(called("session/prompt").isEmpty())
+    }
+
+    // --- attachments (Task 9) ---
+
+    private fun pick(name: String, bytes: Int = 64): android.net.Uri =
+        android.net.Uri.fromFile(File(tmp, name).apply { writeBytes(ByteArray(bytes)) })
+
+    private fun composerText() =
+        compose.onNodeWithTag(Tags.COMPOSER_INPUT).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text
+
+    private fun hasChips() = compose.onAllNodes(
+        androidx.compose.ui.test.SemanticsMatcher("an attachment chip") { n ->
+            n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag)?.startsWith(Tags.ATTACHMENT_CHIP) == true
+        },
+    ).fetchSemanticsNodes().size
+
+    private fun hasError() = compose.onAllNodesWithTag(Tags.COMPOSER_ERROR).fetchSemanticsNodes().isNotEmpty()
+
+    private fun errorText() = compose.onNodeWithTag(Tags.COMPOSER_ERROR).fetchSemanticsNode()
+        .config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString("") { it.text }
+
+    @Test fun aCancelledPickerChangesNothing() {
+        completeSetup()
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        type("草稿")
+        activity.attachForTest(listOf(pick("a.png")))
+        waitUntil { hasChips() == 1 }
+        activity.attachForTest(emptyList())
+        idleFor(300)
+        compose.waitForIdle()
+        assertEquals(1, hasChips())
+        assertEquals("草稿", composerText())
+        assertFalse(hasError())
+    }
+
+    @Test fun sendIsEnabledWithOnlyAnAttachmentInTheApp() {
+        completeSetup()
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        compose.onNodeWithTag(Tags.SEND).assertIsNotEnabled()
+        activity.attachForTest(listOf(pick("a.png")))
+        waitUntil { hasChips() == 1 }
+        compose.onNodeWithTag(Tags.SEND).assertIsEnabled()
+    }
+
+    @Test fun anUploadFailureKeepsTextAndChipsAndSendsNoPrompt() {
+        completeSetup()
+        answerChatRpc()
+        val base = rpc
+        rpc = { req -> if (req.path == "/api/fileUploads/upload") okhttp3.mockwebserver.MockResponse().setResponseCode(500) else base(req) }
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        activity.navForTest.openSession("s1")
+        type("附上去")
+        activity.attachForTest(listOf(pick("report.pdf")))
+        waitUntil { hasChips() == 1 }
+        compose.onNodeWithTag(Tags.SEND).performClick()
+        waitUntil { hasError() }
+        assertTrue(errorText(), errorText().startsWith("附件上傳失敗，訊息沒有送出（"))
+        assertEquals("附上去", composerText())
+        assertEquals(1, hasChips())
+        assertTrue(called("session/prompt").isEmpty())
+    }
+
+    @Test fun aRefusedAttachmentShowsTheCodeInTheComposer() {
+        completeSetup()
+        answerChatRpc()
+        val base = rpc
+        rpc = { req ->
+            if (req.path == "/api/session/prompt") {
+                calls += req.path.orEmpty() to req.body.clone().readUtf8()
+                okhttp3.mockwebserver.MockResponse().setResponseCode(200)
+                    .setBody("""{"type":"server-response","rpcId":"x","result":{"ok":false,"error":{"code":"session/model-unavailable","message":"m"}}}""")
+            } else base(req)
+        }
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        activity.navForTest.openSession("s1")
+        type("看圖")
+        activity.attachForTest(listOf(pick("a.png")))
+        waitUntil { hasChips() == 1 }
+        compose.onNodeWithTag(Tags.SEND).performClick()
+        waitUntil { hasError() }
+        assertEquals("dsh 不接受這個附件：session/model-unavailable", errorText())
+        assertEquals("看圖", composerText())
+        assertEquals(1, hasChips())
     }
 
     @Test fun theModelChipShowsTheNextModelBeforeItIsUsed() {

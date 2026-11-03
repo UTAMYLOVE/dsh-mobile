@@ -42,6 +42,19 @@ import app.dshmobile.ui.chat.ChatPage
 import app.dshmobile.ui.chat.DockSend
 import app.dshmobile.ui.chat.ExternalLinks
 import app.dshmobile.ui.chat.sendFromDock
+import app.dshmobile.chat.AttachmentLoader
+import app.dshmobile.chat.AttachmentReason
+import app.dshmobile.chat.LoadResult
+import app.dshmobile.chat.PendingAttachment
+import app.dshmobile.chat.decodeThumbnail
+import app.dshmobile.ui.shell.AttachmentChip
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import app.dshmobile.ui.agents.AgentsTab
 import app.dshmobile.ui.fog.FogPanel
 import app.dshmobile.ui.fog.JankGovernor
@@ -106,6 +119,24 @@ class MainActivity : ComponentActivity() {
     private var composerText by mutableStateOf("")
     /** Why the last dock send did not happen (no conversation could be made); cleared by typing. */
     private var dockError by mutableStateOf<String?>(null)
+    /** Picked attachments, in pick order: only the picker's URI and name, never bytes (those are read when sending). */
+    private var attachments by mutableStateOf(emptyList<PendingAttachment>())
+    /** An attachment send is under way (reading and uploading take a while): send is off so it cannot go twice. */
+    private var sending by mutableStateOf(false)
+    private val attachmentLoader by lazy {
+        AttachmentLoader(
+            open = { contentResolver.openInputStream(it) },
+            describe = ::describeUri,
+            mimeOf = { uri ->
+                contentResolver.getType(uri)
+                    ?: uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotEmpty() }
+                        ?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+            },
+        )
+    }
+    // The system pickers need no permission; both are registered here, before the activity starts.
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK)) { addPicked(it) }
+    private val filePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { addPicked(it) }
     /** The system "remove animations" setting; read again at every resume, since it is changed in the system settings. */
     private var reducedMotion by mutableStateOf(false)
     private var jankStats: JankStats? = null
@@ -286,10 +317,14 @@ class MainActivity : ComponentActivity() {
                 text = composerText,
                 onText = { composerText = it; dockError = null },
                 enabled = state == MainUiState.Ready,
-                canSend = composerText.isNotBlank(),
+                canSend = (composerText.isNotBlank() || attachments.isNotEmpty()) && !sending,
                 running = running,
                 onSend = ::onDockSend,
                 onStop = ::stopReply,
+                onAttachImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+                chips = chips,
+                onRemoveChip = { id -> attachments = attachments.filterNot { it.id == id } },
                 error = dockError,
             ),
             onRetry = ::retry,
@@ -332,20 +367,89 @@ class MainActivity : ComponentActivity() {
         ChatPage(session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast)
     }
 
-    /** The dock's send: to the open conversation (a new one when none is open), and the chat tab shows it. */
+    /**
+     * The dock's send: to the open conversation (a new one when none is open), and the chat tab shows it. Text only: the field is
+     * emptied at once and comes back if the send fails. With attachments the text and the tiles stay until dsh took the message
+     * (reading and uploading come first and may fail); send is off meanwhile.
+     */
     private fun onDockSend() {
         val text = composerText
+        val picked = attachments
         val session = app.shellSessions.current.value
-        if (text.isBlank() || session == null) return
+        if ((text.isBlank() && picked.isEmpty()) || session == null || sending) return
         nav.select(ShellTab.CHAT)
         if (nav.tab != ShellTab.CHAT) return // settings is busy and said so; the text stays
-        composerText = ""
+        val held = picked.isNotEmpty()
+        if (held) sending = true else composerText = ""
         dockError = null
         session.scope.launch(Dispatchers.Main.immediate) {
-            val outcome = sendFromDock(session, nav, text)
-            if (outcome != DockSend.Sent && composerText.isEmpty()) composerText = text // nothing typed meanwhile: put it back
-            if (outcome is DockSend.NotCreated) dockError = getString(R.string.chat_create_failed, outcome.code)
+            val outcome = try {
+                sendFromDock(session, nav, text, picked, attachmentLoader)
+            } finally {
+                if (held) sending = false
+            }
+            if (outcome == DockSend.Sent) {
+                if (held) {
+                    if (composerText == text) composerText = ""
+                    val sent = picked.mapTo(HashSet()) { it.id }
+                    attachments = attachments.filterNot { it.id in sent }
+                }
+            } else if (!held && composerText.isEmpty()) {
+                composerText = text // nothing typed meanwhile: put it back
+            }
+            dockError = when (outcome) {
+                DockSend.Sent -> null
+                is DockSend.NotCreated -> getString(R.string.chat_create_failed, outcome.code)
+                is DockSend.Refused -> getString(if (held) R.string.attach_refused_with else R.string.attach_refused, outcome.code)
+                is DockSend.AttachmentFailed -> when (outcome.reason) {
+                    AttachmentReason.TOO_LARGE -> getString(R.string.attach_too_large, outcome.name, AttachmentLoader.FILE_LIMIT / MB)
+                    AttachmentReason.UNREADABLE -> getString(R.string.attach_unreadable, outcome.name)
+                    else -> getString(R.string.attach_upload_failed, outcome.reason)
+                }
+            }
         }
+    }
+
+    /** What the pickers returned (an empty list: the picker was cancelled and nothing changes). Reads each file once to count it, off the main thread. */
+    private fun addPicked(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        lifecycleScope.launch {
+            val results = withContext(Dispatchers.IO) { uris.distinct().map(attachmentLoader::inspect) }
+            var error: String? = null
+            val added = ArrayList<PendingAttachment>()
+            results.forEach { r ->
+                when (r) {
+                    is LoadResult.Ok -> if (attachments.none { it.uri == r.attachment.uri } && added.none { it.uri == r.attachment.uri }) added += r.attachment
+                    is LoadResult.TooLarge -> error = getString(R.string.attach_too_large, r.name, r.limitMb)
+                    is LoadResult.Unreadable -> error = getString(R.string.attach_unreadable, r.name)
+                }
+            }
+            attachments = attachments + added
+            dockError = error
+        }
+    }
+
+    internal fun attachForTest(uris: List<Uri>) = addPicked(uris)
+
+    private val chips: List<AttachmentChip>
+        get() = attachments.map { a ->
+            AttachmentChip(a.id, a.name, a.isImage, if (a.isImage) ({ thumbnailOf(a.uri) }) else null)
+        }
+
+    private suspend fun thumbnailOf(uri: Uri): ImageBitmap? = withContext(Dispatchers.IO) {
+        decodeThumbnail({ contentResolver.openInputStream(uri) }, (THUMB_DP * resources.displayMetrics.density).toInt())?.asImageBitmap()
+    }
+
+    /** The provider's display name and size; either may be missing. */
+    private fun describeUri(uri: Uri): Pair<String?, Long?> = try {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (!c.moveToFirst()) return@use null to null
+            val n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val z = c.getColumnIndex(OpenableColumns.SIZE)
+            (if (n >= 0 && !c.isNull(n)) c.getString(n) else null) to (if (z >= 0 && !c.isNull(z)) c.getLong(z) else null)
+        } ?: (null to null)
+    } catch (_: Exception) {
+        null to null
     }
 
     private fun stopReply() {
@@ -612,6 +716,10 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Ruling of Task 4: a dsh whose remote does not open within a minute of ensureRunning returning is an Error. */
         const val REMOTE_OPEN_TIMEOUT_MS = 60_000L
+        /** Most pictures one photo-picker session returns. */
+        const val MAX_PICK = 9
+        const val MB = 1024 * 1024
+        const val THUMB_DP = 64
     }
 }
 
