@@ -149,3 +149,6 @@ T8: review 1 = spec ✅ except bubble-blur ruling, quality Needs fixes (opus) �
 - Ruling: SettingsJobsTest "boom" leak (pre-existing T4) → T13 dispatch (it owns settings); 500-row table as one lazy item → T15 PerfGate; TalkBack on links → T15 emulator check.
 T8: fix round 1/5 dispatched (resume implementer aa3af8252314a6d8c)
 T14: fix round 1/5 implementer DONE (2f36d93..c16265a incl. merge of main 5a2037c; 883 unit, assembles green); re-review dispatched (sonnet)
+T14: fix round 1/5 (7 Minors addressed incl. merge of main, 0 open; 2f36d93..c16265a; re-review sonnet Approved)
+T14: complete (lane-t14 de1c788..c16265a, review clean after 1 fix round) — merged as 0366641 (code tree identical to c16265a, where the full unit suite 883/0 + assembleDebug + assembleDebugAndroidTest ran)
+T14: minor (deferred): no direct test for locals observed off-screen, CountUpText draw alignment or unexpected glyphs; per-glyph drawing drops kerning
