@@ -66,3 +66,7 @@ T3: fix round 1/5 (5 Important + 8 Minor addressed, 0 open; lane-t3 32a7d03..e97
 T3: complete (lane-t3 d143f12..e974277, review clean after 1 fix round)
 T3: minor (deferred → T14 perf review): CountUpText measures text every frame during the 950 ms count-up; FogDebug counters (ConcurrentHashMap lookup) in production draw paths; onGloballyPositioned may not fire on graphicsLayer-only moves (panel rise) — brief blur lag; Meter gradient spans the full bar (fill <100% ends lighter than mockup; fix via unit shader + setLocalMatrix); CountUpText ignores max constraints and defaults colour to Sakura.Text
 Wave A merge: lane-t3 and lane-t7 merged into the branch (T1/T2 lane merges after T2)
+T2: implementer DONE_WITH_CONCERNS (lane-t1 8d85b62..62ac66c, 669 unit); deviations: MuxConnection beforeConnect=ensureLoggedIn, two T1 test lookups filtered to POST, Failed.message safe code only, one test backoff 300 ms; 16 MiB bounded reader added; concerns: >16 MiB session/list fails with response-too-large; DshRemote without mux causes harmless 404 retries in tests; no client ping
+- Ruling: lane-t1 (T1+T2) merged now and T4 + T16 dispatched while T2's review runs (parallel ruling); a T2 fix round, if any, lands on the branch — Cost if wrong: T4/T16 rebase over a T2 fix.
+T2: review dispatched (opus — concurrency and reconnect semantics)
+T2: minor (deferred): no client-side ping on the mux socket (add OkHttp pingInterval if T15 shows hung-socket stalls)
