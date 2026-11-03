@@ -171,3 +171,6 @@ T9: review = spec ✅, quality Approved (sonnet); reviewer "Important" (non-bloc
 - Ruling: fix round 1 = exact-size single read, no raw bytes kept after encoding, OutOfMemoryError → composer error (nothing sent), friendly upload-failure reason instead of the class name, STOP shown while running with empty text even with chips — Why: low-end phones and the owner reads the errors — Cost if wrong: one small round. Streaming upload deferred (stage 2).
 T9: fix round 1/5 dispatched (resume implementer)
 T9: minor (deferred): send coroutine captures the Activity (recreate mid-upload, rare due to configChanges); pick-time full read doubles cloud downloads (by design); text-only refusal shown twice (dock + chat); retry retains base64 parts
+T9: fix round 1/5 (memory + OOM + friendly reasons + STOP with chips; 478d5f2..1317dc3; re-review sonnet Approved)
+T9: complete (lane-t9 093b21c..1317dc3, review clean after 1 fix round) — merged (code = 1317dc3 + ci.yml diagnostics; 974 unit there; assembleDebugAndroidTest re-run in T15)
+T9: minor (deferred): DshRemote.upload encode change gives no memory benefit (KDoc overstates — correct it); no short-read/content test for read loop; grown-file array growth briefly doubles
