@@ -53,3 +53,6 @@ T7: review 1 = spec ✅, quality Needs fixes (sonnet) — Important: rememberMar
 - Ruling: Minors 1 (cap tables/lists at 500 rows/items), 2 (surrogate-safe truncation) and 4 (3–4 digit list markers) join round 1 — same file, and huge tables hit the lag the boss reported.
 T7: fix round 1/5 dispatched (resume implementer)
 T7: minor (deferred): single 200k-char code line untested
+T3: review 1 = spec ❌ (panel padding top/sides swapped, heading gap 12 vs 14), quality Needs fixes (sonnet) — Important: per-frame allocations in ring/meter/background/glass draw paths; animated background lacks its own layer (invalidates ancestors); radial fades through grey; blurred backdrop not re-recorded when a panel moves
+- Ruling: all Minors join round 1 (same files; lag is the owner's top complaint): CountUpText draw-time read, one CSS-matching blur helper, glow offset, Segmented PILL_MS spring, 48 dp touch targets + selectableGroup, lazy GraphicsLayer, invalidateSemantics, Material body/title/label styles on the system font (Chakra Petch only for numbers and English labels per brief).
+T3: fix round 1/5 dispatched (resume implementer)
