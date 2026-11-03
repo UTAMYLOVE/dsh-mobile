@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
@@ -126,7 +127,8 @@ fun HudRing(progress: Float, size: Dp, modifier: Modifier = Modifier, center: @C
     val clock = rememberFogClock(spinning, LocalIdle.current)
     Box(modifier.size(size).semantics { set(FogSemantics.Animating, spinning) }, contentAlignment = Alignment.Center) {
         Box(
-            Modifier.size(size).drawWithCache {
+            // A layer of its own: a spin frame re-records only the ring, never the panel it sits in.
+            Modifier.size(size).graphicsLayer { }.drawWithCache {
                 FogDebug.count("ring.cache")
                 val unit = this.size.minDimension / 240f
                 val c = Offset(120f, 120f)

@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -114,6 +115,8 @@ internal fun Dock(
     Column(
         modifier
             .fillMaxWidth()
+            // A layer of its own: the pill's slide and the composer's caret re-record the dock, not the shell around it.
+            .graphicsLayer { }
             .glass(DockShape)
             .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
     ) {
