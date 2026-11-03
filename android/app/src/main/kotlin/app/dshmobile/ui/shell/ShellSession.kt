@@ -46,7 +46,7 @@ class ShellSession(val remote: ShellRemote, val events: DshEvents?, val scope: C
      * just opened shows it at once. The least recently used one beyond that is closed (its follow ends).
      */
     fun conversation(id: String): ConversationStore = synchronized(stores) {
-        stores[id] ?: ConversationStore(remote, id, scope).also { fresh ->
+        stores[id] ?: ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }).also { fresh ->
             stores[id] = fresh
             while (stores.size > MAX_STORES) {
                 val eldest = stores.entries.iterator().next()

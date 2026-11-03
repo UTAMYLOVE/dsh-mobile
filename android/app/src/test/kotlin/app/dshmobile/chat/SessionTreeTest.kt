@@ -56,7 +56,10 @@ internal class FakeIndexRemote(var list: List<SessionSummary> = emptyList()) : I
     override suspend fun createSession(workspaceId: String?): String { created += workspaceId; return "new1" }
     override suspend fun rename(sessionId: String, title: String): String { renamed += sessionId to title; return title }
     override suspend fun archive(sessionId: String) { archived += sessionId }
-    override fun control(): Flow<StreamSignal> = controlFrames
+    val controlOpens = AtomicInteger()
+    /** When set, every `session/control` open gets this instead of [controlFrames]. */
+    @Volatile var controlOverride: Flow<StreamSignal>? = null
+    override fun control(): Flow<StreamSignal> { controlOpens.incrementAndGet(); return controlOverride ?: controlFrames }
     override fun workspaces(): Flow<StreamSignal> = workspaceFrames
     fun control(s: String) { controlFrames.tryEmit(StreamSignal.Value(json(s))) }
     fun workspace(s: String) { workspaceFrames.tryEmit(StreamSignal.Value(json(s))) }
@@ -196,5 +199,21 @@ class SessionTreeTest {
         Thread.sleep(500)
         assertEquals("a known session's status needs no list call", 2, remote.listCalls.get())
         assertEquals(true, tree.state.value.summaries["s1"]?.running)
+    }
+
+    /** Final review A: a stream dsh refuses for good (an unknown endpoint, a bad request) is not reopened forever. */
+    @Test fun aPermanentlyRefusedStreamIsNotReopened() {
+        val remote = FakeIndexRemote()
+        remote.controlOverride = kotlinx.coroutines.flow.flowOf(StreamSignal.Failed("gateway/bad-request", "x"))
+        SessionTree(remote, scope, reopenMs = 20)
+        Thread.sleep(400)
+        assertEquals(1, remote.controlOpens.get())
+    }
+
+    @Test fun aTransientStreamFailureIsReopened() {
+        val remote = FakeIndexRemote()
+        remote.controlOverride = kotlinx.coroutines.flow.flowOf(StreamSignal.Failed("gateway/internal", "x"))
+        SessionTree(remote, scope, reopenMs = 20)
+        waitUntil("reopened") { remote.controlOpens.get() >= 3 }
     }
 }

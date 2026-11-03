@@ -61,6 +61,12 @@ class ConversationStore(
     private val newRequestId: () -> String = { "dshm-" + UUID.randomUUID() },
     @OptIn(ExperimentalCoroutinesApi::class)
     private val reduceContext: CoroutineContext = Dispatchers.Default.limitedParallelism(1),
+    /**
+     * Whether dsh's session list says this session runs (the shell's session tree); null when it does not know. Asked only when
+     * a snapshot was cut by the message window ([ConversationState.hasMore]) and shows no running turn: the turn may have begun
+     * before the window, and without it STOP would vanish and pending sends would start timing out.
+     */
+    private val runningHint: () -> Boolean? = { null },
 ) {
     private val _state = MutableStateFlow(ConversationState(sessionId))
     val state: StateFlow<ConversationState> = _state.asStateFlow()
@@ -116,6 +122,11 @@ class ConversationStore(
             }
             dropLive()
             _state.update { ConversationReducer.reopened(it) }
+            if (DshErrors.isPermanent(failed)) {
+                // e.g. session/not-found: following again cannot help; only the user's retry (the banner) asks once more.
+                wake.receive()
+                continue
+            }
             val wait = BACKOFF_MS[minOf(attempt, BACKOFF_MS.lastIndex)]
             attempt++
             withTimeoutOrNull(wait) { wake.receive() }
@@ -132,8 +143,13 @@ class ConversationStore(
         when ((o?.get("type") as? JsonPrimitive)?.content) {
             "assistant-stream" -> onStream(o?.get("frame") as? JsonObject)
             else -> {
-                if (o != null && (o["type"] as? JsonPrimitive)?.content == "snapshot") dropLive()
+                val snapshot = o != null && (o["type"] as? JsonPrimitive)?.content == "snapshot"
+                if (snapshot) dropLive()
                 _state.update { ConversationReducer.reduce(it, frame) }
+                if (snapshot) {
+                    adoptActiveAttempt(frame)
+                    if (!_state.value.running && _state.value.hasMore && runningHint() == true) _state.update { it.copy(running = true) }
+                }
                 releaseHeld()
                 dropAccepted()
             }
@@ -188,6 +204,19 @@ class ConversationStore(
                 }
             }
         }
+    }
+
+    /**
+     * A snapshot taken while dsh streams a reply carries what was streamed so far; the chunks that follow come without a `start`
+     * (final review A-I1). Seed the builders with it and adopt its attempt id, so those chunks land.
+     */
+    private fun adoptActiveAttempt(snapshot: JsonElement?) {
+        val seed = ConversationReducer.activeAttempt(snapshot) ?: return
+        liveAttempt = seed.attemptId
+        liveText = StringBuilder(seed.text)
+        liveReasoning = StringBuilder(seed.reasoning)
+        liveTools = seed.toolNames
+        publishLive()
     }
 
     /** The held reply goes once the state holds its message. */
@@ -263,6 +292,12 @@ class ConversationStore(
             _pending.update { list -> list.filter { it.requestId != requestId } }
             forget(requestId)
             report(e)
+            false
+        } catch (_: OutOfMemoryError) {
+            // Encoding a message with large pictures can run the heap out (final review A-I4): say so, never crash the app.
+            _pending.update { list -> list.filter { it.requestId != requestId } }
+            forget(requestId)
+            _sendError.value = OUT_OF_MEMORY
             false
         }
     }
@@ -357,6 +392,8 @@ class ConversationStore(
 
     companion object {
         const val PENDING_TIMEOUT_MS = 60_000L
+        /** [sendError] when the phone ran out of memory building the request. */
+        const val OUT_OF_MEMORY = "out-of-memory"
         private const val ENDED = "ended"
         private val BACKOFF_MS = listOf(1_000L, 2_000L, 5_000L, 10_000L)
         private const val PUBLISH_MS = 50L
