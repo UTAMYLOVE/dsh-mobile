@@ -43,9 +43,6 @@
     <string name="main_error_body">請再試一次。如果一直失敗，請匯出錯誤記錄回報。</string>
     <string name="main_retry">重試</string>
     <string name="main_export_log">匯出錯誤記錄</string>
-    <string name="main_settings_button" translatable="false">⚙</string>
-    <string name="main_settings_description">設定</string>
-    <string name="main_settings_missing">無法開啟設定頁</string>
     <string name="main_rollback_title">退回上一個版本？</string>
     <string name="main_rollback_message">會先停止目前執行中的代理人，退回 dsh 的上一個版本後重新啟動。</string>
     <string name="main_rollback_confirm">退版</string>
@@ -54,8 +51,6 @@
     <string name="main_rollback_none">沒有可退回的版本</string>
     <string name="main_rollback_failed">退版失敗，請查看錯誤記錄</string>
     <string name="main_rollback_busy">另一個版本或設定工作正在進行，請稍後再試</string>
-    <string name="main_download_unsupported">無法下載此類型的檔案</string>
-    <string name="main_download_failed">下載失敗</string>
     <string name="main_export_failed">無法匯出</string>
     <string name="main_update_checking">正在確認新版本…</string>
     <string name="main_update_needs_permission">請先在設定頁允許 DSH Mobile 安裝應用程式；允許後回到這裡，更新會自動繼續</string>
@@ -63,6 +58,21 @@
     <string name="main_update_none">目前已是最新版本</string>
     <string name="main_update_downloading">正在下載 %1$s，完成後會自動驗證</string>
     <string name="main_update_failed">更新失敗：下載或驗證沒有通過，未安裝。請稍後再試</string>
+
+    <string name="shell_brand" translatable="false">DSH</string>
+    <string name="shell_brand_sub" translatable="false">MOBILE</string>
+    <string name="shell_composer_hint">問點什麼…</string>
+    <string name="shell_composer_hint_disabled">DSH 啟動後才能傳訊息</string>
+    <string name="shell_attach">附件</string>
+    <string name="shell_attach_image">圖片</string>
+    <string name="shell_attach_file">檔案</string>
+    <string name="shell_send">送出</string>
+    <string name="shell_stop">停止回覆</string>
+    <string name="shell_remove_attachment">移除 %1$s</string>
+    <string name="shell_reconnecting">重新連線中…</string>
+    <string name="shell_status_title">DSH 狀態</string>
+    <string name="shell_settings_busy">設定正在處理中，完成後才能切換分頁</string>
+    <string name="shell_library_placeholder">書架會在下一版推出：Claude 寫的小說會收在這裡。</string>
     <string name="set_title">設定</string>
     <string name="set_close">關閉</string>
     <string name="set_busy">處理中…</string>

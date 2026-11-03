@@ -190,6 +190,10 @@ dependencies {
     // The end-to-end suite: an in-process fake model (Anthropic Messages over SSE) and the heartbeat worker run by hand.
     androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.work.testing)
+    // The native shell is driven through Compose's test APIs (test tags); espresso 3.7.0 for the same reason as above.
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.espresso.core)
 }
 
 // The rootfs becomes assets/rootfs.tar.xz through a generated directory under build/ (never in the source tree).

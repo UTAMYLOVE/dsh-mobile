@@ -7,8 +7,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
-import app.dshmobile.E2e.awaitDshInFogcity
-import app.dshmobile.E2e.eval
+import app.dshmobile.E2e.awaitShellReady
 import app.dshmobile.E2e.waitFor
 import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.heartbeat.HeartbeatWorker
@@ -43,7 +42,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * The whole stack on a real Android (x86_64 emulator in CI): shell app -> proot -> Debian rootfs with Node 24 -> the official
- * dsh -> our memory/notify/ui plugins -> the app's gateway, WebView, heartbeat and updater. The model is [FakeModel] in this
+ * dsh -> our memory/notify/ui plugins -> the app's gateway, native shell, heartbeat and updater. The model is [FakeModel] in this
  * process (the gateway is pointed at it by [E2eRunner]); the key is the fake `sk-e2e-fake`. One test per item of spec §9.
  * The tests run in name order and share the running dsh (held as "e2e"), but each one also works on its own.
  */
@@ -66,17 +65,18 @@ class E2eTest {
         app.controller.retain(HOLDER)
     }
 
-    /** §9.1: the main screen loads dsh's interface in the WebView, painted by the ui plugin. */
-    @Test fun t1_mainScreenShowsDshInFogcity() {
+    /** §9.1 (stage 1): the main screen is the native shell, Ready on the real dsh, with no WebView anywhere in it. */
+    @Test fun t01_theNativeShellIsReadyWithoutAWebView() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.awaitDshInFogcity()
-            assertEquals(E2e.FOGCITY, scenario.eval(E2e.BG))
-            assertTrue("document.title is empty", scenario.eval("document.title.length") != "0")
+            awaitShellReady(scenario)
+            var webViews: List<String> = listOf("not checked")
+            scenario.onActivity { webViews = E2e.webViewsIn(it) }
+            assertEquals(emptyList<String>(), webViews)
         }
     }
 
     /** §9.2: without dsh's cookie, nothing is served: neither dsh's page nor our plugin routes. */
-    @Test fun t2_withoutTheCookieDshAndThePluginRoutesRefuse() {
+    @Test fun t02_withoutTheCookieDshAndThePluginRoutesRefuse() {
         val running = runBlocking { app.controller.ensureRunning() }
         val base = "http://127.0.0.1:${running.dshPort}"
         val page = code("$base/")
@@ -88,7 +88,7 @@ class E2eTest {
     }
 
     /** §9.3: a conversation through dsh's own RPC; the fake model calls memory_write, the plugin writes today's note. */
-    @Test fun t3_aConversationMakesTheAgentWriteAMemory() {
+    @Test fun t03_aConversationMakesTheAgentWriteAMemory() {
         val running = runBlocking { app.controller.ensureRunning() }
         val client = DshClient(http, running.launch)
         runBlocking { client.login() }
@@ -121,7 +121,7 @@ class E2eTest {
     }
 
     /** §9.4: the heartbeat dreams over yesterday's note and posts the reminder the model returned as a notification. */
-    @Test fun t4_theHeartbeatPostsTheDreamReminder() {
+    @Test fun t04_theHeartbeatPostsTheDreamReminder() {
         val nm = app.getSystemService(NotificationManager::class.java)
         nm.cancelAll()
         // The heartbeat's first run of the day also asks GitHub for a newer app: the test stays off the network.
@@ -145,7 +145,7 @@ class E2eTest {
     }
 
     /** §9.5: a "new version" that installs but cannot start is rolled back automatically; the old one runs and the UI works. */
-    @Test fun t5_aBrokenUpdateRollsBackAndTheAppStillWorks() {
+    @Test fun t05_aBrokenUpdateRollsBackAndTheAppStillWorks() {
         val optDsh = File(rootfs, "opt/dsh")
         val versions = DshVersions(optDsh, BrokenReleaseNpm(rootfs), app.errorLog, BuildConfig.DSH_PINNED_VERSION)
         val before = versions.current()
@@ -159,14 +159,14 @@ class E2eTest {
         assertFalse("the failed version is still on disk", File(optDsh, BROKEN).exists())
         val running = runBlocking { app.controller.ensureRunning() }
         assertTrue("health check after the rollback", runBlocking { HealthCheck(http).check(running.launch) })
-        ActivityScenario.launch(MainActivity::class.java).use { it.awaitDshInFogcity() }
+        ActivityScenario.launch(MainActivity::class.java).use { awaitShellReady(it) }
     }
 
     /**
-     * Follow-up 1: dsh lists the app's workspace after a start (its own folder picker does not work in the WebView), and
+     * Follow-up 1: dsh lists the app's workspace after a start (so a new conversation has it without dsh's picker), and
      * registering it again on a later start (t5 restarted dsh twice) never adds a duplicate.
      */
-    @Test fun t6_dshListsTheAppWorkspaceOnceAfterEveryStart() {
+    @Test fun t06_dshListsTheAppWorkspaceOnceAfterEveryStart() {
         val running = runBlocking { app.controller.ensureRunning() }
         val store = File(app.appPaths.dshHome, "storages/workspace.json")
         waitFor(30_000, "/root/workspace in dsh's workspace list") { workspacePaths(store).contains("/root/workspace") }
@@ -179,16 +179,8 @@ class E2eTest {
         assertEquals(1, workspacePaths(store).count { it == "/root/workspace" })
     }
 
-    /**
-     * Follow-up 1: dsh's own folder picker works in the WebView. Its browser half (`dsh-client-ui-directory-picker-browse`)
-     * is loaded by the page (missing in v0.1.0: "choose workspace" did nothing) and its host half lists /root with the
-     * workspace in it.
-     */
-    @Test fun t8_dshsFolderPickerIsLoadedAndSeesTheWorkspace() {
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.awaitDshInFogcity()
-            waitFor(30_000, "the picker's browser half among the page's plugin bundles") { scenario.eval(PICKER_LOADED) == "true" }
-        }
+    /** Follow-up 1: the host half of dsh's folder picker lists /root with the app's workspace in it. */
+    @Test fun t07_dshsFolderPickerHostListsTheWorkspace() {
         val running = runBlocking { app.controller.ensureRunning() }
         val client = DshClient(http, running.launch)
         runBlocking { client.login() }
@@ -196,21 +188,6 @@ class E2eTest {
         val entries = listing.getJSONArray("entries")
         val names = (0 until entries.length()).map { entries.getJSONObject(it).optString("name") }
         assertTrue("/root lists $names", "workspace" in names)
-    }
-
-    /**
-     * Follow-up 1: the settings DSH Mobile manages are hidden in dsh's interface. Opens Plugins > 子智能体 in the real WebView
-     * (by dsh's own hooks: the sidebar button's label in either language, the card's `data-plugin-item`) and checks that the
-     * 最大递归深度 field is rendered but invisible, with the app's note in its place.
-     */
-    @Test fun t7_theSubagentDepthFieldIsHiddenInDshsSettings() {
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.awaitDshInFogcity()
-            waitFor(30_000, "dsh's Plugins button") { scenario.eval(OPEN_PLUGINS) == "true" }
-            waitFor(30_000, "the 子智能体 card") { scenario.eval(OPEN_SUBAGENT) == "true" }
-            waitFor(30_000, "the 最大递归深度 field, rendered and hidden") { scenario.eval(DEPTH_FIELD) == "\"hidden\"" }
-            assertTrue("no DSH Mobile note where the limits were", scenario.eval(NOTE).contains("DSH Mobile"))
-        }
     }
 
     /** The paths of every workspace in dsh's own registry file (`$DSH_HOME/storages/workspace.json`). */
@@ -272,34 +249,6 @@ class E2eTest {
         private const val REMIND = FakeModel.REMIND_TITLE
         private const val BROKEN = "9.9.9"
         private val TAIPEI = ZoneId.of("Asia/Taipei")
-
-        private const val PICKER_LOADED = """(function () {
-  var name = 'dsh-client-ui-directory-picker-browse';
-  var urls = performance.getEntriesByType('resource').map(function (e) { return e.name; });
-  document.querySelectorAll('script[src]').forEach(function (s) { urls.push(s.src); });
-  return urls.some(function (u) { return decodeURIComponent(u).indexOf(name) >= 0; });
-})()"""
-        private const val OPEN_PLUGINS = """(function () {
-  var b = Array.prototype.find.call(document.querySelectorAll('button[aria-label]'), function (x) {
-    var l = x.getAttribute('aria-label'); return l === '插件' || l === 'Plugins';
-  });
-  if (b) b.click();
-  return !!b;
-})()"""
-        private const val OPEN_SUBAGENT = """(function () {
-  var li = document.querySelector('li[data-plugin-item="subagent"]');
-  if (li) (li.querySelector('button') || li).click();
-  return !!li;
-})()"""
-        private const val DEPTH_FIELD = """(function () {
-  var d = document.getElementById('plugin-config-subagent-depth');
-  if (!d) return 'absent';
-  return d.offsetParent === null && d.getClientRects().length === 0 ? 'hidden' : 'visible';
-})()"""
-        private const val NOTE = """(function () {
-  var s = document.querySelector('[data-dshm-managed="note"]');
-  return s ? getComputedStyle(s, '::before').content : 'none';
-})()"""
 
         @AfterClass @JvmStatic fun releaseDsh() {
             E2e.app.controller.release(HOLDER)

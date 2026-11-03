@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -68,7 +70,7 @@ import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.util.Locale
 
-/** What the version section needs from `DshVersions` and `MainOps`; the production implementation is in SettingsActivity. */
+/** What the version section needs from `DshVersions` and `MainOps`; the production implementation is in `buildSettingsEnv`. */
 interface SettingsVersions {
     fun current(): String
     fun previous(): String?
@@ -102,6 +104,39 @@ class SettingsEnv(
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
+
+/**
+ * What the user typed or chose in Settings and has not saved yet, and whether one of the screen's own actions (a key, an
+ * export) runs. The host keeps it (the shell: one per screen), so switching tabs and back keeps unsaved fields. Memory only,
+ * never saved instance state: a half-typed key must not land in a Bundle.
+ */
+class SettingsDraft(
+    agent: AgentSettings,
+    alertText: String,
+    capEnabled: Boolean,
+    capText: String,
+) {
+    var localBusy by mutableStateOf(false)
+    var editing by mutableStateOf<Provider?>(null)
+    var keyInput by mutableStateOf("")
+    var keyError by mutableStateOf(false)
+    var settings by mutableStateOf(agent)
+    var alertText by mutableStateOf(alertText)
+    var capEnabled by mutableStateOf(capEnabled)
+    var capText by mutableStateOf(capText)
+    internal var budgetMessage by mutableStateOf<BudgetMessage?>(null)
+    var exportMessage by mutableStateOf<String?>(null)
+
+    companion object {
+        /** The stored values, as the screen shows them when nothing was edited yet (one vault read for the Claude key). */
+        fun from(env: SettingsEnv): SettingsDraft = SettingsDraft(
+            agent = env.store.load(env.phantomState(), env.vault.get(Provider.ANTHROPIC) != null),
+            alertText = formatUsd(env.meter.alertUsd),
+            capEnabled = env.meter.hardCapUsd != null,
+            capText = formatUsd(env.meter.hardCapUsd ?: BUDGET_DEFAULT_CAP),
+        )
+    }
+}
 private const val HEARTBEAT_STEP_MIN = 5
 private const val MAX_REASON_CHARS = 300
 
@@ -110,11 +145,22 @@ private const val MAX_REASON_CHARS = 300
  * slow (vault, restart, update, export) runs off the main thread; while one runs every action is disabled and a progress bar
  * shows. Agent settings are only saved by [apply]; budget and heartbeat have their own save/step actions. Keys are only ever in
  * a password field and the vault, and never shown.
+ *
+ * With [onClose] it is a screen of its own (opaque, clear of the system bars, a close button); without it, it is embedded in
+ * the shell's settings tab: transparent over the shell's background, no close button, laid out with [contentPadding] (the
+ * shell's page padding, which already keeps it clear of the bars, the header and the dock).
  */
 @Composable
-fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    env: SettingsEnv,
+    onClose: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    draft: SettingsDraft = remember(env) { SettingsDraft.from(env) },
+) {
+    val embedded = onClose == null
     val scope = rememberCoroutineScope() // keys and exports only: cancelling those half way is harmless
-    var localBusy by remember { mutableStateOf(false) }
+    var localBusy by draft::localBusy
     val jobBusy by env.jobs.busy.collectAsState()
     val busy = localBusy || jobBusy
     // Leaving the screen is not possible while something runs (the jobs would survive it, but the user should see the result).
@@ -123,18 +169,18 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
     // The vault reads below are one AES-GCM decrypt each (as at app start); everything that can block runs on IO.
     var hasDeepseek by remember { mutableStateOf(env.vault.get(Provider.DEEPSEEK) != null) }
     var hasClaude by remember { mutableStateOf(env.vault.get(Provider.ANTHROPIC) != null) }
-    var editing by remember { mutableStateOf<Provider?>(null) }
-    var keyInput by remember { mutableStateOf("") }
-    var keyError by remember { mutableStateOf(false) }
+    var editing by draft::editing
+    var keyInput by draft::keyInput
+    var keyError by draft::keyError
 
-    var settings by remember { mutableStateOf(env.store.load(env.phantomState(), hasClaude)) }
+    var settings by draft::settings
     val applyMessage by env.jobs.applyMessage.collectAsState()
 
     var todayUsd by remember { mutableStateOf(env.meter.todayUsd()) }
-    var alertText by remember { mutableStateOf(formatUsd(env.meter.alertUsd)) }
-    var capEnabled by remember { mutableStateOf(env.meter.hardCapUsd != null) }
-    var capText by remember { mutableStateOf(formatUsd(env.meter.hardCapUsd ?: BUDGET_DEFAULT_CAP)) }
-    var budgetMessage by remember { mutableStateOf<BudgetMessage?>(null) }
+    var alertText by draft::alertText
+    var capEnabled by draft::capEnabled
+    var capText by draft::capText
+    var budgetMessage by draft::budgetMessage
 
     var heartbeat by remember { mutableStateOf(env.store.heartbeatIntervalMin) }
 
@@ -149,7 +195,7 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
 
     var phantom by remember { mutableStateOf(env.phantomState()) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { phantom = env.phantomState() } // back from the system settings
-    var exportMessage by remember { mutableStateOf<String?>(null) }
+    var exportMessage by draft::exportMessage
 
     val context = LocalContext.current.applicationContext // (the jobs outlive the activity) for the messages built inside callbacks (stringResource is composable-only)
 
@@ -328,17 +374,23 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
         env.scheduleHeartbeat(next)
     }
 
-    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    Surface(modifier = modifier.fillMaxSize(), color = if (embedded) Color.Transparent else MaterialTheme.colorScheme.background) {
         Column(
             modifier = Modifier
-                .safeDrawingPadding()
+                .then(if (embedded) Modifier else Modifier.safeDrawingPadding())
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.set_title), style = MaterialTheme.typography.headlineSmall, color = Sakura.Text, modifier = Modifier.weight(1f))
-                TextButton(onClick = onClose, enabled = !busy, modifier = Modifier.testTag("close")) { Text(stringResource(R.string.set_close)) }
+            // Embedded, the shell's header already names the page.
+            if (onClose != null) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.set_title), style = MaterialTheme.typography.headlineSmall, color = Sakura.Text,
+                        modifier = Modifier.weight(1f).testTag("settings-title"),
+                    )
+                    TextButton(onClick = onClose, enabled = !busy, modifier = Modifier.testTag("close")) { Text(stringResource(R.string.set_close)) }
+                }
             }
             if (busy) {
                 Column(Modifier.testTag("busy"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -484,7 +536,7 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
     }
 }
 
-private enum class BudgetMessage { SAVED, INVALID }
+internal enum class BudgetMessage { SAVED, INVALID }
 
 @Composable
 private fun Section(title: Int, content: @Composable () -> Unit) {

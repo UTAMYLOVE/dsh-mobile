@@ -47,6 +47,14 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Rule
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertIsToggleable
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -137,25 +145,24 @@ class SettingsScreenTest {
 
     private fun str(id: Int, vararg args: Any) = rule.activity.getString(id, *args)
 
-    private fun show() = rule.setContent {
-        SakuraTheme {
-            SettingsScreen(
-                SettingsEnv(
-                    vault = vault, store = store, meter = meter,
-                    phantomState = { phantom },
-                    runtime = runtime, isRunning = running, versions = versions,
-                    applyAgentTeams = { runtime.events += "teams"; teamsApplied += it; teamsResult },
-                    scheduleHeartbeat = { heartbeats += it },
-                    supervise = { runtime.events += "supervise" },
-                    openDeveloperSettings = { developerOpened++ },
-                    exportErrorLog = { if (exportFails) error("zip failed") else errorLogExports++ },
-                    exportMemory = { memoryExports++ },
-                    exportWorkspace = { workspaceExports++ },
-                    jobs = jobs,
-                ),
-                onClose = { closed++ },
-            )
-        }
+    private val env by lazy {
+        SettingsEnv(
+            vault = vault, store = store, meter = meter,
+            phantomState = { phantom },
+            runtime = runtime, isRunning = running, versions = versions,
+            applyAgentTeams = { runtime.events += "teams"; teamsApplied += it; teamsResult },
+            scheduleHeartbeat = { heartbeats += it },
+            supervise = { runtime.events += "supervise" },
+            openDeveloperSettings = { developerOpened++ },
+            exportErrorLog = { if (exportFails) error("zip failed") else errorLogExports++ },
+            exportMemory = { memoryExports++ },
+            exportWorkspace = { workspaceExports++ },
+            jobs = jobs,
+        )
+    }
+
+    private fun show(onClose: (() -> Unit)? = { closed++ }) = rule.setContent {
+        SakuraTheme { SettingsScreen(env, onClose = onClose) }
     }
 
     private fun click(tag: String) {
@@ -690,9 +697,42 @@ class SettingsScreenTest {
         rule.onNodeWithTag("busy").assertDoesNotExist()
     }
 
-    @Test fun closeButtonCloses() {
+    @Test fun withoutOnCloseThereIsNoCloseButton() {
+        show(onClose = null) // embedded in the shell's settings tab: the dock is the way out, the header names the page
+        rule.onNodeWithTag("close").assertDoesNotExist()
+        rule.onNodeWithTag("settings-title").assertDoesNotExist()
+        rule.onNodeWithTag("apply").assertExists()
+    }
+
+    @Test fun withOnCloseTheCloseButtonCloses() {
         show()
+        rule.onNodeWithTag("settings-title").assertExists()
         click("close")
         assertEquals(1, closed)
+    }
+
+    /** The shell disposes the settings tab when another tab is chosen: unsaved fields live in the host's draft and come back. */
+    @Test fun unsavedFieldsSurviveTheScreenLeavingAndComingBack() {
+        val draft = SettingsDraft.from(env)
+        var visible by mutableStateOf(true)
+        val alertBefore = meter.alertUsd
+        val teamsBefore = draft.settings.agentTeams
+        rule.setContent { SakuraTheme { if (visible) SettingsScreen(env, draft = draft) } }
+        rule.onNodeWithTag("alert-field").performScrollTo().performTextReplacement("7.5")
+        click("switch-teams")
+        rule.onNodeWithTag("replace-claude").performScrollTo().performClick()
+        rule.onNodeWithTag("key-field").performTextReplacement("sk-ant-half-typed")
+        visible = false
+        rule.waitForIdle()
+        rule.onNodeWithTag("alert-field").assertDoesNotExist()
+        visible = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("alert-field").assertTextContains("7.5")
+        assertEquals(!teamsBefore, draft.settings.agentTeams)
+        rule.onNodeWithTag("switch-teams").assertIsToggleable().apply { if (teamsBefore) assertIsOff() else assertIsOn() }
+        rule.onNodeWithTag("key-field").assertExists() // the key editor is still open (its text is never shown)
+        assertEquals("sk-ant-half-typed", draft.keyInput)
+        assertEquals("nothing was saved", alertBefore, meter.alertUsd, 0.0)
+        assertEquals("nothing was saved", teamsBefore, store.load(phantom, false).agentTeams)
     }
 }

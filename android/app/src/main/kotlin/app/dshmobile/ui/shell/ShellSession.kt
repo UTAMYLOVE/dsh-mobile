@@ -1,0 +1,70 @@
+package app.dshmobile.ui.shell
+
+import app.dshmobile.chat.ChatRemote
+import app.dshmobile.remote.DshEvents
+import app.dshmobile.remote.MuxState
+import app.dshmobile.service.RunningDsh
+import app.dshmobile.runtime.LaunchUrl
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/** What the shell needs from one running dsh; `DshRemote` implements it (later tasks widen it with chat, index and agents). */
+interface ShellRemote : ChatRemote {
+    val muxState: StateFlow<MuxState>
+    fun close()
+}
+
+/**
+ * Everything the native interface keeps for one dsh instance (app level: it outlives a recreated screen and dies with that
+ * dsh). [scope] belongs to this session: [close] closes [remote] and cancels it, so pass a scope of its own (a child of the
+ * application's scope), never the application's scope itself. Later tasks add their stores here.
+ */
+class ShellSession(val remote: ShellRemote, val events: DshEvents?, val scope: CoroutineScope) {
+    @Volatile private var closed = false
+
+    fun close() {
+        if (closed) return
+        closed = true
+        remote.close()
+        scope.cancel()
+    }
+}
+
+/**
+ * The one current [ShellSession], keyed by dsh's launch URL: the same dsh keeps its session (a screen coming back, a second
+ * start racing the first), a new dsh instance gets a new one and the old one is closed. The launch URL carries dsh's one-time
+ * token: it stays in memory here and is never logged.
+ */
+class ShellSessionHolder(private val create: (RunningDsh) -> ShellSession) {
+    private val lock = Any()
+    private var attached: LaunchUrl? = null
+    private val _current = MutableStateFlow<ShellSession?>(null)
+    val current: StateFlow<ShellSession?> = _current.asStateFlow()
+
+    /** The launch of the dsh the current session talks to; null when none is attached. */
+    val launch: LaunchUrl? get() = synchronized(lock) { attached }
+
+    /** The session for [running]: the current one when it is the same launch URL, else a new one (the old one is closed first). */
+    fun attach(running: RunningDsh): ShellSession = synchronized(lock) {
+        val current = _current.value
+        if (current != null && attached?.url == running.launch.url) return current
+        clearLocked()
+        val fresh = create(running)
+        attached = running.launch
+        _current.value = fresh
+        fresh
+    }
+
+    /** dsh stopped: the current session (if any) is closed and forgotten. */
+    fun detach() = synchronized(lock) { clearLocked() }
+
+    private fun clearLocked() {
+        val old = _current.value
+        _current.value = null
+        attached = null
+        old?.close()
+    }
+}

@@ -40,13 +40,18 @@ import app.dshmobile.service.asWorkRemote
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.SettingsJobs
 import app.dshmobile.ui.UiHolder
+import app.dshmobile.ui.fog.UiPrefs
+import app.dshmobile.ui.shell.ShellSession
+import app.dshmobile.ui.shell.ShellSessionHolder
 import app.dshmobile.update.ApkInstaller
 import app.dshmobile.update.ApkUpdateChecker
 import app.dshmobile.update.DailyUpdateCheck
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.io.File
@@ -185,6 +190,27 @@ class DshMobileApp : Application(), Configuration.Provider {
             // Work in flight keeps the service (and dsh); DshService ends itself when the work is done and nobody is looking.
             stopService = { if (DshService.WORK_HOLDER !in controller.holders) stopService(Intent(this, DshService::class.java)) },
         )
+    }
+
+    /** Small per-install UI choices (effect level, last conversation). */
+    val uiPrefs: UiPrefs by lazy { UiPrefs(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)) }
+
+    /**
+     * The native interface's link to the running dsh: one [ShellSession] per dsh instance, in a scope of its own (a child of
+     * [applicationScope], cancelled when that instance's session closes). Whenever dsh stops, with or without a screen (the
+     * background grace, a give-up), the session is detached here, so its remote never keeps retrying a dead port. On the main
+     * thread, like every attach, so a stop seen late can never detach the next instance's session.
+     */
+    val shellSessions: ShellSessionHolder by lazy {
+        val loopback = OkHttpClient()
+        val holder = ShellSessionHolder { running ->
+            val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
+            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope) }
+        }
+        applicationScope.launch(Dispatchers.Main) {
+            controller.isRunning.collect { running -> if (!running) holder.detach() }
+        }
+        holder
     }
 
     /** Asks the public releases repo for a newer shell app (no credentials; a failure is the caller's to log). */
