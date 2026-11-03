@@ -402,6 +402,12 @@ class MainActivity : ComponentActivity() {
                     toast(getString(R.string.main_update_failed))
                     return@launch
                 }
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    // The user left during the download: Android would block the installer's start from the background without a
+                    // word, so the verified APK goes to a notice whose tap comes back here (and reuses the download).
+                    app.notifier.showUpdateReady(info)
+                    return@launch
+                }
                 try {
                     app.apkInstaller.install(apk)
                 } catch (e: CancellationException) {

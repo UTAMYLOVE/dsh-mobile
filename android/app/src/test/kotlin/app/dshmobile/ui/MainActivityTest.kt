@@ -657,7 +657,12 @@ class MainActivityTest {
     private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 
     /** A releases "repo" on a MockWebServer: the newest release is v0.9.0+9 whose hash file says [hash]. */
-    private fun serveRelease(server: okhttp3.mockwebserver.MockWebServer, hash: String) {
+    private fun serveRelease(
+        server: okhttp3.mockwebserver.MockWebServer,
+        hash: String,
+        apkRequested: java.util.concurrent.CountDownLatch? = null,
+        apkGate: java.util.concurrent.CountDownLatch? = null,
+    ) {
         val base = server.url("/")
         server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) = when {
@@ -665,7 +670,11 @@ class MainActivityTest {
                     """{"tag_name":"v0.9.0+9","assets":[{"name":"a.apk","browser_download_url":"${base}a.apk"},{"name":"a.apk.sha256","browser_download_url":"${base}a.apk.sha256"}]}""",
                 )
                 request.path == "/a.apk.sha256" -> okhttp3.mockwebserver.MockResponse().setBody("$hash  a.apk")
-                request.path == "/a.apk" -> okhttp3.mockwebserver.MockResponse().setBody(okio.Buffer().write(apkBytes))
+                request.path == "/a.apk" -> {
+                    apkRequested?.countDown()
+                    apkGate?.await(20, java.util.concurrent.TimeUnit.SECONDS)
+                    okhttp3.mockwebserver.MockResponse().setBody(okio.Buffer().write(apkBytes))
+                }
                 else -> okhttp3.mockwebserver.MockResponse().setResponseCode(404)
             }
         }
@@ -680,7 +689,7 @@ class MainActivityTest {
         val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
         try {
             serveRelease(server, sha(apkBytes))
-            val activity = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_INSTALL_UPDATE)).create().get()
+            val activity = build(Intent().putExtra(Notifier.EXTRA_ACTION, Notifier.ACTION_INSTALL_UPDATE)).create().start().resume().get() // in the foreground: the installer may start
             waitUntil { shadowOf(activity).peekNextStartedActivity()?.action == Intent.ACTION_VIEW }
             val install = shadowOf(activity).nextStartedActivity
             assertEquals("application/vnd.android.package-archive", install.type)
@@ -814,7 +823,7 @@ class MainActivityTest {
             swap("apkInstaller", object : ApkInstaller(app, okhttp3.OkHttpClient(), listOf(server.url("/").toString())) {
                 override fun install(apk: File) = throw android.content.ActivityNotFoundException("none")
             })
-            val activity = build(installActionIntent()).create().get()
+            val activity = build(installActionIntent()).create().start().resume().get()
             val manager = app.getSystemService(android.app.NotificationManager::class.java)
             waitUntil { shadowOf(manager).allNotifications.isNotEmpty() }
             val n = shadowOf(manager).allNotifications.single()
@@ -822,6 +831,36 @@ class MainActivityTest {
             assertTrue(n.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("已下載"))
             assertNull(shadowOf(activity).nextStartedActivity)
         } finally {
+            server.shutdown()
+            File(app.cacheDir, "update").deleteRecursively()
+        }
+    }
+
+    /** I-6: Android silently blocks an activity start from the background, so a download that ends there goes to a notification. */
+    @Test fun aDownloadThatEndsWhileTheAppIsInTheBackgroundPostsTheReadyNoticeInsteadOfTheInstaller() {
+        completeSetup()
+        shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        val requested = java.util.concurrent.CountDownLatch(1)
+        val gate = java.util.concurrent.CountDownLatch(1)
+        try {
+            serveRelease(server, sha(apkBytes), apkRequested = requested, apkGate = gate)
+            val ctl = build(installActionIntent()).create().start().resume()
+            val activity = ctl.get()
+            waitUntil { requested.count == 0L }
+            ctl.pause().stop() // the user switches apps during the ~130 MB download
+            gate.countDown()
+
+            val manager = app.getSystemService(android.app.NotificationManager::class.java)
+            waitUntil { shadowOf(manager).allNotifications.isNotEmpty() }
+            idleFor(300)
+            val n = shadowOf(manager).allNotifications.single()
+            assertEquals("install_update", shadowOf(n.contentIntent).savedIntent.getStringExtra("action"))
+            assertTrue(n.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("已下載"))
+            assertTrue("the verified APK stays for the notification's tap", File(app.cacheDir, "update/dsh-mobile-9.apk").isFile)
+            assertNull("no installer is started from the background", shadowOf(activity).nextStartedActivity)
+        } finally {
+            gate.countDown()
             server.shutdown()
             File(app.cacheDir, "update").deleteRecursively()
         }
