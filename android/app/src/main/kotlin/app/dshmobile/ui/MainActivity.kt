@@ -347,10 +347,21 @@ class MainActivity : ComponentActivity() {
         val lead = remember(tab, hasClaude) {
             app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).leadModel
         }
-        ChatPage(session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast)
+        ChatPage(session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast, onRestartDsh = ::restartDsh)
     }
 
     internal fun attachForTest(uris: List<Uri>) = vm.addPicked(uris)
+
+    /** The chat's 「重新啟動 dsh」 (stage 2 §A): a real stop of the whole tree, then a start, on the app-scope settings jobs. */
+    private fun restartDsh() {
+        val app = application as DshMobileApp
+        app.settingsJobs.launch {
+            runCatching {
+                app.controller.stop()
+                app.controller.ensureRunning()
+            }.onFailure { app.errorLog.append("restart", "chat restart failed: ${it.javaClass.simpleName}") }
+        }
+    }
 
     private fun openLink(url: String) {
         when (ExternalLinks.open(this, url)) {

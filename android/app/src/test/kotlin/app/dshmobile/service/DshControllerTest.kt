@@ -368,12 +368,13 @@ class DshControllerTest {
     /** A fake /proc where dsh's tree (proot 100, node 101) survives every signal: the stop must say so and nothing starts. */
     @Test fun aTreeThatSurvivesTheStopIsAFailedStopAndNoSecondDshStarts() = runBlocking {
         val fake = FakeProc()
-        fake.add(100, fake.myPid, "/x/libproot.so node /opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js", immortal = true)
-        fake.add(101, 100, "node /opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js", immortal = true)
         killer = fake.killer()
         pidOf = { 100 }
         val c = newController()
         c.ensureRunning()
+        // The tree the launch made: proot and its node child, both deaf to every signal.
+        fake.add(100, fake.myPid, "/x/libproot.so node /opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js", immortal = true)
+        fake.add(101, 100, "node /opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js", immortal = true)
         assertEquals(1, starts.get())
 
         c.stop()
@@ -412,11 +413,11 @@ class DshControllerTest {
 
     @Test fun aSweepThatClearsTheLeftoversLetsTheStartGoOn() = runBlocking {
         val fake = FakeProc()
-        val stuck = fake.add(100, fake.myPid, "/x/libproot.so bin.js", immortal = true)
         killer = fake.killer()
         pidOf = { 100 }
         val c = newController()
         c.ensureRunning()
+        val stuck = fake.add(100, fake.myPid, "/x/libproot.so bin.js", immortal = true)
         c.stop()
         assertEquals(1, c.status.value.leftover)
         // Android's force stop of the cgroup (or the process finally giving in) clears it: the next start is a normal one.

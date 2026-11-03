@@ -131,12 +131,13 @@ fun ChatPage(
     onLink: (String) -> Unit,
     onShare: (String) -> Unit,
     onMessage: (String) -> Unit,
+    onRestartDsh: () -> Unit = {},
 ) {
     val openId = nav.openSessionId
     if (nav.listOpen || openId == null) {
         ListPage(session, nav, onMessage)
     } else {
-        key(session, openId) { ConversationPage(session, openId, nav, hasClaudeKey, leadModel, onLink, onShare) }
+        key(session, openId) { ConversationPage(session, openId, nav, hasClaudeKey, leadModel, onLink, onShare, onRestartDsh) }
     }
 }
 
@@ -203,6 +204,7 @@ private fun ConversationPage(
     leadModel: String,
     onLink: (String) -> Unit,
     onShare: (String) -> Unit,
+    onRestartDsh: () -> Unit,
 ) {
     val store = remember(session, id) { session.conversation(id) }
     val ui = remember(session, id) { session.chatUi(id) }
@@ -242,6 +244,7 @@ private fun ConversationPage(
         onShare = onShare,
         onLoadOlder = { session.scope.launch { store.loadOlder() } },
         onRetryFollow = store::retry,
+        onRestartDsh = onRestartDsh,
         onRetrySend = { rid -> session.scope.launch { store.retrySend(rid) } },
         onDismissSend = store::dismissSend,
         ui = ui,
