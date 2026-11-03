@@ -129,6 +129,7 @@
 
     <string name="set_section_export">匯出</string>
     <string name="set_export_memory">匯出記憶備份</string>
+    <string name="set_export_workspace">匯出整個工作區（zip）</string>
 
     <string name="set_apply">套用並重啟</string>
     <string name="set_apply_note">代理人設定要重新啟動 DSH 才會生效。</string>

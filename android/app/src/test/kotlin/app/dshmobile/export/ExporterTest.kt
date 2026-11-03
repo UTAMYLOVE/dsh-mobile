@@ -57,6 +57,46 @@ class ExporterTest {
         z.entries().asSequence().associate { it.name to z.getInputStream(it).readBytes().toString(Charsets.UTF_8) }
     }
 
+    // --- workspaceZip (spec §7.1: any workspace file can be exported from the app) ---
+
+    @Test fun workspaceZipHasEveryRegularFileWithRelativeNames() {
+        write("MEMORY.md", "m")
+        write("memory/2026-11-01.md", "d1")
+        write("project/src/main.py", "print(1)")
+        write(".hidden/config", "h")
+        File(workspace, "empty-dir").mkdirs()
+
+        val zip = exporter.workspaceZip()
+
+        assertEquals(exportDir.canonicalFile, zip.parentFile!!.canonicalFile)
+        assertTrue(zip.name, zip.name.matches(Regex("""dsh-workspace-\d{8}-\d{4}\.zip""")))
+        assertEquals(
+            mapOf(
+                "MEMORY.md" to "m", "memory/2026-11-01.md" to "d1", "project/src/main.py" to "print(1)", ".hidden/config" to "h",
+            ),
+            entries(zip),
+        )
+    }
+
+    @Test fun workspaceZipNeverFollowsASymlinkOutOfTheWorkspace() {
+        write("kept.txt", "k")
+        Files.createSymbolicLink(File(workspace, "leak.txt").toPath(), File(outside, "secret.txt").toPath())
+        Files.createSymbolicLink(File(workspace, "leakdir").toPath(), outside.toPath())
+        File(workspace, "sub").mkdirs()
+        Files.createSymbolicLink(File(workspace, "sub/up").toPath(), base.toPath())
+        Files.createSymbolicLink(File(workspace, "inside-link.txt").toPath(), File(workspace, "kept.txt").toPath())
+
+        val zip = exporter.workspaceZip()
+
+        assertEquals(mapOf("kept.txt" to "k"), entries(zip))
+        ZipFile(zip).use { z -> assertTrue(z.entries().asSequence().none { it.name.contains("secret") || it.name.contains("..") }) }
+    }
+
+    @Test fun workspaceZipOfAMissingWorkspaceIsAValidEmptyZip() {
+        workspace.deleteRecursively()
+        assertTrue(entries(exporter.workspaceZip()).isEmpty())
+    }
+
     // --- memoryBackupZip ---
 
     @Test fun memoryBackupHasMemoryUserAndMemoryDirMarkdown() {

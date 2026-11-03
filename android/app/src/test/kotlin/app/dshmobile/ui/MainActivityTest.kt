@@ -226,6 +226,70 @@ class MainActivityTest {
         assertTrue(shadowOf(activity.webView).getJavascriptInterface("anything") == null)
     }
 
+    // --- I-7: file inputs and JavaScript dialogs ---
+
+    private class FakeChooserParams(private val intent: Intent?) : android.webkit.WebChromeClient.FileChooserParams() {
+        override fun getMode() = MODE_OPEN
+        override fun getAcceptTypes() = arrayOf("*/*")
+        override fun isCaptureEnabled() = false
+        override fun getTitle(): CharSequence? = null
+        override fun getFilenameHint(): String? = null
+        override fun createIntent(): Intent = intent ?: throw android.content.ActivityNotFoundException("no picker")
+    }
+
+    private fun pickerIntent() = Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+
+    @Test fun aFileInputOpensTheSystemPickerAndGetsThePickedUri() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        val chrome = shadowOf(activity.webView).webChromeClient
+        assertTrue(chrome is DshChromeClient)
+        var answer: Array<android.net.Uri>? = arrayOf()
+        var answers = 0
+        assertTrue(chrome!!.onShowFileChooser(activity.webView, { answer = it; answers++ }, FakeChooserParams(pickerIntent())))
+        val started = shadowOf(activity).nextStartedActivityForResult
+        assertEquals(Intent.ACTION_GET_CONTENT, started.intent.action)
+        val picked = android.net.Uri.parse("content://com.example.docs/document/42")
+        shadowOf(activity).receiveResult(started.intent, android.app.Activity.RESULT_OK, Intent().setData(picked))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, answers)
+        assertEquals(listOf(picked), answer!!.toList())
+    }
+
+    @Test fun aCancelledPickerAnswersNull() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        val chrome = shadowOf(activity.webView).webChromeClient!!
+        var answer: Array<android.net.Uri>? = arrayOf()
+        var answers = 0
+        chrome.onShowFileChooser(activity.webView, { answer = it; answers++ }, FakeChooserParams(pickerIntent()))
+        val started = shadowOf(activity).nextStartedActivityForResult
+        shadowOf(activity).receiveResult(started.intent, android.app.Activity.RESULT_CANCELED, null)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, answers)
+        assertNull(answer)
+    }
+
+    @Test fun withoutAPickerTheFileInputIsAnsweredNullAtOnce() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        var answers = 0
+        var answer: Array<android.net.Uri>? = arrayOf()
+        shadowOf(activity.webView).webChromeClient!!.onShowFileChooser(activity.webView, { answer = it; answers++ }, FakeChooserParams(null))
+        assertEquals(1, answers)
+        assertNull(answer)
+    }
+
+    @Test fun javascriptDialogsUseTheWebViewsDefaultDialogs() {
+        completeSetup()
+        val activity = build().create().get()
+        val chrome = shadowOf(activity.webView).webChromeClient!!
+        // false = not handled here: the WebView shows its own dialog (without a chrome client they are silently dismissed).
+        assertFalse(chrome.onJsAlert(activity.webView, "http://127.0.0.1/", "hi", null))
+        assertFalse(chrome.onJsConfirm(activity.webView, "http://127.0.0.1/", "sure?", null))
+        assertFalse(chrome.onJsPrompt(activity.webView, "http://127.0.0.1/", "name?", "", null))
+    }
+
     // --- the activity never starts dsh on its own ---
 
     private fun idleFor(ms: Long) {

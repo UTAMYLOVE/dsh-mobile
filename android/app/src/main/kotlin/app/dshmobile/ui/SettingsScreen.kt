@@ -92,9 +92,11 @@ class SettingsEnv(
     /** The user explicitly (re)starts dsh: ends a service give-up and hands crash supervision to `DshService`. */
     val supervise: () -> Unit,
     val openDeveloperSettings: () -> Unit,
-    /** Both exports build a zip and open the share sheet; they run on `Dispatchers.IO`. */
+    /** The exports build a zip and open the share sheet; they run on `Dispatchers.IO`. */
     val exportErrorLog: () -> Unit,
     val exportMemory: () -> Unit,
+    /** Spec §7.1 "any workspace file can be exported": the whole workspace as one zip (symbolic links left out). */
+    val exportWorkspace: () -> Unit,
     /** Owned by the application: the long dsh actions run there and outlive this screen. */
     val jobs: SettingsJobs,
 )
@@ -469,6 +471,7 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
                     OutlinedButton(onClick = { export(env.exportErrorLog) }, enabled = !busy, modifier = Modifier.testTag("export-log")) { Text(stringResource(R.string.main_export_log)) }
                     OutlinedButton(onClick = { export(env.exportMemory) }, enabled = !busy, modifier = Modifier.testTag("export-memory")) { Text(stringResource(R.string.set_export_memory)) }
                 }
+                OutlinedButton(onClick = { export(env.exportWorkspace) }, enabled = !busy, modifier = Modifier.testTag("export-workspace")) { Text(stringResource(R.string.set_export_workspace)) }
                 exportMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
 

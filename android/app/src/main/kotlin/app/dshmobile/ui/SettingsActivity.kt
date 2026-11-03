@@ -63,6 +63,7 @@ class SettingsActivity : ComponentActivity() {
             openDeveloperSettings = { if (platform.developerOptionsEnabled()) platform.openDeveloperSettings() else platform.openDeviceInfoSettings() },
             exportErrorLog = { app.exporter.share(app.exporter.errorLogZip()) },
             exportMemory = { app.exporter.share(app.exporter.memoryBackupZip()) },
+            exportWorkspace = { app.exporter.share(app.exporter.workspaceZip()) },
             jobs = app.settingsJobs,
         )
     }

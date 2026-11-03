@@ -122,6 +122,7 @@ class SettingsScreenTest {
     private var developerOpened = 0
     private var errorLogExports = 0
     private var memoryExports = 0
+    private var workspaceExports = 0
     private var exportFails = false
     private var closed = 0
     // The application's scope, outside every composition and Activity: this is what lets a job outlive the screen.
@@ -149,6 +150,7 @@ class SettingsScreenTest {
                     openDeveloperSettings = { developerOpened++ },
                     exportErrorLog = { if (exportFails) error("zip failed") else errorLogExports++ },
                     exportMemory = { memoryExports++ },
+                    exportWorkspace = { workspaceExports++ },
                     jobs = jobs,
                 ),
                 onClose = { closed++ },
@@ -675,6 +677,9 @@ class SettingsScreenTest {
         waitFor { errorLogExports == 1 }
         clickAndWait("export-memory")
         waitFor { memoryExports == 1 }
+        rule.onNodeWithText(str(R.string.set_export_workspace)).assertExists()
+        clickAndWait("export-workspace")
+        waitFor { workspaceExports == 1 }
     }
 
     @Test fun aFailingExportIsReported() {

@@ -17,6 +17,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -58,6 +59,11 @@ class MainActivity : ComponentActivity() {
     private val uiState = MutableStateFlow(MainUiState.Loading)
     private lateinit var webView: WebView
     private lateinit var webClient: DshWebViewClient
+    private lateinit var chromeClient: DshChromeClient
+    /** The system document picker for `<input type=file>` (registered before the activity starts, as the API requires). */
+    private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        chromeClient.onPickerResult(result.resultCode, result.data)
+    }
     private lateinit var downloads: DownloadHandler
     private lateinit var ops: MainOps
     private var ready = false
@@ -185,9 +191,18 @@ class MainActivity : ComponentActivity() {
             dshPort = { webClient.dshPort },
             cookies = { CookieManager.getInstance().getCookie(it) },
         )
+        chromeClient = DshChromeClient(openPicker = { intent ->
+            try {
+                filePicker.launch(intent)
+                true
+            } catch (_: ActivityNotFoundException) {
+                false
+            }
+        })
         webView = WebView(this).apply {
             setBackgroundColor(Color.parseColor("#FFF5F8"))
             webViewClient = webClient
+            webChromeClient = chromeClient // file inputs and the default alert/confirm/prompt dialogs
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true

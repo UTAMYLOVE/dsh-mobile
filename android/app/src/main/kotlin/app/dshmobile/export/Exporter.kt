@@ -8,8 +8,12 @@ import app.dshmobile.log.ErrorLog
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.FileVisitResult
 import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -77,6 +81,28 @@ class Exporter(
                     .sortedBy { it.path }
                     .forEach { addRegularFile(zip, it.relativeTo(workspace).invariantSeparatorsPath, it) }
             }
+        }
+        return out
+    }
+
+    /**
+     * `cacheDir/export/dsh-workspace-<yyyyMMdd-HHmm>.zip` with every regular file of the workspace, under its path relative to the
+     * workspace. Symbolic links are never followed nor stored (a link could point out of the workspace, e.g. at the app's own
+     * files); devices, fifos and empty directories are left out. Blocking file I/O: call it off the main thread.
+     */
+    fun workspaceZip(): File {
+        val out = newExportFile("dsh-workspace")
+        val root = workspace.toPath()
+        ZipOutputStream(out.outputStream().buffered()).use { zip ->
+            if (!isRealDirectory(workspace)) return@use
+            // walkFileTree without FOLLOW_LINKS reports a link as a (non-regular) file and never descends through it.
+            Files.walkFileTree(root, object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isRegularFile) addRegularFile(zip, root.relativize(file).toFile().invariantSeparatorsPath, file.toFile())
+                    return FileVisitResult.CONTINUE
+                }
+                override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult = FileVisitResult.CONTINUE
+            })
         }
         return out
     }
