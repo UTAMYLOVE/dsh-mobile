@@ -153,3 +153,7 @@ T14: fix round 1/5 (7 Minors addressed incl. merge of main, 0 open; 2f36d93..c16
 T14: complete (lane-t14 de1c788..c16265a, review clean after 1 fix round) — merged as 0366641 (code tree identical to c16265a, where the full unit suite 883/0 + assembleDebug + assembleDebugAndroidTest ran)
 T14: minor (deferred): no direct test for locals observed off-screen, CountUpText draw alignment or unexpected glyphs; per-glyph drawing drops kerning
 T13 dispatched (sonnet, wt-t3 lane-t13 from 0a657d9; carries effectsController.level read + immediate onEffectLevel, collectAsStateWithLifecycle for overview/settings, SettingsJobsTest boom leak fix)
+T13: implementer DONE_WITH_CONCERNS (lane-t13 0a657d9..d04e01c, 900 unit); SettingsEnv.effectLevel StateFlow instead of uiPrefs; MainActivityTest rollback literals moved to 0.2.1-rc.5/0.2.2; OverviewSource +context, flowOn(IO); no screenshots; review dispatched (sonnet)
+T13: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
+T13: complete (lane-t13 0a657d9..d04e01c, review clean) — merged (code tree identical to d04e01c: 900 unit + both assembles green there)
+T13: minor (deferred): clearer message when current() throws during update; tapping the selected effect cell resets the governor cap (add no-op guard); OverviewSource IO context untested; lead-model radios show raw ids; no 412 dp settings screenshot (T15)

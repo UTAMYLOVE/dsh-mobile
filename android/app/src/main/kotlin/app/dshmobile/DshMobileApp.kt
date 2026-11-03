@@ -30,6 +30,7 @@ import app.dshmobile.notify.Notifier
 import app.dshmobile.export.Exporter
 import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshVersions
+import app.dshmobile.runtime.VerifiedDsh
 import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.ProotGuestCommand
 import app.dshmobile.runtime.ProotRunner
@@ -231,8 +232,7 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     /**
-     * What the overview shows. The agents and recent flows follow whichever dsh session is current. [unverifiedDshVersion] is wired
-     * to null until Task 13 provides the verified-version check.
+     * What the overview shows. The agents and recent flows follow whichever dsh session is current. [unverifiedDshVersion] is the current dsh version when this app has not verified it (read on IO by the source).
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val overviewSource: OverviewSource by lazy {
@@ -249,8 +249,9 @@ class DshMobileApp : Application(), Configuration.Provider {
             nextHeartbeatAt = HeartbeatScheduler.nextRunAt(this),
             agentsRunning = agents,
             recent = recent,
-            unverifiedDshVersion = { null },
+            unverifiedDshVersion = { runCatching { dshVersions.current() }.getOrNull()?.takeUnless(VerifiedDsh::isVerified) },
             clock = Clock.systemUTC(),
+            context = Dispatchers.IO,
         )
     }
 

@@ -121,4 +121,11 @@ object Tags {
     /** + [app.dshmobile.chat.SessionRow.id]: a recent conversation on the overview. */
     const val OVERVIEW_RECENT = "overview-recent-"
     const val UNVERIFIED_BANNER = "unverified-banner"
+
+    /** + 0..2: the effect strength cells (full, balanced, saver). */
+    const val EFFECT = "effect-"
+    /** + model id: one choice of the model used for writing novels. */
+    const val NOVEL_MODEL = "novel-model-"
+    const val UNVERIFIED_WARNING = "unverified-warning"
+    const val VERIFIED_NOTE = "verified-note"
 }

@@ -342,6 +342,16 @@ class DshVersionsTest {
         assertEquals("1.0.0", versions.previous())
     }
 
+    @Test fun aGivenTargetSkipsNpmView() = runBlocking {
+        setup("1.0.0")
+        npmInstallsInto()
+        val rt = FakeRuntime(versions, emptySet())
+        assertEquals(UpdateOutcome.Updated("1.1.0"), versions.updateWithAutoRollback(rt, health, target = "1.1.0"))
+        assertTrue("no npm view", calls.none { it.take(2) == listOf("npm", "view") })
+        assertTrue("installs the target", calls.any { it.take(2) == listOf("npm", "install") && "@deepseek-ai/dsh@1.1.0" in it })
+        assertEquals("1.1.0", versions.current())
+    }
+
     @Test fun unhealthyNewVersionRollsBackAutomatically() = runBlocking {
         setup("1.0.0")
         npm = { args -> if (args[1] == "view") CommandResult(0, "1.1.0\n", "") else { npmInstallsInto(); npm(args) } }

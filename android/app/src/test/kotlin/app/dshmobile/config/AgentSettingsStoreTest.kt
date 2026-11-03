@@ -52,4 +52,12 @@ class AgentSettingsStoreTest {
         prefs.edit().putInt("heartbeat_min", 1).apply()
         assertEquals(30, store.heartbeatIntervalMin)
     }
+
+    @Test fun novelModelDefaultsToSonnetAndPersists() {
+        assertEquals("claude-sonnet-5-5", store.novelModel)
+        store.novelModel = "deepseek-v4-pro"
+        assertEquals("deepseek-v4-pro", AgentSettingsStore(prefs).novelModel)
+        prefs.edit().putString("novel_model", "not-a-model").apply()
+        assertEquals("claude-sonnet-5-5", store.novelModel)
+    }
 }

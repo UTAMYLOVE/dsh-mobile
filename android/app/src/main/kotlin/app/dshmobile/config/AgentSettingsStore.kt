@@ -39,7 +39,16 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
             prefs.edit().putInt(KEY_HEARTBEAT, value.coerceIn(HeartbeatScheduler.MIN_INTERVAL_MIN, HeartbeatScheduler.MAX_INTERVAL_MIN)).apply()
         }
 
+    /** The model used for writing novels (the bookshelf opens in a later release). Unknown stored values read back as the default; shown through [AgentModels.resolve]. */
+    var novelModel: String
+        get() = prefs.getString(KEY_NOVEL, null)?.takeIf { AgentModels.find(it) != null } ?: DEFAULT_NOVEL_MODEL
+        set(value) {
+            prefs.edit().putString(KEY_NOVEL, value).apply()
+        }
+
     companion object {
+        const val DEFAULT_NOVEL_MODEL = "claude-sonnet-5-5"
+        private const val KEY_NOVEL = "novel_model"
         const val PREFS = "dshm_agent_settings"
         private const val KEY_CONCURRENT = "max_concurrent"
         private const val KEY_DEPTH = "max_depth"

@@ -5,6 +5,7 @@ import app.dshmobile.security.SessionToken
 import app.dshmobile.service.DshHolderRuntime
 import app.dshmobile.service.RunningDsh
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,7 +30,9 @@ class SettingsJobsTest {
             RunningDsh(1, 2, SessionToken.generate(), LaunchUrl("http://127.0.0.1:1/?token=x", 1))
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // The "boom" job's exception is expected: without a handler it reaches the thread's uncaught-exception handler and can fail a
+    // later runTest in the same fork.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
     private val holders = FakeHolders()
     private val jobs = SettingsJobs(scope, holders)
 
