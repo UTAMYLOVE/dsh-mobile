@@ -52,7 +52,7 @@ class PriceTableTest {
         val at = Instant.parse("2026-11-02T02:00:00Z")
         assertEquals(10.0 + 50 + 0.25 + 12.50, prices.costUsd(Provider.ANTHROPIC, "claude-fable-5-1", u, at), 1e-9)
         assertEquals(4.0 + 20 + 0.20 + 5, prices.costUsd(Provider.ANTHROPIC, "claude-opus-5-5", u, at), 1e-9)
-        assertEquals(2.0 + 10 + 0.10 + 2.50, prices.costUsd(Provider.ANTHROPIC, "claude-sonnet-5-5", u, at), 1e-9)
+        assertEquals(2.0 + 10 + 0.20 + 2.50, prices.costUsd(Provider.ANTHROPIC, "claude-sonnet-5-5", u, at), 1e-9)
         assertEquals(1.0 + 5 + 0.10 + 1.25, prices.costUsd(Provider.ANTHROPIC, "claude-haiku-4-5", u, at), 1e-9)
     }
 

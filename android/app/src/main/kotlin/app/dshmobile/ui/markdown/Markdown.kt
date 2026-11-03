@@ -1,5 +1,10 @@
 package app.dshmobile.ui.markdown
 
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -352,10 +357,20 @@ private fun Block(block: MdBlock, onLink: (String) -> Unit) {
             Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Sakura.White.copy(alpha = 0.6f))
                 .horizontalScroll(rememberScrollState()).padding(12.dp),
         ) { BasicText(block.code, style = CodeStyle, softWrap = false) }
-        is MdBlock.Table -> Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Sakura.White.copy(alpha = 0.45f))
-                .horizontalScroll(rememberScrollState()),
-        ) { TableGrid(block, onLink) }
+        is MdBlock.Table -> BoxWithConstraints(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Sakura.White.copy(alpha = 0.45f))) {
+            // Fit the bubble first (columns shrink and their text wraps); scroll sideways only when even the narrowest columns
+            // do not fit, and then a fade on the right edge says there is more (stage 2 §I.1: wide tables were clipped).
+            val fit = constraints.maxWidth
+            val scroll = rememberScrollState()
+            Box(Modifier.horizontalScroll(scroll)) { TableGrid(block, onLink, fit) }
+            if (scroll.maxValue > 0 && scroll.value < scroll.maxValue) {
+                Box(
+                    Modifier.matchParentSize().wrapContentWidth(Alignment.End).width(28.dp)
+                        .background(Brush.horizontalGradient(listOf(Color.Transparent, Sakura.White.copy(alpha = 0.85f))))
+                        .testTag(TABLE_MORE_TAG),
+                )
+            }
+        }
         is MdBlock.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
             Box(Modifier.width(3.dp).fillMaxHeight().background(Sakura.Primary, RoundedCornerShape(2.dp)))
             Column(Modifier.padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { block.blocks.forEach { Block(it, onLink) } }
@@ -380,13 +395,40 @@ private fun MdText(text: AnnotatedString, style: TextStyle, onLink: (String) -> 
     BasicText(wired, style = style)
 }
 
-/** Columns are as wide as their widest cell (at most 240 dp), so a wide table scrolls sideways instead of squeezing. */
+/**
+ * Takes width from the widest columns, one pixel band at a time, until [widths] sum to [fit] or every column that is wider than
+ * [min] has reached it. Columns already narrower than [min] keep their width.
+ */
+internal fun shrinkToFit(widths: IntArray, fit: Int, min: Int) {
+    var excess = widths.sum() - fit
+    while (excess > 0) {
+        val widest = widths.max()
+        if (widest <= min) return
+        val next = widths.filter { it < widest }.maxOrNull()?.coerceAtLeast(min) ?: min
+        val atTop = widths.count { it == widest }
+        val take = minOf(widest - next, (excess + atTop - 1) / atTop)
+        for (i in widths.indices) if (widths[i] == widest) widths[i] -= take
+        excess -= take * atTop
+    }
+}
+
+/** The fade that says a table scrolls sideways. */
+const val TABLE_MORE_TAG = "md-table-more"
+
+/** A column never shrinks below this to fit the bubble; narrower than that the table scrolls sideways instead. */
+private val TableCellMin = 96.dp
+
+/**
+ * Columns are as wide as their widest cell (at most 240 dp). When that is wider than [fitWidth], the wide columns give width
+ * back (their text wraps) until the table fits or every column is at [TableCellMin]; only then does it scroll sideways.
+ */
 @Composable
-private fun TableGrid(table: MdBlock.Table, onLink: (String) -> Unit) {
+private fun TableGrid(table: MdBlock.Table, onLink: (String) -> Unit, fitWidth: Int = Int.MAX_VALUE) {
     val columns = maxOf(table.header.size, table.rows.maxOfOrNull { it.size } ?: 0)
     if (columns == 0) return
     val all = listOf(table.header) + table.rows
     val cellMax = with(LocalDensity.current) { TableCellMax.roundToPx() }
+    val cellMin = with(LocalDensity.current) { TableCellMin.roundToPx() }
     Layout(
         content = {
             all.forEachIndexed { r, row ->
@@ -401,6 +443,7 @@ private fun TableGrid(table: MdBlock.Table, onLink: (String) -> Unit) {
     ) { measurables, constraints ->
         val widths = IntArray(columns)
         measurables.forEachIndexed { i, m -> widths[i % columns] = maxOf(widths[i % columns], m.maxIntrinsicWidth(Constraints.Infinity).coerceAtMost(cellMax)) }
+        shrinkToFit(widths, fitWidth, cellMin)
         val placeables = measurables.mapIndexed { i, m -> m.measure(Constraints(minWidth = widths[i % columns], maxWidth = widths[i % columns])) }
         val rowCount = all.size
         val heights = IntArray(rowCount) { r -> (0 until columns).maxOf { c -> placeables[r * columns + c].height } }
