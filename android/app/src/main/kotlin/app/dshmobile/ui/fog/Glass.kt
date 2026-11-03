@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
 import androidx.compose.ui.node.DrawModifierNode
@@ -55,11 +56,16 @@ import java.util.concurrent.atomic.AtomicInteger
 internal val GlassBlurRadius = 10.dp
 internal const val GlassSaturation = 1.7f
 
-/** Counters the tests read to prove that draw caches are reused across frames. Increments are cheap and allocation free. */
+/**
+ * Counters the tests read to prove that draw caches are reused across frames. Off unless a test sets [enabled]: the calls sit in
+ * production draw paths, where a map lookup per draw is not wanted.
+ */
 internal object FogDebug {
+    @JvmField @Volatile var enabled = false
     private val counts = ConcurrentHashMap<String, AtomicInteger>()
 
     fun count(key: String) {
+        if (!enabled) return
         counts.getOrPut(key) { AtomicInteger() }.incrementAndGet()
     }
 
@@ -67,8 +73,16 @@ internal object FogDebug {
 
     fun reset() = counts.clear()
 
-    /** The offset the glass last used to line the blurred backdrop up with the background. */
+    /** The offset the glass last used to line the blurred backdrop up with the background (recorded only while [enabled]). */
     @Volatile var lastBackdropShift: Offset = Offset.Zero
+}
+
+/** How many glass surfaces hold a blur layer right now: a layer exists only while its surface blurs and is on screen. */
+internal object BlurLayers {
+    private val live = AtomicInteger()
+    val active: Int get() = live.get()
+    fun opened() { live.incrementAndGet() }
+    fun closed() { live.decrementAndGet() }
 }
 
 /** A CSS blur of [blurPx] has a Gaussian sigma of blurPx / 2; BlurMaskFilter wants a radius, which Skia turns into 0.57735 * radius + 0.5. */
@@ -125,19 +139,29 @@ fun Modifier.glow(color: Color, blur: Dp, shape: Shape, dy: Dp = 0.dp, dx: Dp = 
  * Liquid glass, as in the mockup: optional blur of the background layer behind, a white gradient, a gradient rim, a lit top-left corner
  * and two soft shadows. Without blur (balanced / saver, or no [LocalBackdrop]) the white stops get 0.16 more alpha.
  */
-fun Modifier.glass(shape: Shape): Modifier = this then GlassElement(shape)
+fun Modifier.glass(shape: Shape): Modifier = this then GlassElement(shape, settled = true)
 
-private data class GlassElement(val shape: Shape) : ModifierNodeElement<GlassNode>() {
-    override fun create() = GlassNode(shape)
+/**
+ * [glass] for a surface that a graphicsLayer moves or scales without relaying it out (a panel rising in): that never reaches
+ * onGloballyPositioned, so the blurred backdrop is drawn for wherever the surface was when it last drew. While [settled] is
+ * false the blur is only approximately placed (the surface is also mostly transparent then); the flip to true redraws it at its
+ * final position, which is what keeps it locked to the background afterwards.
+ */
+fun Modifier.glass(shape: Shape, settled: Boolean): Modifier = this then GlassElement(shape, settled)
+
+private data class GlassElement(val shape: Shape, val settled: Boolean) : ModifierNodeElement<GlassNode>() {
+    override fun create() = GlassNode(shape, settled)
     override fun update(node: GlassNode) {
-        if (node.shape != shape) {
+        if (node.shape != shape || node.settled != settled) {
             node.shape = shape
-            node.invalidateDraw()
+            node.settled = settled
+            node.relock()
         }
     }
     override fun InspectorInfo.inspectableProperties() {
         name = "glass"
         properties["shape"] = shape
+        properties["settled"] = settled
     }
 }
 
@@ -186,7 +210,7 @@ private class GlassCache(
     val intSize = IntSize(size.width.toInt(), size.height.toInt())
 }
 
-private class GlassNode(var shape: Shape) :
+private class GlassNode(var shape: Shape, var settled: Boolean) :
     Modifier.Node(), DrawModifierNode, SemanticsModifierNode, CompositionLocalConsumerModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode {
     private var layer: GraphicsLayer? = null
     private var cache: GlassCache? = null
@@ -195,19 +219,41 @@ private class GlassNode(var shape: Shape) :
     private var recordedShift: Offset? = null
     private var recordedSize: IntSize? = null
     private var lastWindowPos: Offset? = null
+    /** Whether any of the surface is inside what its parents clip to the window (a panel scrolled away is not): it blurs only then. */
+    private var onScreen = true
 
-    private fun blurs(): Boolean = currentValueOf(LocalEffects).blur && currentValueOf(LocalBackdrop) != null
+    private fun blurs(): Boolean {
+        // Both locals are always read (before the onScreen check), so observeReads keeps watching them while the surface is off screen.
+        val effectsBlur = currentValueOf(LocalEffects).blur
+        val hasBackdrop = currentValueOf(LocalBackdrop) != null
+        return effectsBlur && hasBackdrop && onScreen
+    }
+
+    /** Draws the blurred backdrop afresh from the surface's current position. */
+    fun relock() {
+        recordedShift = null
+        invalidateDraw()
+    }
+
+    private fun releaseLayer() {
+        layer?.let {
+            requireGraphicsContext().releaseGraphicsLayer(it)
+            BlurLayers.closed()
+        }
+        layer = null
+        effect = null
+        effectRadius = -1f
+        recordedShift = null
+        recordedSize = null
+    }
 
     override fun onAttach() {
         observeReads { blurs() }
     }
 
     override fun onDetach() {
-        layer?.let { requireGraphicsContext().releaseGraphicsLayer(it) }
-        layer = null
+        releaseLayer()
         cache = null
-        recordedShift = null
-        recordedSize = null
     }
 
     override fun onObservedReadsChanged() {
@@ -222,6 +268,12 @@ private class GlassNode(var shape: Shape) :
 
     /** The blurred backdrop has to stay locked to the background while the panel moves, so a new window position redraws it. */
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+        val visible = coordinates.isAttached && coordinates.boundsInWindow().let { it.width > 0f && it.height > 0f }
+        if (visible != onScreen) {
+            onScreen = visible
+            invalidateSemantics()
+            invalidateDraw()
+        }
         val pos = coordinates.positionInWindow()
         if (pos != lastWindowPos) {
             lastWindowPos = pos
@@ -242,8 +294,10 @@ private class GlassNode(var shape: Shape) :
     override fun ContentDrawScope.draw() {
         FogDebug.count("glass.draw")
         val backdrop = currentValueOf(LocalBackdrop)
-        val blur = currentValueOf(LocalEffects).blur && backdrop != null
+        val blur = onScreen && currentValueOf(LocalEffects).blur && backdrop != null
         val c = cacheFor(this, lifted = !blur)
+        // No blur (switched off, or scrolled off screen): give the layer back, so only what is seen holds one.
+        if (!blur && layer != null) releaseLayer()
 
         drawShadow(c.path, c.wideShadow, c.wideDy)
         drawShadow(c.path, c.tightShadow, c.tightDy)
@@ -274,9 +328,12 @@ private class GlassNode(var shape: Shape) :
         val origin = backdrop.originInWindow() ?: return
         val mine = requireLayoutCoordinates().takeIf { it.isAttached }?.positionInWindow() ?: return
         val shift = origin - mine
-        FogDebug.lastBackdropShift = shift
+        if (FogDebug.enabled) FogDebug.lastBackdropShift = shift
         // Created only when blur is first needed.
-        val l = layer ?: requireGraphicsContext().createGraphicsLayer().also { layer = it }
+        val l = layer ?: requireGraphicsContext().createGraphicsLayer().also {
+            layer = it
+            BlurLayers.opened()
+        }
         val radius = GlassBlurRadius.toPx()
         if (effectRadius != radius) {
             effect = glassRenderEffect(radius)

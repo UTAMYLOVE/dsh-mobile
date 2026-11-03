@@ -30,7 +30,9 @@ import app.dshmobile.runtime.DshVersions
 import app.dshmobile.runtime.FakeDshServer
 import app.dshmobile.runtime.FakeMux
 import app.dshmobile.remote.MuxState
+import app.dshmobile.ui.fog.EffectLevel
 import app.dshmobile.ui.shell.ShellTab
+import app.dshmobile.ui.shell.buildSettingsEnv
 import app.dshmobile.runtime.RootfsInstaller
 import app.dshmobile.security.KeyVault
 import app.dshmobile.service.DshController
@@ -322,6 +324,59 @@ class MainActivityTest {
         waitUntil { !app.settingsJobs.busy.value }
         activity.navForTest.select(ShellTab.OVERVIEW)
         assertEquals(ShellTab.OVERVIEW, activity.navForTest.tab)
+    }
+
+    // --- effects: live level, jank governor, paused animation ---
+    // What the shell draws for a level (blur, animation, paused when stopped) is pinned in FogShellEffectsTest with compose's own
+    // rule: a Robolectric activity has no composition until its window is shown, and showing it makes every idle() render frames.
+
+    private fun feedWindows(activity: MainActivity, windows: Int, janky: Int) {
+        repeat(30) { activity.governorForTest.onFrame(true) } // the warm-up after a start: ignored, not counted
+        feedCounted(activity, windows, janky)
+    }
+
+    private fun feedCounted(activity: MainActivity, windows: Int, janky: Int) =
+        repeat(windows * 120) { activity.governorForTest.onFrame(it % 120 < janky) }
+
+    @Test fun degradingStepsTheLevelTheShellDrawsWithDown() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        waitForShellOn(0, activity)
+        feedWindows(activity, windows = 2, janky = 24) // 240 frames, 24 janky each window: FULL -> BALANCED
+        assertEquals(EffectLevel.BALANCED, app.effectsController.effective.value)
+        assertEquals("the user's own choice stays", EffectLevel.FULL, app.effectsController.level.value)
+        assertTrue(errorLogText(), errorLogText().contains("[perf] effects capped at BALANCED after 48 janky of 240 frames"))
+    }
+
+    @Test fun effectStrengthFromSettingsAppliesWithoutRestart() {
+        completeSetup()
+        val activity = build().create().start().resume().get()
+        waitForShellOn(0, activity)
+        // What the settings page's "effect strength" calls (Task 13 builds the control on it).
+        buildSettingsEnv(activity, app, onEffectLevel = app.effectsController::set).onEffectLevel(EffectLevel.SAVER)
+        assertEquals(EffectLevel.SAVER, app.effectsController.effective.value)
+        assertEquals(EffectLevel.SAVER, app.uiPrefs.effectLevel)
+        idleFor(300)
+        assertEquals("dsh was not restarted", 1, servers.size)
+        assertEquals(launchUrl(0), attachedUrl())
+        assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
+    }
+
+    @Test fun perfSummaryIsLoggedOnStopWithoutContent() {
+        completeSetup()
+        val ctl = build().create().start().resume()
+        val activity = ctl.get()
+        waitForShellOn(0, activity)
+        activity.governorForTest.autoDegrade = false
+        feedWindows(activity, windows = 2, janky = 12) // 240 frames, 24 janky
+        ctl.pause().stop()
+        val text = errorLogText()
+        assertTrue(text, text.contains("[perf] frames=240 janky=24 (10.0%) level=FULL"))
+        assertTrue("only counts and the level, no content", text.lines().filter { it.contains("[perf] frames=") }.all { Regex("""\[perf\] frames=\d+ janky=\d+ \(\d+\.\d%\) level=[A-Z]+""").containsMatchIn(it) && !it.contains("conversation") })
+        // A stop with no frames since its start logs nothing more.
+        val lines = text.lines().count { it.contains("[perf] frames=") }
+        ctl.start().resume().pause().stop()
+        assertEquals(lines, errorLogText().lines().count { it.contains("[perf] frames=") })
     }
 
     @Test fun backFirstClosesShellNavigation() {

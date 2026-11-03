@@ -48,6 +48,7 @@ import app.dshmobile.service.asWorkRemote
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.SettingsJobs
 import app.dshmobile.ui.UiHolder
+import app.dshmobile.ui.fog.EffectsController
 import app.dshmobile.ui.fog.UiPrefs
 import app.dshmobile.ui.shell.ShellSession
 import app.dshmobile.ui.shell.ShellSessionHolder
@@ -207,6 +208,9 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     /** Small per-install UI choices (effect level, last conversation). */
     val uiPrefs: UiPrefs by lazy { UiPrefs(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)) }
+
+    /** The effect level the screen draws with: the user's choice held down by the jank governor. One per process. */
+    val effectsController: EffectsController by lazy { EffectsController(uiPrefs) }
 
     /**
      * The native interface's link to the running dsh: one [ShellSession] per dsh instance, in a scope of its own (a child of

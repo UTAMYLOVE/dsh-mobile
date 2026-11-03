@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
+import androidx.metrics.performance.JankStats
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import app.dshmobile.DshMobileApp
@@ -38,6 +39,7 @@ import app.dshmobile.system.OnboardingState
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.agents.AgentsTab
 import app.dshmobile.ui.fog.FogPanel
+import app.dshmobile.ui.fog.JankGovernor
 import app.dshmobile.ui.overview.OverviewScreen
 import app.dshmobile.ui.fog.FogTheme
 import app.dshmobile.ui.fog.effectsFor
@@ -66,6 +68,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.util.Locale
 
 /**
  * The main screen: the native FOGCITY shell ([FogShell]) over the in-app dsh, reached through the app-level
@@ -88,16 +91,23 @@ class MainActivity : ComponentActivity() {
     private var updating = false
     private val pendingUpdate by lazy { PendingUpdate(getSharedPreferences(DailyUpdateCheck.PREFS, Context.MODE_PRIVATE)) }
     /** Built when the settings tab is first shown. */
-    private val settingsEnv by lazy { buildSettingsEnv(this, app) }
+    private val settingsEnv by lazy { buildSettingsEnv(this, app, onEffectLevel = app.effectsController::set) }
     /** Unsaved settings fields live here, outside the tab, so switching tabs keeps them. Built with the tab. */
     private var settingsDraft: SettingsDraft? = null
     private var composerText by mutableStateOf("")
+    /** The system "remove animations" setting; read again at every resume, since it is changed in the system settings. */
+    private var reducedMotion by mutableStateOf(false)
+    private var jankStats: JankStats? = null
+    /** The governor's frame and janky counts when this screen was last started: its stop logs the difference. */
+    private var framesAtStart = 0L
+    private var jankyAtStart = 0L
 
     /** How long a started dsh's remote may take to open before the screen says Error (the remote keeps trying). */
     internal var remoteOpenTimeoutMs: Long = REMOTE_OPEN_TIMEOUT_MS
 
     internal val navForTest: ShellNav get() = nav
     internal val uiStateForTest: StateFlow<MainUiState> get() = uiState
+    internal val governorForTest: JankGovernor get() = app.effectsController.governor
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,9 +124,14 @@ class MainActivity : ComponentActivity() {
         // Leaving settings while one of its actions runs would cancel it (a key save, an export) or hide its result.
         nav.canLeave = { from -> from != ShellTab.SETTINGS || !settingsBusy() }
         nav.onLeaveRefused = { toast(getString(R.string.shell_settings_busy)) }
-        // Static for now; Task 14 switches levels live and degrades on jank.
-        val effects = effectsFor(app.uiPrefs.effectLevel, systemReducedMotion())
-        setContent { FogTheme(effects) { Shell() } }
+        reducedMotion = systemReducedMotion()
+        setContent {
+            // Live: the user's level held down by the jank governor, and the system's animation setting.
+            val level by app.effectsController.effective.collectAsState()
+            val effects = remember(level, reducedMotion) { effectsFor(level, reducedMotion) }
+            FogTheme(effects) { Shell() }
+        }
+        trackJank()
         lifecycleScope.launch {
             uiState.collect { state -> if (state == MainUiState.Ready) logTimeToReady() }
         }
@@ -160,6 +175,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (!ready) return
+        startJankTracking()
         // The hold comes before anything that can start dsh (Task 10 review note).
         app.uiHolder.onUiStart()
         // After a give-up only an explicit user action restarts dsh (Retry, or the crash notification's rollback): coming back
@@ -173,8 +189,44 @@ class MainActivity : ComponentActivity() {
         startDsh()
     }
 
+    /**
+     * Frame timing feeds the governor (which steps the effects down when the screen drops frames); it is on only while this
+     * screen is started. Every step down is one `perf` line; the numbers carry no conversation content.
+     */
+    private fun trackJank() {
+        val governor = app.effectsController.governor
+        val log = app.errorLog
+        governor.onDegrade = { level, janky, frames -> log.append("perf", "effects capped at $level after $janky janky of $frames frames") }
+        jankStats = try {
+            JankStats.createAndTrack(window) { frame -> governor.onFrame(frame.isJank) }.also { it.isTrackingEnabled = false }
+        } catch (e: Exception) {
+            log.append("perf", "frame tracking unavailable (${e.javaClass.simpleName})")
+            null
+        }
+    }
+
+    private fun startJankTracking() {
+        val governor = app.effectsController.governor
+        governor.onStart()
+        framesAtStart = governor.frames
+        jankyAtStart = governor.janky
+        jankStats?.isTrackingEnabled = true
+    }
+
+    /** Stops the tracking and logs this stretch's frames: the way to read real numbers off a device is exporting the error log. */
+    private fun stopJankTracking() {
+        jankStats?.isTrackingEnabled = false
+        val governor = app.effectsController.governor
+        val frames = governor.frames - framesAtStart
+        if (frames <= 0) return
+        val janky = governor.janky - jankyAtStart
+        val percent = janky * 100.0 / frames
+        app.errorLog.append("perf", "frames=$frames janky=$janky (${String.format(Locale.ROOT, "%.1f", percent)}%) level=${app.effectsController.effective.value}")
+    }
+
     override fun onResume() {
         super.onResume()
+        reducedMotion = systemReducedMotion()
         // Back from the "install unknown apps" page: carry on with the update that was waiting for the grant. Without the grant
         // nothing happens and the flag stays. Only the update runs here; dsh is not touched.
         if (ready && pendingUpdate.isPending && app.apkInstaller.canInstall()) {
@@ -185,7 +237,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        if (ready) app.uiHolder.onUiStop()
+        if (ready) {
+            stopJankTracking()
+            app.uiHolder.onUiStop()
+        }
         super.onStop()
     }
 
