@@ -68,4 +68,13 @@ object Tags {
     /** + child session id: its 「叫它停」 button. */
     const val AGENT_STOP = "agent-stop-"
     const val AGENTS_EMPTY = "agents-empty"
+
+    const val OVERVIEW_RING = "overview-ring"
+    const val OVERVIEW_SPLIT = "overview-split"
+    const val OVERVIEW_AGENTS = "overview-agents"
+    const val OVERVIEW_HEARTBEAT = "overview-heartbeat"
+    const val OVERVIEW_REMINDERS = "overview-reminders"
+    /** + [app.dshmobile.chat.SessionRow.id]: a recent conversation on the overview. */
+    const val OVERVIEW_RECENT = "overview-recent-"
+    const val UNVERIFIED_BANNER = "unverified-banner"
 }

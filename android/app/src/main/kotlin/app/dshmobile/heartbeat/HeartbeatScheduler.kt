@@ -6,6 +6,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.util.concurrent.TimeUnit
 
 /**
@@ -31,3 +33,12 @@ object HeartbeatScheduler {
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
     }
 }
+
+/**
+ * When the next heartbeat is due (epoch ms), as WorkManager reports it; null while nothing is scheduled. WorkManager may run
+ * periodic work a little late, so this is when it becomes eligible, not a promise.
+ */
+fun HeartbeatScheduler.nextRunAt(context: Context): Flow<Long?> =
+    WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(HeartbeatScheduler.WORK_NAME).map { infos ->
+        infos.firstOrNull { !it.state.isFinished }?.nextScheduleTimeMillis?.takeIf { it != Long.MAX_VALUE }
+    }
