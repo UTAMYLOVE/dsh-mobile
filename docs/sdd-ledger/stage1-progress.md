@@ -174,3 +174,4 @@ T9: minor (deferred): send coroutine captures the Activity (recreate mid-upload,
 T9: fix round 1/5 (memory + OOM + friendly reasons + STOP with chips; 478d5f2..1317dc3; re-review sonnet Approved)
 T9: complete (lane-t9 093b21c..1317dc3, review clean after 1 fix round) — merged (code = 1317dc3 + ci.yml diagnostics; 974 unit there; assembleDebugAndroidTest re-run in T15)
 T9: minor (deferred): DshRemote.upload encode change gives no memory benefit (KDoc overstates — correct it); no short-read/content test for read loop; grown-file array growth briefly doubles
+T15 dispatched (opus, wt-t1 lane-t15 from 0883c19); Step 5 (CI green) runs via controller merge+push and relayed CI results (no emulator in this container); owns: CI e2e hang hypotheses (idling vs infinite animations, stale t01 signal, RenderEffect on swiftshader, memory), page-switch sweep line, TalkBack link check, 500-row table note
