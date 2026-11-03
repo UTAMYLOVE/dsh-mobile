@@ -402,9 +402,12 @@ class E2eTest {
             ui.tap(Tags.SESSION_MENU + id)
             ui.tap(Tags.RENAME)
             ui.type(Tags.RENAME_FIELD, RENAMED)
-            ui.tap(Tags.RENAME_SAVE)
+            // The keyboard first: on the 640 dp CI screen it leaves the card's buttons no room, and a tap aimed at 儲存
+            // lands on the scrim, which cancels the card (runs 41666809430 and 41673409488).
             ui.hideKeyboard()
-            ui.await("the row titled $RENAMED", 60_000, { listState() + "\nrow: ${ui.textsOf(Tags.SESSION_ROW + id)}" }) {
+            ui.tap(Tags.RENAME_SAVE)
+            ui.awaitNoTag(Tags.RENAME_FIELD, 30_000)
+            ui.await("the row titled $RENAMED", 60_000, { listState() + "\nrow: ${ui.textsOf(Tags.SESSION_ROW + id)}\ndsh's title: ${dshTitle(id)}" }) {
                 ui.textsOf(Tags.SESSION_ROW + id).any { it.contains(RENAMED) }
             }
             ui.awaitInList(Tags.SESSION_LIST, Tags.SESSION_MENU + id, 30_000) { listState() }
@@ -447,6 +450,11 @@ class E2eTest {
             val id = row?.tag()?.removePrefix(Tags.AGENT_ROW)
             if (id != null && ui.has(Tags.AGENT_STOP + id)) child = id
             child.isNotEmpty()
+        }
+        // The row (and its stop button) shows as soon as dsh spawns the child, which can be before the child's first model
+        // request: stop it once it is really running, and time its run from that request.
+        ui.await("the child's model request", 60_000, { agentsState(child) }) {
+            FakeModel.instance.since(before).any { it.kind == FakeModel.Kind.CHILD }
         }
         val childStarted = FakeModel.instance.since(before).first { it.kind == FakeModel.Kind.CHILD }.at
         ui.tap(Tags.AGENT_STOP + child)
@@ -624,6 +632,15 @@ class E2eTest {
 
     private fun backgroundAnimating(): Boolean? =
         ui.nodes(hasTestTag(Tags.SHELL_BACKGROUND), unmerged = true).firstOrNull()?.config?.getOrNull(FogSemantics.Animating)
+
+    /** For a failure message: the title dsh itself holds for [id] (its `session/list` projection hints). */
+    private fun dshTitle(id: String): String? = runCatching {
+        val running = runBlocking { app.controller.ensureRunning() }
+        val client = DshClient(http, running.launch).also { runBlocking { it.login() } }
+        val items = rpc(client, "session/list", JSONObject().put("_request", JSONObject())).optJSONArray("items") ?: return@runCatching null
+        (0 until items.length()).mapNotNull { items.optJSONObject(it) }.firstOrNull { it.optString("sessionId") == id }
+            ?.optJSONObject("projections")?.optJSONObject("values")?.optString("title")
+    }.getOrElse { "(${it.javaClass.simpleName})" }
 
     /** For a failure message: the agents the app knows (no prompts or replies, only ids, labels and flags). */
     private fun agentsState(child: String): String {
