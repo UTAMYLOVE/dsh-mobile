@@ -100,3 +100,30 @@ The owner (宇哥) said: 「你直接做下一版」 ("just build the next versi
 - Use only the palette above. Fonts are Orbitron and Chakra Petch.
 - Performance target: no dropped frames at 120 Hz on S25 Ultra (412×915 dp). CI PerfGate stays advisory on the emulator.
 - The release goes through CI green on e2e. The owner tags it. The version is 0.3.0+5.
+
+## G. Owner follow-up: 「記得狀態要詳細」 (status must be detailed)
+Apply it everywhere a status is shown.
+- **Monitor wall, per agent.** Show each of these:
+  - current state, plus the reason when waiting (approval, question, subagent, rate limit);
+  - current tool name with a short argument summary, e.g. 搜尋「台北天氣」 or 讀取 notes/a.md;
+  - step / turn count;
+  - elapsed time, both since start and in the current step;
+  - tokens in, out and cache, and cost;
+  - model and reasoning strength;
+  - context fill;
+  - the last generated line;
+  - queued messages;
+  - parent and depth;
+  - the error text, if any;
+  - the last N actions as a small timeline.
+- **Chat.** Show what the agent is doing right now: thinking, calling a tool, waiting for approval, reviewing (審查 1/2), or queued. Don't show just a spinner.
+- **dsh / restart status.**
+  - Show the exact phase: stopping, killing leftovers, launching, health check, registering workspace.
+  - Show seconds elapsed for that phase.
+  - Show what is being waited on.
+  - If a step fails, show which step failed and why, in plain Chinese.
+- **Overview.**
+  - dsh state: running, idle, or stopping, with uptime.
+  - port health.
+  - number of running agents.
+  - the last error.
