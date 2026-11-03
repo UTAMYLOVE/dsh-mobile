@@ -196,6 +196,8 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.test.espresso.core)
+    // The CI jank gate (PerfGateTest) drives the shell without Compose's test rule, which would cancel its infinite animations.
+    androidTestImplementation(libs.androidx.test.uiautomator)
 }
 
 // The rootfs becomes assets/rootfs.tar.xz through a generated directory under build/ (never in the source tree).
