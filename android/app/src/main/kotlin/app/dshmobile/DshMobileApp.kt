@@ -66,10 +66,29 @@ class DshMobileApp : Application(), Configuration.Provider {
      */
     val serviceGaveUp = MutableStateFlow(false)
 
+    /** Starts [DshService]; a test seam (Robolectric cannot make `startForegroundService` refuse). */
+    @VisibleForTesting
+    internal var startDshService: (Context) -> Unit = DshService::start
+
+    /**
+     * The explicit hand-over of dsh to [DshService]'s crash supervision (Retry, a rollback, Settings' restart): ends a give-up and
+     * starts the service. Android 12+ refuses a foreground-service start while the app is in the background
+     * (`ForegroundServiceStartNotAllowedException`, e.g. a rollback that ends after the user left); that refusal is logged, never
+     * thrown. Without the service dsh is then only held by whoever still holds it, and the next screen start starts the service.
+     */
+    fun supervise(context: Context = this) {
+        serviceGaveUp.value = false
+        try {
+            startDshService(context)
+        } catch (e: Exception) {
+            errorLog.append("service", "could not start the service (${e.javaClass.simpleName})")
+        }
+    }
+
     /** Work that must not end with a screen (settings actions that stop and start dsh). Never cancelled. */
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
-    val settingsJobs: SettingsJobs by lazy { SettingsJobs(applicationScope) }
+    val settingsJobs: SettingsJobs by lazy { SettingsJobs(applicationScope, controller) }
 
     private val proot: ProotRunner by lazy {
         ProotRunner(File(applicationInfo.nativeLibraryDir), File(filesDir, "rootfs"), File(cacheDir, "proot"))

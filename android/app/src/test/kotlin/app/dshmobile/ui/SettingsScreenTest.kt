@@ -30,6 +30,7 @@ import app.dshmobile.runtime.LaunchUrl
 import app.dshmobile.runtime.UpdateOutcome
 import app.dshmobile.security.KeyVault
 import app.dshmobile.security.SessionToken
+import app.dshmobile.service.DshHolderRuntime
 import app.dshmobile.service.DshRuntime
 import app.dshmobile.service.RunningDsh
 import app.dshmobile.system.PhantomState
@@ -64,8 +65,13 @@ private class SettingsFakeVault(deepseek: String? = "sk-deepseek-0123456789", cl
     override fun clear(p: Provider) { keys[p] = null }
 }
 
-private class SettingsFakeRuntime : DshRuntime {
+private class SettingsFakeRuntime : DshHolderRuntime {
     val events = CopyOnWriteArrayList<String>()
+    /** The jobs' holds (kept apart from [events], whose order the tests check). */
+    val holds = CopyOnWriteArrayList<String>()
+    override fun retain(owner: String) { holds += "retain $owner" }
+    override fun release(owner: String) { holds += "release $owner" }
+    override fun stopIfUnretained(): Boolean = false
     @Volatile var gate: CompletableDeferred<Unit>? = null
     @Volatile var failStart = false
     @Volatile var completedStarts = 0
@@ -120,7 +126,7 @@ class SettingsScreenTest {
     private var closed = 0
     // The application's scope, outside every composition and Activity: this is what lets a job outlive the screen.
     private val jobsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val jobs = SettingsJobs(jobsScope)
+    private val jobs = SettingsJobs(jobsScope, runtime)
 
     @After fun cancelJobs() {
         runtime.gate?.complete(Unit)

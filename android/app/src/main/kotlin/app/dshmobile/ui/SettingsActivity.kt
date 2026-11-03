@@ -8,7 +8,6 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.UpdateOutcome
-import app.dshmobile.service.DshService
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.theme.SakuraTheme
 import okhttp3.OkHttpClient
@@ -58,10 +57,8 @@ class SettingsActivity : ComponentActivity() {
             versions = versions,
             applyAgentTeams = app.agentConfigWriter::ensureAgentTeamsBundle,
             scheduleHeartbeat = { minutes -> HeartbeatScheduler.schedule(applicationContext, minutes) },
-            supervise = {
-                app.serviceGaveUp.value = false // an explicit user restart ends a give-up (see MainActivity.superviseAndShow)
-                DshService.start(applicationContext)
-            },
+            // An explicit user restart ends a give-up; a refused service start (app in the background) is logged, not thrown.
+            supervise = { app.supervise() },
             // Developer options hide until "build number" was tapped seven times: then the way there is the device info page.
             openDeveloperSettings = { if (platform.developerOptionsEnabled()) platform.openDeveloperSettings() else platform.openDeviceInfoSettings() },
             exportErrorLog = { app.exporter.share(app.exporter.errorLogZip()) },

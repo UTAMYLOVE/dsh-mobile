@@ -53,6 +53,7 @@
     <string name="main_rollback_done">已退回 dsh %1$s</string>
     <string name="main_rollback_none">沒有可退回的版本</string>
     <string name="main_rollback_failed">退版失敗，請查看錯誤記錄</string>
+    <string name="main_rollback_busy">另一個版本或設定工作正在進行，請稍後再試</string>
     <string name="main_download_unsupported">無法下載此類型的檔案</string>
     <string name="main_download_failed">下載失敗</string>
     <string name="main_export_failed">無法匯出</string>

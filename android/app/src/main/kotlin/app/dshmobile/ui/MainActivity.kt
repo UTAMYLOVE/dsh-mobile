@@ -39,6 +39,7 @@ import app.dshmobile.ui.theme.SakuraTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
@@ -278,8 +279,7 @@ class MainActivity : ComponentActivity() {
      * path (Loading, then the launch URL; ensureRunning just returns a dsh that already runs).
      */
     private fun superviseAndShow() {
-        app.serviceGaveUp.value = false
-        DshService.start(this)
+        app.supervise(this)
         uiState.value = MainUiState.Loading
         startDsh()
     }
@@ -313,31 +313,54 @@ class MainActivity : ComponentActivity() {
     /** The rollback itself ([MainOps.rollback]); replaced in tests to reach outcomes a real switch rarely produces. */
     internal var rollbackStep: suspend () -> MainOps.RollbackOutcome = { ops.rollback() }
 
+    /**
+     * Runs the rollback as an application job ([SettingsJobs], shared with Settings' update and rollback, one at a time): stop,
+     * switch and start must not be cut short when this activity goes away, which would leave dsh stopped. The outcome is told by a
+     * toast; this screen (if it is still there) then follows dsh's real state ([showRealStateAfterRollback]). A screen opened
+     * later follows it through its usual collector.
+     */
     private fun rollback() {
         if (rollingBack) return
-        rollingBack = true
-        lifecycleScope.launch {
-            try {
-                when (val outcome = rollbackStep()) {
-                    is MainOps.RollbackOutcome.RolledBack -> toast(getString(R.string.main_rollback_done, outcome.version))
-                    MainOps.RollbackOutcome.NoPrevious -> toast(getString(R.string.main_rollback_none))
-                    is MainOps.RollbackOutcome.Failed -> toast(getString(R.string.main_rollback_failed))
+        val app = app
+        val step = rollbackStep
+        val started = app.settingsJobs.launch {
+            val outcome = withContext(NonCancellable) {
+                try {
+                    step()
+                } catch (e: Exception) {
+                    // Also a start that a stop cancelled (CancellationException): the job itself is never cancelled.
+                    app.errorLog.append("rollback", "rollback failed: ${e.javaClass.simpleName}")
+                    MainOps.RollbackOutcome.Failed("rollback failed")
                 }
-                showRealStateAfterRollback()
-            } finally {
-                rollingBack = false
+            }
+            // A dsh that is up again goes back under the service (also ends a give-up); a dsh that is down stays as it is.
+            if (app.controller.isRunning.value) app.supervise()
+            withContext(Dispatchers.Main) {
+                val text = when (outcome) {
+                    is MainOps.RollbackOutcome.RolledBack -> app.getString(R.string.main_rollback_done, outcome.version)
+                    MainOps.RollbackOutcome.NoPrevious -> app.getString(R.string.main_rollback_none)
+                    is MainOps.RollbackOutcome.Failed -> app.getString(R.string.main_rollback_failed)
+                }
+                Toast.makeText(app, text, Toast.LENGTH_SHORT).show()
+                if (!isDestroyed) {
+                    rollingBack = false
+                    showRealStateAfterRollback()
+                }
             }
         }
+        if (started) rollingBack = true else toast(getString(R.string.main_rollback_busy))
     }
 
     /**
      * Whatever the rollback's outcome, the screen follows whether dsh actually runs now (the collector is suppressed during
-     * the rollback and does not re-emit afterwards). Running: a give-up is over and dsh is shown through the normal path.
-     * Down: the Error screen; a give-up flag stays set, so Retry is the way out and nothing restarts dsh on its own.
+     * the rollback and does not re-emit afterwards). Running: dsh is shown through the normal path (the job has already handed it
+     * to the service and ended a give-up). Down: the Error screen; a give-up flag stays set, so Retry is the way out and nothing
+     * restarts dsh on its own.
      */
     private fun showRealStateAfterRollback() {
         if (app.controller.isRunning.value) {
-            superviseAndShow()
+            uiState.value = MainUiState.Loading
+            startDsh()
         } else {
             uiState.value = MainUiState.Error
         }
