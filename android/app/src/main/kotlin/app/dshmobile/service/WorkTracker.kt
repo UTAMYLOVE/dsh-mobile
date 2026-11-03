@@ -3,6 +3,7 @@ package app.dshmobile.service
 import app.dshmobile.remote.DshRemote
 import app.dshmobile.remote.HostEvent
 import app.dshmobile.remote.MuxState
+import app.dshmobile.remote.PendingPrompt
 import app.dshmobile.remote.SessionSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -25,16 +26,24 @@ interface WorkRemote {
 
     /** `$events`' client id: it changes (through null) whenever dsh's event stream was reopened, which can lose events. */
     val eventsClientId: StateFlow<String?>
+
+    /** Approvals and questions dsh waits on (`$events`), in arrival order. */
+    val prompts: StateFlow<List<PendingPrompt>> get() = NO_PROMPTS
     suspend fun listSessions(): List<SessionSummary>
     suspend fun cancel(sessionId: String)
     suspend fun interruptSubagent(childSessionId: String, parentSessionId: String)
     fun close() = Unit
+
+    private companion object {
+        val NO_PROMPTS: StateFlow<List<PendingPrompt>> = MutableStateFlow(emptyList())
+    }
 }
 
 fun DshRemote.asWorkRemote(): WorkRemote = object : WorkRemote {
     override val hostEvents get() = this@asWorkRemote.hostEvents
     override val muxState get() = this@asWorkRemote.muxState
     override val eventsClientId get() = this@asWorkRemote.events.clientId
+    override val prompts get() = this@asWorkRemote.events.prompts
     override suspend fun listSessions() = this@asWorkRemote.listSessions()
     override suspend fun cancel(sessionId: String) = this@asWorkRemote.cancel(sessionId)
     override suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) =
@@ -114,6 +123,23 @@ class WorkTracker(
             }
         }
     }
+
+    /**
+     * The top-level conversation [id] belongs to: a subagent's chain of parents is followed up (bounded, cycle safe). [id] itself
+     * when it has no known parent. Asks the list once for an id it has never seen.
+     */
+    fun topLevelOf(id: String): String {
+        ensureMeta(id)
+        return synchronized(lock) {
+            var at = id
+            val seen = HashSet<String>()
+            while (seen.add(at)) at = meta[at]?.parentId ?: break
+            at
+        }
+    }
+
+    /** The known title of [id], if any. */
+    fun titleOf(id: String): String? = synchronized(lock) { meta[id]?.title?.takeIf { it.isNotBlank() } }
 
     private fun onEvent(event: HostEvent) {
         when (event) {

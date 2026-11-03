@@ -179,4 +179,27 @@ class NotifierTest {
         assertTrue(text.endsWith("…"))
         assertTrue("no lone high surrogate before the ellipsis", !Character.isHighSurrogate(text[text.length - 2]))
     }
+
+    /** Final review A minor: the working tap keeps its conversation even after the plain service notification is built again. */
+    @Test fun theWorkingTapKeepsItsConversationAfterThePlainNotificationIsBuilt() {
+        val working = notifier.workingNotification(listOf(app.dshmobile.service.RunningWork("sess-9", null, "小說")))
+        notifier.serviceNotification()
+        assertEquals("sess-9", shadowOf(working.contentIntent).savedIntent.getStringExtra("sessionId"))
+        assertTrue(shadowOf(working.contentIntent).requestCode != shadowOf(notifier.serviceNotification().contentIntent).requestCode)
+    }
+
+    /** Final review A-I3: dsh waits on an approval or a question while nobody looks. */
+    @Test fun waitingForAnAnswerOpensThatConversationAndCanBeWithdrawn() {
+        notifier.showWaitingForAnswer("sess-3", "寫小說")
+        val n = posted().single()
+        assertEquals("DSH 在等你回答", n.title())
+        assertEquals("寫小說", n.text())
+        assertEquals("sess-3", tapIntent(n).getStringExtra("sessionId"))
+        assertTrue(n.flags and Notification.FLAG_AUTO_CANCEL != 0)
+        notifier.showWaitingForAnswer("sess-4", null)
+        assertEquals("one notice, replaced", 1, posted().size)
+        assertEquals("未命名對話", posted().single().text())
+        notifier.cancelWaitingForAnswer()
+        assertTrue(posted().isEmpty())
+    }
 }

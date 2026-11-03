@@ -13,6 +13,7 @@ import app.dshmobile.gateway.MutableClock
 import app.dshmobile.gateway.PriceTable
 import app.dshmobile.gateway.Provider
 import app.dshmobile.log.ErrorLog
+import app.dshmobile.remote.PendingPrompt
 import app.dshmobile.security.KeyVault
 import org.junit.After
 import java.io.File
@@ -372,6 +373,41 @@ class DshServiceTest {
         val text = shadowOf(service).lastForegroundNotification!!.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString()
         assertEquals("字".repeat(39) + "…" + " 等 3 件", text)
         assertFalse(text.contains("http") || text.contains("token"))
+        sc.destroy()
+    }
+
+    // --- final review A-I3: dsh waits on the owner ---
+
+    private fun waitingNotices() = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+        .filter { it.extras.getCharSequence(android.app.Notification.EXTRA_TITLE) == "DSH 在等你回答" }
+
+    @Test fun aQuestionWhileNobodyLooksIsAnnouncedAndOpensTheTopLevelConversation() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("session-a", true, title = "寫小說"), FakeWorkRemote.row("child-1", true, parent = "session-a")))
+        val (c, sc, _) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+        remote.prompts.value = listOf(PendingPrompt.Approval("ev1", "child-1", "bash", null, "run"))
+        waitUntilMain { waitingNotices().isNotEmpty() }
+        val n = waitingNotices().single()
+        assertEquals("寫小說", n.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString())
+        assertEquals("a subagent's question opens its parent", "session-a", shadowOf(n.contentIntent).savedIntent.getStringExtra("sessionId"))
+        // Answered (here or elsewhere): the notice goes.
+        remote.prompts.value = emptyList()
+        waitUntilMain { waitingNotices().isEmpty() }
+        sc.destroy()
+    }
+
+    @Test fun aQuestionWhileTheScreenIsUpPostsNothing() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("session-a", true, title = "寫小說")))
+        val (c, sc, _) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+        app.uiHolder.onUiStart()
+        try {
+            remote.prompts.value = listOf(PendingPrompt.Approval("ev1", "session-a", "bash", null, "run"))
+            Thread.sleep(200); idleMain()
+            assertTrue(waitingNotices().isEmpty())
+        } finally {
+            app.uiHolder.onUiStop()
+        }
         sc.destroy()
     }
 }

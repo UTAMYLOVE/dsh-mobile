@@ -135,6 +135,34 @@ class DshService : Service() {
             remote = r
             tracker = t
             ts.launch { combine(t.running, t.synced) { r, synced -> r to synced }.collect { (r, synced) -> onWork(t, r, synced) } }
+            ts.launch { watchPrompts(r, t) }
+        }
+    }
+
+    /**
+     * Work waiting on the owner's answer never ends by itself (final review A-I3): while an approval or a question is pending and
+     * no screen is up, a 「DSH 在等你回答」 notice opens the conversation that asks (a subagent's parent). A new question alerts
+     * again; once nothing waits, or a screen shows the card, the notice goes.
+     */
+    private suspend fun watchPrompts(r: WorkRemote, t: WorkTracker) {
+        var announced = emptySet<String>()
+        try {
+            combine(r.prompts, app.uiHolder.foreground) { prompts, fg -> prompts to fg }.collect { (prompts, foreground) ->
+                if (prompts.isEmpty() || foreground) {
+                    if (announced.isNotEmpty()) app.notifier.cancelWaitingForAnswer()
+                    announced = emptySet()
+                    return@collect
+                }
+                val ids = prompts.mapTo(HashSet()) { it.eventId }
+                if (!announced.containsAll(ids)) {
+                    val first = prompts.firstOrNull { it.eventId !in announced } ?: prompts.first()
+                    val session = t.topLevelOf(first.agentId)
+                    app.notifier.showWaitingForAnswer(session, t.titleOf(session))
+                }
+                announced = ids
+            }
+        } finally {
+            if (announced.isNotEmpty()) app.notifier.cancelWaitingForAnswer()
         }
     }
 
