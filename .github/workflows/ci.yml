@@ -159,6 +159,21 @@ jobs:
             adb logcat -c
             adb logcat -v threadtime > "$GITHUB_WORKSPACE/logcat.txt" 2>&1 < /dev/null &
             ./gradlew :app:connectedDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE"
+      # Names, times and pass/fail only (failure messages stay in the uploaded report), so a green job shows what ran.
+      - name: List the instrumentation test results
+        if: always()
+        run: |
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import glob, re
+          files = glob.glob('android/app/build/outputs/androidTest-results/connected/**/TEST-*.xml', recursive=True)
+          print('### Instrumentation tests'); print()
+          for f in files:
+              for m in re.finditer(r'<testcase name="([^"]+)" classname="([^"]+)" time="([^"]+)"\s*(?:/>|>(.*?)</testcase>)', open(f).read(), re.S):
+                  body = m[4] or ''
+                  state = 'FAIL' if ('<failure' in body or '<error' in body) else ('SKIPPED' if '<skipped' in body else 'PASS')
+                  print(f'- {state} {m[2].rsplit(".", 1)[-1]}.{m[1]} ({float(m[3]):.1f} s)')
+          if not files: print('no results')
+          PY
       - name: Upload test reports and logcat
         if: failure()
         uses: actions/upload-artifact@v4
