@@ -220,3 +220,6 @@ Final review: done (opus) — With fixes; 0 Critical; Important I-1 gateway %2f/
 - Ruling: release gates on the tagged commit's CI check runs (incl. e2e) instead of re-running e2e; rootfs still built fresh at release (dsh pinned, transitive deps float) — Cost if wrong: a transitive npm change between CI and tag ships untested.
 - Ruling: M-8 (grace timer on uptime) and M-11 (activity-alias, filterTouchesWhenObscured) parked — reviewer triaged both can-ship; foreign-app actions all need user confirmation — Cost if wrong: dsh lingers longer than 10 min across device sleep; a foreign app can raise the rollback dialog.
 Final fix wave: dispatched (opus, base 52e0c4d)
+Final fix wave: container restart interrupted the fixer after 6 local commits (5d2f3bb..2f9e1fa: I-1, M-6, I-4, I-2, I-6, I-8; M-1 WIP); fixer resumed from its transcript
+Final fix wave: implementer DONE_WITH_CONCERNS (5d2f3bb..fc3c566, report d734314): 602 unit tests, plugins 117/117, CI run 41566251655 all green incl. e2e 7/7; concerns: proot binds and WebView file upload unverified on arm64/Android 17; release gate/draft/versionCode untested until first tag; third_party/termux ships binaries + source links; rollback in background without FGS releases dsh immediately; MainActivity ~495 lines
+Final fix wave: scoped re-review dispatched (opus, package review-fixwave-8eaace8..fc3c566.diff)
