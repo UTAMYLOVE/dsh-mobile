@@ -94,3 +94,9 @@ T5: review 1 = spec ✅, quality Needs fixes (sonnet) — Important: failed/ende
 - Ruling: Minors 3 (loadOlder reports unexpected-answer), 4 (remove dead quadratic assistant-stream branch), 5 (pending bubble 60 s timeout → failed-send with retry) join round 1.
 T5: fix round 1/5 dispatched (resume implementer)
 T5: minor (deferred): cross-page tool pairs stay RUNNING if their result is in an unloaded page; O(n) list rebuild per event (bounded by maxMessages); close() cancels publishJob off the reduce context (benign)
+T4: implementer DONE_WITH_CONCERNS (lane-t4 bb2ba1b..688ed19, 684 unit; 412 dp layout test proven by deliberate breaks); deviations: child scope per ShellSession; LocalPagePadding; extra tags DOCK/ATTACHMENT_CHIP/ATTACHMENT_REMOVE (T9 must reuse); after 60 s remote-open timeout stays on Error until Retry; review dispatched (opus) incl. a Robolectric native-graphics screenshot look (earlier ruling)
+T5: fix round 1 implementer DONE (fcbb8e7..3343dd3; 759 unit; 8 new RED→GREEN; extra retrySend/dismissSend); re-review dispatched (sonnet)
+T5: fix round 1/5 (5 addressed, 1 new conditional Important — 60 s timeout also fails healthy queued bubbles during long turns; commits 168e3e7..3343dd3)
+- Ruling: the pending-bubble timer pauses while state.running and starts/restarts when running becomes false; idle sends unchanged.
+T5: fix round 2/5 dispatched (resume implementer)
+T5: minor (deferred): retrySend after a merely slow dsh can show the message twice (inherent)
