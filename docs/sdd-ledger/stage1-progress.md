@@ -182,3 +182,4 @@ T15: review 1 = spec ✅ (CI-unverifiable parts ⚠️), quality Needs fixes (so
 - Ruling: all Important + listed Minors into fix round 1, alongside whatever the bb25aa7 CI run reports.
 T15: fix round 1/5 dispatched (resume implementer)
 CI: run 85 (bb25aa7) — every job failed in 2 s with no runner assigned and no logs (HTTP 404 on logs): GitHub Actions quota/billing block, not code. Asked the owner to check Settings → Billing (Actions minutes). T15 fix round resumed after the 5-hour usage limit reset.
+T15: fix round 1/5 implementer DONE (1294352..1824fe2; 980 unit, both assembles; e2e unverified — CI billing-blocked: "recent account payments have failed or your spending limit needs to be increased", 2,431/2,000 min used, resets 2026-12-01); new prod seam SettingsEnvFactory dshVersions for t05; t18 accepts archived-in-workspace.json; re-review dispatched (sonnet)
