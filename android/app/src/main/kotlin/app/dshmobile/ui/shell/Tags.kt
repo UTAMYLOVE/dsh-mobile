@@ -62,4 +62,10 @@ object Tags {
     const val QUESTION_DECLINE = "question-decline"
     const val PROMPT_ERROR = "prompt-error"
     const val PROMPT_CONNECTING = "prompt-connecting"
+
+    /** + child session id: the tappable text of an agent row (opens the parent conversation). */
+    const val AGENT_ROW = "agent-row-"
+    /** + child session id: its 「叫它停」 button. */
+    const val AGENT_STOP = "agent-stop-"
+    const val AGENTS_EMPTY = "agents-empty"
 }
