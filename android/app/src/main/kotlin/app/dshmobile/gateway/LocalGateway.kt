@@ -120,11 +120,16 @@ class LocalGateway(
             return call.respondJson(HttpStatusCode.Forbidden, """{"error":"dshm_forbidden"}""")
         }
         val rest = if (parts.size == 3) "/" + parts[2] else ""
+        val provider = when (parts.getOrNull(1)) {
+            "deepseek" -> Provider.DEEPSEEK
+            "anthropic" -> Provider.ANTHROPIC
+            else -> null
+        }
         when {
             parts.getOrNull(1) == "notify" && parts.size == 2 && call.request.httpMethod == HttpMethod.Post -> notify(call)
-            parts.getOrNull(1) == "deepseek" && !isUnsafePath(rest) -> forward(call, Provider.DEEPSEEK, rest + query)
-            parts.getOrNull(1) == "anthropic" && !isUnsafePath(rest) -> forward(call, Provider.ANTHROPIC, rest + query)
-            else -> call.respondJson(HttpStatusCode.NotFound, """{"error":"dshm_not_found"}""")
+            provider == null -> call.respondJson(HttpStatusCode.NotFound, """{"error":"dshm_not_found"}""")
+            !isAllowedPath(rest) -> call.respondJson(HttpStatusCode.BadRequest, """{"error":"dshm_bad_path"}""")
+            else -> forward(call, provider, rest + query)
         }
     }
 
@@ -277,19 +282,19 @@ class LocalGateway(
         return PreparedBody(out, model)
     }
 
-    /** Dot segments and backslashes (which OkHttp also treats as `/`) could climb out of the upstream base path. */
     private fun isDroppedRequestHeader(name: String): Boolean {
         val lower = name.lowercase()
         return lower in DROPPED_REQUEST_HEADERS || lower.startsWith(HARNESS_HEADER_PREFIX)
     }
 
-    private fun isUnsafePath(rest: String): Boolean {
-        if (rest.contains('\\') || rest.contains("%5c", ignoreCase = true)) return true
-        return rest.split('/').any {
-            val s = it.replace("%2e", ".", ignoreCase = true)
-            s == "." || s == ".."
-        }
-    }
+    /**
+     * An allow-list for the path after the provider (the query is separate): only `[A-Za-z0-9._~/-]`, so no `%` escape (an
+     * encoded slash or dot that an upstream front end might decode before resolving), no `;` path parameter (`..;` is `..` to
+     * Tomcat/Spring), no backslash; and no `.` or `..` segment. Anything else could climb out of the upstream base path to an
+     * endpoint whose usage the meter cannot read. [isConfinedTo] still checks the resulting URL.
+     */
+    private fun isAllowedPath(rest: String): Boolean =
+        rest.all { it in PATH_CHARS } && rest.split('/').none { it == "." || it == ".." }
 
     /** True only if [target] is on the upstream's own origin and below its base path. */
     private fun isConfinedTo(upstream: HttpUrl, target: HttpUrl): Boolean {
@@ -330,6 +335,8 @@ class LocalGateway(
 
         val STRIPPED_BODY_FIELDS = setOf("dsh_session_log", "dsh_plugin_packages")
         val BODY_METHODS = setOf("POST", "PUT", "PATCH")
+        /** Every character a provider path may contain (RFC 3986 unreserved plus `/`). */
+        val PATH_CHARS: Set<Char> = (('A'..'Z') + ('a'..'z') + ('0'..'9') + listOf('.', '_', '~', '/', '-')).toSet()
         val HOP_BY_HOP = setOf(
             "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "proxy-connection",
             "te", "trailer", "transfer-encoding", "upgrade",

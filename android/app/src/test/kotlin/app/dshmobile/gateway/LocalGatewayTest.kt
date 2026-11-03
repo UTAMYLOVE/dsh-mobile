@@ -223,10 +223,51 @@ class LocalGatewayTest {
                     "GET /${token.value}/deepseek/$segment/secret HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".toByteArray(),
                 )
                 val statusLine = socket.getInputStream().bufferedReader().readLine()
-                assertTrue("$segment: $statusLine", statusLine.contains(" 404 "))
+                assertTrue("$segment: $statusLine", statusLine.contains(" 400 "))
             }
         }
         assertEquals(0, deepseekUpstream.requestCount)
+    }
+
+    /** The raw status line for `GET /<token>/<route><rest>`, sent byte for byte (no client-side normalisation). */
+    private fun rawStatus(route: String, rest: String): String =
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = 3_000
+            socket.getOutputStream().write(
+                "GET /${token.value}/$route$rest HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".toByteArray(),
+            )
+            socket.getInputStream().bufferedReader().readLine()
+        }
+
+    /**
+     * Only `[A-Za-z0-9._~/-]` may follow the provider: an encoded slash, a `;` path parameter or a double-encoded dot would be
+     * resolved differently by an upstream front end (nginx decodes `%2F`, Tomcat drops `;...`) and could reach another endpoint
+     * with the real key, past the usage meter.
+     */
+    @Test fun anythingOutsideThePathAllowListIs400AndNeverForwarded() {
+        startGateway()
+        val rests = listOf(
+            "/..%2fv1/chat/completions", "/..%2Fv1/chat/completions", "/v1%2fchat", "/..;/v1/chat/completions",
+            "/%252e%252e/v1", "/v1/messages;x", "/v1/messages%20x", "/v1/mess@ges", "/v1/./messages", "/v1/a/../messages",
+        )
+        for (route in listOf("deepseek", "anthropic")) {
+            for (rest in rests) {
+                val status = rawStatus(route, rest)
+                assertTrue("$route$rest: $status", status.contains(" 400 "))
+            }
+        }
+        assertEquals(0, deepseekUpstream.requestCount)
+        assertEquals(0, anthropicUpstream.requestCount)
+    }
+
+    @Test fun anAllowedPathWithAQueryIsStillForwarded() {
+        startGateway()
+        deepseekUpstream.enqueue(MockResponse().setBody("{}"))
+        anthropicUpstream.enqueue(MockResponse().setBody("{}"))
+        assertTrue(rawStatus("deepseek", "/v1/messages?beta=true").contains(" 200 "))
+        assertTrue(rawStatus("anthropic", "/v1/messages_~x-1.2").contains(" 200 "))
+        assertEquals("/anthropic/v1/messages?beta=true", deepseekUpstream.takeRequest(1, TimeUnit.SECONDS)!!.path)
+        assertEquals("/v1/messages_~x-1.2", anthropicUpstream.takeRequest(1, TimeUnit.SECONDS)!!.path)
     }
 
     @Test fun wrongTokenIs403AndNeverCallsUpstream() {
