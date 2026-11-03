@@ -1,9 +1,11 @@
 package app.dshmobile
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.os.Bundle
 import androidx.annotation.VisibleForTesting
 import androidx.work.Configuration
 import app.dshmobile.config.AgentConfigWriter
@@ -32,7 +34,11 @@ import app.dshmobile.security.KeyVault
 import app.dshmobile.service.CrashPolicy
 import app.dshmobile.service.DshController
 import app.dshmobile.service.DshLauncher
+import app.dshmobile.remote.DshRemote
 import app.dshmobile.service.DshService
+import app.dshmobile.service.RunningDsh
+import app.dshmobile.service.WorkRemote
+import app.dshmobile.service.asWorkRemote
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.SettingsJobs
 import app.dshmobile.ui.UiHolder
@@ -72,6 +78,17 @@ class DshMobileApp : Application(), Configuration.Provider {
      * screen shows its error screen for it and never restarts dsh by itself (Retry is the user's explicit action).
      */
     val serviceGaveUp = MutableStateFlow(false)
+
+    private val startedActivities = java.util.concurrent.atomic.AtomicInteger()
+
+    /** True while any activity of the app is started (the owner is looking at it). */
+    val isInForeground: Boolean get() = startedActivities.get() > 0
+
+    /** Builds the [WorkRemote] [DshService] watches for work; a test seam (production: a [DshRemote] on the running dsh). */
+    @VisibleForTesting
+    internal var workRemoteFactory: (RunningDsh, CoroutineScope) -> WorkRemote = { dsh, scope ->
+        DshRemote(DshClient(OkHttpClient(), dsh.launch), scope).asWorkRemote()
+    }
 
     /** Starts [DshService]; a test seam (Robolectric cannot make `startForegroundService` refuse). */
     @VisibleForTesting
@@ -172,7 +189,8 @@ class DshMobileApp : Application(), Configuration.Provider {
         UiHolder(
             runtime = controller,
             holders = { controller.holders },
-            stopService = { stopService(Intent(this, DshService::class.java)) },
+            // Work in flight keeps the service (and dsh); DshService ends itself when the work is done and nobody is looking.
+            stopService = { if (DshService.WORK_HOLDER !in controller.holders) stopService(Intent(this, DshService::class.java)) },
         )
     }
 
@@ -219,6 +237,15 @@ class DshMobileApp : Application(), Configuration.Provider {
         super.onCreate()
         // Before anything reads the workspace or dsh's home: data an older build kept inside the rootfs moves to userdata/.
         migrateLegacyUserData()
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) { startedActivities.incrementAndGet() }
+            override fun onActivityStopped(activity: Activity) { startedActivities.decrementAndGet() }
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
         // The interval is the user's setting (default 45). UPDATE keeps an existing schedule's timing.
         HeartbeatScheduler.schedule(this, agentSettingsStore.heartbeatIntervalMin)
     }

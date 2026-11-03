@@ -179,4 +179,101 @@ class DshServiceTest {
         controller.destroy()
         assertTrue(app.controller.holders.isEmpty())
     }
+
+    // --- Task 16: work in the background (spec §5.11) ---
+
+    private fun startWithFakeRemote(remote: FakeWorkRemote, script: (Int) -> String = { """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 60""" }):
+        Triple<DshController, org.robolectric.android.controller.ServiceController<DshService>, DshService> {
+        shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val c = installFakeController(script)
+        app.workRemoteFactory = { _, _ -> remote }
+        val sc = Robolectric.buildService(DshService::class.java)
+        val service = sc.create().startCommand(0, 0).get()
+        waitUntil { service.tracker != null }
+        return Triple(c, sc, service)
+    }
+
+    @Test fun swipingTheTaskAwayWhileWorkingKeepsTheServiceAndDsh() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        val (c, sc, service) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+        waitUntil { c.isRunning.value }
+
+        service.onTaskRemoved(null)
+        Thread.sleep(300)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        assertTrue(c.isRunning.value)
+        assertTrue(processes.single().isAlive)
+        assertEquals(setOf("service", "work"), c.holders)
+        sc.destroy()
+    }
+
+    @Test fun swipingTheTaskAwayWhenIdleBehavesAsBefore() {
+        val remote = FakeWorkRemote()
+        val (c, sc, service) = startWithFakeRemote(remote)
+        waitUntil { c.isRunning.value }
+
+        service.onTaskRemoved(null) // as before: no reaction of its own; the holder and grace rules decide
+        Thread.sleep(300)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        assertEquals(setOf("service"), c.holders)
+        assertTrue(c.isRunning.value)
+        sc.destroy()
+        waitUntil { !c.isRunning.value }
+    }
+
+    @Test fun theStopActionStopsAllWork() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true), FakeWorkRemote.row("k", true, parent = "a")))
+        val (_, sc, service) = startWithFakeRemote(remote)
+        waitUntil { service.tracker!!.running.value.size == 2 }
+
+        service.onStartCommand(android.content.Intent().putExtra("action", "stop_work"), 0, 2)
+        waitUntil { remote.cancelled.toList() == listOf("a") && remote.interrupted.toList() == listOf("k" to "a") }
+        sc.destroy()
+    }
+
+    @Test fun theWorkingNotificationNamesTheConversationAndOffersStop() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說"), FakeWorkRemote.row("b", true, title = "整理筆記")))
+        val (_, sc, service) = startWithFakeRemote(remote)
+        waitUntil { shadowOf(service).lastForegroundNotification?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE) == "DSH 正在工作…" }
+
+        val n = shadowOf(service).lastForegroundNotification!!
+        assertEquals("寫小說 等 2 件", n.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString())
+        val stop = n.actions.single()
+        assertEquals("停止", stop.title.toString())
+        val intent = shadowOf(stop.actionIntent).savedIntent
+        assertTrue(shadowOf(stop.actionIntent).isService)
+        assertEquals(DshService::class.java.name, intent.component!!.className)
+        assertEquals("stop_work", intent.getStringExtra("action"))
+
+        remote.status("a", false)
+        remote.status("b", false)
+        waitUntil { shadowOf(service).lastForegroundNotification?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE) == "DSH Mobile 執行中" }
+        sc.destroy()
+    }
+
+    @Test fun whenTheWorkEndsInTheBackgroundTheWorkHoldGoesAndADoneNoticeIsPosted() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        val (c, sc, _) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+
+        remote.status("a", false)
+        waitUntil { "work" !in c.holders }
+        val manager = app.getSystemService(NotificationManager::class.java)
+        waitUntil { shadowOf(manager).allNotifications.any { it.extras.getCharSequence(android.app.Notification.EXTRA_TITLE) == "DSH 完成了" } }
+        sc.destroy()
+    }
+
+    @Test fun aCrashWhileWorkIsHeldStillFollowsTheCrashPolicy() {
+        // Work is in flight the whole time (the fake always lists one running session), yet three quick crashes still give up.
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
+        val (c, sc, service) = startWithFakeRemote(remote) { "$line exit 1" }
+
+        waitUntil(30_000) { app.serviceGaveUp.value }
+        waitUntil { shadowOf(service).isStoppedBySelf }
+        assertEquals(3, processes.size)
+        assertFalse(c.isRunning.value)
+        sc.destroy()
+        assertFalse("the work hold dies with the service", "work" in c.holders)
+    }
 }

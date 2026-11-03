@@ -12,6 +12,8 @@ import android.content.pm.PackageManager
 import app.dshmobile.R
 import app.dshmobile.gateway.NotifyRequest
 import app.dshmobile.gateway.Provider
+import app.dshmobile.service.DshService
+import app.dshmobile.service.RunningWork
 import app.dshmobile.update.ReleaseInfo
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
@@ -100,6 +102,40 @@ class Notifier(private val context: Context) {
             .setOngoing(true)
             .build()
 
+    /**
+     * The service notification while dsh works: the first conversation's title (at most 40 characters, "等 N 件" for the
+     * rest) and a 「停止」 action that sends `action=stop_work` to [DshService]. Never a URL or a token.
+     */
+    fun workingNotification(work: List<RunningWork>): Notification {
+        val first = work.firstOrNull { it.parentId == null } ?: work.firstOrNull()
+        val name = first?.title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
+        val text = if (work.size > 1) "$name 等 ${work.size} 件" else name
+        val stop = PendingIntent.getService(
+            context, ID_WORK_STOP,
+            Intent(context, DshService::class.java).putExtra(EXTRA_ACTION, ACTION_STOP_WORK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return builder(CHANNEL_SERVICE, "DSH 正在工作…", text)
+            .setContentIntent(openMainActivity(ID_SERVICE, EXTRA_SESSION_ID to first?.sessionId))
+            .addAction(Notification.Action.Builder(null, "停止", stop).build())
+            .setOngoing(true)
+            .build()
+    }
+
+    /** Dsh finished everything while the app was away; the tap opens that conversation. */
+    fun showWorkDone(sessionId: String?, title: String?) {
+        val id = nextId.getAndIncrement()
+        val name = title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
+        post(
+            id,
+            builder(CHANNEL_MESSAGES, "DSH 完成了", name)
+                .setContentIntent(openMainActivity(id, EXTRA_SESSION_ID to sessionId))
+                .setAutoCancel(true),
+        )
+    }
+
+    private fun clip(s: String) = if (s.length > MAX_TITLE) s.take(MAX_TITLE - 1) + "…" else s
+
     private fun builder(channel: String, title: String, text: String): Notification.Builder =
         Notification.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
@@ -137,6 +173,9 @@ class Notifier(private val context: Context) {
         const val ACTION_ROLLBACK = "rollback"
         const val ACTION_EXPORT_ERROR_LOG = "export_error_log"
         const val ACTION_INSTALL_UPDATE = "install_update"
+        const val ACTION_STOP_WORK = "stop_work"
+        private const val MAX_TITLE = 40
+        private const val ID_WORK_STOP = 7
         const val ID_SERVICE = 1
         private const val ID_COST = 2
         private const val ID_RATE_GUARD = 3 // 3 and 4: one per provider
