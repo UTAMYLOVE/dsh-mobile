@@ -125,6 +125,25 @@ class OnboardingScreenTest {
         assertTrue("key shown as text", rule.onAllNodes(showsKeyAsText).fetchSemanticsNodes().isEmpty())
     }
 
+    /** M-3: saved instance state goes to system_server; the typed key must never be part of it. */
+    @Test fun theTypedKeyIsNotKeptInSavedInstanceState() {
+        Step.values().takeWhile { it != Step.DEEPSEEK_KEY }.forEach { state.markDone(it) }
+        val restoration = androidx.compose.ui.test.junit4.StateRestorationTester(rule)
+        restoration.setContent {
+            SakuraTheme {
+                OnboardingScreen(
+                    state = state, platform = platform, vault = vault, detector = PhantomProcessDetector(resolver),
+                    isRootfsInstalled = { installed }, installRootfs = { }, onFinished = { finished++ },
+                )
+            }
+        }
+        rule.onNode(isKeyField).performTextInput(fakeKey)
+        restoration.emulateSavedInstanceStateRestore()
+        val text = rule.onNode(isKeyField).fetchSemanticsNode().config.getOrNull(SemanticsProperties.EditableText)?.text.orEmpty()
+        assertTrue("the key survived a save/restore of the instance state", text.isEmpty())
+        rule.onNodeWithText(str(R.string.onb_key_save)).assertIsNotEnabled()
+    }
+
     @Test fun savingTheKeyPutsItInTheVaultAndMovesOn() {
         installBehaviour = { throw IOException("stop here") } // keep the rootfs step on screen
         startAt(Step.DEEPSEEK_KEY)

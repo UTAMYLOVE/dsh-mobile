@@ -30,7 +30,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -197,8 +196,9 @@ private fun PhantomStep(
 
 @Composable
 private fun KeyStep(vault: KeyVault, onDone: () -> Unit) {
-    // The only place the key lives besides the vault: the password field's saveable state.
-    var key by rememberSaveable { mutableStateOf("") }
+    // The only place the key lives besides the vault: plain composition state, never saveable state (a saved instance Bundle is
+    // handed to system_server). configChanges keeps the activity across rotation, so nothing typed is lost that way.
+    var key by remember { mutableStateOf("") }
     var failed by remember { mutableStateOf(false) }
     val trimmed = key.trim()
     val valid = trimmed.length in MIN_KEY_LENGTH..MAX_KEY_LENGTH
