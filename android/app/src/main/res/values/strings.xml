@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">DSH Mobile</string>
+
+    <string name="onb_step_counter">第 %1$d 步，共 %2$d 步</string>
+    <string name="onb_skip">略過</string>
+
+    <string name="onb_notif_title">通知權限</string>
+    <string name="onb_notif_body">代理人完成工作、發生錯誤或費用超標時，需要通知你。</string>
+    <string name="onb_notif_button">允許通知</string>
+    <string name="onb_notif_denied">尚未允許通知。可以略過，之後到系統設定開啟。</string>
+
+    <string name="onb_battery_title">忽略電池最佳化</string>
+    <string name="onb_battery_body">不然系統可能在你離開 App 後把背景運作的代理人凍結或結束。</string>
+    <string name="onb_battery_button">前往設定</string>
+
+    <string name="onb_phantom_title">子行程限制</string>
+    <string name="onb_phantom_body">多個代理人同時工作時會產生許多子行程，Android 的「幽靈行程限制」會把它們強制結束。建議在開發人員選項中關閉這項限制（本 App 不會自行修改系統設定）。</string>
+    <string name="onb_phantom_tutorial">尚未開啟開發人員選項。請到「設定 → 關於手機 → 軟體資訊」，連點「版本號碼」7 次，再回到這裡。</string>
+    <string name="onb_phantom_open_about">開啟「軟體資訊」</string>
+    <string name="onb_phantom_open_dev">開啟開發人員選項</string>
+    <string name="onb_phantom_state_label">目前狀態</string>
+    <string name="onb_phantom_state_disabled">已關閉限制</string>
+    <string name="onb_phantom_state_enabled">限制仍開啟</string>
+    <string name="onb_phantom_state_unknown">無法判斷</string>
+    <string name="onb_phantom_continue">繼續</string>
+
+    <string name="onb_key_title">DeepSeek 金鑰</string>
+    <string name="onb_key_body">金鑰只會加密存放在這支手機上，不會顯示或上傳。</string>
+    <string name="onb_key_label">DeepSeek API 金鑰</string>
+    <string name="onb_key_save">儲存並繼續</string>
+    <string name="onb_key_error">無法儲存金鑰，請再試一次。</string>
+
+    <string name="onb_rootfs_title">準備執行環境</string>
+    <string name="onb_rootfs_body">正在解壓縮內建的執行環境，只需要做一次。</string>
+    <string name="onb_rootfs_progress">解壓縮中 %1$d%%</string>
+    <string name="onb_rootfs_failed">解壓縮失敗：%1$s</string>
+    <string name="onb_rootfs_missing">找不到內建的執行環境檔案，這個版本的安裝包可能不完整。</string>
+    <string name="onb_rootfs_retry">重試</string>
+
+    <string name="main_loading">正在啟動 DSH…</string>
+    <string name="main_error_title">無法啟動 DSH</string>
+    <string name="main_error_body">請再試一次。如果一直失敗，請匯出錯誤記錄回報。</string>
+    <string name="main_retry">重試</string>
+    <string name="main_export_log">匯出錯誤記錄</string>
+    <string name="main_settings_button" translatable="false">⚙</string>
+    <string name="main_settings_description">設定</string>
+    <string name="main_settings_missing">無法開啟設定頁</string>
+    <string name="main_rollback_title">退回上一個版本？</string>
+    <string name="main_rollback_message">會先停止目前執行中的代理人，退回 dsh 的上一個版本後重新啟動。</string>
+    <string name="main_rollback_confirm">退版</string>
+    <string name="main_cancel">取消</string>
+    <string name="main_rollback_done">已退回 dsh %1$s</string>
+    <string name="main_rollback_none">沒有可退回的版本</string>
+    <string name="main_rollback_failed">退版失敗，請查看錯誤記錄</string>
+    <string name="main_rollback_busy">另一個版本或設定工作正在進行，請稍後再試</string>
+    <string name="main_download_unsupported">無法下載此類型的檔案</string>
+    <string name="main_download_failed">下載失敗</string>
+    <string name="main_export_failed">無法匯出</string>
+    <string name="main_update_checking">正在確認新版本…</string>
+    <string name="main_update_needs_permission">請先在設定頁允許 DSH Mobile 安裝應用程式；允許後回到這裡，更新會自動繼續</string>
+    <string name="main_update_ready">新版已下載，但無法開啟安裝程式；可從通知再點一次安裝</string>
+    <string name="main_update_none">目前已是最新版本</string>
+    <string name="main_update_downloading">正在下載 %1$s，完成後會自動驗證</string>
+    <string name="main_update_failed">更新失敗：下載或驗證沒有通過，未安裝。請稍後再試</string>
+    <string name="set_title">設定</string>
+    <string name="set_close">關閉</string>
+    <string name="set_busy">處理中…</string>
+
+    <string name="set_section_keys">金鑰</string>
+    <string name="set_key_deepseek">DeepSeek 金鑰</string>
+    <string name="set_key_claude">Claude 金鑰</string>
+    <string name="set_key_set">已設定</string>
+    <string name="set_key_unset">未設定</string>
+    <string name="set_key_replace">替換</string>
+    <string name="set_key_add">設定</string>
+    <string name="set_key_clear">清除</string>
+    <string name="set_key_field">新的金鑰</string>
+    <string name="set_key_save">儲存</string>
+    <string name="set_key_cancel">取消</string>
+    <string name="set_key_error">無法儲存金鑰，請再試一次。</string>
+    <string name="set_key_hint">金鑰只會加密存放在這支手機上，不會顯示或上傳。有了 Claude 金鑰，總指揮模型才會多出 Claude 選項。</string>
+
+    <string name="set_section_agent">代理人</string>
+    <string name="set_agent_concurrent">同時數</string>
+    <string name="set_agent_depth">委派深度</string>
+    <string name="set_agent_team">團隊人數</string>
+    <string name="set_agent_teams">啟用 Agent Teams</string>
+    <string name="set_agent_model">總指揮模型</string>
+    <string name="set_agent_worker_note">子代理人沿用總指揮模型</string>
+    <string name="set_agent_team_clamped">團隊人數實際上限為同時數（%1$d）</string>
+    <string name="set_agent_increase">增加%1$s</string>
+    <string name="set_agent_decrease">減少%1$s</string>
+
+    <string name="set_section_budget">預算</string>
+    <string name="set_budget_today">今日花費 US$%1$s</string>
+    <string name="set_budget_alert">通知門檻（US$）</string>
+    <string name="set_budget_cap_switch">啟用每日硬上限</string>
+    <string name="set_budget_cap">硬上限（US$）</string>
+    <string name="set_budget_save">儲存預算</string>
+    <string name="set_budget_saved">預算已儲存</string>
+    <string name="set_budget_invalid">請輸入大於 0 的數字</string>
+
+    <string name="set_section_heartbeat">心跳間隔</string>
+    <string name="set_heartbeat_value">每 %1$d 分鐘</string>
+    <string name="set_heartbeat_hint">代理人會定期在背景整理記憶並提醒你，間隔 30～60 分鐘。</string>
+
+    <string name="set_section_version">DSH 版本</string>
+    <string name="set_version_current">目前版本：%1$s</string>
+    <string name="set_version_previous">上一版：%1$s</string>
+    <string name="set_version_none">無</string>
+    <string name="set_version_unknown">未知</string>
+    <string name="set_version_check">檢查更新</string>
+    <string name="set_version_rollback">退回上一版</string>
+    <string name="set_version_updated">已更新到 %1$s</string>
+    <string name="set_version_uptodate">已是最新版</string>
+    <string name="set_version_rolled_back">更新到 %1$s 失敗：%2$s</string>
+    <string name="set_version_failed">更新失敗：%1$s</string>
+    <string name="set_dsh_running">DSH 執行中</string>
+    <string name="set_dsh_stopped">DSH 已停止</string>
+    <string name="set_dsh_restart">重新啟動</string>
+    <string name="set_rollback_done">已退回 dsh %1$s</string>
+    <string name="set_rollback_none">沒有可退回的版本</string>
+    <string name="set_rollback_failed">退版失敗，請查看錯誤記錄</string>
+
+    <string name="set_section_phantom">子行程限制</string>
+    <string name="set_phantom_state">目前狀態：%1$s</string>
+    <string name="set_phantom_open">開啟開發人員選項</string>
+
+    <string name="set_section_export">匯出</string>
+    <string name="set_export_memory">匯出記憶備份</string>
+    <string name="set_export_workspace">匯出整個工作區（zip）</string>
+
+    <string name="set_apply">套用並重啟</string>
+    <string name="set_apply_note">代理人設定要重新啟動 DSH 才會生效。</string>
+    <string name="set_apply_done">已套用，DSH 已重新啟動</string>
+    <string name="set_apply_failed">無法重新啟動 DSH，請查看錯誤記錄</string>
+    <string name="set_apply_teams_later">Agent Teams 會在 DSH 下次啟動後生效。</string>
+</resources>

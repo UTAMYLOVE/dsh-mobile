@@ -31,7 +31,8 @@ GOT="$(node -p "require('/opt/dsh/${DSH_PINNED_VERSION}/package-lock.json').pack
 (cd "/opt/dsh/${DSH_PINNED_VERSION}" && npm ls --all > npm-ls.txt 2>&1 || true)
 
 # --- app layout ---
-mkdir -p /opt/dshm/plugins /root/workspace
+# /root/workspace and /root/.dsh are only mount points: the app binds the user's data (kept outside the rootfs) onto them.
+mkdir -p /opt/dshm/plugins /root/workspace /root/.dsh
 if [ -d /staging ] && [ -n "$(ls -A /staging)" ]; then cp -a /staging/. /opt/dshm/; fi
 echo "${ROOTFS_VERSION}" > /etc/dshm-rootfs-version
 

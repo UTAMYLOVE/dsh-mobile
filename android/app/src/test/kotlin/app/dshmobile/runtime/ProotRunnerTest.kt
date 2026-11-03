@@ -26,6 +26,25 @@ class ProotRunnerTest {
         assertEquals(listOf("node", "-v"), cmd.takeLast(2))
     }
 
+    /** User data lives outside the replaceable rootfs and is bound in at the guest paths dsh and the plugins use. */
+    @Test fun userDataIsBoundIntoTheGuestAndBothEndsExist() {
+        val base = java.nio.file.Files.createTempDirectory("proot-binds").toFile()
+        try {
+            val paths = AppPaths(File(base, "files"))
+            paths.rootfs.mkdirs()
+            val cmd = ProotRunner(nativeLibDir, paths.rootfs, tmp, paths.binds).command(listOf("x"), emptyMap()).command()
+            for ((host, guest) in paths.binds) {
+                val i = cmd.indexOf("${host.path}:$guest")
+                assertTrue("missing bind for $guest in $cmd", i > 0 && cmd[i - 1] == "-b")
+                assertTrue(host.isDirectory)
+                assertTrue(File(paths.rootfs, guest.removePrefix("/")).isDirectory)
+            }
+            assertTrue("binds come before the command", cmd.indexOf("${paths.dshHome.path}:/root/.dsh") < cmd.lastIndexOf("x"))
+        } finally {
+            base.deleteRecursively()
+        }
+    }
+
     @Test fun baseEnvironmentIsSetAndCallerOverrides() {
         val env = runner.command(listOf("x"), mapOf("LANG" to "en_US.UTF-8", "B" to "2")).environment()
         assertEquals(tmp.path, env["PROOT_TMP_DIR"])

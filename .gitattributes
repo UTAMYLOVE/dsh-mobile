@@ -1,0 +1,4 @@
+# The rootfs version includes a content hash of rootfs/ and plugins/ (rootfs/source-hash.sh, android/app/build.gradle.kts):
+# keep their line endings identical on every checkout (no CRLF on Windows), or the app and the rootfs disagree on the version.
+rootfs/** text=auto eol=lf
+plugins/** text=auto eol=lf

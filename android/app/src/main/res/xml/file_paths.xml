@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only cache/export/ (shared files) and cache/update/ (the verified shell-app APK handed to the installer) are reachable through the FileProvider. -->
+<paths>
+    <cache-path name="export" path="export/" />
+    <cache-path name="update" path="update/" />
+</paths>

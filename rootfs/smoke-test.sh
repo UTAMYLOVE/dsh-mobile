@@ -7,6 +7,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=versions.env
 . "$HERE/versions.env"
 
+ROOTFS_VERSION="${ROOTFS_VERSION}-$(bash "$HERE/source-hash.sh")" # as build-rootfs.sh and BuildConfig.ROOTFS_VERSION
+
 TAR="${1:-}"
 fail=0
 ok()   { echo "PASS: $*"; }
@@ -42,6 +44,7 @@ rv="$(cat "$DIR/etc/dshm-rootfs-version" 2>/dev/null | tr -d '\r\n')"
 [ "$rv" = "$ROOTFS_VERSION" ] && ok "rootfs version $rv" || bad "/etc/dshm-rootfs-version: '$rv'"
 
 sudo test -d "$DIR/root/workspace" && ok "/root/workspace exists" || bad "/root/workspace missing"
+sudo test -d "$DIR/root/.dsh" && ok "/root/.dsh exists" || bad "/root/.dsh missing"
 
 l="$(readlink "$DIR/opt/dsh/current" 2>/dev/null)"
 case "$l" in
@@ -50,6 +53,10 @@ case "$l" in
 esac
 
 [ -d "$DIR/opt/dshm/plugins" ] && ok "/opt/dshm/plugins exists" || bad "/opt/dshm/plugins missing"
+
+[ -f "$DIR/opt/dshm/plugins/memory/index.js" ] && ok "/opt/dshm/plugins/memory/index.js exists" || bad "/opt/dshm/plugins/memory/index.js missing"
+[ -f "$DIR/opt/dshm/plugins/notify/index.js" ] && ok "/opt/dshm/plugins/notify/index.js exists" || bad "/opt/dshm/plugins/notify/index.js missing"
+[ -f "$DIR/opt/dshm/plugins/ui/index.js" ] && ok "/opt/dshm/plugins/ui/index.js exists" || bad "/opt/dshm/plugins/ui/index.js missing"
 
 for t in git rg bash; do
   p="$(run sh -c "command -v $t" 2>&1)"

@@ -1,0 +1,286 @@
+name: Release
+
+# A tag push (v<versionName>+<versionCode>, e.g. v0.2.0+2) builds, signs and publishes the shell app to the public releases repo.
+# It only runs once CI (ci.yml) is green on the tagged commit, emulator end-to-end suite included (job "gate"), and only for a
+# versionCode above the newest published release. The release is created as a draft and published after both assets are up.
+# A manual run (workflow_dispatch) only does the dry run: tests, rootfs and an UNSIGNED release APK, stopping before signing.
+# The dry run needs no secret and skips the CI gate.
+#
+# Ruling: the rootfs is built fresh here, as in CI. dsh itself is pinned (version + integrity); its transitive npm dependencies
+# and the Debian packages float, so the published tree can differ slightly from the one CI's e2e run tested (accepted risk).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: build an unsigned APK and stop before signing (publishing only happens on a tag push)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Spec §9: publish only what passed every test on a real Android. The tagged commit must have green check runs from ci.yml for
+  # every job below (any successful run of that job on this exact commit counts; a CI run the tag push itself starts may still
+  # be in progress).
+  gate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: read
+      contents: read
+    steps:
+      - name: Require a green CI run on the tagged commit (e2e included)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100&filter=all" \
+            --jq '.check_runs[] | select(.app.slug == "github-actions") | [.name, (.conclusion // "pending")] | @tsv' > runs.tsv
+          missing=0
+          for job in "android" "plugins" "rootfs (arm64)" "rootfs (x86_64)" "e2e"; do
+            if awk -F'\t' -v j="$job" '$1 == j && $2 == "success" { found = 1 } END { exit !found }' runs.tsv; then
+              echo "ok: $job"
+            else
+              seen="$(awk -F'\t' -v j="$job" '$1 == j { print $2 }' runs.tsv | sort | uniq -c | tr '\n' ' ')"
+              echo "::error::CI job '$job' has no successful run on $SHA (seen: ${seen:-none}). Get CI green on this commit first, then tag it again."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+  release:
+    needs: gate
+    # A dry run (workflow_dispatch) skips the gate; a tag push needs it green.
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.gate.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            if ! [[ "$REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)$ ]]; then
+              echo "::error::tag '$REF_NAME' does not match v<major>.<minor>.<patch>+<versionCode>"
+              exit 1
+            fi
+            version_name="${BASH_REMATCH[1]}"
+            version_code="${BASH_REMATCH[2]}"
+            publish=true
+            tag="$REF_NAME"
+          else
+            if [ "$DRY_RUN" != "true" ]; then
+              echo "::error::only a tag push publishes; run the workflow with dry_run=true"
+              exit 1
+            fi
+            version_name="0.0.0"
+            version_code="1"
+            publish=false
+            tag=""
+          fi
+          releases_repo="$(sed -n 's/^dshm\.releasesRepo=//p' android/gradle.properties | tr -d '\r')"
+          if ! [[ "$releases_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::dshm.releasesRepo missing or malformed in android/gradle.properties"
+            exit 1
+          fi
+          {
+            echo "version_name=$version_name"
+            echo "version_code=$version_code"
+            echo "publish=$publish"
+            echo "tag=$tag"
+            echo "releases_repo=$releases_repo"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Release build: v${version_name}+${version_code} (publish=$publish)" >> "$GITHUB_STEP_SUMMARY"
+
+      # An update must have a higher versionCode than what users have (Android refuses a downgrade, and the app's update check
+      # only offers a higher code). No published release yet passes.
+      - name: Require a versionCode above the newest published release
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASES_REPO: ${{ steps.ver.outputs.releases_repo }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          if ! latest="$(gh api "repos/$RELEASES_REPO/releases/latest" --jq .tag_name 2> err.txt)"; then
+            if grep -q "HTTP 404" err.txt; then
+              echo "no published release yet: any versionCode is fine"
+              exit 0
+            fi
+            cat err.txt >&2
+            exit 1
+          fi
+          if ! [[ "$latest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\+([0-9]+)$ ]]; then
+            echo "::error::newest release tag '$latest' does not match v<major>.<minor>.<patch>+<versionCode>"
+            exit 1
+          fi
+          if (( VERSION_CODE <= BASH_REMATCH[1] )); then
+            echo "::error::versionCode $VERSION_CODE is not above the newest release $latest (versionCode ${BASH_REMATCH[1]})"
+            exit 1
+          fi
+          echo "versionCode $VERSION_CODE > ${BASH_REMATCH[1]} ($latest)"
+
+      # ---- tests ----
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Android unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: plugins/pnpm-lock.yaml
+      - name: Plugin tests and build
+        run: |
+          pnpm -C plugins install --frozen-lockfile
+          pnpm -C plugins test
+          pnpm -C plugins build
+
+      # ---- rootfs (arm64 only: the release targets the phone; same steps as ci.yml) ----
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Stage plugins for the rootfs
+        run: |
+          mkdir -p out/staging/plugins/memory out/staging/plugins/notify out/staging/plugins/ui
+          cp plugins/packages/memory/dist/index.js out/staging/plugins/memory/index.js
+          cp plugins/packages/notify/dist/index.js out/staging/plugins/notify/index.js
+          cp plugins/packages/ui/dist/index.js out/staging/plugins/ui/index.js
+      - name: Build rootfs
+        run: bash rootfs/build-rootfs.sh arm64 out/dshm-rootfs-arm64.tar.xz out/staging
+      - name: Smoke test rootfs
+        run: bash rootfs/smoke-test.sh out/dshm-rootfs-arm64.tar.xz
+
+      # ---- unsigned release APK (no signing environment is present in this step) ----
+      - name: Build unsigned release APK
+        working-directory: android
+        env:
+          ROOTFS_FILE: ${{ github.workspace }}/out/dshm-rootfs-arm64.tar.xz
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+        run: |
+          ./gradlew :app:assembleRelease --no-daemon \
+            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" \
+            -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
+      - name: Inspect unsigned APK
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -f "$apk"
+          unzip -v "$apk" | grep -E 'Stored .* assets/rootfs\.tar\.xz$'
+          if unzip -Z1 "$apk" | grep '^lib/' | grep -v '^lib/arm64-v8a/'; then
+            echo "::error::APK contains native libraries for another ABI"
+            exit 1
+          fi
+          if unzip -Z1 "$apk" | grep -Ei '\.(jks|keystore|pem|p12|key)$'; then
+            echo "::error::APK contains key material"
+            exit 1
+          fi
+          echo "APK: $(du -h "$apk" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      # The dry run ends here.
+      - name: Upload unsigned APK (dry run)
+        if: steps.ver.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-mobile-unsigned-apk
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 7
+          if-no-files-found: error
+
+      # ---- signing and publishing (tag push only) ----
+      - name: Decode keystore
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/dshm-release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          test -s "$keystore"
+          echo "DSHM_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: steps.ver.outputs.publish == 'true'
+        working-directory: android
+        env:
+          ROOTFS_FILE: ${{ github.workspace }}/out/dshm-rootfs-arm64.tar.xz
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          rm -rf app/build/outputs/apk/release
+          ./gradlew :app:assembleRelease --no-daemon --no-build-cache \
+            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" \
+            -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
+
+      - name: Verify signature and compute SHA-256
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          built=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$built"
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$built"
+          mkdir -p dist
+          apk="dist/dsh-mobile-${VERSION_NAME}-${VERSION_CODE}.apk"
+          cp "$built" "$apk"
+          (cd dist && sha256sum "$(basename "$apk")" > "$(basename "$apk").sha256" && sha256sum -c "$(basename "$apk").sha256")
+          echo "apk=$apk" >> "$GITHUB_ENV"
+
+      - name: Publish to the releases repo
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          RELEASES_REPO: ${{ steps.ver.outputs.releases_repo }}
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+        # A draft first: nobody (and no app's daily check, which reads releases/latest) sees a release until both assets are up.
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" --repo "$RELEASES_REPO" --draft \
+            --title "DSH Mobile $VERSION_NAME" \
+            --notes "DSH Mobile $VERSION_NAME. The app checks this page once a day; verify the APK against the .sha256 file."
+          gh release upload "$TAG" --repo "$RELEASES_REPO" --clobber "$apk" "$apk.sha256"
+          names="$(gh release view "$TAG" --repo "$RELEASES_REPO" --json assets --jq '[.assets[].name] | sort | join(",")')"
+          want="$(printf '%s\n' "$(basename "$apk")" "$(basename "$apk").sha256" | sort | paste -sd, -)"
+          if [ "$names" != "$want" ]; then
+            echo "::error::draft release has assets '$names', expected '$want'; left as a draft"
+            exit 1
+          fi
+          gh release edit "$TAG" --repo "$RELEASES_REPO" --draft=false
+
+      - name: Delete keystore
+        if: always() && steps.ver.outputs.publish == 'true'
+        run: rm -f "${DSHM_KEYSTORE_FILE:-$RUNNER_TEMP/dshm-release.keystore}"

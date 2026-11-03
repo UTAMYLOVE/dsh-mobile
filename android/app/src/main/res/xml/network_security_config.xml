@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- targetSdk 37 forbids cleartext HTTP. dsh, its health check, the heartbeat, downloads and the WebView talk plain HTTP to the
+     in-app dsh on 127.0.0.1:<port> only: that exact host is allowed, nothing else (no localhost, no subdomains, no other host). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>
