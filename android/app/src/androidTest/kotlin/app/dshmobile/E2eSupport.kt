@@ -7,6 +7,7 @@ import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.view.View
@@ -118,8 +119,12 @@ object E2e {
         throw AssertionError("timed out after ${timeoutMs / 1000} s waiting for $what\n--- error log tail ---\n${errorLogTail()}")
     }
 
-    /** Runs [block] on the main thread and returns its result; it never waits for the main looper to go idle. */
+    /**
+     * Runs [block] on the main thread and returns its result; it never waits for the main looper to go idle. Already on the main
+     * thread (a nested call, e.g. [nav] reaching [shellActivity]) it runs inline: `runOnMainSync` refuses the main thread.
+     */
     fun <T> onMain(block: () -> T): T {
+        if (Looper.myLooper() == Looper.getMainLooper()) return block()
         var out: Result<T>? = null
         instrumentation.runOnMainSync { out = runCatching(block) }
         return out!!.getOrThrow()
