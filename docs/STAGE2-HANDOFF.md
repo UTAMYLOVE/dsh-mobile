@@ -1,5 +1,18 @@
 # Stage 2 (0.3.0) handoff — read this first in a new session
 
+## Progress (update this list as work lands)
+- DONE: bug A, the dsh process-tree stop and restart status. Merged into main as 1cba479. 1,060+ unit tests pass. It has not yet been run through CI e2e; that happens with the batch.
+- NEXT, in this order:
+  - J: automatic permission review
+  - B: thinking strength and reviewer rounds
+  - C: stats
+  - I.1: table clipping
+  - G/H: war room with spirit agents and detailed status
+  - D: bookshelf
+  - F: the rest
+  - then batch 2
+- Requirements now run A–J; J is automatic permission review.
+
 ## State on 2026-11-04 03:05 (Taipei)
 - 0.2.0 is released: v0.2.0+4 at commit 0d06ebf. CI is green and it is published to UTAMYLOVE/dsh-mobile-releases.
 - Stage-2 requirements are in docs/superpowers/specs/2026-11-04-stage2-requirements.md (sections A–H.2).
@@ -30,7 +43,7 @@
   - "Status must be detailed" (section G).
 - Bug A: the root cause and fix plan are in docs/sdd-ledger/bug-writer-held.md.
   - On Android, Process.destroy() sends SIGTERM. Termux proot ignores SIGTERM, so dsh never dies, and a restart starts a second dsh that holds session.lock.
-  - Unfinished work-in-progress is on the local branch s2-killfix, commit 412c251, in worktree /home/user/wt-s2a. It is NOT pushed (pushing other branches is not allowed), so it is lost if the container restarts. If it is gone, redo it from the bug report.
+  - DONE and merged (see Progress).
 - A partial, incomplete stage-2 design draft is in docs/superpowers/specs/2026-11-04-dsh-mobile-stage2-design.md. No plan file exists yet.
 - Design references are in docs/design-reference/: agents-fui-reference.jpg and dashboard-reference-*.jpg.
 
