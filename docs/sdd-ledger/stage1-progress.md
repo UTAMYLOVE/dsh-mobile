@@ -118,3 +118,4 @@ T6: implementer DONE_WITH_CONCERNS (lane-t6 de1c788..86d98f8, 784 unit); extras:
 T6: review = spec ✅, quality Approved (sonnet), 0 Critical; reviewer's non-blocking "Important": status for an unknown session id dropped until next baseline; baseline-sync logic duplicated with WorkTracker
 - Ruling: debounced SessionTree.refresh() on a status for an unknown id, search debounce + stale-result guard (collectLatest), and midnight regrouping in Asia/Taipei are carried into the T8 dispatch (T8 wires the list into the chat page). A shared BaselineSync helper for SessionTree/WorkTracker is deferred to the final review triage.
 T6: complete (lane-t6 de1c788..86d98f8, review clean) — merged
+T8 dispatched (opus, wt-t1 lane-t8 from 41393f1; folds in T6 follow-ups + T5/T7 rulings); T10 dispatched (sonnet, wt-t7 lane-t10 from 41393f1)
