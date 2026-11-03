@@ -132,3 +132,8 @@ T11: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
 T11: minor (deferred): no "nothing running" line when only finished rows exist; error line not a live region; Column+verticalScroll composes every finished row
 T11: fix round 1/5 (2 addressed, 0 open; 0189e17..4806c40; re-review haiku)
 T11: complete (lane-t11 b70babf..4806c40, review clean) — merged
+T12: implementer DONE_WITH_CONCERNS (lane-t12 975e345..53814fa, 850 unit); no RED captured; unverifiedDshVersion stubbed until T13; month shows 2 decimals; heartbeat countdown can sit at 0 (WorkManager eligibility); review dispatched (sonnet)
+T12: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
+T12: complete (lane-t12 975e345..53814fa, review clean) — merged
+- Ruling: T12 Minor 1 (overview collector keeps ticking while the app is backgrounded) folds into T13's dispatch (collectAsStateWithLifecycle for the overview and settings collectors); Minor 2 (ReminderLog revision update outside lock, uncapped field lengths) and Minor 3 (EmptyPage flash) go to the final review triage.
+T12: minor (deferred): ReminderLog revision/field caps; EmptyPage flash on first frame; old store mid-day split mismatch (per brief); month 2 decimals (disclosed)
