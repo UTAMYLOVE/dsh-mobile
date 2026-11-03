@@ -163,4 +163,15 @@
     <string name="list_cancel">取消</string>
     <string name="list_delete_title">刪除這個對話？</string>
     <string name="list_delete_body">對話會從清單移除，正在進行的工作也會停止。</string>
+    <string name="prompt_approval_label" translatable="false">APPROVAL</string>
+    <string name="prompt_question_label" translatable="false">QUESTION</string>
+    <string name="prompt_approval_title">dsh 想要執行 %1$s</string>
+    <string name="prompt_question_title">dsh 想問你</string>
+    <string name="prompt_origin">來自：%1$s</string>
+    <string name="prompt_more">還有 %1$d 個等你回覆</string>
+    <string name="prompt_allow_once">允許這一次</string>
+    <string name="prompt_reject">拒絕</string>
+    <string name="prompt_submit">送出</string>
+    <string name="prompt_decline">不回答</string>
+    <string name="prompt_error">沒有送出，請再試一次</string>
 </resources>

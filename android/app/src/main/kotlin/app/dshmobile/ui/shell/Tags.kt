@@ -49,4 +49,16 @@ object Tags {
     const val DELETE = "delete"
     const val DELETE_CONFIRM = "delete-confirm"
     const val DELETE_CANCEL = "delete-cancel"
+
+    const val PROMPT_SHEET = "prompt-sheet"
+    /** The scrolling part of the sheet (the long reason or the questions); the buttons stay below it. */
+    const val PROMPT_SCROLL = "prompt-scroll"
+    const val PROMPT_MORE = "prompt-more"
+    const val APPROVE_ONCE = "approve-once"
+    const val REJECT = "reject"
+    /** + question id + "-" + option index. */
+    const val OPTION = "option-"
+    const val QUESTION_SUBMIT = "question-submit"
+    const val QUESTION_DECLINE = "question-decline"
+    const val PROMPT_ERROR = "prompt-error"
 }
