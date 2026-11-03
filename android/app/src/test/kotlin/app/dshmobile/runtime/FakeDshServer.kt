@@ -15,6 +15,8 @@ class FakeDshServer(
     private val heartbeat: (RecordedRequest) -> MockResponse = { MockResponse().setResponseCode(404) },
     /** dsh's RPC (`POST /api/<namespace>/<method>`), authenticated requests only. */
     private val rpc: (RecordedRequest) -> MockResponse = { MockResponse().setResponseCode(404) },
+    /** dsh's stream multiplexer (`/api/remote.mux` WebSocket upgrade), authenticated requests only; 404 when null. */
+    private val mux: FakeMux? = null,
 ) : AutoCloseable {
     val server = MockWebServer()
     val unauthenticated = CopyOnWriteArrayList<String>()
@@ -39,6 +41,7 @@ class FakeDshServer(
                     path == "/" -> MockResponse().setResponseCode(200).setBody("<html></html>")
                     path in healthStatus -> MockResponse().setResponseCode(healthStatus.getValue(path)).setBody(healthBody)
                     path == "/dshm/heartbeat" && request.method == "POST" -> heartbeat(request)
+                    path == "/api/remote.mux" && request.method == "GET" && mux != null -> mux.upgrade()
                     path.startsWith("/api/") && request.method == "POST" -> rpc(request)
                     path == "/echo" -> MockResponse().setResponseCode(200).setBody(request.body.readUtf8())
                     else -> MockResponse().setResponseCode(404)
