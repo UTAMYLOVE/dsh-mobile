@@ -30,3 +30,12 @@ Branch `lane-t14` (based on de1c788).
 - `aPanelThatRoseInHasItsBlurLockedToTheBackgroundAtTheEnd` also passes without the `settled` fix under Robolectric, so it guards the end state but does not prove the fix is needed on a device.
 - JankStats itself is not exercised under Robolectric (frames are fed through `governorForTest`); real numbers come from the exported `[perf] frames=` lines on the S25 Ultra.
 - MainActivity edits (for the Task 6 merge): imports, three fields, `setContent` block, `trackJank/startJankTracking/stopJankTracking`, onStart/onResume/onStop hooks, `settingsEnv` call. DshMobileApp: one line.
+
+## Fix round 1
+1. `JankGovernor.floor` (set by `EffectsController` at construction and in `set`): a step goes one below `effectiveLevel(floor, cap)`; nothing changes or logs when already at SAVER. Tests: BALANCED user degrades to SAVER, SAVER user gets no callback, controller sets the floor.
+2. `GlassNode.blurs()` reads both locals before the `onScreen` check, so observation never lapses.
+3. `CountUpText` draws per-glyph cached layouts (`GlyphCache`, tabular digits); test: a 57-frame count-up to 1,234,567.89 measures at most 15 glyphs. The earlier per-string `StringCache` is gone.
+4. `FogShell` `started` is a `derivedStateOf` on the STARTED threshold.
+5. `JankGovernor.onStart()` drops the first 30 frames and any half window; MainActivity calls it in `startJankTracking`. Test added; MainActivityTest feeders prepend 30 warm-up frames.
+6. KDoc back on `uiPrefs`; `libs.versions.toml` is CRLF again (diff against de1c788 is the 2 added lines).
+7. Merged `claude/dsh-mobile-cloud-handoff-vfhvdh`. FogShell: main's body kept, T14 provider as a wrapper (body not re-indented), T10's `hidden` modifier on both the stage column and the dock column. MainActivity: both `JankGovernor` and `OverviewScreen` imports. Full unit suite, assembleDebug and assembleDebugAndroidTest green.

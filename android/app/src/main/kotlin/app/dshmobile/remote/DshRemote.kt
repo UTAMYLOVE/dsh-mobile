@@ -51,8 +51,9 @@ class DshRemote(
     /** `$events`: prompts to answer and session lifecycle, open from construction on. */
     val events: DshEvents = DshEvents(mux, ::call, scope)
 
-    val hostEvents: SharedFlow<HostEvent> get() = events.hostEvents
+    override val hostEvents: SharedFlow<HostEvent> get() = events.hostEvents
     override val muxState: StateFlow<MuxState> get() = mux.state
+    override val eventsClientId: StateFlow<String?> get() = events.clientId
 
     /** History and live events of [sessionId] (`session/follow`, with the live assistant stream). */
     override fun follow(sessionId: String): Flow<StreamSignal> = mux.stream("session/follow", request {
@@ -63,10 +64,10 @@ class DshRemote(
     })
 
     /** Host-wide live projections of every session (`session/control`). */
-    fun control(): Flow<StreamSignal> = mux.stream("session/control")
+    override fun control(): Flow<StreamSignal> = mux.stream("session/control")
 
     /** Workspaces (`workspace/follow`). */
-    fun workspaces(): Flow<StreamSignal> = mux.stream("workspace/follow")
+    override fun workspaces(): Flow<StreamSignal> = mux.stream("workspace/follow")
 
     /**
      * One unary call. Logs in on first use and once more when dsh answers 401 (then retries once).
@@ -90,12 +91,12 @@ class DshRemote(
         }
     }
 
-    suspend fun listSessions(): List<SessionSummary> {
+    override suspend fun listSessions(): List<SessionSummary> {
         val value = call(LIST, buildJsonObject { putJsonObject("_request") {} })
         return items(LIST, value).mapNotNull { (it as? JsonObject)?.let(SessionSummary::from) }
     }
 
-    suspend fun searchSessions(query: String): List<SearchHit> {
+    override suspend fun searchSessions(query: String): List<SearchHit> {
         val value = call(SEARCH, request { put("query", query) })
         return items(SEARCH, value).mapNotNull { item ->
             val o = item as? JsonObject ?: return@mapNotNull null
@@ -104,7 +105,7 @@ class DshRemote(
     }
 
     /** A new session in workspace [workspaceId], or in the app's workspace directory when there is none. Returns its id. */
-    suspend fun createSession(workspaceId: String?): String {
+    override suspend fun createSession(workspaceId: String?): String {
         val value = call(CREATE, request { if (workspaceId != null) put("workspaceId", workspaceId) else put("cwd", AppPaths.GUEST_WORKSPACE) })
         return field(CREATE, value, "sessionId")
     }
@@ -125,12 +126,12 @@ class DshRemote(
     }
 
     /** Returns the title dsh stored. */
-    suspend fun rename(sessionId: String, title: String): String {
+    override suspend fun rename(sessionId: String, title: String): String {
         val value = call(RENAME, request { put("sessionId", sessionId); put("title", title) })
         return field(RENAME, value, "title")
     }
 
-    suspend fun archive(sessionId: String) {
+    override suspend fun archive(sessionId: String) {
         call("workspace/archiveSession", request { put("sessionId", sessionId); put("stopActivity", true) })
     }
 
@@ -157,7 +158,7 @@ class DshRemote(
         put("maxMessages", maxMessages)
     })
 
-    suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) {
+    override suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) {
         call("subagents/interruptByParent", buildJsonObject {
             put("childSessionId", childSessionId)
             put("parentSessionId", parentSessionId)

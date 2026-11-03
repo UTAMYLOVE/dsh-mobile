@@ -1,6 +1,15 @@
 package app.dshmobile.ui.shell
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
+import app.dshmobile.ui.fog.LocalBackdrop
+import app.dshmobile.ui.fog.LocalIdle
+import app.dshmobile.ui.fog.LocalPageActive
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
@@ -37,7 +46,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,11 +61,6 @@ import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.currentStateAsState
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -70,6 +73,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
@@ -86,10 +90,7 @@ import app.dshmobile.ui.fog.FogDimens
 import app.dshmobile.ui.fog.FogFonts
 import app.dshmobile.ui.fog.FogMotion
 import app.dshmobile.ui.fog.FogText
-import app.dshmobile.ui.fog.LocalBackdrop
 import app.dshmobile.ui.fog.LocalEffects
-import app.dshmobile.ui.fog.LocalIdle
-import app.dshmobile.ui.fog.LocalPageActive
 import app.dshmobile.ui.fog.glass
 import app.dshmobile.ui.fog.glow
 import app.dshmobile.ui.fog.rememberBackdrop
@@ -142,6 +143,8 @@ fun FogShell(
     onRetry: () -> Unit,
     onExportErrorLog: () -> Unit,
     overlay: @Composable () -> Unit = {},
+    /** True while [overlay] is a modal card: everything under it is hidden from accessibility services. */
+    modalOverlay: Boolean = false,
     reconnectChipDelayMs: Long = 2_000,
     page: @Composable (ShellTab) -> Unit,
 ) {
@@ -174,77 +177,79 @@ fun FogShell(
     // Real blur on (the backdrop is provided for every glass surface); pages animate only while current and the screen is started;
     // after eight quiet seconds the ambient motion slows down.
     CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides started, LocalIdle provides idle.value) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .semantics { testTagsAsResourceId = true }
-                .then(idle.observer),
-        ) {
-            FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND))
-            Column(Modifier.fillMaxSize()) {
-                Header(
-                    nav.tab,
-                    Modifier
-                        .testTag(Tags.SHELL_HEADER)
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
-                )
+    Box(
+        Modifier
+            .fillMaxSize()
+            .semantics { testTagsAsResourceId = true }
+            .then(idle.observer),
+    ) {
+        FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND))
+        val hidden = if (modalOverlay) Modifier.clearAndSetSemantics {} else Modifier
+        Column(Modifier.fillMaxSize().then(hidden)) {
+            Header(
+                nav.tab,
+                Modifier
+                    .testTag(Tags.SHELL_HEADER)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+            )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .testTag(Tags.SHELL_STAGE)
+                    .clipToBounds()
+                    .onGloballyPositioned { edge.stageTop = it.positionInRoot().y }
+                    .fadeAbove(edge),
+            ) {
+                CompositionLocalProvider(LocalPagePadding provides padding) {
+                    Pages(nav.tab) { tab ->
+                      // Only the current page animates; the one sliding out is already still.
+                      CompositionLocalProvider(LocalPageActive provides (started && tab == nav.tab)) {
+                        when {
+                            tab == ShellTab.LIBRARY -> LibraryPlaceholder()
+                            tab.needsDsh && !ready -> StatusPage(status, onRetry, onExportErrorLog)
+                            else -> page(tab)
+                        }
+                      }
+                    }
+                }
                 Box(
                     Modifier
-                        .weight(1f)
                         .fillMaxWidth()
-                        .testTag(Tags.SHELL_STAGE)
-                        .clipToBounds()
-                        .onGloballyPositioned { edge.stageTop = it.positionInRoot().y }
-                        .fadeAbove(edge),
-                ) {
-                    CompositionLocalProvider(LocalPagePadding provides padding) {
-                        Pages(nav.tab) { tab ->
-                            // Only the current page animates; the one sliding out is already still.
-                            CompositionLocalProvider(LocalPageActive provides (started && tab == nav.tab)) {
-                                when {
-                                    tab == ShellTab.LIBRARY -> LibraryPlaceholder()
-                                    tab.needsDsh && !ready -> StatusPage(status, onRetry, onExportErrorLog)
-                                    else -> page(tab)
-                                }
-                            }
-                        }
-                    }
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(TopFade)
-                            .background(Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .9f), Sakura.Background.copy(alpha = 0f)))),
-                    )
-                }
-            }
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                    .padding(start = FogDimens.DockSide, end = FogDimens.DockSide, bottom = 12.dp)
-                    .testTag(Tags.DOCK)
-                    .onSizeChanged { stackHeight = it.height }
-                    .onGloballyPositioned { edge.stackTop = it.positionInRoot().y },
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (showReconnecting) ReconnectingChip(Modifier.align(Alignment.CenterHorizontally))
-                if (attachMenu) {
-                    AttachMenu(
-                        onImage = { attachMenu = false; composer.onAttachImage() },
-                        onFile = { attachMenu = false; composer.onAttachFile() },
-                    )
-                }
-                Dock(
-                    composer = composer,
-                    enabled = composer.enabled && ready,
-                    tab = nav.tab,
-                    onSelect = nav::select,
-                    onToggleAttachMenu = { attachMenu = !attachMenu },
+                        .height(TopFade)
+                        .background(Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .9f), Sakura.Background.copy(alpha = 0f)))),
                 )
             }
-            overlay()
         }
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                .padding(start = FogDimens.DockSide, end = FogDimens.DockSide, bottom = 12.dp)
+                .then(hidden)
+                .testTag(Tags.DOCK)
+                .onSizeChanged { stackHeight = it.height }
+                .onGloballyPositioned { edge.stackTop = it.positionInRoot().y },
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (showReconnecting) ReconnectingChip(Modifier.align(Alignment.CenterHorizontally))
+            if (attachMenu) {
+                AttachMenu(
+                    onImage = { attachMenu = false; composer.onAttachImage() },
+                    onFile = { attachMenu = false; composer.onAttachFile() },
+                )
+            }
+            Dock(
+                composer = composer,
+                enabled = composer.enabled && ready,
+                tab = nav.tab,
+                onSelect = nav::select,
+                onToggleAttachMenu = { attachMenu = !attachMenu },
+            )
+        }
+        overlay()
+    }
     }
 }
 

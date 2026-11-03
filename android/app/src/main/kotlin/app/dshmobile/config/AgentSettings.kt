@@ -61,3 +61,14 @@ object AgentModels {
     fun resolve(id: String?, hasClaudeKey: Boolean): Model =
         available(hasClaudeKey).firstOrNull { it.id == id } ?: find(DEFAULT_MODEL)!!
 }
+
+/** The name shown for a model id; unknown ids are shown as they are. */
+fun AgentModels.displayName(id: String?): String? = when (id) {
+    null -> null
+    "deepseek-flash" -> "DeepSeek Flash"
+    "deepseek-v4-pro" -> "DeepSeek Pro"
+    "claude-sonnet-5-5" -> "Claude Sonnet"
+    "claude-opus-5-5" -> "Claude Opus"
+    "claude-haiku-5-5" -> "Claude Haiku"
+    else -> id
+}

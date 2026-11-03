@@ -146,4 +146,66 @@
     <string name="set_apply_done">已套用，DSH 已重新啟動</string>
     <string name="set_apply_failed">無法重新啟動 DSH，請查看錯誤記錄</string>
     <string name="set_apply_teams_later">Agent Teams 會在 DSH 下次啟動後生效。</string>
+
+    <string name="list_title">所有對話</string>
+    <string name="list_new">＋ 新對話</string>
+    <string name="list_close">關閉</string>
+    <string name="list_search_hint">搜尋對話</string>
+    <string name="list_empty">還沒有對話</string>
+    <string name="list_no_match">找不到符合的對話</string>
+    <string name="list_untitled">新對話</string>
+    <string name="list_running">進行中</string>
+    <string name="list_menu">更多</string>
+    <string name="list_rename">改名</string>
+    <string name="list_delete">刪除</string>
+    <string name="list_rename_title">改對話名稱</string>
+    <string name="list_rename_save">儲存</string>
+    <string name="list_cancel">取消</string>
+    <string name="list_delete_title">刪除這個對話？</string>
+    <string name="list_delete_body">對話會從清單移除，正在進行的工作也會停止。</string>
+    <string name="prompt_approval_label" translatable="false">APPROVAL</string>
+    <string name="prompt_question_label" translatable="false">QUESTION</string>
+    <string name="prompt_approval_title">dsh 想要執行 %1$s</string>
+    <string name="prompt_question_title">dsh 想問你</string>
+    <string name="prompt_origin">來自：%1$s</string>
+    <string name="prompt_more">還有 %1$d 個等你回覆</string>
+    <string name="prompt_allow_once">允許這一次</string>
+    <string name="prompt_reject">拒絕</string>
+    <string name="prompt_submit">送出</string>
+    <string name="prompt_decline">不回答</string>
+    <string name="prompt_error">沒有送出，請再試一次</string>
+    <string name="prompt_connecting">連線中…</string>
+
+    <string name="agents_title">代理人</string>
+    <string name="agents_meta">在跑 %1$d / 上限 %2$d</string>
+    <string name="agents_empty">目前沒有在跑的代理人</string>
+    <string name="agents_from">來自：%1$s</string>
+    <string name="agents_parent_untitled">新對話</string>
+    <string name="agents_running">執行中</string>
+    <string name="agents_finished">已結束</string>
+    <string name="agents_stop">叫它停</string>
+    <string name="agents_stopping">停止中…</string>
+    <string name="agents_stop_failed">沒能叫停，請再試一次</string>
+    <!-- Overview (Task 12) -->
+    <string name="overview_spend_title">API 花費</string>
+    <string name="overview_spend_meta">通知 US$%1$s</string>
+    <string name="overview_spent_today">今天花了</string>
+    <string name="overview_alert_line">/ %1$s USD 通知門檻</string>
+    <string name="overview_ring_desc">今日花費 US$%1$s</string>
+    <string name="overview_deepseek">DeepSeek</string>
+    <string name="overview_claude">Claude</string>
+    <string name="overview_month">這個月</string>
+    <string name="overview_agents_title">代理人</string>
+    <string name="overview_agents_rest">/ %1$d 在跑</string>
+    <string name="overview_heartbeat_title">心跳</string>
+    <string name="overview_heartbeat_rest">分鐘後整理記憶</string>
+    <string name="overview_heartbeat_none">尚未排程</string>
+    <string name="overview_remind_title">記憶提醒</string>
+    <string name="overview_remind_meta">%1$d 則</string>
+    <string name="overview_remind_empty">沒有新的提醒</string>
+    <string name="overview_recent_title">最近的對話</string>
+    <string name="overview_recent_empty">還沒有對話</string>
+    <string name="overview_recent_untitled">新對話</string>
+    <string name="overview_yesterday">昨天</string>
+    <string name="overview_unverified">目前的 dsh %1$s 未經這版 App 驗證，請到設定更新</string>
 </resources>

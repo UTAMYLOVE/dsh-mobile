@@ -113,3 +113,34 @@ Flake fixes complete: MuxConnectionTest closeWhileTheUpgradeIsStarting determini
 T4: fix round 1/5 (4 Important + 4 Minor addressed, 0 open; lane-t4 688ed19..686c191; re-review sonnet)
 T4: complete (lane-t4 bb2ba1b..686c191, review clean after 1 fix round) — merged; conflict resolved (ShellRemote : ChatRemote, duplicate DshRemote import); full unit suite + assembleDebug + assembleDebugAndroidTest green on the merge
 T4: minor (deferred): a conflated fast stop/restart with no screen may leave the old session until next attach; PageTop 8 dp < TopFade 12 dp (first row under a faint fade); settings guard also blocks during app-scope jobs; nav.openSession/back skip canLeave
+T6 dispatched (sonnet, wt-t1 lane-t6 from de1c788); T14 dispatched (sonnet, wt-t3 lane-t14 from de1c788; folds in T3 perf minors; adds buildSettingsEnv onEffectLevel ahead of T13)
+T6: implementer DONE_WITH_CONCERNS (lane-t6 de1c788..86d98f8, 784 unit); extras: IndexRemote.eventsClientId, tags SESSION_GROUP/SESSION_CLOSE/RENAME_CANCEL/DELETE_CANCEL; inline menus (no Dialog windows); archived/replace frame shapes assumed; review dispatched (sonnet)
+T6: review = spec ✅, quality Approved (sonnet), 0 Critical; reviewer's non-blocking "Important": status for an unknown session id dropped until next baseline; baseline-sync logic duplicated with WorkTracker
+- Ruling: debounced SessionTree.refresh() on a status for an unknown id, search debounce + stale-result guard (collectLatest), and midnight regrouping in Asia/Taipei are carried into the T8 dispatch (T8 wires the list into the chat page). A shared BaselineSync helper for SessionTree/WorkTracker is deferred to the final review triage.
+T6: complete (lane-t6 de1c788..86d98f8, review clean) — merged
+T8 dispatched (opus, wt-t1 lane-t8 from 41393f1; folds in T6 follow-ups + T5/T7 rulings); T10 dispatched (sonnet, wt-t7 lane-t10 from 41393f1)
+T10: implementer DONE (lane-t10 41393f1..eeb3f73, 805 unit; renders in scratchpad/t10-shots); deviations: promptOrigin isTopLevel param, Kotlin constant strings, 60% #FEDFE1 base under card gradient; TalkBack can still focus the dock under the scrim; review dispatched (sonnet)
+T10: review 1 = spec ✅, quality Approved-with-follow-up (sonnet) — Important: sheet not modal/announced for TalkBack (dsh-stuck anti-goal for accessibility users)
+- Ruling: TalkBack fix + theme error colour (not hard-coded) + 「連線中…」 line while waiting on a reconnecting mux go into fix round 1. The error red #B3261E stays (plan Global Constraints allow it as the only non-palette colour, for error text) — listed for the boss in the final rulings.
+T10: fix round 1/5 dispatched (resume implementer)
+T10: fix round 1/5 (1 Important + 2 Minor addressed, 0 open; eeb3f73..9a1f896; re-review haiku)
+T10: complete (lane-t10 41393f1..9a1f896, review clean after 1 fix round) — merged
+T10: minor (deferred): scrim focusable without label (hideFromAccessibility); whole card is a live region (narrow it if it re-announces on device); connecting derivation untested; import order nits
+T11: implementer DONE (lane-t11 b70babf..0189e17, 826 unit); extra failed-stop param; 停止中 has no timeout; finished rows uncapped; label formula doubles 子代理人 for unlabelled children; review dispatched (sonnet)
+T11: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
+- Ruling: Minor 1 (stop launched on rememberCoroutineScope is cancelled by leaving the tab) and the doubled 「子代理人」 label get a tiny round before merge; no timeout on 停止中 (reviewer: a timeout would mislead); finished rows uncapped for the simple version (stage 3 replaces the page).
+T11: minor (deferred): no "nothing running" line when only finished rows exist; error line not a live region; Column+verticalScroll composes every finished row
+T11: fix round 1/5 (2 addressed, 0 open; 0189e17..4806c40; re-review haiku)
+T11: complete (lane-t11 b70babf..4806c40, review clean) — merged
+T12: implementer DONE_WITH_CONCERNS (lane-t12 975e345..53814fa, 850 unit); no RED captured; unverifiedDshVersion stubbed until T13; month shows 2 decimals; heartbeat countdown can sit at 0 (WorkManager eligibility); review dispatched (sonnet)
+T12: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
+T12: complete (lane-t12 975e345..53814fa, review clean) — merged
+- Ruling: T12 Minor 1 (overview collector keeps ticking while the app is backgrounded) folds into T13's dispatch (collectAsStateWithLifecycle for the overview and settings collectors); Minor 2 (ReminderLog revision update outside lock, uncapped field lengths) and Minor 3 (EmptyPage flash) go to the final review triage.
+T12: minor (deferred): ReminderLog revision/field caps; EmptyPage flash on first frame; old store mid-day split mismatch (per brief); month 2 decimals (disclosed)
+T14: implementer DONE_WITH_CONCERNS (lane-t14 de1c788..2f36d93, 785 unit on its base); JankStats not exercised in Robolectric (frames fed via governorForTest); onEffectLevel added to buildSettingsEnv/SettingsEnv; LocalEffects provided in MainActivity's FogTheme; blur layers released off-screen (≤4 of 30); review dispatched (opus — perf-critical)
+T14: review = spec ✅, quality Approved (opus), 0 Critical/Important; merge note: FogShell conflicts with T10's modal `hidden` semantics (must be kept)
+- Ruling: Minors 1 (governor steps from max(cap, user floor), no no-op logs), 2 (observe effect locals unconditionally), 3 (CountUpText per-glyph cache), 6 (derivedStateOf for started), 7 (30-frame warm-up after start), 10 (toml back to CRLF, KDoc) plus merging main into lane-t14 (FogShell: keep T10 `hidden` in both places) go into one fix round — Why: lag is the owner's top complaint and each is small — Cost if wrong: one extra round.
+- Ruling: page-switch sweep line (T4 deferral that no task owns) → T15. Blur cap: chat bubbles are glass fill without backdrop blur (blur only for panels + dock) — decided for T8 review/T15 PerfGate to enforce.
+T14: fix round 1/5 dispatched (resume implementer a22b3ca67cf270533)
+T14: minor (deferred): boundsInWindow per scrolled frame; RenderEffect re-alloc at viewport edge; reduced-motion-on-resume untested; MainActivity FogTheme wiring mirrored in test
+T8: implementer DONE_WITH_CONCERNS (lane-t8 41393f1..a14fff7, 823 unit; shots scratchpad/t8-shots); review dispatched (opus)
