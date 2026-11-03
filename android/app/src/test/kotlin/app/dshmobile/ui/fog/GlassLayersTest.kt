@@ -22,6 +22,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.runBlocking
@@ -45,6 +49,7 @@ class GlassLayersTest {
     private var base = 0
 
     @Before fun enable() {
+        FogSemantics.exposeBlur = true
         FogDebug.enabled = true
         FogDebug.reset()
         base = BlurLayers.active
@@ -131,6 +136,131 @@ class GlassLayersTest {
         frames(3)
         assertEquals("a surface that leaves gives its layer back", 0, BlurLayers.active - base)
     }
+
+    /** Every blur layer re-blurs the background each frame: past [BlurLayers.MAX] a surface draws the no-blur fill instead. */
+    @Test fun noMoreThanFourBlurLayersLiveAtOnce() {
+        var count by mutableStateOf(6)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            view = LocalView.current
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                val backdrop = rememberBackdrop()
+                CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides false) {
+                    Box(Modifier.size(300.dp)) {
+                        FogBackground(backdrop)
+                        Column {
+                            repeat(count) { Box(Modifier.size(40.dp).glass(RoundedCornerShape(16.dp))) }
+                        }
+                    }
+                }
+            }
+        }
+        frames(3)
+        assertEquals("six surfaces on screen, four layers", BlurLayers.MAX, BlurLayers.active - base)
+        assertEquals("the rest report no blur", BlurLayers.MAX, blurFlags().count { it })
+        count = 5 // one with a layer leaves: one of the others takes the freed slot
+        frames(3)
+        assertEquals(BlurLayers.MAX, BlurLayers.active - base)
+        count = 3
+        frames(3)
+        assertEquals(3, BlurLayers.active - base)
+        assertEquals(3, blurFlags().count { it })
+    }
+
+    /** The dock is drawn after the page: at the cap it still blurs, taking a page panel's layer (that panel draws the plain fill). */
+    @Test fun theFloatingChromeOutranksPagePanelsAtTheCap() {
+        val floor = BlurFloor() // only pages get one (FogShell)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            view = LocalView.current
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                val backdrop = rememberBackdrop()
+                CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides false) {
+                    Box(Modifier.size(300.dp)) {
+                        FogBackground(backdrop)
+                        CompositionLocalProvider(LocalBlurFloor provides floor) {
+                            Column { repeat(5) { Box(Modifier.size(40.dp).glass(RoundedCornerShape(16.dp))) } }
+                        }
+                        Box(Modifier.offset(y = 250.dp).size(200.dp, 40.dp).testTag("dock").glass(RoundedCornerShape(30.dp)))
+                    }
+                }
+            }
+        }
+        frames(3)
+        assertEquals(BlurLayers.MAX, BlurLayers.active - base)
+        rule.onNodeWithTag("dock").assert(SemanticsMatcher.expectValue(FogSemantics.Blur, true))
+        assertEquals(BlurLayers.MAX, blurFlags().count { it })
+    }
+
+    /** A panel taller than the screen records only the part the window shows (a full-size layer can pass the GPU's texture limit). */
+    @Test fun aTallPanelRecordsOnlyWhatTheWindowShows() {
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            view = LocalView.current
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                val backdrop = rememberBackdrop()
+                CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides false) {
+                    Box(Modifier.size(300.dp)) {
+                        FogBackground(backdrop)
+                        Column(Modifier.size(300.dp).verticalScroll(scroll)) {
+                            Box(Modifier.fillMaxWidth().height(3_000.dp).glass(RoundedCornerShape(16.dp)))
+                        }
+                    }
+                }
+            }
+        }
+        frames(3)
+        val viewport = with(rule.density) { 300.dp.roundToPx() }
+        assertEquals(1, BlurLayers.active - base)
+        assertTrue("layer ${FogDebug.lastLayerSize} for a ${viewport}px viewport", FogDebug.lastLayerSize.height in 1..viewport + LayerSnapPx)
+        rule.runOnUiThread { runBlocking { scroll.scrollTo(4_000) } }
+        frames(3)
+        assertTrue("scrolled: layer ${FogDebug.lastLayerSize}", FogDebug.lastLayerSize.height in 1..viewport + 2 * LayerSnapPx)
+    }
+
+    /** What a page has under the floating dock is faded out there: it holds no layer, and a panel half under it records only the top. */
+    @Test fun glassBelowTheDockFloorHoldsNoLayer() {
+        val floor = BlurFloor()
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            view = LocalView.current
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                val backdrop = rememberBackdrop()
+                CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides false, LocalBlurFloor provides floor) {
+                    Box(Modifier.size(300.dp)) {
+                        FogBackground(backdrop)
+                        Box(Modifier.offset(y = 200.dp).fillMaxWidth().height(80.dp).glass(RoundedCornerShape(16.dp)))
+                    }
+                }
+            }
+        }
+        frames(3)
+        assertEquals("no floor: it blurs", 1, BlurLayers.active - base)
+        floor.y = with(rule.density) { 150.dp.toPx() }
+        frames(3)
+        assertEquals("all of it under the dock", 0, BlurLayers.active - base)
+        assertEquals(listOf(false), blurFlags())
+        floor.y = with(rule.density) { 220.dp.toPx() }
+        frames(3)
+        assertEquals(1, BlurLayers.active - base)
+        assertTrue("only the top 20 dp: ${FogDebug.lastLayerSize}", FogDebug.lastLayerSize.height <= with(rule.density) { 20.dp.roundToPx() } + LayerSnapPx)
+    }
+
+    /** Glass is a semantics node only so tests can read [FogSemantics.Blur]: with the flag off it adds no node of its own. */
+    @Test fun glassReportsBlurOnlyWhileTheTestFlagIsOn() {
+        FogSemantics.exposeBlur = false
+        try {
+            show(EffectLevel.FULL, panels = 2)
+            frames(2)
+            assertEquals(emptyList<Boolean>(), blurFlags())
+            assertEquals("it still blurs", 2, BlurLayers.active - base)
+        } finally {
+            FogSemantics.exposeBlur = true
+        }
+    }
+
+    private fun blurFlags(): List<Boolean> =
+        rule.onAllNodes(SemanticsMatcher.keyIsDefined(FogSemantics.Blur), useUnmergedTree = true).fetchSemanticsNodes().map { it.config[FogSemantics.Blur] }
 
     @Test fun debugCountersDoNothingUnlessSwitchedOn() {
         FogDebug.enabled = false

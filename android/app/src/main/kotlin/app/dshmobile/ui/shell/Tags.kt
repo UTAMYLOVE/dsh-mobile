@@ -16,6 +16,7 @@ object Tags {
     const val ATTACH_FILE = "attach-file"
     const val COMPOSER_HINT = "composer-hint"
     const val STATUS_PANEL = "status-panel"
+    const val STATUS_SPINNER = "status-spinner"
     const val RETRY = "status-retry"
     const val EXPORT_LOG = "status-export-log"
     const val RECONNECTING = "reconnecting"

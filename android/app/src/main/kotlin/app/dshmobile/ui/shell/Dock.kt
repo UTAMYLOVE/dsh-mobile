@@ -49,9 +49,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -114,6 +116,8 @@ internal fun Dock(
     Column(
         modifier
             .fillMaxWidth()
+            // A layer of its own: the pill's slide and the composer's caret re-record the dock, not the shell around it.
+            .graphicsLayer { }
             .glass(DockShape)
             .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
     ) {
@@ -366,7 +370,11 @@ private fun TabRow(selected: ShellTab, onSelect: (ShellTab) -> Unit) {
                         t.zh, color = if (on) Sakura.Text else Sakura.TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium,
                         letterSpacing = 0.08.em, maxLines = 1, overflow = TextOverflow.Clip,
                     )
-                    Text(t.en, style = FogText.Label.copy(fontSize = 9.sp, letterSpacing = 0.16.em), maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                    // Decoration: the tab reads as its Chinese name (the English line may clip at large font sizes on 360 dp).
+                    Text(
+                        t.en, style = FogText.Label.copy(fontSize = 9.sp, letterSpacing = 0.16.em), maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+                        modifier = Modifier.clearAndSetSemantics {},
+                    )
                 }
             }
         }

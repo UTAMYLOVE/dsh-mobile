@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -22,6 +23,8 @@ import app.dshmobile.ui.MainUiState
 import app.dshmobile.ui.fog.FogButton
 import app.dshmobile.ui.fog.FogButtonKind
 import app.dshmobile.ui.fog.FogPanel
+import app.dshmobile.ui.fog.LocalEffects
+import app.dshmobile.ui.fog.LocalPageActive
 import app.dshmobile.ui.theme.Sakura
 
 /**
@@ -39,7 +42,7 @@ fun StatusPanel(state: MainUiState, onRetry: () -> Unit, onExportErrorLog: () ->
     ) {
         when (state) {
             MainUiState.Loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                CircularProgressIndicator(Modifier.size(22.dp), color = Sakura.Primary, trackColor = Sakura.RoseBrown.copy(alpha = .14f), strokeWidth = 3.dp)
+                LoadingMark()
                 Text(stringResource(R.string.main_loading), color = Sakura.Text, fontSize = 15.sp)
             }
             MainUiState.Error -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -50,5 +53,21 @@ fun StatusPanel(state: MainUiState, onRetry: () -> Unit, onExportErrorLog: () ->
             }
             MainUiState.Ready -> Unit
         }
+    }
+}
+
+/**
+ * The spinner while dsh starts: it turns only where the effect level lets rings spin (and only on the current page), in a layer
+ * of its own so a frame of it never re-records the glass panel around it; otherwise a still quarter arc.
+ */
+@Composable
+private fun LoadingMark() {
+    val modifier = Modifier.size(22.dp).graphicsLayer { }.testTag(Tags.STATUS_SPINNER)
+    val color = Sakura.Primary
+    val track = Sakura.RoseBrown.copy(alpha = .14f)
+    if (LocalEffects.current.spin && LocalPageActive.current) {
+        CircularProgressIndicator(modifier, color = color, trackColor = track, strokeWidth = 3.dp)
+    } else {
+        CircularProgressIndicator(progress = { .25f }, modifier = modifier, color = color, trackColor = track, strokeWidth = 3.dp)
     }
 }

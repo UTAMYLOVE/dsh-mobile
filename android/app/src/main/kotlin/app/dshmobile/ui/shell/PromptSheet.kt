@@ -6,7 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +37,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
@@ -112,7 +117,11 @@ fun PromptSheet(
     val animate = LocalEffects.current.pageMs > 0
     val rise = remember { Animatable(if (animate) 1f else 0f) }
     val scrim = remember { Animatable(if (animate) 0f else 1f) }
+    val parking = remember { FocusRequester() }
     LaunchedEffect(Unit) {
+        // Whatever had the keyboard (the composer) lets go: focus parks on the scrim, so nothing typed lands under the card
+        // and the keyboard goes away. (A plain clearFocus would let the window hand focus straight back to the composer.)
+        runCatching { parking.requestFocus() }
         if (animate) {
             launch { scrim.animateTo(1f, tween(FogMotion.SCRIM_MS)) }
             rise.animateTo(0f, tween(FogMotion.SHEET_MS, easing = FogMotion.Spring))
@@ -122,14 +131,21 @@ fun PromptSheet(
     val selection = remember(prompt.eventId) { mutableStateMapOf<String, List<String>>() }
     val cardTitle = if (prompt is PendingPrompt.Approval) stringResource(R.string.prompt_approval_title, prompt.toolName) else stringResource(R.string.prompt_question_title)
     Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
-        // the scrim swallows every touch: the pages below are out of reach while dsh waits (a sibling of the card, so the
-        // card's own semantics are not merged into the scrim's click)
+        // The scrim swallows every touch: the pages below are out of reach while dsh waits. It is nothing to a screen reader
+        // (no unlabelled "button"; the shell hides the pages from it meanwhile), and its fade is read while drawing, so the
+        // 350 ms fade-in only redraws it.
         Box(
             Modifier
                 .fillMaxSize()
-                .semantics { traversalIndex = 1f } // after the card
-                .background(Sakura.Text.copy(alpha = .28f * scrim.value))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+                .clearAndSetSemantics {}
+                .focusRequester(parking)
+                .focusable()
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) awaitPointerEvent().changes.forEach { it.consume() }
+                    }
+                }
+                .drawBehind { drawRect(Sakura.Text.copy(alpha = .28f * scrim.value)) },
         )
         Column(
             Modifier

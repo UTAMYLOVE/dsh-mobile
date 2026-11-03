@@ -5,7 +5,14 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -48,8 +55,11 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import app.dshmobile.ui.theme.Sakura
+import kotlin.math.ceil
+import kotlin.math.floor
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -75,18 +85,78 @@ internal object FogDebug {
 
     /** The offset the glass last used to line the blurred backdrop up with the background (recorded only while [enabled]). */
     @Volatile var lastBackdropShift: Offset = Offset.Zero
+
+    /** The size of the blur layer a glass surface last recorded (recorded only while [enabled]). */
+    @Volatile var lastLayerSize: IntSize = IntSize.Zero
 }
 
-/** How many glass surfaces hold a blur layer right now: a layer exists only while its surface blurs and is on screen. */
+/**
+ * The glass surfaces that hold a blur layer right now: one exists only while its surface blurs and is on screen, and never more
+ * than [MAX] at once (each one re-blurs the background every frame it moves). A surface turned away at the cap draws the no-blur
+ * fill and is told to try again as soon as a layer is given back. The floating chrome (dock, attach menu, chip: glass outside a
+ * page) outranks the pages' glass: at the cap it takes the layer of a page surface, which then draws without blur until a
+ * layer frees up. Main thread only (drawing), apart from reading [active].
+ */
 internal object BlurLayers {
+    const val MAX = 4
+    private class Holder(val priority: Int, val evict: () -> Unit)
     private val live = AtomicInteger()
+    private val holders = LinkedHashMap<Any, Holder>()
+    private val waiting = LinkedHashMap<Any, () -> Unit>()
     val active: Int get() = live.get()
-    fun opened() { live.incrementAndGet() }
-    fun closed() { live.decrementAndGet() }
+
+    /**
+     * Takes a layer slot for [owner]. At the cap it takes the newest slot of a lower [priority] (that holder's [evict] gives
+     * its layer back), or answers false; then [retry] runs when a slot frees up.
+     */
+    fun open(owner: Any, priority: Int, retry: () -> Unit, evict: () -> Unit): Boolean {
+        if (live.get() >= MAX) {
+            val victim = holders.entries.lastOrNull { it.value.priority < priority }
+            if (victim == null) {
+                waiting[owner] = retry
+                return false
+            }
+            victim.value.evict() // gives its layer back through closed()
+        }
+        waiting.remove(owner)
+        holders[owner] = Holder(priority, evict)
+        live.incrementAndGet()
+        return true
+    }
+
+    fun closed(owner: Any) {
+        if (holders.remove(owner) == null) return
+        live.decrementAndGet()
+        // Everyone turned away may try again: the first to draw gets the slot, the others are turned away anew.
+        val retry = waiting.values.toList()
+        waiting.clear()
+        retry.forEach { it() }
+    }
+
+    /** [owner] waits for a slot (it was evicted). */
+    fun await(owner: Any, retry: () -> Unit) {
+        waiting[owner] = retry
+    }
+
+    fun forget(owner: Any) {
+        waiting.remove(owner)
+    }
 }
+
+/**
+ * Where, in the window, the floating dock begins: a page's glass is hidden below it (the page fades out there), so its blur is
+ * recorded only above. [FogShell][app.dshmobile.ui.shell.FogShell] provides it to the pages; null everywhere else.
+ */
+@Stable
+class BlurFloor {
+    var y by mutableFloatStateOf(Float.POSITIVE_INFINITY)
+}
+
+val LocalBlurFloor: ProvidableCompositionLocal<BlurFloor?> = staticCompositionLocalOf { null }
 
 /** A CSS blur of [blurPx] has a Gaussian sigma of blurPx / 2; BlurMaskFilter wants a radius, which Skia turns into 0.57735 * radius + 0.5. */
 internal fun cssBlurFilter(blurPx: Float): BlurMaskFilter {
+    FogDebug.count("maskFilter")
     val sigma = blurPx / 2f
     return BlurMaskFilter(((sigma - 0.5f) / 0.57735f).coerceAtLeast(0.1f), BlurMaskFilter.Blur.NORMAL)
 }
@@ -139,7 +209,7 @@ fun Modifier.glow(color: Color, blur: Dp, shape: Shape, dy: Dp = 0.dp, dx: Dp = 
  * Liquid glass, as in the mockup: optional blur of the background layer behind, a white gradient, a gradient rim, a lit top-left corner
  * and two soft shadows. Without blur (balanced / saver, or no [LocalBackdrop]) the white stops get 0.16 more alpha.
  */
-fun Modifier.glass(shape: Shape): Modifier = this then GlassElement(shape, settled = true)
+fun Modifier.glass(shape: Shape): Modifier = glass(shape, settled = true)
 
 /**
  * [glass] for a surface that a graphicsLayer moves or scales without relaying it out (a panel rising in): that never reaches
@@ -147,17 +217,23 @@ fun Modifier.glass(shape: Shape): Modifier = this then GlassElement(shape, settl
  * false the blur is only approximately placed (the surface is also mostly transparent then); the flip to true redraws it at its
  * final position, which is what keeps it locked to the background afterwards.
  */
-fun Modifier.glass(shape: Shape, settled: Boolean): Modifier = this then GlassElement(shape, settled)
+fun Modifier.glass(shape: Shape, settled: Boolean): Modifier =
+    this then if (FogSemantics.exposeBlur) GlassSemanticsElement(shape, settled) else GlassElement(shape, settled)
 
 private data class GlassElement(val shape: Shape, val settled: Boolean) : ModifierNodeElement<GlassNode>() {
     override fun create() = GlassNode(shape, settled)
-    override fun update(node: GlassNode) {
-        if (node.shape != shape || node.settled != settled) {
-            node.shape = shape
-            node.settled = settled
-            node.relock()
-        }
+    override fun update(node: GlassNode) = node.update(shape, settled)
+    override fun InspectorInfo.inspectableProperties() {
+        name = "glass"
+        properties["shape"] = shape
+        properties["settled"] = settled
     }
+}
+
+/** [GlassElement] that also tells tests whether it blurs ([FogSemantics.Blur]); only while [FogSemantics.exposeBlur]. */
+private data class GlassSemanticsElement(val shape: Shape, val settled: Boolean) : ModifierNodeElement<GlassSemanticsNode>() {
+    override fun create() = GlassSemanticsNode(shape, settled)
+    override fun update(node: GlassSemanticsNode) = node.update(shape, settled)
     override fun InspectorInfo.inspectableProperties() {
         name = "glass"
         properties["shape"] = shape
@@ -207,27 +283,57 @@ private class GlassCache(
     val tightShadow = fogShadowPaint(Sakura.RoseBrown.copy(alpha = .08f), 6f * density)
     val wideDy = 12f * density
     val tightDy = 2f * density
-    val intSize = IntSize(size.width.toInt(), size.height.toInt())
 }
 
-private class GlassNode(var shape: Shape, var settled: Boolean) :
-    Modifier.Node(), DrawModifierNode, SemanticsModifierNode, CompositionLocalConsumerModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode {
+private open class GlassNode(var shape: Shape, var settled: Boolean) :
+    Modifier.Node(), DrawModifierNode, CompositionLocalConsumerModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode {
     private var layer: GraphicsLayer? = null
     private var cache: GlassCache? = null
     private var effect: androidx.compose.ui.graphics.RenderEffect? = null
     private var effectRadius = -1f
     private var recordedShift: Offset? = null
-    private var recordedSize: IntSize? = null
+    private var recordedRect: IntRect? = null
     private var lastWindowPos: Offset? = null
-    /** Whether any of the surface is inside what its parents clip to the window (a panel scrolled away is not): it blurs only then. */
-    private var onScreen = true
+    /** What of the surface its parents let the window show (a panel scrolled away shows nothing), in window pixels. */
+    private var windowBounds: Rect? = null
+    /** Turned away by [BlurLayers.MAX]: drawn without blur until a layer is given back. */
+    private var denied = false
+    /** What the last draw did (null before the first): a change is re-reported. */
+    private var drewBlur: Boolean? = null
 
-    private fun blurs(): Boolean {
-        // Both locals are always read (before the onScreen check), so observeReads keeps watching them while the surface is off screen.
+    fun update(shape: Shape, settled: Boolean) {
+        if (this.shape != shape || this.settled != settled) {
+            this.shape = shape
+            this.settled = settled
+            relock()
+        }
+    }
+
+    /** The part of the surface the window shows above the floor (dock), in the surface's own pixels; null when nothing shows. */
+    private fun visibleRect(size: Size, floor: Float): Rect? {
+        val wb = windowBounds ?: return null
+        val pos = lastWindowPos ?: return null
+        val top = (wb.top - pos.y).coerceAtLeast(0f)
+        val bottom = (minOf(wb.bottom, floor) - pos.y).coerceAtMost(size.height)
+        val left = (wb.left - pos.x).coerceAtLeast(0f)
+        val right = (wb.right - pos.x).coerceAtMost(size.width)
+        return if (bottom > top && right > left) Rect(left, top, right, bottom) else null
+    }
+
+    /** Whether the surface wants to blur (the effects allow it, there is a backdrop, some of it shows); the cap is checked when drawing. */
+    private fun wantsBlur(size: Size?): Boolean {
+        // Every local is always read (before the visibility check), so observeReads keeps watching them while the surface is off screen.
         val effectsBlur = currentValueOf(LocalEffects).blur
         val hasBackdrop = currentValueOf(LocalBackdrop) != null
-        return effectsBlur && hasBackdrop && onScreen
+        val floor = currentValueOf(LocalBlurFloor)
+        val shows = windowBounds != null && (size == null || visibleRect(size, floor?.y ?: Float.POSITIVE_INFINITY) != null)
+        return effectsBlur && hasBackdrop && shows
     }
+
+    protected fun blurs(): Boolean = wantsBlur(cache?.size) && !denied
+
+    /** The blur state changed: [GlassSemanticsNode] re-reports it. */
+    protected open fun blurChanged() = Unit
 
     /** Draws the blurred backdrop afresh from the surface's current position. */
     fun relock() {
@@ -235,49 +341,56 @@ private class GlassNode(var shape: Shape, var settled: Boolean) :
         invalidateDraw()
     }
 
+    private val retry: () -> Unit = { if (isAttached) invalidateDraw() }
+
+    /** Another surface outranks this one at the cap: give the layer back and draw without blur until one frees up. */
+    private val evict: () -> Unit = {
+        releaseLayer()
+        denied = true
+        BlurLayers.await(this, retry)
+        invalidateDraw()
+    }
+
     private fun releaseLayer() {
         layer?.let {
             requireGraphicsContext().releaseGraphicsLayer(it)
-            BlurLayers.closed()
+            layer = null
+            BlurLayers.closed(this)
         }
-        layer = null
         effect = null
         effectRadius = -1f
         recordedShift = null
-        recordedSize = null
+        recordedRect = null
     }
 
     override fun onAttach() {
-        observeReads { blurs() }
+        observeReads { wantsBlur(null) }
     }
 
     override fun onDetach() {
         releaseLayer()
+        BlurLayers.forget(this)
+        denied = false
+        drewBlur = null
         cache = null
     }
 
     override fun onObservedReadsChanged() {
-        invalidateSemantics()
+        blurChanged()
         invalidateDraw()
-        observeReads { blurs() }
-    }
-
-    override fun SemanticsPropertyReceiver.applySemantics() {
-        set(FogSemantics.Blur, blurs())
+        observeReads { wantsBlur(null) }
     }
 
     /** The blurred backdrop has to stay locked to the background while the panel moves, so a new window position redraws it. */
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
-        val visible = coordinates.isAttached && coordinates.boundsInWindow().let { it.width > 0f && it.height > 0f }
-        if (visible != onScreen) {
-            onScreen = visible
-            invalidateSemantics()
-            invalidateDraw()
-        }
+        val bounds = coordinates.takeIf { it.isAttached }?.boundsInWindow()?.takeIf { it.width > 0f && it.height > 0f }
         val pos = coordinates.positionInWindow()
-        if (pos != lastWindowPos) {
+        if (bounds != windowBounds || pos != lastWindowPos) {
+            val wasShown = windowBounds != null
+            windowBounds = bounds
             lastWindowPos = pos
-            if (blurs()) {
+            if (wasShown != (bounds != null)) blurChanged()
+            if (wantsBlur(cache?.size) || layer != null) {
                 FogDebug.count("glass.moved")
                 invalidateDraw()
             }
@@ -294,16 +407,35 @@ private class GlassNode(var shape: Shape, var settled: Boolean) :
     override fun ContentDrawScope.draw() {
         FogDebug.count("glass.draw")
         val backdrop = currentValueOf(LocalBackdrop)
-        val blur = onScreen && currentValueOf(LocalEffects).blur && backdrop != null
+        val floorHolder = currentValueOf(LocalBlurFloor)
+        val floor = floorHolder?.y ?: Float.POSITIVE_INFINITY // a snapshot read: a moving dock redraws
+        val visible = visibleRect(size, floor)
+        // Glass in a page (it has a floor) gives way to the floating chrome at the cap.
+        val priority = if (floorHolder == null) 1 else 0
+        val wants = currentValueOf(LocalEffects).blur && backdrop != null && visible != null
+        val blur = when {
+            !wants -> {
+                // No blur (switched off, or scrolled off screen): give the layer back, so only what is seen holds one.
+                if (layer != null) releaseLayer()
+                BlurLayers.forget(this@GlassNode)
+                denied = false
+                false
+            }
+            layer != null -> true
+            BlurLayers.open(this@GlassNode, priority, retry, evict) -> { denied = false; true }
+            else -> { denied = true; false }
+        }
+        if (blur != drewBlur) {
+            drewBlur = blur
+            blurChanged() // turned away or let in at the cap, or the dock moved over it
+        }
         val c = cacheFor(this, lifted = !blur)
-        // No blur (switched off, or scrolled off screen): give the layer back, so only what is seen holds one.
-        if (!blur && layer != null) releaseLayer()
 
         drawShadow(c.path, c.wideShadow, c.wideDy)
         drawShadow(c.path, c.tightShadow, c.tightDy)
 
         clipPath(c.path) {
-            backdrop?.takeIf { blur }?.let { drawBlurredBackdrop(it, c) }
+            if (blur && backdrop != null && visible != null) drawBlurredBackdrop(backdrop, visible)
             drawRect(c.fill)
             c.highlight?.let { h ->
                 withTransform({ scale(1f, c.highlightSquash, pivot = Offset.Zero) }) { drawRect(h, size = c.highlightSize) }
@@ -324,29 +456,54 @@ private class GlassNode(var shape: Shape, var settled: Boolean) :
         }
     }
 
-    private fun DrawScope.drawBlurredBackdrop(backdrop: Backdrop, c: GlassCache) {
+    /**
+     * Records only the part of the background behind what shows of the surface ([visible], snapped outwards to [LayerSnapPx] so
+     * a slow scroll does not resize the layer every frame), never more than the window: a tall panel would otherwise ask for an
+     * offscreen layer bigger than the GPU allows.
+     */
+    private fun DrawScope.drawBlurredBackdrop(backdrop: Backdrop, visible: Rect) {
         val origin = backdrop.originInWindow() ?: return
         val mine = requireLayoutCoordinates().takeIf { it.isAttached }?.positionInWindow() ?: return
         val shift = origin - mine
         if (FogDebug.enabled) FogDebug.lastBackdropShift = shift
-        // Created only when blur is first needed.
-        val l = layer ?: requireGraphicsContext().createGraphicsLayer().also {
-            layer = it
-            BlurLayers.opened()
-        }
+        val l = layer ?: requireGraphicsContext().createGraphicsLayer().also { layer = it }
         val radius = GlassBlurRadius.toPx()
         if (effectRadius != radius) {
             effect = glassRenderEffect(radius)
             effectRadius = radius
             l.renderEffect = effect
         }
-        // The recorded list refers to the live backdrop layer, so it only has to be re-recorded when the offset or size changes.
-        if (recordedShift != shift || recordedSize != c.intSize) {
-            l.record(size = c.intSize) { translate(shift.x, shift.y) { drawLayer(backdrop.layer) } }
+        val rect = snapOut(visible, size)
+        if (rect.width <= 0 || rect.height <= 0) return
+        // The recorded list refers to the live backdrop layer, so it only has to be re-recorded when the offset or the shown part changes.
+        if (recordedShift != shift || recordedRect != rect) {
+            val layerSize = IntSize(rect.width, rect.height)
+            l.record(size = layerSize) { translate(shift.x - rect.left, shift.y - rect.top) { drawLayer(backdrop.layer) } }
             recordedShift = shift
-            recordedSize = c.intSize
+            recordedRect = rect
+            if (FogDebug.enabled) FogDebug.lastLayerSize = layerSize
         }
-        drawLayer(l)
+        translate(rect.left.toFloat(), rect.top.toFloat()) { drawLayer(l) }
+    }
+}
+
+/** How far the recorded part of a blur is rounded out, so scrolling resizes the layer once per this many pixels, not every frame. */
+internal const val LayerSnapPx = 64
+
+private fun snapOut(r: Rect, size: Size): IntRect {
+    val left = (floor(r.left / LayerSnapPx) * LayerSnapPx).toInt().coerceAtLeast(0)
+    val top = (floor(r.top / LayerSnapPx) * LayerSnapPx).toInt().coerceAtLeast(0)
+    val right = (ceil(r.right / LayerSnapPx) * LayerSnapPx).toInt().coerceAtMost(ceil(size.width).toInt())
+    val bottom = (ceil(r.bottom / LayerSnapPx) * LayerSnapPx).toInt().coerceAtMost(ceil(size.height).toInt())
+    return IntRect(left, top, right, bottom)
+}
+
+/** [GlassNode] that reports [FogSemantics.Blur]: a semantics node per glass surface, so only while tests ask for it. */
+private class GlassSemanticsNode(shape: Shape, settled: Boolean) : GlassNode(shape, settled), SemanticsModifierNode {
+    override fun blurChanged() = invalidateSemantics()
+
+    override fun SemanticsPropertyReceiver.applySemantics() {
+        set(FogSemantics.Blur, blurs())
     }
 }
 

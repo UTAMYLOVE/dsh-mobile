@@ -15,7 +15,16 @@ class EffectsTest {
     }
 
     @Test fun saverFadesAndStopsEverythingThatMoves() {
-        assertEquals(Effects(false, false, false, false, false, 200), effectsFor(EffectLevel.SAVER, false))
+        assertEquals(Effects(false, false, false, false, false, 200, perspectiveGrid = false), effectsFor(EffectLevel.SAVER, false))
+    }
+
+    /** SAVER is the safe mode: its grid is drawn flat (no 3D transform). The grid's shape is not motion: reduced motion keeps it. */
+    @Test fun onlySaverDrawsTheGridFlat() {
+        for (reduced in listOf(false, true)) {
+            assertTrue(effectsFor(EffectLevel.FULL, reduced).perspectiveGrid)
+            assertTrue(effectsFor(EffectLevel.BALANCED, reduced).perspectiveGrid)
+            assertFalse(effectsFor(EffectLevel.SAVER, reduced).perspectiveGrid)
+        }
     }
 
     @Test fun reducedMotionStopsAllMotionAtEveryLevel() {

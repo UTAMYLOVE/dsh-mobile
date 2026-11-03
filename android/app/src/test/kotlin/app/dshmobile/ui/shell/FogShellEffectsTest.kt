@@ -68,7 +68,7 @@ class FogShellEffectsTest {
     private fun show() = h.show(rule) { tab ->
         Column {
             HudRing(.5f, 80.dp, Modifier.testTag("ring-" + tab.name)) {}
-            Text(if (LocalIdle.current) "idle" else "busy", Modifier.testTag("idle-" + tab.name))
+            Text(if (LocalIdle.current.value) "idle" else "busy", Modifier.testTag("idle-" + tab.name))
             Text(if (LocalBackdrop.current != null) "backdrop" else "none", Modifier.testTag("backdrop-" + tab.name))
         }
     }
