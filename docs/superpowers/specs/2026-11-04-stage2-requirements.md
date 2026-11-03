@@ -1,0 +1,102 @@
+# Stage 2 (release 0.3.0) — owner requirements, collected 2026-11-03/04
+
+The owner (宇哥) said: 「你直接做下一版」 ("just build the next version"). One release covers everything below. Do not split it into small versions.
+
+## A. Bug fix (top priority)
+- On a real phone, 「套用並重啟」 (settings apply-and-restart) got stuck. After that, sends failed with `session/writer-held`.
+  - This is dsh's SessionAlreadyOwnedError: either an in-process writer, or an flock on session.lock held by a live process.
+  - Force-stopping the app fixed it, so a live process held the lock. Most likely the old dsh was still alive when the new one started.
+- An investigation report will be at docs/sdd-ledger/bug-writer-held.md. It may not exist yet; it is being written now.
+- Fix it:
+  - The restart must fully stop the old dsh process tree before starting a new one. It must also detect a leftover dsh on start.
+  - The UI must say clearly when a restart is stuck or failed, rather than spinning forever.
+  - Show the same send refusal only once, not in both the chat banner and the dock.
+
+## B. Chat box controls (next to the existing model chip)
+1. **思考強度 (thinking strength).**
+   - dsh supports `reasoningEffort` in `modelSelection` (`off` | `low` | `high` | `max`), set through session/selectModel (see docs/dsh-ui-protocol.md §modelSelection and the dsh source in scratchpad dsh-scratch).
+   - Show it per conversation, applied to the next turn, like the model chip.
+   - Show only the levels the selected model supports. The pi-ai `reasoningEfforts` catalog lists them.
+2. **重複審查幾次 (review rounds, N = 0…3).** The owner chose: 「另派審查員檢查 N 次」.
+   - After the reply is written, a separate reviewer subagent checks it and lists problems. The original agent then revises from that feedback. This repeats N times.
+   - Default is 0 (off).
+   - Implement without modifying official dsh. For example, the app adds a clear instruction to the prompt telling the lead agent to spawn a reviewer subagent with the dsh subagent tool and revise, N rounds. A dshm plugin tool is also an option if that is cleaner.
+   - Show progress, e.g. 「審查 1/2」.
+
+## C. Stats (「常用的數據都加進去」)
+- Under each assistant reply, a small line:
+  - tokens per second
+  - time to first token
+  - input, output and cache tokens
+  - cost (US$, from the app's PriceTable)
+  - duration
+- Next to the composer:
+  - a context-fill bar from contextPressure / request/context contextWindow, which changes colour when near full
+  - running totals for this conversation: tokens and cost
+- Overview additions, where data exists:
+  - per-model spend today and this month
+  - cache hit rate
+  - average tokens per second
+  - number of tool calls
+- Data sources:
+  - assistant/message `usage` and stream timing (chunk `time`)
+  - request/context {provider, model, contextWindow}
+  - projections: tokenUsage, contextPressure, sessionStats
+- Fix the PriceTable: Sonnet 5.5 cache read is US$0.20/M, not 0.10. Re-check every price against the current official list: Haiku 5.5 is 0.10/0.50 (≤100K prompt) and 0.50/2.50 above that; Opus 5.5 is 4/20; Sonnet 5.5 is 2/10; Fable 5.1 is 10/50.
+
+## D. Bookshelf and reading mode (spec §5.5, the original stage 2)
+- Character cards: reusable settings cards for characters, world and writing style. The owner writes them, or the AI helps tidy them. Stored in the workspace.
+- New book:
+  - Name the book, pick or create a character card, and pick the writing model (default: the novel model).
+  - This opens a dedicated conversation, with the card as its opening setup.
+  - One book is one conversation.
+- Chapters:
+  - The model's prose replies in that conversation become chapters automatically.
+  - The owner can mark a reply as 「不是章節」, or add one by hand.
+  - 「加入書架」 is available from any chat.
+- Reading mode: full-screen ebook view with font size, night mode, read %, and remembered position. 「下一章」 asks the model in that book's conversation to continue.
+- Bookshelf: covers (FOGCITY gradient plus title), chapter count and reading progress.
+- Everything is stored in the workspace and included in export.
+- Reading mode keeps background effects at minimum (spec §5.9).
+
+## E. Agent monitor wall, sci-fi FUI style (the owner wants it IN THIS VERSION)
+- **Correction from the owner: NOT a pixel office.** He wants the *idea* of the pixel-agent visualizers (see at a glance what every agent is doing), drawn in the sci-fi FUI style of his reference: docs/design-reference/agents-fui-reference.jpg, from Oblivion-like film UI. Quote: 「要科幻風…要帥 顏色一樣那幾個顏色」.
+- The reference has:
+  - a polygon radar or scope with a glowing marker;
+  - ring gauges with orbiting dots;
+  - small labelled numeric readouts, for example PARTICULATE 2048 or FLOW RATE 226;
+  - stacked bar meters;
+  - thin-line geometry and dense tabular numbers.
+- **Palette stays FOGCITY only:** #FEDFE1 #D7C4BB #DC9FB4 #FFFFFF #A5DEE4 #9E7A7A, ink #5E4445 / #7D5F60. Error red #B3261E is for error states only. Fonts are Orbitron for labels and numbers, Chakra Petch for text.
+- This is spec §5.6 (代理人監看牆):
+  - **Radar at the top.** The lead is at the centre. Subagents and teammates sit on rings by depth, with lines showing who dispatched whom. Colour shows state: aqua running, pink waiting, milk-tea done, dark rose-brown blinking for error.
+  - **Totals** for the current task: cost and tokens.
+  - **Wall of small "screens", one per agent.** Each shows its current action as a HUD glyph and label: 搜尋, 讀取, 撰寫, 派出, 詢問, 錯誤, 思考, 完成. It also shows the live last line of text being generated, plus elapsed time, cost and a token bar, styled as FUI readouts and ring gauges.
+  - **Tap an agent** for full steps, 傳話 (subagents/prompt) and 停止 (interruptByParent).
+  - **Agent Teams:** members, phase and task board, where dsh provides them.
+- Data:
+  - session/control projections: subagentTiming, tokenUsage, agentTeam, contextPressure;
+  - $events api-session/added, status and removed;
+  - the child's session/follow, for live text and tool calls.
+  - See docs/dsh-ui-protocol.md §4.
+- Keep a compact list toggle for accessibility. TalkBack users get the list.
+- Performance:
+  - Animate only when the tab is visible.
+  - Pause in the background.
+  - Respect the effect levels: SAVER means static.
+  - Respect reduced motion.
+  - Cap the number of live follows. Follow only visible screens, for example at most 6.
+
+## F. Deferred items folded into this release
+- Small screens, about 640 dp tall with the keyboard up: the rename/delete cards and the list are cramped, and a tap can land on the scrim. Fix the layout.
+- Let files created by bash or python be shared, not only write/edit outputs. For example, detect file paths in the workspace from tool results, or add a 「工作區檔案」 browser with share.
+- Finished subagents vanish from 代理人 because dsh removes them. Keep a short in-app history, for example the last 20 finished, so the pixel office can show 「完成」 for a while.
+- Triage the remaining deferred minors from docs/sdd-ledger/stage1-progress.md and include the cheap ones.
+
+## Constraints (unchanged red lines)
+- Do not modify official dsh source. Permissions stay exactly the spec's 9.
+- Keys live only in the Android Keystore. They are never given to dsh and never logged.
+- Conversation and usage upload stays off.
+- Use only the palette above. Fonts are Orbitron and Chakra Petch.
+- Performance target: no dropped frames at 120 Hz on S25 Ultra (412×915 dp). CI PerfGate stays advisory on the emulator.
+- The release goes through CI green on e2e. The owner tags it. The version is 0.3.0+5.
