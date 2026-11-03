@@ -393,6 +393,10 @@ class E2eTest {
             id = ui.newConversation()
             ui.send(FakeModel.HELLO)
             awaitBubble("reply")
+            // dsh names a new conversation itself (the fake model's "E2E title"); renaming before that lands would race it.
+            ui.await("dsh's own title for $id", 60_000, { listState() }) {
+                !app.shellSessions.current.value?.index?.rows?.value?.firstOrNull { it.id == id }?.title.isNullOrBlank()
+            }
             ui.tap(Tags.CHAT_LIST_BUTTON)
             ui.awaitInList(Tags.SESSION_LIST, Tags.SESSION_MENU + id, 60_000) { listState() }
             ui.tap(Tags.SESSION_MENU + id)
@@ -400,7 +404,9 @@ class E2eTest {
             ui.type(Tags.RENAME_FIELD, RENAMED)
             ui.tap(Tags.RENAME_SAVE)
             ui.hideKeyboard()
-            ui.await("the row titled $RENAMED", 60_000, { listState() }) { ui.textsOf(Tags.SESSION_ROW + id).any { it.contains(RENAMED) } }
+            ui.await("the row titled $RENAMED", 60_000, { listState() + "\nrow: ${ui.textsOf(Tags.SESSION_ROW + id)}" }) {
+                ui.textsOf(Tags.SESSION_ROW + id).any { it.contains(RENAMED) }
+            }
             ui.awaitInList(Tags.SESSION_LIST, Tags.SESSION_MENU + id, 30_000) { listState() }
             ui.tap(Tags.SESSION_MENU + id)
             ui.tap(Tags.DELETE)
@@ -424,11 +430,14 @@ class E2eTest {
     }
 
     /**
-     * A running subagent shows on the agents tab and its stop ends it. dsh's subagent tool returns to the parent at once (the child
-     * runs on); the stop goes through `subagents/interruptByParent`. Checked in two steps, so a failure says which side broke:
-     * dsh stops listing the child as running, then the app's row turns 「已結束」.
+     * A running subagent shows on the agents tab and its stop ends it. dsh 0.2.1-rc.5 facts (CI runs 41659088488, 41666809430
+     * and its source): the `subagent` tool returns to the parent at once while the child runs on; `session/list` does not list
+     * child sessions; and a child whose run ends is disposed (`session/disposed` → `api-session/removed`), so its row leaves the
+     * tab instead of staying as 「已結束」. Stopped therefore means: no stop button, and the row says 已結束 or is gone. The child's
+     * reply would take over a minute on its own, so ending within 30 s of the tap is the stop's doing.
      */
     @Test fun t19_theAgentsTabListsARunningSubagentAndStopsIt() = shell {
+        val before = FakeModel.instance.seen.size
         ui.newConversation()
         ui.send(FakeModel.SUB)
         ui.tap(Tags.TAB + ShellTab.AGENTS.name)
@@ -439,16 +448,17 @@ class E2eTest {
             if (id != null && ui.has(Tags.AGENT_STOP + id)) child = id
             child.isNotEmpty()
         }
+        val childStarted = FakeModel.instance.since(before).first { it.kind == FakeModel.Kind.CHILD }.at
         ui.tap(Tags.AGENT_STOP + child)
-        val client = loggedInClient()
-        ui.await("dsh to stop running $child (interruptByParent)", 30_000, { agentsState(child) + "\ndsh: ${dshRunning(client, child)}" }) {
-            dshRunning(client, child) != true
-        }
         val finished = app.getString(R.string.agents_finished)
-        ui.await("the row of $child to say 「$finished」", 30_000, { agentsState(child) }) {
-            !ui.has(Tags.AGENT_STOP + child) && agentStatus(child) == finished
+        ui.await("the child $child to stop (row 「$finished」 or gone)", 30_000, { agentsState(child) }) {
+            val agents = app.shellSessions.current.value!!.agents
+            !ui.has(Tags.AGENT_STOP + child) &&
+                agents.rows.value.none { it.childId == child && it.running } &&
+                (!ui.has(Tags.AGENT_ROW + child) || agentStatus(child) == finished)
         }
-        assertTrue("the stopped agent's row went away", ui.has(Tags.AGENT_ROW + child))
+        val ranMs = System.currentTimeMillis() - childStarted
+        assertTrue("the child ended ${ranMs / 1000} s after it started: on its own, not by the stop", ranMs < CHILD_ALONE_MS)
     }
 
     /** The overview shows today's spend (the fake model reports usage on every reply) and the conversation just used. */
@@ -615,19 +625,6 @@ class E2eTest {
     private fun backgroundAnimating(): Boolean? =
         ui.nodes(hasTestTag(Tags.SHELL_BACKGROUND), unmerged = true).firstOrNull()?.config?.getOrNull(FogSemantics.Animating)
 
-    /** A DshClient logged in to the running dsh, for checking what dsh itself says. */
-    private fun loggedInClient(): DshClient {
-        val running = runBlocking { app.controller.ensureRunning() }
-        return DshClient(http, running.launch).also { runBlocking { it.login() } }
-    }
-
-    /** `running` of [sessionId] in dsh's own `session/list` (null when dsh does not list it or says nothing). */
-    private fun dshRunning(client: DshClient, sessionId: String): Boolean? {
-        val items = rpc(client, "session/list", JSONObject().put("_request", JSONObject())).optJSONArray("items") ?: return null
-        val item = (0 until items.length()).mapNotNull { items.optJSONObject(it) }.firstOrNull { it.optString("sessionId") == sessionId }
-        return item?.takeIf { it.has("running") }?.optBoolean("running")
-    }
-
     /** For a failure message: the agents the app knows (no prompts or replies, only ids, labels and flags). */
     private fun agentsState(child: String): String {
         val agents = app.shellSessions.current.value?.agents ?: return "no session"
@@ -651,7 +648,7 @@ class E2eTest {
     /** For a failure message: the conversation list's rows as the app holds them, and the tags on screen. */
     private fun listState(): String {
         val rows = app.shellSessions.current.value?.index?.rows?.value ?: return "no session"
-        return "rows=${rows.take(12).map { "${it.id}@${it.updatedAt}" }} tags=${ui.nodes(hasTagPrefix(Tags.SESSION_ROW), unmerged = true).mapNotNull { it.tag() }}"
+        return "rows=${rows.take(12).map { "${it.id}@${it.updatedAt}:'${it.title.take(20)}'" }} tags=${ui.nodes(hasTagPrefix(Tags.SESSION_ROW), unmerged = true).mapNotNull { it.tag() }}"
     }
 
     /** The status the agents page gives the row of [child] (the dot beside the row's text says 執行中 or 已結束). */
@@ -833,6 +830,8 @@ class E2eTest {
         private const val PRO = "deepseek-v4-pro"
         private const val RENAMED = "E2E 改名"
         private const val FILE_CONTENT = "E2E-FILE-CONTENT"
+        /** E2E_CHILD's reply alone takes over a minute (FakeModel): a child gone sooner was stopped. */
+        private const val CHILD_ALONE_MS = 60_000L
         private val TAIPEI = ZoneId.of("Asia/Taipei")
 
         @AfterClass @JvmStatic fun releaseDsh() {

@@ -30,7 +30,15 @@ class FakeModel {
     enum class Kind { DREAM, SEARCH_BACKEND, TOOL_USE, FOLLOW_UP, HELLO, SLOW, LONG, SEARCH, APPROVE, ASK, SUB, CHILD, FILE, OTHER }
 
     /** One request the model got. [body] is for assertions only: [toString] leaves it out, so failure logs never carry it. */
-    data class Seen(val path: String, val kind: Kind, val apiKeyIsTheVaultKey: Boolean, val model: String?, val body: String) {
+    data class Seen(
+        val path: String,
+        val kind: Kind,
+        val apiKeyIsTheVaultKey: Boolean,
+        val model: String?,
+        val body: String,
+        /** When the request arrived (wall clock, ms). */
+        val at: Long = System.currentTimeMillis(),
+    ) {
         override fun toString(): String = "Seen($kind, $path, model=$model, vaultKey=$apiKeyIsTheVaultKey, ${body.length} bytes)"
     }
 
