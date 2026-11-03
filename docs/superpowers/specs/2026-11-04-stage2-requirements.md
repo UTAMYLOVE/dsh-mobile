@@ -241,3 +241,27 @@ Elements to adapt to our palette and our data:
    - dsh's workflow sandbox (bubblewrap or landlock style) is not available inside proot on Android.
    - Investigate in batch 2: is there a supported sandbox mode or config that works under proot, or a safe "no sandbox, owner approved" profile? Never weaken it silently.
    - Until then, show a clear explanation when a workflow can't run.
+
+## J. Automatic permission review (owner, 2026-11-04 03:40: 「多改一個權限自動審查 一直按允許會累」)
+- Clicking 允許 for every tool call is tiring.
+- dsh ships an official experimental layer, `@deepseek-ai/dsh-experimental-auto-review` ("Auto review"), which is off by default.
+  - It enables a per-session permission value `auto`.
+  - Before each tool call, the session's own model reviews the pending action:
+    - low-risk, project-local work is allowed and runs with Full access;
+    - medium/high-risk work is denied → it falls back to asking the owner (approval policy `ask`);
+    - sensitive exfiltration is always denied.
+  - Delegated children pin `never`.
+  - The extra review calls cost tokens.
+- Enabling the layer: add the bundle to the web profile, the same way `AgentConfigWriter.ensureAgentTeamsBundle` adds the agent-team bundle. dsh's README for this: `pnpm dsh plugin --profile web add`.
+- Selecting `auto` per session:
+  - Find the Remote that sets the session permission. The session projection `permissions.currentValue` folds `permission/preset`, `sandbox/mode` and `approval/policy`; the options come from `permissionPresets/catalog`.
+  - Check the dsh source: dsh-permission-presets and ui-permission-presets.
+- **UI.**
+  - A settings switch 「權限自動審查（實驗）」, with a plain-Chinese risk note.
+  - A per-conversation chip near the model chip: 手動／自動審查.
+  - Auto-review denials still show the glass approval card, with the reviewer's reason.
+  - The detailed status (G) shows 「自動審查中…」.
+- **Safety.**
+  - Off by default.
+  - Show the owner the risk text once when enabling.
+  - Never auto-approve outside dsh's own reviewer.
