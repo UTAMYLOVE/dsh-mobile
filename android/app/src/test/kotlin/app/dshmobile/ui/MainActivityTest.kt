@@ -1424,4 +1424,27 @@ class MainActivityTest {
     }
 
     private fun currentOf(opt: File): String = Files.readSymbolicLink(File(opt, "current").toPath()).fileName.toString()
+
+    // --- final review B2-I2: presence checks never decrypt ---
+
+    @Test fun enteringTheTabsNeverDecryptsAKey() {
+        completeSetup()
+        answerChatRpc()
+        val decrypts = java.util.concurrent.atomic.AtomicInteger()
+        swap("keyVault", object : KeyVault {
+            override fun get(p: Provider): String? { decrypts.incrementAndGet(); return "sk-test-key-0123456789" }
+            override fun has(p: Provider) = true
+            override fun put(p: Provider, key: String) = Unit
+            override fun clear(p: Provider) = Unit
+        })
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        val atStart = decrypts.get()
+        for (tab in listOf(ShellTab.CHAT, ShellTab.AGENTS, ShellTab.SETTINGS, ShellTab.OVERVIEW, ShellTab.CHAT)) {
+            activity.navForTest.select(tab)
+            compose.waitForIdle()
+            idleFor(200)
+        }
+        assertEquals("no decrypt for a tab", atStart, decrypts.get())
+    }
 }

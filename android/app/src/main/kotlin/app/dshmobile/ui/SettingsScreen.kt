@@ -135,9 +135,9 @@ class SettingsDraft(
     var exportMessage by mutableStateOf<String?>(null)
 
     companion object {
-        /** The stored values, as the screen shows them when nothing was edited yet (one vault read for the Claude key). */
+        /** The stored values, as the screen shows them when nothing was edited yet (a presence check for the Claude key, no decrypt). */
         fun from(env: SettingsEnv): SettingsDraft = SettingsDraft(
-            agent = env.store.load(env.phantomState(), env.vault.get(Provider.ANTHROPIC) != null),
+            agent = env.store.load(env.phantomState(), env.vault.has(Provider.ANTHROPIC)),
             alertText = formatUsd(env.meter.alertUsd),
             capEnabled = env.meter.hardCapUsd != null,
             capText = formatUsd(env.meter.hardCapUsd ?: BUDGET_DEFAULT_CAP),
@@ -173,9 +173,9 @@ fun SettingsScreen(
     // Leaving the screen is not possible while something runs (the jobs would survive it, but the user should see the result).
     BackHandler(enabled = busy) {}
 
-    // The vault reads below are one AES-GCM decrypt each (as at app start); everything that can block runs on IO.
-    var hasDeepseek by remember { mutableStateOf(env.vault.get(Provider.DEEPSEEK) != null) }
-    var hasClaude by remember { mutableStateOf(env.vault.get(Provider.ANTHROPIC) != null) }
+    // Presence checks only (no decrypt); everything that can block runs on IO.
+    var hasDeepseek by remember { mutableStateOf(env.vault.has(Provider.DEEPSEEK)) }
+    var hasClaude by remember { mutableStateOf(env.vault.has(Provider.ANTHROPIC)) }
     var editing by draft::editing
     var keyInput by draft::keyInput
     var keyError by draft::keyError

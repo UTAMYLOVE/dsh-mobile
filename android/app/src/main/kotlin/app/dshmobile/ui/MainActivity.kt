@@ -343,7 +343,7 @@ class MainActivity : ComponentActivity() {
                 ShellTab.AGENTS -> session?.let { sess ->
                     // The limit is the configured subagent cap; read when the tab is shown (changing it needs "apply and restart" anyway).
                     val limit = remember {
-                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
+                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.has(Provider.ANTHROPIC)).maxConcurrent
                     }
                     AgentsTab(sess.agents, sess.tree, sess.scope, limit, nav::openSession)
                 } ?: EmptyPage(tab)
@@ -361,7 +361,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun ChatTab(session: ShellSession) {
         val tab = nav.tab
-        val hasClaude = remember(tab) { app.keyVault.get(Provider.ANTHROPIC) != null }
+        val hasClaude = remember(tab) { app.keyVault.has(Provider.ANTHROPIC) }
         val lead = remember(tab, hasClaude) {
             app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).leadModel
         }

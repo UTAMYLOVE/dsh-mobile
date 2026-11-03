@@ -243,7 +243,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             meter = costMeter,
             reminders = reminderLog,
             agentsLimit = {
-                agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
+                agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), keyVault.has(Provider.ANTHROPIC)).maxConcurrent
             },
             heartbeatIntervalMin = { agentSettingsStore.heartbeatIntervalMin },
             nextHeartbeatAt = HeartbeatScheduler.nextRunAt(this),

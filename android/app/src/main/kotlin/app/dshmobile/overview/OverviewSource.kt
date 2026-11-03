@@ -6,6 +6,8 @@ import app.dshmobile.gateway.Provider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.time.Clock
@@ -62,23 +64,34 @@ class OverviewSource(
         }
     }
 
-    fun state(): Flow<OverviewState> = combine(
-        combine(meter.revision, reminders.revision, ticks()) { _, _, now -> now },
-        nextHeartbeatAt, agentsRunning, recent,
-    ) { now, next, running, rows ->
-        OverviewState(
-            deepseekUsd = meter.todayUsd(Provider.DEEPSEEK),
-            claudeUsd = meter.todayUsd(Provider.ANTHROPIC),
-            monthUsd = meter.monthUsd(),
-            alertUsd = meter.alertUsd,
-            agentsRunning = running,
-            agentsLimit = agentsLimit(),
-            nextHeartbeatAtMs = next,
-            heartbeatIntervalMin = heartbeatIntervalMin(),
-            nowMs = now,
-            reminders = reminders.recent(),
-            recent = rows,
-            unverifiedDsh = unverifiedDshVersion(),
+    /**
+     * The subagent limit (settings, the vault's presence check, a content-provider query) and the dsh version (a symbolic link)
+     * only change through "apply and restart" or an update, which happen elsewhere: they are read once per collection, not on
+     * every emission. A state equal to the last one is not sent again.
+     */
+    fun state(): Flow<OverviewState> = flow {
+        val limit = agentsLimit()
+        val unverified = unverifiedDshVersion()
+        emitAll(
+            combine(
+                combine(meter.revision, reminders.revision, ticks()) { _, _, now -> now },
+                nextHeartbeatAt, agentsRunning, recent,
+            ) { now, next, running, rows ->
+                OverviewState(
+                    deepseekUsd = meter.todayUsd(Provider.DEEPSEEK),
+                    claudeUsd = meter.todayUsd(Provider.ANTHROPIC),
+                    monthUsd = meter.monthUsd(),
+                    alertUsd = meter.alertUsd,
+                    agentsRunning = running,
+                    agentsLimit = limit,
+                    nextHeartbeatAtMs = next,
+                    heartbeatIntervalMin = heartbeatIntervalMin(),
+                    nowMs = now,
+                    reminders = reminders.recent(),
+                    recent = rows,
+                    unverifiedDsh = unverified,
+                )
+            },
         )
-    }.flowOn(context)
+    }.distinctUntilChanged().flowOn(context)
 }

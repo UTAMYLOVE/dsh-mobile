@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -89,5 +90,26 @@ class OverviewSourceTest {
             val later = src.state().first { it.claudeUsd > 0.0 && it.nowMs > first.nowMs }
             assertEquals(2.0, later.claudeUsd, 1e-9)
         }
+    }
+
+    /** Final review A minor: the limit (a vault and settings read) and the version link are read once per showing, and an unchanged state is not sent again. */
+    @Test fun theLimitAndVersionAreReadOncePerCollectionAndRepeatsAreDropped() = runBlocking {
+        var limits = 0
+        var versions = 0
+        val running = MutableStateFlow<Int?>(1)
+        val s = OverviewSource(meter, reminders, { limits++; 6 }, { 45 }, flowOf(null), running, flowOf(emptyList()), { versions++; null }, clock)
+        val seen = java.util.concurrent.CopyOnWriteArrayList<OverviewState>()
+        val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch { s.state().collect { seen += it } }
+        fun waitFor(n: Int) { val end = System.currentTimeMillis() + 5_000; while (seen.size < n && System.currentTimeMillis() < end) Thread.sleep(5) }
+        waitFor(1)
+        running.value = 2
+        waitFor(2)
+        running.value = 3
+        waitFor(3)
+        Thread.sleep(100)
+        job.cancel()
+        assertEquals(listOf<Int?>(1, 2, 3), seen.map { it.agentsRunning })
+        assertEquals(1, limits)
+        assertEquals(1, versions)
     }
 }
