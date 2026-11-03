@@ -36,3 +36,9 @@ Method: tests written first; RED = new tests run against the round-0 main source
 DshMobileApp.kt now has only: `workRemoteFactory` seam and the `uiHolder.stopService` work guard (activity counter removed). UiHolder.kt (ui/) got two small additions at the end of the class (`isForeground`, `onWorkEnded`); the coordinator ruled M1 through a uiHolder method, but note the possible merge overlap with Task 4.
 
 Full suite: 738 tests, 0 failures.
+
+## Merge flake
+
+`WorkTrackerTest > aSubagentRunningKeepsItBusyAfterTheLeadIsIdle` was a test race, not a WorkTracker bug. The tests waited for `muxState == OPEN`, which the fake has from construction, not for the first baseline. Events emitted before the baseline's `listSessions()` call were then overwritten by the (stale, fake) list answer. In production the list is taken after those events, so it is fresher and correct. Not reproducible in 6 isolated runs here; found by reading the ordering. Fix: the tests wait for `tracker.synced` (first baseline applied) before emitting. Proof: 20 consecutive green runs of WorkTrackerTest (test task cleaned each time).
+
+Full suite once: 744 tests, 1 failure in a different, unrelated test: `MuxConnectionTest.closeWhileTheUpgradeIsStartingCancelsTheNewSocket` (Task 2 code, not touched here); see the commit message reply for its status.
