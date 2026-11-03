@@ -141,4 +141,6 @@ object Tags {
     const val CONFIRM_WAIT = "confirm-wait"
     const val CONFIRM_GO = "confirm-go"
     const val VERIFIED_NOTE = "verified-note"
+    /** The chat's 「重新啟動 dsh」 next to the writer-held refusal. */
+    const val CHAT_RESTART_DSH = "chat-restart-dsh"
 }

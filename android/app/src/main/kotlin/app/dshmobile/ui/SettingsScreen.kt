@@ -119,6 +119,10 @@ class SettingsEnv(
     val effectiveLevel: StateFlow<app.dshmobile.ui.fog.EffectLevel> = effectLevel,
     /** Whether a conversation or subagent runs right now: apply, update and rollback stop dsh and would cut it off, so they ask. */
     val workRunning: () -> Boolean = { false },
+    /** dsh's detailed status (stage 2 §A/§G); null hides the status panel. */
+    val dshStatus: StateFlow<app.dshmobile.service.DshStatus>? = null,
+    /** Opens this app's page in Android's settings (the force-stop button lives there). */
+    val openAppSettings: () -> Unit = {},
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
@@ -320,12 +324,28 @@ fun SettingsScreen(
         }
     }
 
+    fun forceRestart() {
+        env.jobs.launch {
+            env.jobs.versionMessage.value = withContext(NonCancellable) {
+                try {
+                    if (!env.runtime.forceStop()) return@withContext context.getString(R.string.set_apply_failed)
+                    env.runtime.ensureRunning()
+                    null
+                } catch (_: Exception) {
+                    context.getString(R.string.set_apply_failed)
+                }
+            }
+        }
+    }
+
     fun restart() {
         if (busy) return
         env.jobs.launch {
             env.jobs.versionMessage.value = withContext(NonCancellable) {
                 try {
                     runCatching { env.supervise() }
+                    // A real restart (stage 2 §A): stop the whole tree first, then start; ensureRunning alone stopped nothing.
+                    env.runtime.stop()
                     env.runtime.ensureRunning()
                     null
                 } catch (_: Exception) {
@@ -441,6 +461,10 @@ fun SettingsScreen(
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text(stringResource(R.string.set_busy), style = MaterialTheme.typography.labelMedium)
                 }
+            }
+            env.dshStatus?.let { flow ->
+                val dshStatus by flow.collectAsStateWithLifecycle()
+                DshStatusView(dshStatus, onForceRestart = { forceRestart() }, onOpenAppSettings = env.openAppSettings)
             }
 
             Section(R.string.set_section_keys, R.string.set_en_keys, 0) {

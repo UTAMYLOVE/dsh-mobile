@@ -65,6 +65,10 @@ fun buildSettingsEnv(
         onEffectLevel = onEffectLevel,
         effectiveLevel = app.effectsController.effective,
         // Any session of the current dsh running, subagents included (they are in the same tree).
+        dshStatus = app.controller.status,
+        openAppSettings = {
+            activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", activity.packageName, null)))
+        },
         workRunning = { app.shellSessions.current.value?.tree?.state?.value?.summaries?.values?.any { it.running == true } == true },
     )
 }

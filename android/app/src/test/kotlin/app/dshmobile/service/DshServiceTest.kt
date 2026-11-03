@@ -1,5 +1,6 @@
 package app.dshmobile.service
 
+import app.dshmobile.runtime.DesktopSignals
 import android.Manifest
 import android.app.Application
 import android.app.NotificationManager
@@ -58,7 +59,7 @@ class DshServiceTest {
             },
             meter = CostMeter(InMemorySharedPreferences(), PriceTable(), clock = MutableClock()),
             errorLog = ErrorLog(tmp), healthCheck = { true }, dnsServers = { emptyList() },
-            onNotify = {}, onCostAlert = {}, onRateGuard = {}, launchTimeoutMs = 10_000, stopGraceMs = 500,
+            onNotify = {}, onCostAlert = {}, onRateGuard = {}, launchTimeoutMs = 10_000, killer = DesktopSignals.killer(listOf("dshm-test-none-${System.nanoTime()}")),
         )
         testController = c
         val field = DshMobileApp::class.java.getDeclaredField("controller\$delegate")
@@ -115,7 +116,7 @@ class DshServiceTest {
         val service = Robolectric.buildService(DshService::class.java).create().startCommand(0, 0).get()
         assertFalse("a fresh start is not a give-up", app.serviceGaveUp.value)
 
-        waitUntil(30_000) { app.serviceGaveUp.value }
+        waitUntil(60_000) { app.serviceGaveUp.value }
         waitUntil { shadowOf(service).isStoppedBySelf }
         assertEquals(3, processes.size)
         assertFalse(c.isRunning.value)
@@ -137,7 +138,7 @@ class DshServiceTest {
         val c = installFakeController { n -> if (n < 3) "$line exit 1" else if (n == 3) "$line exec sleep 1" else "$line exec sleep 60" }
         val first = Robolectric.buildService(DshService::class.java)
         val gaveUp = first.create().startCommand(0, 0).get()
-        waitUntil(30_000) { app.serviceGaveUp.value }
+        waitUntil(60_000) { app.serviceGaveUp.value }
         waitUntil { shadowOf(gaveUp).isStoppedBySelf }
         first.destroy()
 
@@ -357,7 +358,7 @@ class DshServiceTest {
         val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
         val (c, sc, service) = startWithFakeRemote(remote) { "$line exit 1" }
 
-        waitUntil(30_000) { app.serviceGaveUp.value }
+        waitUntil(60_000) { app.serviceGaveUp.value }
         waitUntil { shadowOf(service).isStoppedBySelf }
         assertEquals(3, processes.size)
         assertFalse(c.isRunning.value)

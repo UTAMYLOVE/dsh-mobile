@@ -716,8 +716,8 @@ class SettingsScreenTest {
         waitForText("switching back to 0.2.0 failed")
         rule.onNodeWithText(str(R.string.set_dsh_stopped)).assertExists()
         clickAndWait("restart")
-        waitFor { runtime.events.toList() == listOf("supervise", "ensureRunning") }
-        assertFalse(runtime.events.contains("stop"))
+        // Stage 2 §A: 「重新啟動」 really restarts — the whole old tree is stopped before the start.
+        waitFor { runtime.events.toList() == listOf("supervise", "stop", "ensureRunning") }
     }
 
     @Test fun rollbackRunsAndReportsTheVersion() {

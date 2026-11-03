@@ -9,6 +9,9 @@ import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshLaunchLine
 import app.dshmobile.runtime.GuestNetworkFiles
 import app.dshmobile.runtime.LaunchUrl
+import app.dshmobile.runtime.ProcId
+import app.dshmobile.runtime.ProcessTreeKiller
+import app.dshmobile.runtime.StopReport
 import app.dshmobile.security.KeyVault
 import app.dshmobile.security.SessionToken
 import kotlinx.coroutines.CancellationException
@@ -16,6 +19,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -43,8 +48,18 @@ data class RunningDsh(val dshPort: Int, val gatewayPort: Int, val token: Session
 
 /** What `DshVersions` needs from the controller when it swaps versions (lets tests substitute a fake). */
 interface DshRuntime {
+    /** Ends dsh's whole process tree; a tree that cannot be ended is logged and blocks the next start (see [DshController]). */
     fun stop()
     suspend fun ensureRunning(): RunningDsh
+
+    /**
+     * The hard stop behind 「強制結束 dsh 並重啟」: [stop], then every leftover dsh process of this app is ended too. True when
+     * nothing of an old dsh is left.
+     */
+    fun forceStop(): Boolean {
+        stop()
+        return true
+    }
 }
 
 /** [ensureRunning] found no installed rootfs. Not a crash: starting again cannot help until the rootfs is installed. */
@@ -92,12 +107,21 @@ class DshController(
      */
     private val afterHealthy: suspend (LaunchUrl) -> Unit = {},
     private val launchTimeoutMs: Long = 60_000,
-    private val stopGraceMs: Long = 2_000,
+    /**
+     * Ends process trees for real (proot ignores the SIGTERM that `Process.destroy()` sends on Android) and sweeps leftover dsh
+     * processes before every start. Production: signals through `android.system.Os`, `/proc` for the tree.
+     */
+    private val killer: ProcessTreeKiller,
+    /** proot's pid from its [Process] (production: [ProcessTreeKiller.pidOf]). */
+    private val pidOf: (Process) -> Int? = ProcessTreeKiller::pidOf,
+    private val clock: () -> Long = ::monotonicMs,
 ) : DshHolderRuntime {
-    private class Run(val process: Process, val gateway: LocalGateway, val patch: File) {
+    private class Run(val process: Process, val pid: Int?, val gateway: LocalGateway, val patch: File) {
         @Volatile var info: RunningDsh? = null
         var tornDown = false // guarded by the run itself
         @Volatile var stopRequested = false
+        /** Completed when a stop begins: a start waiting on dsh (health check, workspace) gives up at once. */
+        val stopSignal = CompletableDeferred<Unit>()
         /** The exit code once the process has ended (set by the exit watcher, under stateLock); null while it runs. */
         var exitCode: Int? = null
         val launched = CompletableDeferred<LaunchUrl>()
@@ -113,8 +137,24 @@ class DshController(
     private var stopPending = false // a stop() that arrived while a start had not published its Run yet; guarded by stateLock
     private val exitListeners = CopyOnWriteArrayList<(Int) -> Unit>()
     private val _isRunning = MutableStateFlow(false)
+    /** Processes of an old dsh that a stop could not end; no start happens while one of them lives. Guarded by stateLock. */
+    private val lingering = ArrayList<ProcId>()
+    private val _status = MutableStateFlow(DshStatus(DshPhase.STOPPED, clock()))
 
     val isRunning: StateFlow<Boolean> = _isRunning
+
+    /** The detailed phase (stage 2 §G): what dsh is doing, since when, what it waits on, and the last failure. */
+    val status: StateFlow<DshStatus> = _status
+
+    private fun setStatus(phase: DshPhase, port: Int? = null, remaining: Int = 0, failure: DshFailure? = _status.value.failure) {
+        val leftover = synchronized(stateLock) { lingering.size }
+        _status.value = DshStatus(phase, if (phase == _status.value.phase) _status.value.sinceMs else clock(), port, remaining, leftover, failure)
+    }
+
+    private fun updateRemaining(phase: DshPhase, remaining: Int) {
+        val s = _status.value
+        if (s.phase == phase) _status.value = s.copy(remaining = remaining)
+    }
 
     /** Read-only snapshot of who currently holds dsh (see [retain]). */
     val holders: Set<String> get() = synchronized(stateLock) { holderSet.toSet() }
@@ -122,13 +162,61 @@ class DshController(
     override suspend fun ensureRunning(): RunningDsh = startLock.withLock {
         runningInfo()?.let { return it }
         synchronized(stateLock) { current }?.let { teardown(it) } // a dead leftover
-        if (!isRootfsInstalled()) throw RootfsNotInstalledException()
+        if (!isRootfsInstalled()) {
+            setStatus(DshPhase.STOPPED, failure = DshFailure(DshPhase.STARTING, DshFailReason.ROOTFS_MISSING))
+            throw RootfsNotInstalledException()
+        }
         synchronized(stateLock) { starting = true; stopPending = false }
         try {
-            withContext(Dispatchers.IO) { start() }
+            withContext(Dispatchers.IO) {
+                val t0 = clock()
+                sweepBeforeStart()
+                start(clock() - t0)
+            }
         } finally {
             synchronized(stateLock) { starting = false; stopPending = false }
         }
+    }
+
+    /**
+     * Ends every leftover dsh process this app did not start through a live run, plus what an earlier stop could not end. A
+     * leftover that survives refuses the start ([DshStillRunningException]): a second dsh must never run on top of an old one,
+     * which would still hold its sessions' locks (bug-writer-held).
+     */
+    private fun sweepBeforeStart() {
+        val before = synchronized(stateLock) { lingering.toList() }
+        setStatus(DshPhase.SWEEPING, remaining = before.size, failure = null)
+        val report = killer.sweep(lingering = before) { updateRemaining(DshPhase.SWEEPING, it) }
+        if (report.found > 0) errorLog.append("controller", "swept stray dsh: ${report.describe()}")
+        synchronized(stateLock) {
+            lingering.clear()
+            lingering.addAll(report.survivors)
+        }
+        if (!report.stopped) {
+            val n = report.survivors.size
+            errorLog.append("controller", "start refused: $n old dsh processes are still alive")
+            setStatus(DshPhase.STOPPED, failure = DshFailure(DshPhase.SWEEPING, DshFailReason.STILL_RUNNING, n))
+            throw DshStillRunningException(n)
+        }
+    }
+
+    override fun forceStop(): Boolean {
+        stop()
+        val before = synchronized(stateLock) { lingering.toList() }
+        // A start in flight has its own run, which stop() ended; the sweep must not race a start that is about to launch.
+        val report = killer.sweep(keep = synchronized(stateLock) { current }?.pid?.let(::setOf).orEmpty(), lingering = before) {
+            updateRemaining(DshPhase.SWEEPING, it)
+        }
+        errorLog.append("controller", "force stop: ${report.describe()}")
+        synchronized(stateLock) {
+            lingering.clear()
+            lingering.addAll(report.survivors)
+        }
+        val n = report.survivors.size
+        if (_status.value.phase == DshPhase.STOPPED || n > 0) {
+            setStatus(DshPhase.STOPPED, failure = if (n > 0) DshFailure(DshPhase.STOPPING, DshFailReason.STILL_RUNNING, n) else null)
+        }
+        return report.stopped
     }
 
     /** Ends dsh and the gateway, whoever holds it. Safe to call at any time, any number of times, also while a start is under way. */
@@ -177,7 +265,7 @@ class DshController(
     private fun runningInfo(): RunningDsh? =
         synchronized(stateLock) { current }?.takeIf { it.process.isAlive && !it.stopRequested }?.info
 
-    private suspend fun start(): RunningDsh {
+    private suspend fun start(sweepMs: Long): RunningDsh {
         File(filesDir, "rootfs.old").deleteRecursively()
         val token = SessionToken.generate()
         errorLog.addSecret(token.value)
@@ -188,13 +276,22 @@ class DshController(
         val gatewayPort = gateway.start()
         var run: Run? = null
         val patchFile = File(rootfs, PATCH_PATH)
+        var phase = DshPhase.STARTING
+        val t0 = clock()
+        var tLaunch = 0L
+        var tHealth = 0L
         try {
+            setStatus(DshPhase.STARTING, failure = null)
             val gatewayBase = "http://127.0.0.1:$gatewayPort/${token.value}"
             GuestNetworkFiles.write(rootfs, dnsServers())
             beforeLaunch()
             val patch = writePatch(patchProvider(gatewayBase))
-            val process = launcher.start(guestEnv(gatewayBase), DSH_ARGS)
-            run = Run(process, gateway, patch)
+            val process = try {
+                launcher.start(guestEnv(gatewayBase), DSH_ARGS)
+            } catch (e: IOException) {
+                throw LaunchFailed(e)
+            }
+            run = Run(process, pidOf(process), gateway, patch)
             val cancelled = synchronized(stateLock) {
                 current = run
                 stopPending.also { if (it) run.stopRequested = true }
@@ -203,10 +300,16 @@ class DshController(
             watch(run)
 
             val launch = withTimeoutOrNull(launchTimeoutMs) { run.launched.await() }
-                ?: throw IllegalStateException("dsh did not print its launch line within $launchTimeoutMs ms")
-            if (!healthCheck(launch)) throw IllegalStateException("dsh health check failed")
+                ?: throw LaunchTimeout(launchTimeoutMs)
+            tLaunch = clock() - t0
+            phase = DshPhase.HEALTH_CHECK
+            setStatus(DshPhase.HEALTH_CHECK, port = launch.port)
+            if (!untilStopped(run) { healthCheck(launch) }) throw HealthFailed()
+            tHealth = clock() - t0 - tLaunch
+            phase = DshPhase.REGISTERING
+            setStatus(DshPhase.REGISTERING, port = launch.port)
             try {
-                afterHealthy(launch)
+                untilStopped(run) { afterHealthy(launch) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -217,14 +320,22 @@ class DshController(
                 // A stop() that raced with this start wins: nothing is published for a dsh somebody asked to end.
                 if (stopPending || run.stopRequested) throw CancellationException("dsh start cancelled by stop()")
                 // Died after its launch line while being checked: the exit watcher saw no published run, so the start reports it.
-                run.exitCode?.let { throw IllegalStateException("dsh exited with code $it before it was ready") }
+                run.exitCode?.let { throw ExitedEarly(it) }
                 run.info = info
                 _isRunning.value = true
             }
+            val total = clock() - t0
+            setStatus(DshPhase.RUNNING, port = launch.port, failure = null)
+            errorLog.append(
+                "controller",
+                "dsh started in ${sweepMs + total} ms (sweep $sweepMs ms, launch line $tLaunch ms, health $tHealth ms, " +
+                    "workspace ${total - tLaunch - tHealth} ms) pid=${run.pid ?: "?"}",
+            )
             return info
         } catch (t: Throwable) {
             val stopped = run?.stopRequested == true
-            if (t !is CancellationException && !stopped) errorLog.append("controller", "start failed: ${t.message}")
+            val failure = if (t is CancellationException || stopped) null else failureOf(phase, t)
+            if (failure != null) errorLog.append("controller", "start failed: ${t.message} (step ${failure.step}, after ${clock() - t0} ms)")
             if (run != null) {
                 run.stopRequested = true
                 teardown(run)
@@ -232,8 +343,43 @@ class DshController(
                 gateway.stop()
                 patchFile.delete() // the launcher failed after the patch (with the session token in it) was written
             }
+            setStatus(DshPhase.STOPPED, failure = failure ?: _status.value.failure)
             // stop() made the launch fail on purpose: report it as the cancellation it is, not as a crash.
-            throw if (stopped && t !is CancellationException) CancellationException("dsh start cancelled by stop()").also { it.initCause(t) } else t
+            val original = (t as? LaunchFailed)?.cause ?: t
+            throw if (stopped && t !is CancellationException) CancellationException("dsh start cancelled by stop()").also { it.initCause(original) } else original
+        }
+    }
+
+    private class LaunchFailed(cause: IOException) : IOException(cause.message, cause)
+    private class LaunchTimeout(val ms: Long) : IllegalStateException("dsh did not print its launch line within $ms ms")
+    private class HealthFailed : IllegalStateException("dsh health check failed")
+    private class ExitedEarly(val code: Int) : IllegalStateException("dsh exited with code $code before it was ready")
+
+    private fun failureOf(phase: DshPhase, t: Throwable): DshFailure {
+        val exited = (t as? ExitedEarly)?.code
+            ?: Regex("""exited with code (-?\d+) before it was ready""").find(t.message.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
+        return when {
+            t is LaunchFailed -> DshFailure(DshPhase.STARTING, DshFailReason.LAUNCH_ERROR)
+            t is LaunchTimeout -> DshFailure(DshPhase.STARTING, DshFailReason.LAUNCH_TIMEOUT, (t.ms / 1000).toInt())
+            t is HealthFailed -> DshFailure(DshPhase.HEALTH_CHECK, DshFailReason.HEALTH_FAILED)
+            exited != null -> DshFailure(phase, DshFailReason.EXITED_EARLY, exited)
+            else -> DshFailure(phase, DshFailReason.OTHER)
+        }
+    }
+
+    /** Runs [block] (a wait on dsh) but gives up as soon as a stop of [run] begins: a force restart never waits it out. */
+    private suspend fun <T> untilStopped(run: Run, block: suspend () -> T): T = coroutineScope {
+        val work = async { block() }
+        val watcher = launch {
+            run.stopSignal.await()
+            work.cancel()
+        }
+        try {
+            work.await()
+        } catch (e: CancellationException) {
+            if (run.stopSignal.isCompleted) throw CancellationException("dsh start cancelled by stop()") else throw e
+        } finally {
+            watcher.cancel()
         }
     }
 
@@ -281,30 +427,56 @@ class DshController(
         synchronized(run) { tearDownLocked(run) }
     }
 
+    /**
+     * Ends the run's whole process tree through [killer]: SIGTERM to node, SIGQUIT to proot, SIGKILL to what is left, bounded
+     * (bug-writer-held: `destroy()` only sends SIGTERM, which proot ignores). A tree that survives is logged as a failed stop and
+     * remembered: the next start sweeps it again and refuses to launch while it lives.
+     */
     private fun tearDownLocked(run: Run) {
         if (run.tornDown) return
         run.tornDown = true
-        synchronized(stateLock) {
-            if (current === run) {
-                current = null
-                _isRunning.value = false
+        if (run.stopRequested) run.stopSignal.complete(Unit)
+        val wasCurrent = synchronized(stateLock) {
+            (current === run).also {
+                if (it) {
+                    current = null
+                    _isRunning.value = false
+                }
             }
         }
-        // An already dead process is left alone: destroy() would close its pipes before the readers have logged its last words.
+        // An already dead process is left alone: signals would close its pipes before the readers have logged its last words.
+        // Whatever it left behind (an orphaned node) is the next start's sweep's to end.
         if (run.process.isAlive) {
-            run.process.destroy()
+            if (wasCurrent) setStatus(DshPhase.STOPPING, failure = null)
+            val report = stopTree(run)
+            if (report.stopped) {
+                errorLog.append("controller", "stopped dsh pid=${run.pid ?: "?"}: ${report.describe()}")
+            } else {
+                synchronized(stateLock) { report.survivors.forEach { if (it !in lingering) lingering.add(it) } }
+                errorLog.append("controller", "stop FAILED pid=${run.pid ?: "?"}: ${report.describe()}")
+            }
             try {
-                if (!run.process.waitFor(stopGraceMs, TimeUnit.MILLISECONDS)) {
-                    run.process.destroyForcibly()
-                    run.process.waitFor(stopGraceMs, TimeUnit.MILLISECONDS)
-                }
-            } catch (e: InterruptedException) {
-                run.process.destroyForcibly()
+                run.process.waitFor(REAP_MS, TimeUnit.MILLISECONDS) // the JVM reaps it; its readers end with it
+            } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             }
+            if (wasCurrent) {
+                val n = report.survivors.size
+                setStatus(DshPhase.STOPPED, failure = if (n > 0) DshFailure(DshPhase.STOPPING, DshFailReason.STILL_RUNNING, n) else null)
+            }
+        } else if (wasCurrent) {
+            setStatus(DshPhase.STOPPED)
         }
         run.gateway.stop()
         run.patch.delete() // holds the gateway URL with the session token
+    }
+
+    private fun stopTree(run: Run): StopReport {
+        val pid = run.pid
+        if (pid != null) return killer.stopTree(pid) { updateRemaining(DshPhase.STOPPING, it) }
+        // No pid (an unknown Process implementation): every dsh process of this app that no run of ours tracks goes.
+        run.process.destroy()
+        return killer.sweep { updateRemaining(DshPhase.STOPPING, it) }
     }
 
     /** Owner-only, created fresh (an existing file or link at that path is removed, never written through). */
@@ -346,6 +518,10 @@ class DshController(
             "--no-open", "--host", "127.0.0.1", "--port", "0",
         )
 
+        /** What makes a process a leftover dsh for the sweep: proot (`libproot.so`) and dsh's own entry point. */
+        val SWEEP_MARKERS = listOf("libproot.so", "@deepseek-ai/dsh/lib/bin.js")
+
+        private const val REAP_MS = 1_000L
         private const val PATCH_PATH = "opt/dshm/dshm.cordis.yml"
         private const val FAKE_KEY = "dshm-proxy"
         private const val LOG_TAG = "dsh"

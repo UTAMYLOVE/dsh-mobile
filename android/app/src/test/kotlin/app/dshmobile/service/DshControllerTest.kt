@@ -6,7 +6,12 @@ import app.dshmobile.gateway.MutableClock
 import app.dshmobile.gateway.PriceTable
 import app.dshmobile.gateway.Provider
 import app.dshmobile.log.ErrorLog
+import app.dshmobile.runtime.DesktopSignals
+import app.dshmobile.runtime.FakeProc
 import app.dshmobile.runtime.LaunchUrl
+import app.dshmobile.runtime.ProcessTreeKiller
+import app.dshmobile.runtime.Sig
+import kotlinx.coroutines.awaitCancellation
 import app.dshmobile.security.KeyVault
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +54,7 @@ class DshControllerTest {
     private var script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 30"""
     private var healthy = true
     private var duringHealthCheck: () -> Unit = {}
+    private var healthWait: suspend () -> Unit = {}
     private val healthChecked = CopyOnWriteArrayList<LaunchUrl>()
     private var launchTimeoutMs = 10_000L
     private var beforeLaunch: () -> Unit = {}
@@ -75,7 +81,7 @@ class DshControllerTest {
         vault = vault,
         meter = CostMeter(InMemorySharedPreferences(), PriceTable(), clock = MutableClock()),
         errorLog = errorLog,
-        healthCheck = { launch -> healthChecked.add(launch); duringHealthCheck(); healthy },
+        healthCheck = { launch -> healthChecked.add(launch); duringHealthCheck(); healthWait(); healthy },
         dnsServers = { listOf("9.9.9.9") },
         onNotify = {},
         onCostAlert = {},
@@ -83,8 +89,14 @@ class DshControllerTest {
         beforeLaunch = { prepares.incrementAndGet(); prepare() },
         afterHealthy = { launch -> readySteps.add(launch to (controllers.lastOrNull()?.isRunning?.value == true)); readyStep() },
         launchTimeoutMs = launchTimeoutMs,
-        stopGraceMs = 500,
+        killer = killer,
+        pidOf = pidOf,
     )
+
+    /** A marker no other process on this machine has: the sweep only ever matches this test's own processes. */
+    private val marker = "dshm-ctl-test-${System.nanoTime()}"
+    private var killer: ProcessTreeKiller = DesktopSignals.killer(listOf(marker))
+    private var pidOf: (Process) -> Int? = ProcessTreeKiller::pidOf
 
     private val controllers = mutableListOf<DshController>()
     private fun newController() = controller().also { controllers.add(it) }
@@ -333,6 +345,153 @@ class DshControllerTest {
         c.stop()
         assertTrue(process.waitFor(3, TimeUnit.SECONDS))
     }
+
+    /**
+     * bug-writer-held: proot ignores SIGTERM, and Android's destroy() and destroyForcibly() both send only SIGTERM. A stop must
+     * still end the whole tree, the child (node under proot) included, and never leave it running.
+     */
+    @Test fun stopEndsAWholeTreeWhoseRootIgnoresTerminationLikeProot() = runBlocking {
+        script = """trap '' TERM; echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 60 & wait"""
+        val c = newController()
+        c.ensureRunning()
+        val process = processes.single()
+        val pid = Regex("""pid=(\d+)""").find(process.toString())!!.groupValues[1].toInt()
+        waitUntil { childrenOf(pid).isNotEmpty() }
+        val child = childrenOf(pid).single()
+        c.stop()
+        assertFalse("the root survived the stop", process.isAlive)
+        assertFalse("the child (node under proot) survived the stop", File("/proc/$child").exists() && !isZombie(child))
+    }
+
+    // ---------- stop that fails, sweep, phases (bug-writer-held, stage 2 §A/§G) ----------
+
+    /** A fake /proc where dsh's tree (proot 100, node 101) survives every signal: the stop must say so and nothing starts. */
+    @Test fun aTreeThatSurvivesTheStopIsAFailedStopAndNoSecondDshStarts() = runBlocking {
+        val fake = FakeProc()
+        killer = fake.killer()
+        pidOf = { 100 }
+        val c = newController()
+        c.ensureRunning()
+        // The tree the launch made: proot and its node child, both deaf to every signal.
+        fake.add(100, fake.myPid, "/x/libproot.so node /opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js", immortal = true)
+        fake.add(101, 100, "node /opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js", immortal = true)
+        assertEquals(1, starts.get())
+
+        c.stop()
+
+        assertFalse(c.isRunning.value)
+        val status = c.status.value
+        assertEquals(DshPhase.STOPPED, status.phase)
+        assertEquals(2, status.leftover)
+        assertEquals(DshFailure(DshPhase.STOPPING, DshFailReason.STILL_RUNNING, 2), status.failure)
+        assertTrue(errorLog.file().readText().contains("[controller] stop FAILED pid=100"))
+        // The restart: never a second dsh on top of the old one.
+        val failure = runCatching { c.ensureRunning() }.exceptionOrNull()
+        assertTrue("expected DshStillRunningException, got $failure", failure is DshStillRunningException)
+        assertEquals(2, (failure as DshStillRunningException).count)
+        assertEquals("no second launch while the old tree lives", 1, starts.get())
+        assertEquals(DshFailure(DshPhase.SWEEPING, DshFailReason.STILL_RUNNING, 2), c.status.value.failure)
+        assertFalse(c.forceStop())
+    }
+
+    @Test fun strayDshProcessesAreSweptBeforeEveryStart() = runBlocking {
+        val fake = FakeProc()
+        fake.proot(300)
+        fake.node(301, 300)
+        fake.add(400, fake.myPid, "/system/bin/logcat") // ours, not dsh
+        killer = fake.killer()
+        pidOf = { null }
+        val aliveAtLaunch = CopyOnWriteArrayList<Boolean>()
+        beforeLaunch = { aliveAtLaunch += fake.alive(300) || fake.alive(301) }
+        val c = newController()
+        c.ensureRunning()
+        assertEquals(listOf(false), aliveAtLaunch.toList())
+        assertEquals(301 to Sig.TERM, fake.sent.first())
+        assertTrue(fake.alive(400))
+        assertTrue(errorLog.file().readText().contains("[controller] swept stray dsh: found=2"))
+    }
+
+    @Test fun aSweepThatClearsTheLeftoversLetsTheStartGoOn() = runBlocking {
+        val fake = FakeProc()
+        killer = fake.killer()
+        pidOf = { 100 }
+        val c = newController()
+        c.ensureRunning()
+        val stuck = fake.add(100, fake.myPid, "/x/libproot.so bin.js", immortal = true)
+        c.stop()
+        assertEquals(1, c.status.value.leftover)
+        // Android's force stop of the cgroup (or the process finally giving in) clears it: the next start is a normal one.
+        stuck.alive = false
+        c.ensureRunning()
+        assertEquals(2, starts.get())
+        assertEquals(0, c.status.value.leftover)
+        assertEquals(null, c.status.value.failure)
+        assertEquals(DshPhase.RUNNING, c.status.value.phase)
+    }
+
+    @Test fun statusWalksThroughTheStartPhasesWithThePortItWaitsOn() = runBlocking {
+        val seen = CopyOnWriteArrayList<DshStatus>()
+        val c = newController()
+        beforeLaunch = { seen += c.status.value }
+        duringHealthCheck = { seen += c.status.value }
+        readyStep = { seen += c.status.value }
+        c.ensureRunning()
+        assertEquals(listOf(DshPhase.STARTING, DshPhase.HEALTH_CHECK, DshPhase.REGISTERING), seen.map { it.phase })
+        assertEquals(45678, seen[1].port)
+        assertEquals(DshPhase.RUNNING, c.status.value.phase)
+        c.stop()
+        assertEquals(DshPhase.STOPPED, c.status.value.phase)
+        assertEquals(null, c.status.value.failure)
+        val log = errorLog.file().readText()
+        assertTrue(log, Regex("""\[controller] dsh started in \d+ ms \(sweep \d+ ms, launch line \d+ ms, health \d+ ms, workspace \d+ ms\)""").containsMatchIn(log))
+        assertTrue(log, Regex("""\[controller] stopped dsh pid=\d+: found=\d+ term=\d+ quit=\d+ kill=\d+ left=0 in \d+ ms""").containsMatchIn(log))
+    }
+
+    @Test fun aFailedHealthCheckNamesTheStep() = runBlocking {
+        healthy = false
+        val c = newController()
+        assertTrue(runCatching { c.ensureRunning() }.isFailure)
+        assertEquals(DshFailure(DshPhase.HEALTH_CHECK, DshFailReason.HEALTH_FAILED), c.status.value.failure)
+        assertEquals(DshPhase.STOPPED, c.status.value.phase)
+    }
+
+    @Test fun aMissingLaunchLineNamesTheStepAndTheLimit() = runBlocking {
+        script = "echo starting; exec sleep 30"
+        launchTimeoutMs = 1_000
+        val c = newController()
+        assertTrue(runCatching { c.ensureRunning() }.isFailure)
+        assertEquals(DshFailure(DshPhase.STARTING, DshFailReason.LAUNCH_TIMEOUT, 1), c.status.value.failure)
+    }
+
+    @Test fun aMissingRootfsNamesTheStep() {
+        installed = false
+        val c = newController()
+        assertTrue(runCatching { runBlocking { c.ensureRunning() } }.isFailure)
+        assertEquals(DshFailReason.ROOTFS_MISSING, c.status.value.failure?.reason)
+    }
+
+    /** A force restart must not wait out a 60-second health check of a dsh it just ended. */
+    @Test fun stopDuringTheHealthCheckEndsTheStartAtOnce() = runBlocking {
+        healthWait = { awaitCancellation() } // the health check never answers
+        val c = newController()
+        val result = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
+        waitUntil { c.status.value.phase == DshPhase.HEALTH_CHECK }
+        val t0 = System.nanoTime()
+        c.stop()
+        val failure = result.await().exceptionOrNull()
+        assertTrue("expected CancellationException, got $failure", failure is CancellationException)
+        assertTrue("the start lingered after the stop", (System.nanoTime() - t0) / 1_000_000 < 8_000)
+        assertFalse(c.isRunning.value)
+    }
+
+    private fun childrenOf(pid: Int): List<Int> = File("/proc").listFiles().orEmpty().mapNotNull { d ->
+        val p = d.name.toIntOrNull() ?: return@mapNotNull null
+        val stat = runCatching { File(d, "stat").readText() }.getOrNull() ?: return@mapNotNull null
+        val f = stat.substringAfterLast(')').trim().split(' ')
+        p.takeIf { f.getOrNull(1)?.toIntOrNull() == pid }
+    }
+
+    private fun isZombie(pid: Int) = runCatching { File("/proc/$pid/stat").readText().substringAfterLast(')').trim().startsWith("Z") }.getOrDefault(true)
 
     @Test fun missingLaunchLineFailsAndCleansUp() {
         script = "echo starting; exec sleep 30"

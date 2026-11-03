@@ -1,5 +1,6 @@
 package app.dshmobile.runtime
 
+import app.dshmobile.log.ErrorLog
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -14,38 +15,54 @@ fun interface GuestCommand {
     fun run(args: List<String>, timeoutMs: Long): CommandResult
 }
 
-/** Production [GuestCommand]: one short-lived proot process per call. */
+/**
+ * Production [GuestCommand]: one short-lived proot process per call. A timeout (or an interrupt) ends its whole process tree
+ * through [killer] (proot ignores the SIGTERM that `destroy()` sends on Android); while it runs, its pid is tracked so the
+ * controller's sweep of leftover proot processes never takes it for one.
+ */
 class ProotGuestCommand(
     private val runner: ProotRunner,
     private val rootfsDir: File,
     private val dnsServers: () -> List<String>,
+    private val killer: ProcessTreeKiller,
+    private val errorLog: ErrorLog,
 ) : GuestCommand {
     override fun run(args: List<String>, timeoutMs: Long): CommandResult {
         GuestNetworkFiles.write(rootfsDir, dnsServers())
         val process = try {
-            runner.command(PREFIX + args, ENV).start()
+            killer.startTracked({ runner.command(PREFIX + args, ENV).start() }, ProcessTreeKiller::pidOf)
         } catch (e: IOException) {
             return CommandResult(-1, "", "cannot start proot: ${e.message}")
         }
+        val pid = ProcessTreeKiller.pidOf(process)
         try {
             process.outputStream.close() // the command never reads stdin
             val out = Collector(process.inputStream).also { it.start() }
             val err = Collector(process.errorStream).also { it.start() }
             if (!process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly()
-                process.waitFor()
+                val report = endTree(process, pid)
+                errorLog.append(TAG, "timed out after $timeoutMs ms, stopped: ${report.describe()}")
+                process.waitFor(REAP_MS, TimeUnit.MILLISECONDS)
                 out.join(JOIN_MS); err.join(JOIN_MS)
                 return CommandResult(-1, out.text(), err.text() + "\ntimed out after $timeoutMs ms")
             }
             out.join(JOIN_MS); err.join(JOIN_MS)
             return CommandResult(process.exitValue(), out.text(), err.text())
         } catch (e: InterruptedException) {
-            process.destroyForcibly()
+            val report = endTree(process, pid)
+            errorLog.append(TAG, "interrupted, stopped: ${report.describe()}")
             Thread.currentThread().interrupt()
             return CommandResult(-1, "", "interrupted")
         } finally {
-            if (process.isAlive) process.destroyForcibly()
+            if (process.isAlive) endTree(process, pid)
+            pid?.let(killer::untrack)
         }
+    }
+
+    private fun endTree(process: Process, pid: Int?): StopReport {
+        if (pid != null) return killer.stopTree(pid)
+        process.destroyForcibly()
+        return StopReport.NOTHING
     }
 
     /** Drains a stream on its own thread so a chatty command can never block on a full pipe. */
@@ -69,6 +86,8 @@ class ProotGuestCommand(
 
     private companion object {
         const val JOIN_MS = 2_000L
+        const val REAP_MS = 2_000L
+        const val TAG = "guest"
         val PREFIX = listOf("/usr/bin/env", "-u", "LD_LIBRARY_PATH")
         val ENV = mapOf(
             "HOME" to "/root",

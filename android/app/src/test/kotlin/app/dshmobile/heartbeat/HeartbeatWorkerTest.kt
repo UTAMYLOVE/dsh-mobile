@@ -1,5 +1,6 @@
 package app.dshmobile.heartbeat
 
+import app.dshmobile.runtime.DesktopSignals
 import android.app.Notification
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -84,7 +85,7 @@ class HeartbeatWorkerTest {
         onCostAlert = {},
         onRateGuard = {},
         launchTimeoutMs = 10_000,
-        stopGraceMs = 500,
+        killer = DesktopSignals.killer(listOf("dshm-test-none-${System.nanoTime()}")),
     ).also { File(filesDir, "rootfs/etc").mkdirs() }
 
     @After fun cleanup() {

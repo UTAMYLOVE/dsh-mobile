@@ -177,7 +177,9 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
             is DockSend.NotCreated -> getString(R.string.chat_create_failed, outcome.code)
             is DockSend.Refused ->
                 if (outcome.code == ConversationStore.OUT_OF_MEMORY) getString(R.string.attach_out_of_memory)
-                else getString(if (held) R.string.attach_refused_with else R.string.attach_refused, outcome.code)
+                // A text-only refusal is shown once, by the conversation (its sendError); the dock speaks for attachments only.
+                else if (!held) null
+                else getString(R.string.attach_refused_with, outcome.code)
             is DockSend.AttachmentFailed -> when (outcome.reason) {
                 AttachmentReason.TOO_LARGE -> getString(R.string.attach_too_large, outcome.name, AttachmentLoader.FILE_LIMIT / MB)
                 AttachmentReason.UNREADABLE -> getString(R.string.attach_unreadable, outcome.name)

@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -554,6 +555,8 @@ fun ChatScreen(
     onDismissSend: (String) -> Unit = {},
     /** The conversation's cache from the shell session; a fresh one (lost when the screen leaves) when none is given. */
     ui: ChatUiCache = remember { ChatUiCache() },
+    /** Restarts dsh for the 「被舊的 dsh 佔住」 refusal (stage 2 §A). */
+    onRestartDsh: () -> Unit = {},
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
@@ -621,7 +624,15 @@ fun ChatScreen(
             ChatHeader(state.title.ifBlank { stringResource(R.string.chat_untitled) }, chip, onOpenList) { menuOpen = !menuOpen }
             if (menuOpen) ModelMenu(state.models) { id -> menuOpen = false; onPickModel(id) }
             state.followError?.let { FollowBanner(it, onRetryFollow) }
-            state.sendError?.let { ErrorLine(stringResource(R.string.chat_action_failed, it), Tags.CHAT_ERROR) }
+            state.sendError?.let { code ->
+                if (code == WRITER_HELD) {
+                    // dsh refuses because an old dsh still holds this conversation (bug-writer-held): say so once, with the cure.
+                    ErrorLine(stringResource(R.string.chat_writer_held), Tags.CHAT_ERROR)
+                    TextButton(onClick = onRestartDsh, modifier = Modifier.testTag(Tags.CHAT_RESTART_DSH)) { Text(stringResource(R.string.chat_writer_held_action)) }
+                } else {
+                    ErrorLine(stringResource(R.string.chat_action_failed, code), Tags.CHAT_ERROR)
+                }
+            }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // Messages are glass without blur: a blurred backdrop per bubble would be redrawn on every scroll frame. Panels, the
@@ -817,6 +828,9 @@ private fun FollowBanner(code: String, onRetry: () -> Unit) {
         FogButton(stringResource(R.string.chat_follow_retry), FogButtonKind.AQUA, onRetry, Modifier.testTag(Tags.FOLLOW_RETRY))
     }
 }
+
+/** dsh's refusal when another live dsh still holds the conversation's write lock. */
+const val WRITER_HELD = "session/writer-held"
 
 @Composable
 private fun ErrorLine(text: String, tag: String) {
