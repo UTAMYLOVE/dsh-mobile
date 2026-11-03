@@ -56,9 +56,28 @@ class DshPatchTest {
         assertTrue(yaml.contains("- id: plugin-package-inventory-deepseek\n  config:\n    enabled: false"))
     }
 
-    @Test fun swapsInTheBrowsingDirectoryPicker() {
+    /**
+     * Follow-up 1: both halves of the browse picker. With only the host row (what the first release shipped) dsh's "choose
+     * workspace" did nothing and "add workspace" was missing; the browser half renders the in-page folder dialog.
+     */
+    @Test fun swapsInBothHalvesOfTheBrowsingDirectoryPicker() {
         assertTrue(yaml.contains("- id: directory-picker\n  disabled: true"))
-        assertTrue(yaml.contains("name: \"@deepseek-ai/dsh-host-directory-picker-browse\""))
+        assertTrue(
+            yaml.contains(
+                "- insert:\n" +
+                    "    - id: directory-picker-browse\n      name: \"@deepseek-ai/dsh-host-directory-picker-browse\"\n" +
+                    "    - id: directory-picker-browse-ui\n      name: \"@deepseek-ai/dsh-client-ui-directory-picker-browse\"\n",
+            ),
+        )
+    }
+
+    /** Follow-up 1: no `xdg-user-dir` in the rootfs, so dsh's Documents lookup is pointed at the app's workspace. */
+    @Test fun dshsDocumentsDirectoryIsTheAppWorkspace() {
+        assertTrue(
+            yaml.contains(
+                "- id: workspace-controller\n  config:\n    documentsDirectory: \"/root/workspace\"\n    documentsLookupTimeoutMs: 10000\n",
+            ),
+        )
     }
 
     @Test fun insertsAllThreePluginsByAbsolutePath() {
@@ -84,7 +103,7 @@ class DshPatchTest {
     }
 
     @Test fun sectionsAppearInTheDocumentedOrder() {
-        val order = listOf("llm-deepseek", "session-telemetry-otel", "directory-picker", "dshm-memory").map { yaml.indexOf("id: $it") }
+        val order = listOf("llm-deepseek", "session-telemetry-otel", "directory-picker", "workspace-controller", "dshm-memory").map { yaml.indexOf("id: $it") }
         assertTrue(order.all { it >= 0 })
         assertEquals(order.sorted(), order)
     }

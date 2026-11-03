@@ -1,5 +1,7 @@
 package app.dshmobile.config
 
+import app.dshmobile.runtime.AppPaths
+
 /**
  * Generates the dsh `--patch` overlay (YAML list of Cordis rows). Each section is its own function so later
  * tasks can add sections (agent settings) to the same document. Row `config` values replace the whole row,
@@ -27,7 +29,7 @@ object DshPatch {
 
     /** The sections in output order; [render] joins them. */
     internal fun sections(gatewayBase: String, pluginDir: String, agentSection: String = "", includeAnthropic: Boolean = false): List<String> =
-        listOf(providers(gatewayBase, includeAnthropic), agentSection, privacy(), directoryPicker(), plugins(pluginDir))
+        listOf(providers(gatewayBase, includeAnthropic), agentSection, privacy(), directoryPicker(), workspaceController(), plugins(pluginDir))
 
     /**
      * Model providers talk to the local gateway with the fake key; only env var names appear here. The pi-ai (Anthropic) row
@@ -69,13 +71,31 @@ object DshPatch {
         |    enabled: false
     """.trimMargin()
 
-    /** There is no desktop on the phone: use the in-page browsing folder picker. */
+    /**
+     * There is no desktop on the phone: use the in-page browsing folder picker, both halves of it. The host row serves
+     * `directoryPicker/list|createDirectory`; the client row renders the folder dialog in the page. With the host row alone
+     * (v0.1.0) dsh's "choose workspace" did nothing and "add workspace" was missing.
+     */
     internal fun directoryPicker(): String = """
         |- id: directory-picker
         |  disabled: true
         |- insert:
         |    - id: directory-picker-browse
         |      name: ${q("@deepseek-ai/dsh-host-directory-picker-browse")}
+        |    - id: directory-picker-browse-ui
+        |      name: ${q("@deepseek-ai/dsh-client-ui-directory-picker-browse")}
+    """.trimMargin()
+
+    /**
+     * dsh looks up the user's Documents folder with `xdg-user-dir` on Linux; the rootfs has none, so its first-use default
+     * workspace failed (`spawn xdg-user-dir ENOENT`). Pointed at the app's workspace, a default (if dsh ever makes one, i.e. when
+     * the app's own registration of /root/workspace failed) lands in user data, under `deepseek-harness/default-workspace`.
+     */
+    internal fun workspaceController(): String = """
+        |- id: workspace-controller
+        |  config:
+        |    documentsDirectory: ${q(AppPaths.GUEST_WORKSPACE)}
+        |    documentsLookupTimeoutMs: 10000
     """.trimMargin()
 
     internal fun plugins(pluginDir: String): String {

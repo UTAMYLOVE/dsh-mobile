@@ -179,6 +179,25 @@ class E2eTest {
         assertEquals(1, workspacePaths(store).count { it == "/root/workspace" })
     }
 
+    /**
+     * Follow-up 1: dsh's own folder picker works in the WebView. Its browser half (`dsh-client-ui-directory-picker-browse`)
+     * is loaded by the page (missing in v0.1.0: "choose workspace" did nothing) and its host half lists /root with the
+     * workspace in it.
+     */
+    @Test fun t8_dshsFolderPickerIsLoadedAndSeesTheWorkspace() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.awaitDshInSakuraPink()
+            waitFor(30_000, "the picker's browser half among the page's plugin bundles") { scenario.eval(PICKER_LOADED) == "true" }
+        }
+        val running = runBlocking { app.controller.ensureRunning() }
+        val client = DshClient(http, running.launch)
+        runBlocking { client.login() }
+        val listing = rpc(client, "directoryPicker/list", JSONObject().put("path", "/root"))
+        val entries = listing.getJSONArray("entries")
+        val names = (0 until entries.length()).map { entries.getJSONObject(it).optString("name") }
+        assertTrue("/root lists $names", "workspace" in names)
+    }
+
     /** The paths of every workspace in dsh's own registry file (`$DSH_HOME/storages/workspace.json`). */
     private fun workspacePaths(store: File): List<String> {
         if (!store.isFile) return emptyList()
@@ -238,6 +257,13 @@ class E2eTest {
         private const val REMIND = FakeModel.REMIND_TITLE
         private const val BROKEN = "9.9.9"
         private val TAIPEI = ZoneId.of("Asia/Taipei")
+
+        private const val PICKER_LOADED = """(function () {
+  var name = 'dsh-client-ui-directory-picker-browse';
+  var urls = performance.getEntriesByType('resource').map(function (e) { return e.name; });
+  document.querySelectorAll('script[src]').forEach(function (s) { urls.push(s.src); });
+  return urls.some(function (u) { return decodeURIComponent(u).indexOf(name) >= 0; });
+})()"""
 
         @AfterClass @JvmStatic fun releaseDsh() {
             E2e.app.controller.release(HOLDER)
