@@ -188,7 +188,7 @@ fun FogShell(
 
     // Real blur on (the backdrop is provided for every glass surface); pages animate only while current and the screen is started;
     // after eight quiet seconds the ambient motion slows down.
-    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides started, LocalIdle provides idle.value) {
+    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides started, LocalIdle provides idle.state) {
     Box(
         Modifier
             .fillMaxSize()
@@ -276,7 +276,9 @@ private const val IdleAfterMs = 8_000L
 /** [value] is true after [IdleAfterMs] without a touch (never while the screen is stopped); [observer] watches touches without consuming them. */
 @Stable
 private class IdleWatch {
-    var value by mutableStateOf(false)
+    /** Handed to the pages as a State: only the clocks read it (never a composition), so going idle recomposes nothing. */
+    val state = mutableStateOf(false)
+    var value by state
     var touches = 0
     val observer: Modifier = Modifier.pointerInput(Unit) {
         awaitPointerEventScope {

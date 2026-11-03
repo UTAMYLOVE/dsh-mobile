@@ -26,6 +26,8 @@ object FogMotion {
     const val METER_MS = 1100
     const val IDLE_AFTER_MS = 8_000L
     const val IDLE_SPEED = 0.25f
+    /** While idle the background clock ticks about 15 times a second instead of every frame: slow motion needs no more. */
+    const val IDLE_TICK_MS = 66L
 }
 
 object FogDimens {
