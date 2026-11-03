@@ -178,3 +178,6 @@ T15 dispatched (opus, wt-t1 lane-t15 from 0883c19); Step 5 (CI green) runs via c
 T15: implementer DONE_WITH_CONCERNS (lane-t15 0883c19..1294352, 979 unit, both assembles; e2e not yet run). Cause of CI e2e death (run 84 logcat): emulator dies ~0.2 s after the native shell's first frame draws — software renderer. Fixes: e2e setup at SAVER (t21/PerfGate switch to FULL), emulator -gpu swangle_indirect; createEmptyComposeRule's 60 s cap replaced by own 20-min rule; PerfGate launches via startActivity; e2e timeout 90 min; sweep line white/pink per Global Constraints (not aqua)
 - Ruling: merge lane-t15 before its task review and push (CI e2e is the only place it can run; ~60 min wall clock) — review runs in parallel — Cost if wrong: a follow-up fix commit on the branch.
 T15: review dispatched (sonnet) in parallel with the CI e2e run on bb25aa7
+T15: review 1 = spec ✅ (CI-unverifiable parts ⚠️), quality Needs fixes (sonnet) — Important: t21 autoDegrade on + ActivityScenario at FULL; t20 passes vacuously (cumulative spend); waitForIdle stand-ins in t12/t18/t23/t24; t19 only checks STOP gone; t18 not independent and doesn't prove dsh deleted
+- Ruling: all Important + listed Minors into fix round 1, alongside whatever the bb25aa7 CI run reports.
+T15: fix round 1/5 dispatched (resume implementer)
