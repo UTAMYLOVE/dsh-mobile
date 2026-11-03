@@ -34,7 +34,15 @@
 - A partial, incomplete stage-2 design draft is in docs/superpowers/specs/2026-11-04-dsh-mobile-stage2-design.md. No plan file exists yet.
 - Design references are in docs/design-reference/: agents-fui-reference.jpg and dashboard-reference-*.jpg.
 
-## Process the owner chose: "精簡版" (lite)
+## Process: NO SUBAGENTS (owner, 2026-11-04 03:20)
+- The owner said: 「不用subagent了真的太燒額度了」. Do all work directly in the main session. Do not dispatch Agent or Workflow calls.
+- Keep the token cost down:
+  - Read only the files you need, in ranges.
+  - Run the focused tests first and the full suite once per batch.
+  - Push to CI rarely.
+- Start a fresh session per big chunk, so the context stays small.
+
+## Lite process, still applies apart from the subagent parts
 - Write a plan first.
 - Keep the unit tests and the CI emulator e2e. Push to CI rarely and batch changes per push. Use [skip ci] for ledger-only pushes.
 - Give full reviews only to the core: the restart/kill bug, background work, and the connection.
