@@ -1,9 +1,10 @@
-// Downloads Termux's proot + libtalloc + libandroid-shmem (pinned, sha256-verified) and places them in
-// src/main/jniLibs/<abi>/ disguised as lib*.so so Android lets us exec them from nativeLibraryDir.
-// The binaries are git-ignored; this task runs before every build.
+// Extracts Termux's proot + libtalloc + libandroid-shmem from the .debs vendored in third_party/termux/<abi>/ (pinned,
+// sha256-verified, no network) and places them in src/main/jniLibs/<abi>/ disguised as lib*.so so Android lets us exec them
+// from nativeLibraryDir. The extracted binaries are git-ignored; this task runs before every build.
+// Termux keeps only the newest build of each package in its pool, so the exact debs live in this repository
+// (see third_party/termux/README.md for their origin, versions and licences).
 import org.tukaani.xz.XZInputStream
 import java.io.File
-import java.net.URI
 import java.security.MessageDigest
 
 buildscript {
@@ -14,34 +15,33 @@ buildscript {
 data class TermuxDeb(val file: String, val sha256: String)
 data class ProotDebs(val proot: TermuxDeb, val talloc: TermuxDeb, val shmem: TermuxDeb)
 
-val termuxBase = "https://packages.termux.dev/apt/termux-main/pool/main"
-// abi -> debs. proot's DT_NEEDED is libtalloc.so.2 (patched below), libandroid-shmem.so and libc.so; libandroid-shmem itself
-// needs only liblog.so and libc.so (both part of Android). BundledNativeLibsTest checks this after every fetch.
+val vendorDir: File = rootProject.file("../third_party/termux")
+// abi -> debs (file names under third_party/termux/<abi>/). proot's DT_NEEDED is libtalloc.so.2 (patched below),
+// libandroid-shmem.so and libc.so; libandroid-shmem itself needs only liblog.so and libc.so (both part of Android).
+// BundledNativeLibsTest checks this after every extraction.
 val prootDebs = mapOf(
     "arm64-v8a" to ProotDebs(
-        TermuxDeb("p/proot/proot_5.1.107.102_aarch64.deb", "10a394b585c2fc2b2c8502544f4e5f1be581dc8bfff79e8ba62f16207423e030"),
-        TermuxDeb("libt/libtalloc/libtalloc_2.5.0_aarch64.deb", "556591f43bb773ad8777e1a29522640866a55f95dab71914418b94a8c58ad5a7"),
-        TermuxDeb("liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb", "0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6"),
+        TermuxDeb("proot_5.1.107.102_aarch64.deb", "10a394b585c2fc2b2c8502544f4e5f1be581dc8bfff79e8ba62f16207423e030"),
+        TermuxDeb("libtalloc_2.5.0_aarch64.deb", "556591f43bb773ad8777e1a29522640866a55f95dab71914418b94a8c58ad5a7"),
+        TermuxDeb("libandroid-shmem_0.7_aarch64.deb", "0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6"),
     ),
     "x86_64" to ProotDebs(
-        TermuxDeb("p/proot/proot_5.1.107.102_x86_64.deb", "2497064226c15971be8131c7facead94a06c225347796326a383c832dca57758"),
-        TermuxDeb("libt/libtalloc/libtalloc_2.5.0_x86_64.deb", "b8c6d95f20075dc1f9ec6573575b2444e8d526e48e0d8d6d5cf4e071e6e06530"),
-        TermuxDeb("liba/libandroid-shmem/libandroid-shmem_0.7_x86_64.deb", "ffa9e4c87467b158b148d0ff92dda796aa038276c2075af3269cdcdb06f25797"),
+        TermuxDeb("proot_5.1.107.102_x86_64.deb", "2497064226c15971be8131c7facead94a06c225347796326a383c832dca57758"),
+        TermuxDeb("libtalloc_2.5.0_x86_64.deb", "b8c6d95f20075dc1f9ec6573575b2444e8d526e48e0d8d6d5cf4e071e6e06530"),
+        TermuxDeb("libandroid-shmem_0.7_x86_64.deb", "ffa9e4c87467b158b148d0ff92dda796aa038276c2075af3269cdcdb06f25797"),
     ),
 )
 val prefix = "./data/data/com.termux/files/usr/"
 val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs").asFile
-val debCache = layout.buildDirectory.dir("proot-debs").get().asFile
 
 fun sha256(b: ByteArray) = MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 
-fun download(deb: TermuxDeb): ByteArray {
-    val cached = File(debCache, deb.file.substringAfterLast('/'))
-    if (cached.isFile && sha256(cached.readBytes()) == deb.sha256) return cached.readBytes()
-    val bytes = URI("$termuxBase/${deb.file}").toURL().openStream().use { it.readBytes() }
-    check(sha256(bytes) == deb.sha256) { "sha256 mismatch for ${deb.file}" }
-    debCache.mkdirs()
-    cached.writeBytes(bytes)
+/** The vendored deb's bytes, after checking them against the pinned sha256. */
+fun readDeb(abi: String, deb: TermuxDeb): ByteArray {
+    val f = File(vendorDir, "$abi/${deb.file}")
+    check(f.isFile) { "missing vendored deb: $f" }
+    val bytes = f.readBytes()
+    check(sha256(bytes) == deb.sha256) { "sha256 mismatch for $f" }
     return bytes
 }
 
@@ -85,17 +85,18 @@ fun patchTallocNeeded(bin: ByteArray): ByteArray {
 
 val fetchProot = tasks.register("fetchProot") {
     group = "build setup"
-    description = "Downloads pinned Termux proot/libtalloc/libandroid-shmem into src/main/jniLibs"
+    description = "Extracts the vendored, pinned Termux proot/libtalloc/libandroid-shmem into src/main/jniLibs"
     inputs.property("pins", prootDebs.toString())
-    inputs.property("script", "v2")
+    inputs.property("script", "v3")
+    inputs.files(prootDebs.flatMap { (abi, debs) -> listOf(debs.proot, debs.talloc, debs.shmem).map { File(vendorDir, "$abi/${it.file}") } })
     outputs.files(prootDebs.keys.flatMap { abi ->
         listOf("libproot.so", "libproot-loader.so", "libtalloc.so", "libandroid-shmem.so").map { File(jniLibsDir, "$abi/$it") }
     })
     doLast {
         for ((abi, debs) in prootDebs) {
-            val proot = debFiles(download(debs.proot), setOf(prefix + "bin/proot", prefix + "libexec/proot/loader"))
-            val talloc = debFiles(download(debs.talloc), setOf(prefix + "lib/libtalloc.so.2.5.0"))
-            val shmem = debFiles(download(debs.shmem), setOf(prefix + "lib/libandroid-shmem.so"))
+            val proot = debFiles(readDeb(abi, debs.proot), setOf(prefix + "bin/proot", prefix + "libexec/proot/loader"))
+            val talloc = debFiles(readDeb(abi, debs.talloc), setOf(prefix + "lib/libtalloc.so.2.5.0"))
+            val shmem = debFiles(readDeb(abi, debs.shmem), setOf(prefix + "lib/libandroid-shmem.so"))
             val dir = File(jniLibsDir, abi).also { it.mkdirs() }
             File(dir, "libproot.so").writeBytes(patchTallocNeeded(proot.getValue(prefix + "bin/proot")))
             File(dir, "libproot-loader.so").writeBytes(proot.getValue(prefix + "libexec/proot/loader"))
