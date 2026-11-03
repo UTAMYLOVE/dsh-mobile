@@ -112,6 +112,8 @@ data class ChatUiState(
     val contextFill: Float? = null,
     /** The words beside the context bar and the conversation's totals. */
     val statsLine: String? = null,
+    /** What the agent is doing right now (§G: thinking, a tool, waiting for approval, queued); null when idle. */
+    val activity: String? = null,
 )
 
 /** The thinking strengths dsh's model selection accepts (stage 2 §B.1). */
@@ -532,6 +534,8 @@ class ChatUiCache {
     var effort by mutableStateOf<String?>(null)
     /** How many independent reviewer rounds each reply gets (0..[app.dshmobile.chat.ReviewRounds.MAX]). */
     var reviewRounds by mutableIntStateOf(0)
+    /** Whether the pull-out data panel is open. */
+    var dataOpen by mutableStateOf(false)
     internal val blocks = BlockCache()
     internal var expanded by mutableStateOf(emptySet<String>())
     internal var scrollIndex = 0
@@ -579,6 +583,8 @@ fun ChatScreen(
     onRestartDsh: () -> Unit = {},
     onPickEffort: (String?) -> Unit = {},
     onPickReview: (Int) -> Unit = {},
+    /** The pull-out data panel (stage 2 §H 對話); null hides its toggle. */
+    dataPanel: (@Composable () -> Unit)? = null,
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
@@ -652,6 +658,20 @@ fun ChatScreen(
                 )
             }
             if (state.statsLine != null) ContextBar(state.contextFill, state.statsLine)
+            if (state.activity != null || dataPanel != null) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        state.activity.orEmpty(), color = Sakura.RoseBrown, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).testTag(Tags.CHAT_ACTIVITY),
+                    )
+                    if (dataPanel != null) {
+                        TextButton(onClick = { ui.dataOpen = !ui.dataOpen }, modifier = Modifier.testTag(Tags.CHAT_DATA)) {
+                            Text(if (ui.dataOpen) "收起數據" else "數據 ›", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+            if (dataPanel != null && ui.dataOpen) dataPanel()
             state.followError?.let { FollowBanner(it, onRetryFollow) }
             state.sendError?.let { code ->
                 if (code == WRITER_HELD) {

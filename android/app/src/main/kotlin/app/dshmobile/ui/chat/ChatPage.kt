@@ -245,14 +245,39 @@ private fun ConversationPage(
     val usageFlow = remember(session, id) { session.tree.state.map { teamUsage(it, id) }.distinctUntilChanged() }
     val usage by usageFlow.collectAsState(SessionUsage())
     val statsLine = remember(usage, conversation.context) { conversationStatsLine(usage, conversation.context) }
+    LaunchedEffect(conversation.items) { session.warRoom.observeConversation(conversation) }
+    val treeState by session.tree.state.collectAsState()
+    val team = remember(treeState, conversation) {
+        app.dshmobile.agents.WarRoomBuilder.build(treeState, id, conversation, emptyList(), System.currentTimeMillis(), null)
+    }
+    val lead = team.firstOrNull()
+    val activity = when {
+        pending.any { it.queued } -> "排隊中：${pending.count { it.queued }} 則等上一輪結束"
+        conversation.running || lead?.mood == app.dshmobile.agents.Mood.WAITING ->
+            (lead?.action ?: "工作中") + (if (conversation.running && ui.reviewRounds > 0) " · 完成後審查 ${ui.reviewRounds} 輪" else "")
+        else -> null
+    }
+    val speeds = remember(conversation.replyStats, conversation.items) {
+        conversation.items.mapNotNull { (it as? app.dshmobile.chat.ChatItem.Assistant)?.let { a -> conversation.replyStats[a.key]?.tokensPerSecond } }
+    }
+    val loadedCost = remember(conversation.replyStats) {
+        val now = Instant.now()
+        conversation.replyStats.values.mapNotNull { replyCostUsd(prices, it, now) }.takeIf { it.isNotEmpty() }?.sum()
+    }
 
     ChatScreen(
         state = ChatUiState(
             title, conversation.items, conversation.live, conversation.running, pending, models, conversation.hasMore, sendError,
             followError = followError, olderError = olderError, modelLabel = AgentModels.displayName(current),
             effort = ui.effort, reviewRounds = ui.reviewRounds,
-            replyLines = replyLines, contextFill = conversation.context?.fraction, statsLine = statsLine,
+            replyLines = replyLines, contextFill = conversation.context?.fraction, statsLine = statsLine, activity = activity,
         ),
+        dataPanel = {
+            ChatDataPanel(
+                team, speeds, loadedCost, conversation.context?.fraction, usage.cacheHit,
+                conversation.items.filterIsInstance<app.dshmobile.chat.ChatItem.Tool>(),
+            )
+        },
         onOpenList = { nav.listOpen = true },
         onPickModel = { mid ->
             AgentModels.find(mid)?.let { m ->

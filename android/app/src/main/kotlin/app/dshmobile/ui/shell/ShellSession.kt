@@ -1,5 +1,6 @@
 package app.dshmobile.ui.shell
 
+import kotlinx.coroutines.flow.map
 import app.dshmobile.agents.AgentsRemote
 import app.dshmobile.agents.RunningAgents
 import app.dshmobile.chat.ChatRemote
@@ -52,6 +53,11 @@ class ShellSession(
     /** The agents tab's rows and stops, derived from [tree]. */
     val agents = RunningAgents(tree, remote, scope)
 
+    /** The war room's history of finished children and its live log (stage 2 §E/F/H). */
+    val warRoom = app.dshmobile.agents.WarRoomRecorder().also { rec ->
+        rec.follow(scope, tree.state.map { app.dshmobile.agents.WarRoomBuilder.children(it) })
+    }
+
     @Volatile private var closed = false
 
     /** One open conversation: its store and the chat page's cache for it. */
@@ -66,6 +72,9 @@ class ShellSession(
      * dsh has not recorded or that failed: evicting it would lose those bubbles (final review B2-M11).
      */
     fun conversation(id: String): ConversationStore = open(id).store
+
+    /** The store of [id] when it is already open (never opens one: the war room must not evict the user's chats). */
+    fun existing(id: String?): ConversationStore? = id?.let { synchronized(stores) { stores[it]?.store } }
 
     /** The chat page's cache for conversation [id] (parsed Markdown, open thinking, scroll), kept and evicted with its store. */
     fun chatUi(id: String): ChatUiCache = open(id).ui

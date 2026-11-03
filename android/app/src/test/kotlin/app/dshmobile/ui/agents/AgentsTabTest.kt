@@ -53,7 +53,7 @@ class AgentsTabTest {
         var shown by mutableStateOf(true)
         rule.setContent {
             FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) {
-                if (shown) AgentsTab(agents, tree, sessionScope, 6) {}
+                if (shown) AgentsTab(agents, tree, sessionScope, 6, onOpenParent = {})
             }
         }
         rule.onNodeWithTag("agent-stop-c1").performClick()

@@ -70,13 +70,16 @@ private fun usd2(v: Double) = String.format(Locale.US, "%.2f", v)
  * Animated values are read while drawing ([CountUpText], [HudRing], [Meter]), so nothing recomposes per frame.
  */
 @Composable
-fun OverviewScreen(state: OverviewState, onOpenSession: (String) -> Unit, onOpenAgents: () -> Unit) {
+fun OverviewScreen(
+    state: OverviewState, onOpenSession: (String) -> Unit, onOpenAgents: () -> Unit, warRoom: @Composable () -> Unit = {},
+) {
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(LocalPagePadding.current),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         state.unverifiedDsh?.let { Banner(it) }
         SpendPanel(state)
+        warRoom()
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             AgentsPanel(state, onOpenAgents, Modifier.weight(1f).fillMaxHeight())
             HeartbeatPanel(state, Modifier.weight(1f).fillMaxHeight())

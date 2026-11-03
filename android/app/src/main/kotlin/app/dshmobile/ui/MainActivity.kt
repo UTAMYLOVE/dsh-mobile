@@ -32,6 +32,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import app.dshmobile.DshMobileApp
 import app.dshmobile.R
+import app.dshmobile.ui.agents.WarStrip
+import app.dshmobile.ui.agents.rememberWarAgents
 import app.dshmobile.gateway.Provider
 import app.dshmobile.notify.Notifier
 import app.dshmobile.remote.MuxState
@@ -323,16 +325,35 @@ class MainActivity : ComponentActivity() {
                 ShellTab.CHAT -> session?.let { ChatTab(it) } ?: EmptyPage(tab)
                 ShellTab.AGENTS -> session?.let { sess ->
                     // The limit is the configured subagent cap; read when the tab is shown (changing it needs "apply and restart" anyway).
-                    val limit = remember {
-                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.has(Provider.ANTHROPIC)).maxConcurrent
+                    val settings = remember {
+                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.has(Provider.ANTHROPIC))
                     }
-                    AgentsTab(sess.agents, sess.tree, sess.scope, limit, nav::openSession)
+                    val limit = settings.maxConcurrent
+                    val openId = nav.openSessionId
+                    val lead = remember(sess, openId) { sess.existing(openId)?.state ?: kotlinx.coroutines.flow.flowOf(null) }
+                    val spend by app.costMeter.revision.collectAsStateWithLifecycle()
+                    val today = remember(spend) { app.costMeter.todayUsd() }
+                    AgentsTab(
+                        sess.agents, sess.tree, sess.scope, limit, nav::openSession,
+                        recorder = sess.warRoom, openId = openId, lead = lead, todayUsd = today,
+                        limits = getString(R.string.war_limits, settings.maxConcurrent, settings.teamSize, settings.maxDepth),
+                    )
                 } ?: EmptyPage(tab)
                 ShellTab.OVERVIEW -> {
                     // Collected only while the overview is the current page (the page lambda is composed for the current tab only); the
                     // app keeps the last state, so coming back shows it at once instead of an empty page (final review B2-M12).
                     val overview by app.overviewState.collectAsStateWithLifecycle()
-                    overview?.let { OverviewScreen(it, nav::openSession) { nav.select(ShellTab.AGENTS) } } ?: EmptyPage(tab)
+                    overview?.let {
+                        OverviewScreen(it, nav::openSession, { nav.select(ShellTab.AGENTS) }) {
+                            session?.let { sess ->
+                                val lead = remember(sess, nav.openSessionId) { sess.existing(nav.openSessionId)?.state ?: kotlinx.coroutines.flow.flowOf(null) }
+                                val war = rememberWarAgents(sess.tree, sess.warRoom, nav.openSessionId, lead)
+                                val log by sess.warRoom.log.collectAsStateWithLifecycle()
+                                val dsh by app.controller.status.collectAsStateWithLifecycle()
+                                WarStrip(war, log, dsh) { nav.select(ShellTab.AGENTS) }
+                            }
+                        }
+                    } ?: EmptyPage(tab)
                 }
                 else -> EmptyPage(tab)
             }

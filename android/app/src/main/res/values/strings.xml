@@ -325,4 +325,5 @@
     <string name="overview_stats_cache">快取命中</string>
     <string name="overview_stats_steps">步驟</string>
     <string name="overview_stats_model_line">%1$d 次 · 入 %2$s · 出 %3$s · 快取 %4$d%%</string>
+    <string name="war_limits">並行上限 %1$d · 團隊上限 %2$d · 委派深度 %3$d（在「設定 → 代理人」調整）</string>
 </resources>
