@@ -68,7 +68,7 @@ class HeartbeatWorkerTest {
         isRootfsInstalled = { installed },
         launcher = { _, _ ->
             starts.incrementAndGet()
-            ProcessBuilder("sh", "-c", """echo "dsh web: http://127.0.0.1:${dsh.server.port}/?token=good"; sleep 60""")
+            ProcessBuilder("sh", "-c", """echo "dsh web: http://127.0.0.1:${dsh.server.port}/?token=good"; exec sleep 60""")
                 .start().also { processes.add(it) }
         },
         vault = object : KeyVault {

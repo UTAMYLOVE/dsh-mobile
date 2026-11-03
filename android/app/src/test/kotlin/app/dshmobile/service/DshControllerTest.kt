@@ -46,7 +46,7 @@ class DshControllerTest {
     private val argLists = CopyOnWriteArrayList<List<String>>()
     private val processes = CopyOnWriteArrayList<Process>()
     private var installed = true
-    private var script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 30"""
+    private var script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 30"""
     private var healthy = true
     private val healthChecked = CopyOnWriteArrayList<LaunchUrl>()
     private var launchTimeoutMs = 10_000L
@@ -255,7 +255,7 @@ class DshControllerTest {
     }
 
     @Test fun missingLaunchLineFailsAndCleansUp() {
-        script = "echo starting; sleep 30"
+        script = "echo starting; exec sleep 30"
         launchTimeoutMs = 600
         val c = newController()
         try {
@@ -301,7 +301,7 @@ class DshControllerTest {
     }
 
     @Test fun stdoutAndStderrGoToTheMaskedErrorLogButNotTheLaunchLine() = runBlocking {
-        script = """echo "hello from dsh"; echo "boom token=zzz999" >&2; echo "dsh web: http://127.0.0.1:45678/?token=abcSECRET"; echo "again abcSECRET"; sleep 30"""
+        script = """echo "hello from dsh"; echo "boom token=zzz999" >&2; echo "dsh web: http://127.0.0.1:45678/?token=abcSECRET"; echo "again abcSECRET"; exec sleep 30"""
         newController().ensureRunning()
         waitUntil { errorLog.file().exists() && errorLog.file().readText().contains("again") }
         val text = errorLog.file().readText()
@@ -331,7 +331,7 @@ class DshControllerTest {
         waitUntil { !c.isRunning.value }
         assertFalse(portIsOpen(running.gatewayPort))
 
-        script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 30"""
+        script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 30"""
         c.ensureRunning()
         c.stop()
         Thread.sleep(300)
@@ -343,7 +343,7 @@ class DshControllerTest {
         val c = newController()
         c.ensureRunning()
         waitUntil { !c.isRunning.value }
-        script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 30"""
+        script = """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 30"""
         c.ensureRunning()
         assertEquals(2, starts.get())
         assertTrue(c.isRunning.value)
@@ -512,7 +512,7 @@ class DshControllerTest {
     }
 
     @Test fun stopWhileWaitingForTheLaunchLineCancelsTheStart() = runBlocking {
-        script = "echo starting; sleep 30"
+        script = "echo starting; exec sleep 30"
         val c = newController()
         val result = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
         waitUntil { processes.isNotEmpty() }
@@ -582,7 +582,7 @@ class DshControllerTest {
     }
 
     @Test fun stopIfUnretainedWhileWaitingForTheLaunchLineWithNoHolderCancelsTheStart() = runBlocking {
-        script = "echo starting; sleep 30"
+        script = "echo starting; exec sleep 30"
         val c = newController()
         val result = async(Dispatchers.IO) { runCatching { c.ensureRunning() } }
         waitUntil { processes.isNotEmpty() }

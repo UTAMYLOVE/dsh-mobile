@@ -335,6 +335,32 @@ class MainActivityTest {
         assertTrue("ui" in c.holders)
     }
 
+    /**
+     * A second start of the same dsh while its page is still loading (here a stop/start of the screen; in the rollback tests the
+     * collector racing the explicit restart) must not claim Ready: Ready only follows onPageFinished. This used to flake
+     * `rollbackAfterAGiveUpWithNothingToGoBackToWhileDshRunsShowsDsh` (Ready instead of Loading).
+     */
+    @Test fun aSecondStartOfTheSameDshBeforeThePageFinishedStaysLoading() {
+        completeSetup()
+        val ctl = build().create().start().resume()
+        val activity = ctl.get()
+        waitUntil { shadowOf(activity.webView).lastLoadedUrl == launchUrl(0) }
+        idleFor(300)
+        assertEquals(MainUiState.Loading, activity.uiStateForTest.value)
+
+        ctl.pause().stop().restart().start().resume() // same dsh, same launch URL, page not finished yet
+        idleFor(500)
+        assertEquals(MainUiState.Loading, activity.uiStateForTest.value)
+        assertEquals(launchUrl(0), shadowOf(activity.webView).lastLoadedUrl)
+
+        shadowOf(activity.webView).webViewClient.onPageFinished(activity.webView, "http://127.0.0.1:45678/")
+        assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
+
+        ctl.pause().stop().restart().start().resume() // back from the background with the page loaded: straight to Ready
+        idleFor(500)
+        assertEquals(MainUiState.Ready, activity.uiStateForTest.value)
+    }
+
     @Test fun theRollbackActionAfterAGiveUpClearsTheFlagAndRestartsDsh() {
         completeSetup()
         val c = controller!!

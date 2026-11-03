@@ -42,7 +42,7 @@ class DshServiceTest {
     }
 
     /** Swaps the app's lazy `controller` for one with a fake `sh` dsh, the seam DshService reads (`app.controller`). */
-    private fun installFakeController(script: (launch: Int) -> String = { """echo "dsh web: http://127.0.0.1:45678/?token=abc"; sleep 60""" }): DshController {
+    private fun installFakeController(script: (launch: Int) -> String = { """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 60""" }): DshController {
         File(tmp, "rootfs/etc").mkdirs()
         val c = DshController(
             patchProvider = { DshPatch.render(it) },

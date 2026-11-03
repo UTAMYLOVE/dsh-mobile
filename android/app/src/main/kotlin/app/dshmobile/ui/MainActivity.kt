@@ -63,6 +63,8 @@ class MainActivity : ComponentActivity() {
     private var startJob: Job? = null
     private var loadedLaunchUrl: String? = null
     private var loadFailed = false
+    /** The page of [loadedLaunchUrl] has finished loading (onPageFinished); only then may the screen say Ready. */
+    private var pageFinished = false
     private var rollingBack = false
     private var updating = false
     private val pendingUpdate by lazy { PendingUpdate(getSharedPreferences(DailyUpdateCheck.PREFS, Context.MODE_PRIVATE)) }
@@ -169,7 +171,10 @@ class MainActivity : ComponentActivity() {
     private fun buildContent(): FrameLayout {
         webClient = DshWebViewClient(
             openExternal = { startActivity(Intent(Intent.ACTION_VIEW, it).addCategory(Intent.CATEGORY_BROWSABLE)) },
-            onLoaded = { if (!loadFailed) uiState.value = MainUiState.Ready },
+            onLoaded = {
+                pageFinished = true
+                if (!loadFailed) uiState.value = MainUiState.Ready
+            },
             onMainFrameError = { loadFailed = true; uiState.value = MainUiState.Error },
             onRendererGone = { recreate() },
         )
@@ -250,11 +255,13 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (url == loadedLaunchUrl && !loadFailed) {
-            if (uiState.value == MainUiState.Loading) uiState.value = MainUiState.Ready
+            // Same dsh again (back from the background, or a second start racing the first): Ready only once the page has finished.
+            if (pageFinished && uiState.value == MainUiState.Loading) uiState.value = MainUiState.Ready
             return
         }
         loadedLaunchUrl = url
         loadFailed = false
+        pageFinished = false
         uiState.value = MainUiState.Loading
         webView.loadUrl(url)
     }
