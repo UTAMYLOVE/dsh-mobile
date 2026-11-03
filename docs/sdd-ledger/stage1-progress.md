@@ -144,3 +144,8 @@ T14: review = spec ✅, quality Approved (opus), 0 Critical/Important; merge not
 T14: fix round 1/5 dispatched (resume implementer a22b3ca67cf270533)
 T14: minor (deferred): boundsInWindow per scrolled frame; RenderEffect re-alloc at viewport edge; reduced-motion-on-resume untested; MainActivity FogTheme wiring mirrored in test
 T8: implementer DONE_WITH_CONCERNS (lane-t8 41393f1..a14fff7, 823 unit; shots scratchpad/t8-shots); review dispatched (opus)
+T8: review 1 = spec ✅ except bubble-blur ruling, quality Needs fixes (opus) — Important: AI bubbles would backdrop-blur once T14's LocalBackdrop lands; scroll-follow gaps (send while scrolled up, no ↓ pill, no tests)
+- Ruling: Minors M1–M7 (deep link vs canLeave, double parse, hard-coded strings, <48 dp targets, user-piece gradient, pending text colour, stale picked model) and the T5 live-reply blink on early `end` join round 1, together with merging main (T10/T11/T12) into lane-t8.
+- Ruling: SettingsJobsTest "boom" leak (pre-existing T4) → T13 dispatch (it owns settings); 500-row table as one lazy item → T15 PerfGate; TalkBack on links → T15 emulator check.
+T8: fix round 1/5 dispatched (resume implementer aa3af8252314a6d8c)
+T14: fix round 1/5 implementer DONE (2f36d93..c16265a incl. merge of main 5a2037c; 883 unit, assembles green); re-review dispatched (sonnet)
