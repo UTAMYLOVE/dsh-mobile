@@ -152,3 +152,4 @@ T14: fix round 1/5 implementer DONE (2f36d93..c16265a incl. merge of main 5a2037
 T14: fix round 1/5 (7 Minors addressed incl. merge of main, 0 open; 2f36d93..c16265a; re-review sonnet Approved)
 T14: complete (lane-t14 de1c788..c16265a, review clean after 1 fix round) — merged as 0366641 (code tree identical to c16265a, where the full unit suite 883/0 + assembleDebug + assembleDebugAndroidTest ran)
 T14: minor (deferred): no direct test for locals observed off-screen, CountUpText draw alignment or unexpected glyphs; per-glyph drawing drops kerning
+T13 dispatched (sonnet, wt-t3 lane-t13 from 0a657d9; carries effectsController.level read + immediate onEffectLevel, collectAsStateWithLifecycle for overview/settings, SettingsJobsTest boom leak fix)
