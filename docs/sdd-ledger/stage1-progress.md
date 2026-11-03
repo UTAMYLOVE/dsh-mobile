@@ -123,3 +123,6 @@ T10: implementer DONE (lane-t10 41393f1..eeb3f73, 805 unit; renders in scratchpa
 T10: review 1 = spec ✅, quality Approved-with-follow-up (sonnet) — Important: sheet not modal/announced for TalkBack (dsh-stuck anti-goal for accessibility users)
 - Ruling: TalkBack fix + theme error colour (not hard-coded) + 「連線中…」 line while waiting on a reconnecting mux go into fix round 1. The error red #B3261E stays (plan Global Constraints allow it as the only non-palette colour, for error text) — listed for the boss in the final rulings.
 T10: fix round 1/5 dispatched (resume implementer)
+T10: fix round 1/5 (1 Important + 2 Minor addressed, 0 open; eeb3f73..9a1f896; re-review haiku)
+T10: complete (lane-t10 41393f1..9a1f896, review clean after 1 fix round) — merged
+T10: minor (deferred): scrim focusable without label (hideFromAccessibility); whole card is a live region (narrow it if it re-announces on device); connecting derivation untested; import order nits
