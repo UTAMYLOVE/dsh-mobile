@@ -71,22 +71,14 @@ val LocalBackdrop: ProvidableCompositionLocal<Backdrop?> = compositionLocalOf { 
 val LocalPageActive: ProvidableCompositionLocal<Boolean> = compositionLocalOf { true }
 val LocalIdle: ProvidableCompositionLocal<Boolean> = compositionLocalOf { false }
 
-private fun fogTypography(base: Typography): Typography = base.copy(
+/** Orbitron only for the big English display styles; titles, body and labels keep the system font so Chinese and long text stay easy to read. */
+internal fun fogTypography(base: Typography): Typography = base.copy(
     displayLarge = base.displayLarge.copy(fontFamily = FogFonts.Orbitron),
     displayMedium = base.displayMedium.copy(fontFamily = FogFonts.Orbitron),
     displaySmall = base.displaySmall.copy(fontFamily = FogFonts.Orbitron),
     headlineLarge = base.headlineLarge.copy(fontFamily = FogFonts.Orbitron),
     headlineMedium = base.headlineMedium.copy(fontFamily = FogFonts.Orbitron),
     headlineSmall = base.headlineSmall.copy(fontFamily = FogFonts.Orbitron),
-    titleLarge = base.titleLarge.copy(fontFamily = FogFonts.ChakraPetch),
-    titleMedium = base.titleMedium.copy(fontFamily = FogFonts.ChakraPetch),
-    titleSmall = base.titleSmall.copy(fontFamily = FogFonts.ChakraPetch),
-    bodyLarge = base.bodyLarge.copy(fontFamily = FogFonts.ChakraPetch),
-    bodyMedium = base.bodyMedium.copy(fontFamily = FogFonts.ChakraPetch),
-    bodySmall = base.bodySmall.copy(fontFamily = FogFonts.ChakraPetch),
-    labelLarge = base.labelLarge.copy(fontFamily = FogFonts.ChakraPetch),
-    labelMedium = base.labelMedium.copy(fontFamily = FogFonts.ChakraPetch),
-    labelSmall = base.labelSmall.copy(fontFamily = FogFonts.ChakraPetch),
 )
 
 @Composable

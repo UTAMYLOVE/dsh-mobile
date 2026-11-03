@@ -2,6 +2,8 @@ package app.dshmobile.ui.fog
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -12,6 +14,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -128,5 +132,39 @@ class FogComponentsTest {
             }
         }
         rule.onNodeWithText("US$1234.00").assertIsDisplayed()
+    }
+
+    @Test fun panelPaddingFollowsTheMockup() {
+        // CSS "16px 18px 18px": top 16, sides 18, bottom 18.
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.SAVER, false)) {
+                Box(Modifier.size(300.dp)) {
+                    FogPanel(title = null, modifier = Modifier.testTag("panel")) { Box(Modifier.fillMaxWidth().height(40.dp).testTag("inner")) }
+                }
+            }
+        }
+        val panel = rule.onNodeWithTag("panel").fetchSemanticsNode().boundsInRoot
+        val inner = rule.onNodeWithTag("inner").fetchSemanticsNode().boundsInRoot
+        val d = rule.density.density
+        assertEquals(16f * d, inner.top - panel.top, 0.5f)
+        assertEquals(18f * d, inner.left - panel.left, 0.5f)
+        assertEquals(18f * d, panel.right - inner.right, 0.5f)
+        assertEquals(18f * d, panel.bottom - inner.bottom, 0.5f)
+    }
+
+    @Test fun materialTextKeepsTheSystemFontAndOnlyDisplayUsesOrbitron() {
+        var body: androidx.compose.ui.text.font.FontFamily? = null
+        var label: androidx.compose.ui.text.font.FontFamily? = null
+        var display: androidx.compose.ui.text.font.FontFamily? = null
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                body = androidx.compose.material3.MaterialTheme.typography.bodyLarge.fontFamily
+                label = androidx.compose.material3.MaterialTheme.typography.labelMedium.fontFamily
+                display = androidx.compose.material3.MaterialTheme.typography.displaySmall.fontFamily
+            }
+        }
+        org.junit.Assert.assertNotEquals(FogFonts.ChakraPetch, body)
+        org.junit.Assert.assertNotEquals(FogFonts.ChakraPetch, label)
+        assertEquals(FogFonts.Orbitron, display)
     }
 }

@@ -62,11 +62,11 @@ fun FogPanel(
                 scaleY = sc
             }
             .glass(shape)
-            .padding(start = 16.dp, top = 18.dp, end = 16.dp, bottom = 18.dp),
+            .padding(start = 18.dp, top = 16.dp, end = 18.dp, bottom = 18.dp),
     ) {
         if (title != null || en != null || meta != null) {
             PanelHeading(title, en, meta, ice)
-            Box(Modifier.height(12.dp))
+            Box(Modifier.height(14.dp))
         }
         content()
     }

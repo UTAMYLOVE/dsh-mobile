@@ -33,3 +33,25 @@ Full unit suite: 649 tests, 0 failures.
 - Visual fidelity (glass blur, grid perspective, glows, shadows via BlurMaskFilter) is not checked on a device or screenshot; Robolectric only exercises composition, semantics and draw without error. Needs an emulator look in T15.
 - `LocalBackdrop` and `FogBackground` are only wired by Task 14's FogShell; until then glass is un-blurred in the app.
 - Orbitron variable weight relies on API 34+ variation support (minSdk 34, fine).
+
+## Fix round 1
+
+Goal: no per-frame allocations in draw paths, an isolated animated background, panel spacing per the mockup.
+
+### What changed
+- `Glass.kt`: `GlassNode` keeps a `GlassCache` (outline, path, fill/rim/highlight brushes, stroke, both shadow paints with their blur filters), rebuilt only when size, density, direction, lifted flag or shape changes. The blur `RenderEffect` is built once per radius; the `GraphicsLayer` is created lazily on first blur; the backdrop is re-recorded only when the offset or size changes (the list refers to the live backdrop layer). Highlight fades to `White.copy(alpha = 0f)`. An `ObserverModifierNode` calls `invalidateSemantics` and `invalidateDraw` when effects or backdrop change; a `GlobalPositionAwareModifierNode` invalidates draw when the panel's window position changes (blurring only). `glow` is now `drawWithCache` with `dy`/`dx` parameters. One blur helper (`cssBlurFilter`, sigma = blur/2) is used by glass shadows, `glow`, `HudRing`, `Meter` and `Segmented`.
+- `FogBackground.kt`: the three glows are built once (brush at their own centre) inside their own `graphicsLayer {}` and moved by the clock with translate/scale, so a tick redraws only that layer. The grid mask is cached per size.
+- `Hud.kt`: `HudRing` and `Meter` use `drawWithCache` (dash effects, strokes, glow paint, rect, shader built once per size). `CountUpText` no longer recomposes while counting: it draws with a `TextMeasurer` from a draw-time state read, is sized for the final text, and exposes the final string as semantics text.
+- `FogControls.kt`: pink glow 0/6/18, aqua 14; `FogButton` min height 48 dp; `Segmented` cells min 48 dp, `selectableGroup`, lift uses `PILL_MS` with `Spring`, drawn in its own alpha layer with cached shadow and fill.
+- `FogPanel.kt`: padding start/end 18, top 16, bottom 18; heading gap 14 dp.
+- `FogTheme.kt`: Material title/body/label keep the system font; only display/headline use Orbitron.
+
+### Tests (RED to GREEN)
+- New `FogDrawCacheTest` (4): background glows/grid, ring and meter caches stay at their first build across 60 clock-driven frames; glass cache and RenderEffect stay at 1 across 20 forced redraws; moving a panel makes the node invalidate its own draw and changes the backdrop shift; counting does not recompose the caller.
+- `FogComponentsTest` +2: panel padding is 16/18/18/18; Material text uses the system font, display uses Orbitron.
+- RED evidence: with the cache-key check disabled (`glass.cache` rebuilt every draw) two tests fail; with the position-invalidate removed `movingAPanelRedrawsItsBlurLockedToTheBackground` fails; both restored, all green. (The old code had no counters, so the original per-frame allocation could not be run against the new tests directly.)
+- Focused `app.dshmobile.ui.fog.*`: 27 tests, 0 failures. Full unit suite: 655 tests, 0 failures.
+
+### Notes
+- The Robolectric harness redraws everything when the window is drawn into a bitmap, so draw counts alone do not prove invalidation; the test therefore pins the `glass.moved` counter (the node asked for the redraw) and the cache counters.
+- `Meter` fill gradient now spans the full bar width and is clipped by the fill width (a fixed shader so nothing is rebuilt as it grows); the mockup's gradient spans the fill itself, so a short fill ends lighter than full colour.

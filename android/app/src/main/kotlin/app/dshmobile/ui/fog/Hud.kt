@@ -1,60 +1,81 @@
 package app.dshmobile.ui.fog
 
-import android.graphics.BlurMaskFilter
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.LinearGradientShader
 import androidx.compose.ui.graphics.PaintingStyle
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.dshmobile.ui.theme.Sakura
 
 private val CountEase = Easing { 1f - (1f - it) * (1f - it) * (1f - it) }
 
-/** A number that counts up from 0 to [value] (950 ms) and tweens from the last shown value on a change; with countUp off it is just the final text. */
+/**
+ * A number that counts up from 0 to [value] (950 ms) and tweens from the last shown value on a change; with countUp off it is just the final
+ * text. The animated value is read only while drawing, so counting never recomposes anything.
+ */
 @Composable
 fun CountUpText(value: Double, format: (Double) -> String, style: TextStyle, modifier: Modifier = Modifier) {
     val countUp = LocalEffects.current.countUp
-    var shown by remember { mutableDoubleStateOf(if (countUp) 0.0 else value) }
+    val shown = remember { mutableDoubleStateOf(if (countUp) 0.0 else value) }
     LaunchedEffect(value, countUp) {
         if (!countUp) {
-            shown = value
+            shown.doubleValue = value
             return@LaunchedEffect
         }
-        val from = shown
-        if (from != value) animate(0f, 1f, animationSpec = tween(FogMotion.COUNT_MS, easing = CountEase)) { t, _ -> shown = from + (value - from) * t }
+        val from = shown.doubleValue
+        if (from != value) animate(0f, 1f, animationSpec = tween(FogMotion.COUNT_MS, easing = CountEase)) { t, _ -> shown.doubleValue = from + (value - from) * t }
     }
-    Text(format(shown), style = style, modifier = modifier)
+    val measurer = rememberTextMeasurer()
+    val finalText = format(value)
+    val drawStyle = if (style.color == Color.Unspecified) style.copy(color = Sakura.Text) else style
+    Spacer(
+        modifier
+            .semantics { text = AnnotatedString(finalText) }
+            .layout { measurable, constraints ->
+                // Sized for the final text, so the layout does not move while the digits run.
+                val r = measurer.measure(finalText, drawStyle, softWrap = false, maxLines = 1)
+                val p = measurable.measure(Constraints.fixed(r.size.width, r.size.height))
+                layout(p.width, p.height) { p.place(0, 0) }
+            }
+            .drawWithCache {
+                onDrawBehind { drawText(measurer.measure(format(shown.doubleValue), drawStyle, softWrap = false, maxLines = 1)) }
+            },
+    )
 }
 
 /** The 240-unit HUD ring of the mockup: ticks (40 s spin), track, value arc from 12 o'clock with a glow, dashed aqua ring (26 s, reverse). */
@@ -70,40 +91,52 @@ fun HudRing(progress: Float, size: Dp, modifier: Modifier = Modifier, center: @C
     val spinning = effects.spin && LocalPageActive.current
     val clock = rememberFogClock(spinning, LocalIdle.current)
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(size)) {
-            val unit = this.size.minDimension / 240f
-            scale(unit, unit, pivot = Offset.Zero) { drawRing(drawn.value, clock.value) }
-        }
+        Box(
+            Modifier.size(size).drawWithCache {
+                FogDebug.count("ring.cache")
+                val unit = this.size.minDimension / 240f
+                val c = Offset(120f, 120f)
+                val rose = Sakura.RoseBrown
+                val tickStroke = Stroke(7f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(1.2f, 10.74f)))
+                val trackStroke = Stroke(4f)
+                val arcStroke = Stroke(5f, cap = StrokeCap.Round)
+                val iceStroke = Stroke(1.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 9f)))
+                val innerStroke = Stroke(1f)
+                val trackColor = rose.copy(alpha = .18f)
+                val iceColor = Sakura.Aqua.copy(alpha = .8f)
+                val innerColor = rose.copy(alpha = .3f)
+                // Drawn in 240-unit space under a scale, and mask filters follow the matrix, so the glow blur is given in units too.
+                val glow = fogShadowPaint(Sakura.Primary, 7f).apply {
+                    style = PaintingStyle.Stroke
+                    strokeWidth = 5f
+                    strokeCap = StrokeCap.Round
+                }
+                val arcRect = Rect(Offset(20f, 20f), Size(200f, 200f))
+                val arcTopLeft = Offset(20f, 20f)
+                val arcSize = Size(200f, 200f)
+                onDrawBehind {
+                    val t = clock.value
+                    val p = drawn.value
+                    scale(unit, unit, pivot = Offset.Zero) {
+                        rotate((t / 40f % 1f) * 360f, pivot = c) { drawCircle(rose, 114f, c, style = tickStroke) }
+                        drawCircle(trackColor, 100f, c, style = trackStroke)
+                        if (p > 0f) {
+                            drawIntoCanvas { it.drawArc(arcRect, -90f, 360f * p, false, glow) }
+                            drawArc(Sakura.Primary, -90f, 360f * p, false, arcTopLeft, arcSize, style = arcStroke)
+                        }
+                        rotate(-(t / 26f % 1f) * 360f, pivot = c) { drawCircle(iceColor, 87f, c, style = iceStroke) }
+                        drawCircle(innerColor, 77f, c, style = innerStroke)
+                    }
+                }
+            },
+        )
         center()
     }
 }
 
-private fun DrawScope.drawRing(p: Float, t: Float) {
-    val c = Offset(120f, 120f)
-    val rose = Sakura.RoseBrown
-    rotate((t / 40f % 1f) * 360f, pivot = c) {
-        drawCircle(rose, 114f, c, style = Stroke(7f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(1.2f, 10.74f))))
-    }
-    drawCircle(rose.copy(alpha = .18f), 100f, c, style = Stroke(4f))
-    if (p > 0f) {
-        val arc = Size(200f, 200f)
-        val tl = Offset(20f, 20f)
-        drawIntoCanvas { canvas ->
-            val glow = Paint().apply {
-                style = PaintingStyle.Stroke
-                strokeWidth = 5f
-                strokeCap = StrokeCap.Round
-                color = Sakura.Primary
-                asFrameworkPaint().maskFilter = BlurMaskFilter(7f, BlurMaskFilter.Blur.NORMAL)
-            }
-            canvas.drawArc(androidx.compose.ui.geometry.Rect(tl, arc), -90f, 360f * p, false, glow)
-        }
-        drawArc(Sakura.Primary, -90f, 360f * p, false, tl, arc, style = Stroke(5f, cap = StrokeCap.Round))
-    }
-    rotate(-(t / 26f % 1f) * 360f, pivot = c) {
-        drawCircle(Sakura.Aqua.copy(alpha = .8f), 87f, c, style = Stroke(1.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 9f))))
-    }
-    drawCircle(rose.copy(alpha = .3f), 77f, c, style = Stroke(1f))
+/** A brush whose shader is built once: it ignores the size of the shape it paints, so drawing a growing rectangle never rebuilds it. */
+internal class FixedShaderBrush(private val shader: Shader) : ShaderBrush() {
+    override fun createShader(size: Size): Shader = shader
 }
 
 /** A 7 dp bar; the fill runs from pink (or aqua when [ice]) at 60% to full colour and grows over 1.1 s. */
@@ -120,23 +153,21 @@ fun Meter(progress: Float, ice: Boolean = false, modifier: Modifier = Modifier) 
         modifier
             .fillMaxWidth()
             .height(7.dp)
-            .drawBehind {
-                drawRoundRect(Sakura.RoseBrown.copy(alpha = .14f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
-                val w = size.width * shown.value
-                if (w > 0f) {
-                    val r = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
-                    drawIntoCanvas { canvas ->
-                        val glowPaint = Paint().apply {
-                            this.color = color.copy(alpha = .8f)
-                            asFrameworkPaint().maskFilter = BlurMaskFilter(10.dp.toPx() / 2f, BlurMaskFilter.Blur.NORMAL)
-                        }
-                        canvas.drawRoundRect(0f, 0f, w, size.height, r.x, r.y, glowPaint)
+            .drawWithCache {
+                FogDebug.count("meter.cache")
+                val track = Sakura.RoseBrown.copy(alpha = .14f)
+                val r = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
+                val glow = fogShadowPaint(color.copy(alpha = .8f), 10.dp.toPx())
+                val fill = FixedShaderBrush(
+                    LinearGradientShader(Offset.Zero, Offset(size.width, 0f), listOf(color.copy(alpha = .6f), color)),
+                )
+                onDrawBehind {
+                    drawRoundRect(track, cornerRadius = r)
+                    val w = size.width * shown.value
+                    if (w > 0f) {
+                        drawIntoCanvas { it.drawRoundRect(0f, 0f, w, size.height, r.x, r.y, glow) }
+                        drawRoundRect(fill, size = Size(w, size.height), cornerRadius = r)
                     }
-                    drawRoundRect(
-                        Brush.horizontalGradient(listOf(color.copy(alpha = .6f), color), startX = 0f, endX = w),
-                        size = Size(w, size.height),
-                        cornerRadius = r,
-                    )
                 }
             },
     )

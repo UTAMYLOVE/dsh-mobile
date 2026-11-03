@@ -1,6 +1,11 @@
 package app.dshmobile.ui.fog
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
@@ -44,11 +48,11 @@ private val Pill = RoundedCornerShape(50)
 fun FogButton(text: String, kind: FogButtonKind, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val fill: Modifier = when (kind) {
         FogButtonKind.PINK -> Modifier
-            .glow(Sakura.Primary.copy(alpha = .85f), 9.dp, Pill)
+            .glow(Sakura.Primary.copy(alpha = .85f), 18.dp, Pill, dy = 6.dp)
             .background(SizedRadial(.35f, .3f, Sakura.Background, Sakura.Primary), Pill)
             .border(1.dp, Color.White.copy(alpha = .9f), Pill)
         FogButtonKind.AQUA -> Modifier
-            .glow(Sakura.Aqua.copy(alpha = .7f), 8.dp, Pill)
+            .glow(Sakura.Aqua.copy(alpha = .7f), 14.dp, Pill)
             .background(Sakura.Aqua.copy(alpha = .40f), Pill)
             .border(1.dp, Sakura.Aqua.copy(alpha = .95f), Pill)
         FogButtonKind.GHOST -> Modifier
@@ -58,7 +62,7 @@ fun FogButton(text: String, kind: FogButtonKind, onClick: () -> Unit, modifier: 
     Box(
         modifier
             .alpha(if (enabled) 1f else .45f)
-            .heightIn(min = 44.dp)
+            .heightIn(min = 48.dp)
             .then(fill)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 10.dp),
@@ -83,31 +87,47 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, tag
     Row(
         modifier
             .fillMaxWidth()
+            .selectableGroup()
             .background(Color.White.copy(alpha = .45f), Pill)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         options.forEachIndexed { i, label ->
             val on = i == selected
-            val lift by animateFloatAsState(if (on) 1f else 0f, tween(FogMotion.SCRIM_MS, easing = FogMotion.EaseOut), label = "seg")
+            val lift = animateFloatAsState(if (on) 1f else 0f, tween(FogMotion.PILL_MS, easing = FogMotion.Spring), label = "seg")
             Box(
                 Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp)
                     .testTag(tagPrefix + i)
                     .semantics { this.selected = on }
-                    .drawBehind {
-                        if (lift > 0f) {
-                            softShadow(Pill, Sakura.RoseBrown.copy(alpha = .18f * lift), 10.dp, dy = 3.dp)
-                            drawRoundRect(
-                                cssLinear(140f, size, 0f to Color.White.copy(alpha = lift), 1f to Color.White.copy(alpha = .6f * lift)),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2),
-                            )
-                        }
-                    }
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Tab) { onSelect(i) }
-                    .padding(vertical = 9.dp),
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Tab) { onSelect(i) },
                 contentAlignment = Alignment.Center,
             ) {
+                // The lifted cell sits in its own layer: the spring animates only its alpha, nothing recomposes or re-records.
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = lift.value.coerceIn(0f, 1f) }
+                        .drawWithCache {
+                            FogDebug.count("segmented.cache")
+                            val path = Pill.createOutline(size, layoutDirection, this).toPath()
+                            val shadow = fogShadowPaint(Sakura.RoseBrown.copy(alpha = .18f), 10.dp.toPx())
+                            val dy = 3.dp.toPx()
+                            val fill = cssLinear(140f, size, 0f to Color.White, 1f to Color.White.copy(alpha = .6f))
+                            val r = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
+                            onDrawBehind {
+                                drawIntoCanvas { canvas ->
+                                    canvas.save()
+                                    canvas.clipPath(path, ClipOp.Difference)
+                                    canvas.translate(0f, dy)
+                                    canvas.drawPath(path, shadow)
+                                    canvas.restore()
+                                }
+                                drawRoundRect(fill, cornerRadius = r)
+                            }
+                        },
+                )
                 Text(
                     label,
                     color = if (on) Sakura.Text else Sakura.TextSecondary,

@@ -1,7 +1,6 @@
 package app.dshmobile.ui.fog
 
 import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,8 +17,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -105,32 +106,60 @@ fun FogBackground(backdrop: Backdrop, modifier: Modifier = Modifier) {
             },
     ) {
         Box(Modifier.fillMaxSize().background(Sakura.Background))
-        Canvas(Modifier.fillMaxSize()) { drawGlows(clock.value) }
+        Box(Modifier.fillMaxSize().fogGlows(clock))
         FogGrid(top = true, clock = clock)
         FogGrid(top = false, clock = clock)
     }
 }
 
-private fun DrawScope.glow(color: Color, sizeDp: Float, left: Float, top: Float, drift: Offset, scaleTo: Float, p: Float) {
-    val d = sizeDp.dp.toPx()
-    val s = 1f + (scaleTo - 1f) * p
-    val c = Offset(left + d / 2 + drift.x.dp.toPx() * p, top + d / 2 + drift.y.dp.toPx() * p)
-    scale(s, s, pivot = c) {
-        drawCircle(
-            Brush.radialGradient(0f to color.copy(alpha = .75f), .55f to color.copy(alpha = .38f), 1f to color.copy(alpha = 0f), center = c, radius = d / 2),
-            radius = d / 2,
-            center = c,
-        )
-    }
+/** One drifting glow: a radial gradient built once at the glow's own centre, moved and scaled at draw time by the clock. */
+private class GlowSpec(
+    val brush: Brush,
+    val radius: Float,
+    val left: Float,
+    val top: Float,
+    val driftX: Float,
+    val driftY: Float,
+    val scaleTo: Float,
+    val oneWay: Float,
+)
+
+private fun buildGlow(color: Color, sizeDp: Float, left: Float, top: Float, drift: Offset, scaleTo: Float, oneWay: Float, density: Float): GlowSpec {
+    val r = sizeDp * density / 2f
+    val c = Offset(r, r)
+    return GlowSpec(
+        Brush.radialGradient(
+            0f to color.copy(alpha = .75f), .55f to color.copy(alpha = .38f), 1f to color.copy(alpha = 0f), center = c, radius = r,
+        ),
+        r, left, top, drift.x * density, drift.y * density, scaleTo, oneWay,
+    )
 }
 
-private fun DrawScope.drawGlows(t: Float) {
-    val w = size.width
-    val h = size.height
-    glow(Sakura.Primary, 300f, w + 90.dp.toPx() - 300.dp.toPx(), -60.dp.toPx(), Offset(-70f, 80f), 1.12f, alternate(t, 18f))
-    glow(Sakura.Aqua, 260f, -110.dp.toPx(), h - 120.dp.toPx() - 260.dp.toPx(), Offset(90f, -60f), .9f, alternate(t, 22f))
-    glow(Sakura.MilkTea, 240f, w + 70.dp.toPx() - 240.dp.toPx(), h * .42f, Offset(-80f, -40f), 1.15f, alternate(t, 26f))
-}
+/** The three glows live in their own layer, so a clock tick redraws only this layer, not the chat list or dock above it. */
+private fun Modifier.fogGlows(clock: State<Float>): Modifier = this
+    .graphicsLayer { }
+    .drawWithCache {
+        FogDebug.count("background.glows")
+        val d = density
+        val w = size.width
+        val h = size.height
+        val glows = arrayOf(
+            buildGlow(Sakura.Primary, 300f, w + 90f * d - 300f * d, -60f * d, Offset(-70f, 80f), 1.12f, 18f, d),
+            buildGlow(Sakura.Aqua, 260f, -110f * d, h - 120f * d - 260f * d, Offset(90f, -60f), .9f, 22f, d),
+            buildGlow(Sakura.MilkTea, 240f, w + 70f * d - 240f * d, h * .42f, Offset(-80f, -40f), 1.15f, 26f, d),
+        )
+        onDrawBehind {
+            FogDebug.count("background.glows.draw")
+            val t = clock.value
+            for (g in glows) {
+                val p = alternate(t, g.oneWay)
+                val s = 1f + (g.scaleTo - 1f) * p
+                translate(g.left + g.driftX * p, g.top + g.driftY * p) {
+                    scale(s, s, pivot = Offset(g.radius, g.radius)) { drawCircle(g.brush, g.radius, Offset(g.radius, g.radius)) }
+                }
+            }
+        }
+    }
 
 /** A perspective grid slab: 42% of the height, tilted 68 degrees, cells of 44 dp flowing one cell every 6 s, fading towards the horizon. */
 @Composable
@@ -153,33 +182,36 @@ private fun FogGrid(top: Boolean, clock: State<Float>) {
                     alpha = .55f
                     compositingStrategy = CompositingStrategy.Offscreen
                 }
-                .drawWithContent {
-                    drawGridLines(clock.value, reverse = top)
+                .drawWithCache {
+                    FogDebug.count("background.grid")
                     // Fade from fully visible near the screen edge (10%) to gone far away (85%).
                     val near = if (top) 0f else size.height
                     val far = if (top) size.height else 0f
-                    drawRect(
-                        Brush.linearGradient(.1f to Color.Black, .85f to Color.Transparent, start = Offset(0f, near), end = Offset(0f, far)),
-                        blendMode = BlendMode.DstIn,
-                    )
+                    val mask = Brush.linearGradient(.1f to Color.Black, .85f to Color.Transparent, start = Offset(0f, near), end = Offset(0f, far))
+                    onDrawWithContent {
+                        drawGridLines(clock.value, reverse = top)
+                        drawRect(mask, blendMode = BlendMode.DstIn)
+                    }
                 },
         )
     }
 }
 
+private val GridLine = Color.White.copy(alpha = .95f)
+
 private fun DrawScope.drawGridLines(t: Float, reverse: Boolean) {
     val cell = 44.dp.toPx()
     val line = 1.dp.toPx()
-    val color = Color.White.copy(alpha = .95f)
+    val color = GridLine
     val flow = ((t / 6f) % 1f) * cell * (if (reverse) -1f else 1f)
     var x = 0f
     while (x <= size.width) {
-        drawRect(color, Offset(x, 0f), androidx.compose.ui.geometry.Size(line, size.height))
+        drawRect(color, Offset(x, 0f), Size(line, size.height))
         x += cell
     }
     var y = flow - cell
     while (y <= size.height + cell) {
-        drawRect(color, Offset(0f, y), androidx.compose.ui.geometry.Size(size.width, line))
+        drawRect(color, Offset(0f, y), Size(size.width, line))
         y += cell
     }
 }
