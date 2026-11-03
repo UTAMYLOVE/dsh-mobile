@@ -7,6 +7,7 @@ import android.util.Base64
 import app.dshmobile.gateway.Provider
 import java.security.GeneralSecurityException
 import java.security.KeyStore
+import java.security.ProviderException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -29,18 +30,12 @@ class AndroidKeyVault(context: Context) : KeyVault {
 
     @Synchronized override fun get(p: Provider): String? {
         val stored = prefs.getString(p.name, null) ?: return null
-        return try {
+        return decryptOrNull {
             val (iv, ciphertext) = stored.split(':', limit = 2).map { Base64.decode(it, Base64.NO_WRAP) }
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(TAG_BITS, iv))
             cipher.updateAAD(p.name.toByteArray())
             String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-        } catch (_: GeneralSecurityException) {
-            null // e.g. the Keystore key was invalidated; treat the key as not set
-        } catch (_: IllegalArgumentException) {
-            null // corrupt stored value
-        } catch (_: IndexOutOfBoundsException) {
-            null // corrupt stored value
         }
     }
 
@@ -71,11 +66,27 @@ class AndroidKeyVault(context: Context) : KeyVault {
         }
     }
 
-    private companion object {
-        const val ALIAS = "dshm-keyvault"
-        const val PREFS = "dshm_keys"
-        const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        const val TRANSFORMATION = "AES/GCM/NoPadding"
-        const val TAG_BITS = 128
+    internal companion object {
+        /**
+         * Runs a decrypt; any failure means "no key set" (the user enters it again), never an exception: the gateway calls
+         * [get] for every request and would otherwise answer each with a 500.
+         */
+        internal fun <T> decryptOrNull(decrypt: () -> T): T? = try {
+            decrypt()
+        } catch (_: GeneralSecurityException) {
+            null // e.g. the Keystore key was invalidated
+        } catch (_: ProviderException) {
+            null // Keystore failures that Android reports as a runtime exception
+        } catch (_: IllegalArgumentException) {
+            null // corrupt stored value
+        } catch (_: IndexOutOfBoundsException) {
+            null // corrupt stored value
+        }
+
+        private const val ALIAS = "dshm-keyvault"
+        private const val PREFS = "dshm_keys"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val TRANSFORMATION = "AES/GCM/NoPadding"
+        private const val TAG_BITS = 128
     }
 }
