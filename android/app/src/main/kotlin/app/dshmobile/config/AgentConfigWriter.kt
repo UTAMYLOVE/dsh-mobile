@@ -35,6 +35,14 @@ class AgentConfigWriter(private val dshHome: File) {
                 append("- id: agent-team\n  config:\n    maxMembers: ${minOf(s.teamSize, s.maxConcurrent)}\n")
                 append("    maxTasks: 256\n    maxMessageBytes: 65536\n    disposalTimeoutMs: 5000\n")
             }
+            val mcp = McpServers.parse(s.mcpServers)
+            if (mcp.isNotEmpty()) {
+                append("- insert:\n")
+                mcp.forEach { (name, url) ->
+                    append("    - id: dshm-mcp-$name\n      name: \"@deepseek-ai/dsh-mcp-client\"\n      config:\n")
+                    append("        serverName: $name\n        transport: streamable-http\n        url: ${DshPatch.q(url)}\n")
+                }
+            }
         }
     }
 
@@ -50,6 +58,9 @@ class AgentConfigWriter(private val dshHome: File) {
     /** dsh's experimental Auto review layer (stage 2 §J), added to or removed from the web profile like [ensureAgentTeamsBundle]. */
     @Synchronized
     fun ensureAutoReviewBundle(enabled: Boolean): Boolean = ensureBundle(AUTO_REVIEW_BUNDLE, enabled)
+
+    /** The app's skills in dsh's skill root (stage 2 batch 2). */
+    fun installSkills() = AppSkills.install(dshHome)
 
     private fun ensureBundle(name: String, enabled: Boolean): Boolean {
         fun isIt(e: kotlinx.serialization.json.JsonElement) = e is JsonPrimitive && e.isString && e.content == name
@@ -116,7 +127,27 @@ class AgentPatchProvider(
         // dsh warns "entry not found" for an agent-team row whose bundle is not loaded: write the row only when the bundle is in place.
         val teamsActive = writer.ensureAgentTeamsBundle(settings.agentTeams)
         writer.ensureAutoReviewBundle(settings.autoReview)
+        writer.installSkills()
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)
         return DshPatch.render(gatewayBase, pluginDir, section, includeAnthropic = hasClaudeKey)
+    }
+}
+
+/** The MCP servers setting: one `name url` per line; bad lines are dropped (names `[A-Za-z0-9_-]{1,32}`, https or loopback http). */
+object McpServers {
+    private val NAME = Regex("^[A-Za-z0-9_-]{1,32}$")
+
+    fun parse(text: String): List<Pair<String, String>> = text.lineSequence().mapNotNull { line ->
+        val parts = line.trim().split(Regex("\\s+"))
+        if (parts.size != 2) return@mapNotNull null
+        val (name, url) = parts
+        val okUrl = url.startsWith("https://") || url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")
+        if (!NAME.matches(name) || !okUrl || url.any { it.isWhitespace() || it == '"' }) null else name to url
+    }.distinctBy { it.first }.take(8).toList()
+
+    /** The lines that will be dropped, for the settings page to point at. */
+    fun invalid(text: String): List<String> {
+        val ok = parse(text).map { "${it.first} ${it.second}" }.toSet()
+        return text.lines().map { it.trim().split(Regex("\\s+")).joinToString(" ") }.filter { it.isNotBlank() && it !in ok }
     }
 }

@@ -75,7 +75,7 @@ class ConversationStore(
      */
     private val runningHint: () -> Boolean? = { null },
     /** Runs before each prompt (stage 2 §J: switch the session to Auto review once); a failure never blocks the send. */
-    private val beforeSend: suspend () -> Unit = {},
+    private val beforeSend: suspend (List<PromptPart>) -> Unit = {},
     /** Rewrites the prompt parts just before they go out (stage 2 §B.2: the reviewer-rounds instruction). */
     private val decorate: (List<PromptPart>) -> List<PromptPart> = { it },
 ) {
@@ -294,7 +294,7 @@ class ConversationStore(
         }
         return try {
             try {
-                beforeSend()
+                beforeSend(parts)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

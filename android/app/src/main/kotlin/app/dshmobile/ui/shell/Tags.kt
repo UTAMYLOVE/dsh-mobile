@@ -13,7 +13,7 @@ object Tags {
     const val LIB_NEW_PANEL = "lib-new-panel"
     const val LIB_TITLE = "lib-title"
     const val LIB_CREATE = "lib-create"
-    const val LIB_BOOK_PAGE = "lib-book-page"
+    const val LIB_BOOK_PAGE = "lib-volume-page"
     const val LIB_READ = "lib-read"
     const val LIB_NOT_CHAPTER = "lib-not-chapter-"
     const val LIB_READER = "lib-reader"

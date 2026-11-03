@@ -258,7 +258,7 @@ class DshMobileApp : Application(), Configuration.Provider {
         val loopback = loopbackHttp
         val holder = ShellSessionHolder { running ->
             val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
-            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope, autoReview = { agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview }) }
+            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope, autoReview = { agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview }, autoRoute = { agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoRoute }) }
         }
         applicationScope.launch(Dispatchers.Main) {
             controller.isRunning.collect { running -> if (!running) holder.detach() }

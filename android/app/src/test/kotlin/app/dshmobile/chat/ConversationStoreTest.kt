@@ -56,7 +56,7 @@ class ConversationStoreTest {
         var n = 0
         return ConversationStore(
             remote, "s1", CoroutineScope(StandardTestDispatcher(testScheduler)), { "r${++n}" }, StandardTestDispatcher(testScheduler),
-            runningHint = runningHint, beforeSend = beforeSend,
+            runningHint = runningHint, beforeSend = { beforeSend() },
         )
     }
 

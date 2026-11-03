@@ -15,6 +15,10 @@ data class AgentSettings(
     val agentTeams: Boolean = true,
     /** dsh's experimental Auto review (stage 2 §J): every conversation switches to `/permission auto`; off by default. */
     val autoReview: Boolean = false,
+    /** Stage 2 batch 2: pick Flash or Pro per message by how demanding it looks (only between DeepSeek models). */
+    val autoRoute: Boolean = false,
+    /** Remote MCP servers, one per line: `name https://…/mcp` (no headers: the app never hands dsh a secret). */
+    val mcpServers: String = "",
 ) {
     init {
         require(maxConcurrent in MAX_CONCURRENT_RANGE) { "maxConcurrent $maxConcurrent not in $MAX_CONCURRENT_RANGE" }
