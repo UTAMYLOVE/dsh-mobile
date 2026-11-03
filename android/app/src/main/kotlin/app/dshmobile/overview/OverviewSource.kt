@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import java.time.Clock
 
 /** Everything the overview page shows, at [nowMs]. Money is the app's own estimate (CostMeter and PriceTable), never dsh's. */
@@ -51,6 +52,8 @@ class OverviewSource(
     private val unverifiedDshVersion: () -> String?,
     private val clock: Clock,
     private val tickMs: Long = 60_000,
+    /** Where the state is computed (the prefs and the dsh version link are file reads); the app passes IO. */
+    private val context: kotlin.coroutines.CoroutineContext = kotlin.coroutines.EmptyCoroutineContext,
 ) {
     private fun ticks(): Flow<Long> = flow {
         while (true) {
@@ -77,5 +80,5 @@ class OverviewSource(
             recent = rows,
             unverifiedDsh = unverifiedDshVersion(),
         )
-    }
+    }.flowOn(context)
 }

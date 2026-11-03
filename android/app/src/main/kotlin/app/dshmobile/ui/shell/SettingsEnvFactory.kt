@@ -5,6 +5,8 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.runtime.HealthCheck
 import app.dshmobile.runtime.UpdateOutcome
+import app.dshmobile.runtime.VerifiedDsh
+import app.dshmobile.runtime.VerifiedUpdatePolicy
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.AndroidOnboardingPlatform
 import app.dshmobile.ui.MainOps
@@ -23,12 +25,18 @@ fun buildSettingsEnv(
     onEffectLevel: (EffectLevel) -> Unit = app.effectsController::set,
 ): SettingsEnv {
     val platform = AndroidOnboardingPlatform(activity)
-    val ops = MainOps(app.controller, { app.dshVersions.previous() }, { app.dshVersions.rollback() }, app.errorLog)
+    // The rollback never targets a version this app has not verified (the same filter as the crash notification's rollback).
+    val ops = MainOps(app.controller, { VerifiedUpdatePolicy.previous(app.dshVersions.previous()) }, { app.dshVersions.rollback() }, app.errorLog)
     val versions = object : SettingsVersions {
         override fun current(): String = app.dshVersions.current()
-        override fun previous(): String? = app.dshVersions.previous()
-        // The health check is part of ensureRunning; updateWithAutoRollback only needs the object.
-        override suspend fun checkUpdate(): UpdateOutcome = app.dshVersions.updateWithAutoRollback(app.controller, HealthCheck(OkHttpClient()))
+        override fun previous(): String? = VerifiedUpdatePolicy.previous(app.dshVersions.previous())
+        override fun verified(): List<String> = VerifiedDsh.VERSIONS
+        // The health check is part of ensureRunning; updateWithAutoRollback only needs the object. Only a verified version is installed:
+        // from an unverified current this is the switch back to the newest verified one.
+        override suspend fun checkUpdate(): UpdateOutcome {
+            val target = VerifiedUpdatePolicy.target(runCatching { app.dshVersions.current() }.getOrNull()) ?: return UpdateOutcome.UpToDate
+            return app.dshVersions.updateWithAutoRollback(app.controller, HealthCheck(OkHttpClient()), target)
+        }
         override suspend fun rollback(): MainOps.RollbackOutcome = ops.rollback()
     }
     return SettingsEnv(
@@ -49,6 +57,7 @@ fun buildSettingsEnv(
         exportMemory = { app.exporter.share(app.exporter.memoryBackupZip()) },
         exportWorkspace = { app.exporter.share(app.exporter.workspaceZip()) },
         jobs = app.settingsJobs,
+        effectLevel = app.effectsController.level,
         onEffectLevel = onEffectLevel,
     )
 }
