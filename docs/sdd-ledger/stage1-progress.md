@@ -167,3 +167,7 @@ T9: implementer DONE_WITH_CONCERNS (lane-t9 093b21c..478d5f2, 969 unit); upload 
 CI: e2e red since the native shell (runs 73, 77, 80): t01 hangs ~270 s, then the emulator disappears ("device not found"); job logs carry no stack trace and artifacts can't be fetched from this session.
 - Ruling: added a CI-only diagnostics step (on failure: print failing test bodies + logcat crash/ANR/LMK/app lines, secrets filtered) — Why: T15 needs the cause; the e2e rewrite is T15's job — Cost if wrong: a few extra log lines.
 - Ruling: push ledger-only commits less often — each push cancels the running CI (concurrency cancel-in-progress), so e2e rarely finished.
+T9: review = spec ✅, quality Approved (sonnet); reviewer "Important" (non-blocking): ~100–130 MB transient peak for a 20 MB file (double copy + base64), OOM uncaught on the send path; 9×5 MB images retained as base64 for retry
+- Ruling: fix round 1 = exact-size single read, no raw bytes kept after encoding, OutOfMemoryError → composer error (nothing sent), friendly upload-failure reason instead of the class name, STOP shown while running with empty text even with chips — Why: low-end phones and the owner reads the errors — Cost if wrong: one small round. Streaming upload deferred (stage 2).
+T9: fix round 1/5 dispatched (resume implementer)
+T9: minor (deferred): send coroutine captures the Activity (recreate mid-upload, rare due to configChanges); pick-time full read doubles cloud downloads (by design); text-only refusal shown twice (dock + chat); retry retains base64 parts
