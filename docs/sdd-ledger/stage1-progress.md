@@ -70,3 +70,4 @@ T2: implementer DONE_WITH_CONCERNS (lane-t1 8d85b62..62ac66c, 669 unit); deviati
 - Ruling: lane-t1 (T1+T2) merged now and T4 + T16 dispatched while T2's review runs (parallel ruling); a T2 fix round, if any, lands on the branch — Cost if wrong: T4/T16 rebase over a T2 fix.
 T2: review dispatched (opus — concurrency and reconnect semantics)
 T2: minor (deferred): no client-side ping on the mux socket (add OkHttp pingInterval if T15 shows hung-socket stalls)
+T4 dispatched (opus, wt-t3 lane-t4 from bb2ba1b); T16 dispatched (sonnet, wt-t7 lane-t16 from bb2ba1b)
