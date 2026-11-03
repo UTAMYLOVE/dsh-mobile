@@ -1,5 +1,6 @@
 package app.dshmobile.remote
 
+import app.dshmobile.chat.ChatRemote
 import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshClient
 import kotlinx.coroutines.CoroutineScope
@@ -33,7 +34,7 @@ class DshRemote(
     private val client: DshClient,
     private val scope: CoroutineScope,
     private val zone: ZoneId = ZoneId.systemDefault(),
-) {
+) : ChatRemote {
     private val loginLock = Mutex()
     @Volatile private var loggedIn = false
     @Volatile private var closed = false
@@ -53,7 +54,7 @@ class DshRemote(
     val muxState: StateFlow<MuxState> get() = mux.state
 
     /** History and live events of [sessionId] (`session/follow`, with the live assistant stream). */
-    fun follow(sessionId: String): Flow<StreamSignal> = mux.stream("session/follow", request {
+    override fun follow(sessionId: String): Flow<StreamSignal> = mux.stream("session/follow", request {
         putJsonObject("address") { put("kind", "session"); put("sessionId", sessionId) }
         put("assistantStream", true)
         put("maxMessages", FOLLOW_MAX_MESSAGES)
@@ -108,7 +109,7 @@ class DshRemote(
     }
 
     /** Always `mode:"queue"`: stage 1 never steers a running turn. */
-    suspend fun prompt(sessionId: String, requestId: String, parts: List<PromptPart>) {
+    override suspend fun prompt(sessionId: String, requestId: String, parts: List<PromptPart>) {
         call("session/prompt", request {
             put("requestId", requestId)
             put("sessionId", sessionId)
@@ -118,7 +119,7 @@ class DshRemote(
         })
     }
 
-    suspend fun cancel(sessionId: String) {
+    override suspend fun cancel(sessionId: String) {
         call("session/cancel", request { put("sessionId", sessionId) })
     }
 
@@ -132,12 +133,12 @@ class DshRemote(
         call("workspace/archiveSession", request { put("sessionId", sessionId); put("stopActivity", true) })
     }
 
-    suspend fun selectModel(sessionId: String, provider: String, model: String) {
+    override suspend fun selectModel(sessionId: String, provider: String, model: String) {
         call("session/selectModel", request { put("sessionId", sessionId); put("provider", provider); put("model", model) })
     }
 
     /** Stages [bytes] for [sessionId]'s next prompt; returns the receipt id for [PromptPart.File]. */
-    suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String {
+    override suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String {
         val value = call(UPLOAD, buildJsonObject {
             put("agentId", sessionId)
             putJsonObject("request") {
@@ -149,7 +150,7 @@ class DshRemote(
     }
 
     /** Older history of [sessionId] before [beforeSeq]; the raw `SessionPage`. */
-    suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): JsonElement = call("session/page", request {
+    override suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): JsonElement = call("session/page", request {
         putJsonObject("address") { put("kind", "session"); put("sessionId", sessionId) }
         put("beforeSeq", beforeSeq)
         put("maxMessages", maxMessages)
