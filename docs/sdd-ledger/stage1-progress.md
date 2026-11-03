@@ -105,3 +105,6 @@ T4: review 1 = spec ✅, quality Needs fixes (opus, with 412 dp native-graphics 
 - Ruling: Minors 5 (pill offset at layout), 6 (keyboard-driven page padding recomposition), 7 (block tab switch while settings busy; keep pending fields outside the tab), 8 (hide embedded settings title) join round 1.
 T4: fix round 1/5 dispatched (resume implementer)
 T4: minor (deferred): settings page still Material-styled (stage-1 T13 restyles it); page-switch sweep line deferred to T14; Error persists after the 60 s remote-open timeout until Retry; FogShellLayoutTest uses a stand-in SETTINGS page; captureToImage() hangs under NATIVE graphics (use decorView.draw)
+T5: fix round 2/5 (1 addressed, 0 open; commits 3343dd3..31eaad2; re-review haiku)
+T5: complete (lane-t5 c9e6212..01a58a3, review clean after 2 fix rounds) — merged; ShellRemote : ChatRemote line pending the T4 merge
+T5: minor (deferred): reopened() sets running=false so a long follow outage (>60 s) during a running turn can still fail a queued bubble; an idle-sent bubble unrecorded when another turn starts waits out that turn
