@@ -3,6 +3,9 @@ package app.dshmobile.gateway
 import android.content.SharedPreferences
 import java.time.Clock
 import java.time.ZoneId
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Today's estimated spend (day boundary in [zone]) plus the user's alert threshold and hard cap, all kept in [store].
@@ -14,10 +17,15 @@ class CostMeter(
     private val zone: ZoneId = ZoneId.of("Asia/Taipei"),
     private val clock: Clock,
 ) {
+    private val _revision = MutableStateFlow(0L)
+
+    /** Goes up by one on every [record] and every change of [alertUsd] or [hardCapUsd]: the overview recomputes on it. */
+    val revision: StateFlow<Long> = _revision.asStateFlow()
+
     /** Warn once a day when today's spend goes above this many USD. */
     var alertUsd: Double
         get() = synchronized(this) { store.getString(KEY_ALERT, null)?.toDoubleOrNull() ?: DEFAULT_ALERT_USD }
-        set(value) = synchronized(this) { store.edit().putString(KEY_ALERT, value.toString()).apply() }
+        set(value) = synchronized(this) { store.edit().putString(KEY_ALERT, value.toString()).apply(); bump() }
 
     /** Refuse model requests once today's spend reaches this many USD; null means no cap. */
     var hardCapUsd: Double?
@@ -26,19 +34,40 @@ class CostMeter(
             val edit = store.edit()
             if (value == null) edit.remove(KEY_HARD_CAP) else edit.putString(KEY_HARD_CAP, value.toString())
             edit.apply()
+            bump()
         }
 
     fun record(p: Provider, model: String, u: Usage) {
         val cost = prices.costUsd(p, model, u, clock.instant())
         synchronized(this) {
             val today = today()
+            val month = today.substring(0, 7)
             val total = if (store.getString(KEY_DAY, null) == today) readTotal() else 0.0
-            store.edit().putString(KEY_DAY, today).putString(KEY_TOTAL, (total + cost).toString()).apply()
+            val own = todayUsd(p)
+            val other = Provider.entries.filter { it != p }.associateWith { todayUsd(it) }
+            val monthTotal = if (store.getString(KEY_MONTH, null) == month) readDouble(KEY_MONTH_USD) else 0.0
+            val edit = store.edit().putString(KEY_DAY, today).putString(KEY_TOTAL, (total + cost).toString())
+                .putString(providerKey(p), (own + cost).toString())
+                .putString(KEY_MONTH, month).putString(KEY_MONTH_USD, (monthTotal + cost).toString())
+            // A provider that did not spend today is reset too, so a new day never keeps yesterday's split.
+            other.forEach { (q, v) -> edit.putString(providerKey(q), v.toString()) }
+            edit.apply()
+            bump()
         }
     }
 
     fun todayUsd(): Double = synchronized(this) {
         if (store.getString(KEY_DAY, null) == today()) readTotal() else 0.0
+    }
+
+    /** Today's spend on [p] alone; stores written before the split existed report 0 for each provider (the total is unchanged). */
+    fun todayUsd(p: Provider): Double = synchronized(this) {
+        if (store.getString(KEY_DAY, null) == today()) readDouble(providerKey(p)) else 0.0
+    }
+
+    /** This calendar month's spend (month boundary in the meter's zone, Asia/Taipei by default). */
+    fun monthUsd(): Double = synchronized(this) {
+        if (store.getString(KEY_MONTH, null) == today().substring(0, 7)) readDouble(KEY_MONTH_USD) else 0.0
     }
 
     /** True the first time today's spend is above [alertUsd]; false for the rest of that day. */
@@ -56,12 +85,27 @@ class CostMeter(
 
     private fun today(): String = clock.instant().atZone(zone).toLocalDate().toString()
 
-    private fun readTotal(): Double = store.getString(KEY_TOTAL, null)?.toDoubleOrNull() ?: 0.0
+    private fun readTotal(): Double = readDouble(KEY_TOTAL)
+
+    private fun readDouble(key: String): Double = store.getString(key, null)?.toDoubleOrNull() ?: 0.0
+
+    private fun providerKey(p: Provider) = when (p) {
+        Provider.DEEPSEEK -> KEY_DAY_DEEPSEEK
+        Provider.ANTHROPIC -> KEY_DAY_ANTHROPIC
+    }
+
+    private fun bump() {
+        _revision.value += 1
+    }
 
     private companion object {
         const val DEFAULT_ALERT_USD = 5.0
         const val KEY_DAY = "day"
         const val KEY_TOTAL = "day_usd"
+        const val KEY_DAY_DEEPSEEK = "day_usd_deepseek"
+        const val KEY_DAY_ANTHROPIC = "day_usd_anthropic"
+        const val KEY_MONTH = "month"
+        const val KEY_MONTH_USD = "month_usd"
         const val KEY_ALERTED_DAY = "alerted_day"
         const val KEY_ALERT = "alert_usd"
         const val KEY_HARD_CAP = "hard_cap_usd"

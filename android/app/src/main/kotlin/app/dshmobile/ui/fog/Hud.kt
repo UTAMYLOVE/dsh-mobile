@@ -34,6 +34,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -63,19 +64,52 @@ fun CountUpText(value: Double, format: (Double) -> String, style: TextStyle, mod
     val measurer = rememberTextMeasurer()
     val finalText = format(value)
     val drawStyle = if (style.color == Color.Unspecified) style.copy(color = Sakura.Text) else style
+    // One layout per glyph (digits and a few signs, about fifteen in all): the digits are tabular, so a count-up draws the
+    // same few layouts side by side every frame instead of measuring a new string each time.
+    val glyphs = remember(measurer, drawStyle) { GlyphCache { measurer.measure(it, drawStyle, softWrap = false, maxLines = 1) } }
     Spacer(
         modifier
             .semantics { text = AnnotatedString(finalText) }
             .layout { measurable, constraints ->
                 // Sized for the final text, so the layout does not move while the digits run.
-                val r = measurer.measure(finalText, drawStyle, softWrap = false, maxLines = 1)
-                val p = measurable.measure(Constraints.fixed(r.size.width, r.size.height))
+                val w = glyphs.width(finalText)
+                val h = glyphs.height(finalText)
+                val p = measurable.measure(Constraints.fixed(w, h))
                 layout(p.width, p.height) { p.place(0, 0) }
             }
             .drawWithCache {
-                onDrawBehind { drawText(measurer.measure(format(shown.doubleValue), drawStyle, softWrap = false, maxLines = 1)) }
+                onDrawBehind {
+                    var x = 0f
+                    glyphs.forEach(format(shown.doubleValue)) { g ->
+                        drawText(g, topLeft = Offset(x, 0f))
+                        x += g.size.width
+                    }
+                }
             },
     )
+}
+
+/** Layouts of single characters, each measured once. Main thread only. */
+internal class GlyphCache<T : Any>(private val measure: (String) -> T) {
+    private val map = HashMap<Char, T>()
+
+    operator fun get(c: Char): T = map.getOrPut(c) { measure(c.toString()) }
+}
+
+internal inline fun <T : Any> GlyphCache<T>.forEach(text: String, block: (T) -> Unit) {
+    for (c in text) block(get(c))
+}
+
+private fun GlyphCache<TextLayoutResult>.width(text: String): Int {
+    var w = 0
+    forEach(text) { w += it.size.width }
+    return w
+}
+
+private fun GlyphCache<TextLayoutResult>.height(text: String): Int {
+    var h = 0
+    forEach(text) { h = maxOf(h, it.size.height) }
+    return h
 }
 
 /** The 240-unit HUD ring of the mockup: ticks (40 s spin), track, value arc from 12 o'clock with a glow, dashed aqua ring (26 s, reverse). */
@@ -90,7 +124,7 @@ fun HudRing(progress: Float, size: Dp, modifier: Modifier = Modifier, center: @C
     }
     val spinning = effects.spin && LocalPageActive.current
     val clock = rememberFogClock(spinning, LocalIdle.current)
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+    Box(modifier.size(size).semantics { set(FogSemantics.Animating, spinning) }, contentAlignment = Alignment.Center) {
         Box(
             Modifier.size(size).drawWithCache {
                 FogDebug.count("ring.cache")

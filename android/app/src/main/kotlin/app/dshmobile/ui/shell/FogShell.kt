@@ -1,6 +1,15 @@
 package app.dshmobile.ui.shell
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
+import app.dshmobile.ui.fog.LocalBackdrop
+import app.dshmobile.ui.fog.LocalIdle
+import app.dshmobile.ui.fog.LocalPageActive
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
@@ -64,6 +73,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
@@ -133,10 +143,16 @@ fun FogShell(
     onRetry: () -> Unit,
     onExportErrorLog: () -> Unit,
     overlay: @Composable () -> Unit = {},
+    /** True while [overlay] is a modal card: everything under it is hidden from accessibility services. */
+    modalOverlay: Boolean = false,
     reconnectChipDelayMs: Long = 2_000,
     page: @Composable (ShellTab) -> Unit,
 ) {
     val backdrop = rememberBackdrop()
+    val lifecycleState = LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    // RESUMED <-> STARTED (a dialog or the shade over the screen) must not recompose the shell: only the STARTED threshold counts.
+    val started by remember { derivedStateOf { lifecycleState.value.isAtLeast(Lifecycle.State.STARTED) } }
+    val idle = rememberIdle(started)
     val density = LocalDensity.current
     // Composition reads only insets that do not animate frame by frame: the navigation bar, and the keyboard's target (it
     // changes once when the keyboard starts to show or hide). The dock itself follows the keyboard in layout.
@@ -158,13 +174,18 @@ fun FogShell(
     )
     val ready = status == MainUiState.Ready
 
+    // Real blur on (the backdrop is provided for every glass surface); pages animate only while current and the screen is started;
+    // after eight quiet seconds the ambient motion slows down.
+    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides started, LocalIdle provides idle.value) {
     Box(
         Modifier
             .fillMaxSize()
-            .semantics { testTagsAsResourceId = true },
+            .semantics { testTagsAsResourceId = true }
+            .then(idle.observer),
     ) {
         FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND))
-        Column(Modifier.fillMaxSize()) {
+        val hidden = if (modalOverlay) Modifier.clearAndSetSemantics {} else Modifier
+        Column(Modifier.fillMaxSize().then(hidden)) {
             Header(
                 nav.tab,
                 Modifier
@@ -182,11 +203,14 @@ fun FogShell(
             ) {
                 CompositionLocalProvider(LocalPagePadding provides padding) {
                     Pages(nav.tab) { tab ->
+                      // Only the current page animates; the one sliding out is already still.
+                      CompositionLocalProvider(LocalPageActive provides (started && tab == nav.tab)) {
                         when {
                             tab == ShellTab.LIBRARY -> LibraryPlaceholder()
                             tab.needsDsh && !ready -> StatusPage(status, onRetry, onExportErrorLog)
                             else -> page(tab)
                         }
+                      }
                     }
                 }
                 Box(
@@ -203,6 +227,7 @@ fun FogShell(
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(start = FogDimens.DockSide, end = FogDimens.DockSide, bottom = 12.dp)
+                .then(hidden)
                 .testTag(Tags.DOCK)
                 .onSizeChanged { stackHeight = it.height }
                 .onGloballyPositioned { edge.stackTop = it.positionInRoot().y },
@@ -225,6 +250,50 @@ fun FogShell(
         }
         overlay()
     }
+    }
+}
+
+/** How long without a touch before the ambient motion slows down. */
+private const val IdleAfterMs = 8_000L
+
+/** [value] is true after [IdleAfterMs] without a touch (never while the screen is stopped); [observer] watches touches without consuming them. */
+@Stable
+private class IdleWatch {
+    var value by mutableStateOf(false)
+    var touches = 0
+    val observer: Modifier = Modifier.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                awaitPointerEvent(PointerEventPass.Initial) // looks, never consumes
+                touches++
+                if (value) value = false
+            }
+        }
+    }
+}
+
+/** One check a second, counted in the composition's own clock; the state flips only when idleness starts or ends, so nothing recomposes meanwhile. */
+@Composable
+private fun rememberIdle(started: Boolean): IdleWatch {
+    val watch = remember { IdleWatch() }
+    LaunchedEffect(started) {
+        watch.value = false
+        if (!started) return@LaunchedEffect
+        var seen = watch.touches
+        var quiet = 0L
+        while (true) {
+            delay(1_000)
+            if (watch.touches != seen) {
+                seen = watch.touches
+                quiet = 0
+            } else {
+                quiet += 1_000
+            }
+            val idle = quiet >= IdleAfterMs
+            if (watch.value != idle) watch.value = idle
+        }
+    }
+    return watch
 }
 
 /**

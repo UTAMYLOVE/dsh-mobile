@@ -168,6 +168,8 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.activity.compose)
+    // JankStats: frame timing that feeds the auto-degrade of effects (ui/fog/JankGovernor.kt).
+    implementation(libs.androidx.metrics.performance)
 
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)

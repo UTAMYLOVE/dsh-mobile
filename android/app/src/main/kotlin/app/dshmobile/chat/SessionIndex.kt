@@ -36,6 +36,9 @@ object SessionRows {
         .map { row(s, it) }
         .sortedByDescending { it.updatedAt }
 
+    /** True for a known top-level (not subagent) session. */
+    fun isTopLevel(s: SessionTreeState, id: String): Boolean = s.summaries[id]?.let(::isTopLevel) == true
+
     /** The title of a top-level session; null for subagents, unknown ids and untitled sessions. */
     fun titleOf(s: SessionTreeState, id: String): String? =
         s.summaries[id]?.takeIf(::isTopLevel)?.let { row(s, it).title.takeIf { t -> t.isNotBlank() } }

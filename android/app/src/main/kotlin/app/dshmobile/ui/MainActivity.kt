@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
+import androidx.metrics.performance.JankStats
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import app.dshmobile.DshMobileApp
@@ -40,13 +41,18 @@ import app.dshmobile.ui.chat.ChatPage
 import app.dshmobile.ui.chat.DockSend
 import app.dshmobile.ui.chat.ExternalLinks
 import app.dshmobile.ui.chat.sendFromDock
+import app.dshmobile.ui.agents.AgentsTab
 import app.dshmobile.ui.fog.FogPanel
+import app.dshmobile.ui.fog.JankGovernor
+import app.dshmobile.ui.overview.OverviewScreen
 import app.dshmobile.ui.fog.FogTheme
 import app.dshmobile.ui.fog.effectsFor
 import app.dshmobile.ui.fog.systemReducedMotion
 import app.dshmobile.ui.shell.ComposerUi
 import app.dshmobile.ui.shell.FogShell
 import app.dshmobile.ui.shell.LocalPagePadding
+import app.dshmobile.ui.shell.PromptHost
+import app.dshmobile.ui.shell.rememberHasPrompt
 import app.dshmobile.ui.shell.ShellNav
 import app.dshmobile.ui.shell.ShellSession
 import app.dshmobile.ui.shell.ShellTab
@@ -69,6 +75,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.util.Locale
 
 /**
  * The main screen: the native FOGCITY shell ([FogShell]) over the in-app dsh, reached through the app-level
@@ -91,18 +98,25 @@ class MainActivity : ComponentActivity() {
     private var updating = false
     private val pendingUpdate by lazy { PendingUpdate(getSharedPreferences(DailyUpdateCheck.PREFS, Context.MODE_PRIVATE)) }
     /** Built when the settings tab is first shown. */
-    private val settingsEnv by lazy { buildSettingsEnv(this, app) }
+    private val settingsEnv by lazy { buildSettingsEnv(this, app, onEffectLevel = app.effectsController::set) }
     /** Unsaved settings fields live here, outside the tab, so switching tabs keeps them. Built with the tab. */
     private var settingsDraft: SettingsDraft? = null
     private var composerText by mutableStateOf("")
     /** Why the last dock send did not happen (no conversation could be made); cleared by typing. */
     private var dockError by mutableStateOf<String?>(null)
+    /** The system "remove animations" setting; read again at every resume, since it is changed in the system settings. */
+    private var reducedMotion by mutableStateOf(false)
+    private var jankStats: JankStats? = null
+    /** The governor's frame and janky counts when this screen was last started: its stop logs the difference. */
+    private var framesAtStart = 0L
+    private var jankyAtStart = 0L
 
     /** How long a started dsh's remote may take to open before the screen says Error (the remote keeps trying). */
     internal var remoteOpenTimeoutMs: Long = REMOTE_OPEN_TIMEOUT_MS
 
     internal val navForTest: ShellNav get() = nav
     internal val uiStateForTest: StateFlow<MainUiState> get() = uiState
+    internal val governorForTest: JankGovernor get() = app.effectsController.governor
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,9 +135,14 @@ class MainActivity : ComponentActivity() {
         nav.onLeaveRefused = { toast(getString(R.string.shell_settings_busy)) }
         // The chat opens on the conversation that was open last time (saved in onStop); a deep link (below) replaces it.
         if (savedInstanceState == null) nav.openSessionId = app.uiPrefs.lastSessionId
-        // Static for now; Task 14 switches levels live and degrades on jank.
-        val effects = effectsFor(app.uiPrefs.effectLevel, systemReducedMotion())
-        setContent { FogTheme(effects) { Shell() } }
+        reducedMotion = systemReducedMotion()
+        setContent {
+            // Live: the user's level held down by the jank governor, and the system's animation setting.
+            val level by app.effectsController.effective.collectAsState()
+            val effects = remember(level, reducedMotion) { effectsFor(level, reducedMotion) }
+            FogTheme(effects) { Shell() }
+        }
+        trackJank()
         lifecycleScope.launch {
             uiState.collect { state -> if (state == MainUiState.Ready) logTimeToReady() }
         }
@@ -167,6 +186,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (!ready) return
+        startJankTracking()
         // The hold comes before anything that can start dsh (Task 10 review note).
         app.uiHolder.onUiStart()
         // After a give-up only an explicit user action restarts dsh (Retry, or the crash notification's rollback): coming back
@@ -180,8 +200,44 @@ class MainActivity : ComponentActivity() {
         startDsh()
     }
 
+    /**
+     * Frame timing feeds the governor (which steps the effects down when the screen drops frames); it is on only while this
+     * screen is started. Every step down is one `perf` line; the numbers carry no conversation content.
+     */
+    private fun trackJank() {
+        val governor = app.effectsController.governor
+        val log = app.errorLog
+        governor.onDegrade = { level, janky, frames -> log.append("perf", "effects capped at $level after $janky janky of $frames frames") }
+        jankStats = try {
+            JankStats.createAndTrack(window) { frame -> governor.onFrame(frame.isJank) }.also { it.isTrackingEnabled = false }
+        } catch (e: Exception) {
+            log.append("perf", "frame tracking unavailable (${e.javaClass.simpleName})")
+            null
+        }
+    }
+
+    private fun startJankTracking() {
+        val governor = app.effectsController.governor
+        governor.onStart()
+        framesAtStart = governor.frames
+        jankyAtStart = governor.janky
+        jankStats?.isTrackingEnabled = true
+    }
+
+    /** Stops the tracking and logs this stretch's frames: the way to read real numbers off a device is exporting the error log. */
+    private fun stopJankTracking() {
+        jankStats?.isTrackingEnabled = false
+        val governor = app.effectsController.governor
+        val frames = governor.frames - framesAtStart
+        if (frames <= 0) return
+        val janky = governor.janky - jankyAtStart
+        val percent = janky * 100.0 / frames
+        app.errorLog.append("perf", "frames=$frames janky=$janky (${String.format(Locale.ROOT, "%.1f", percent)}%) level=${app.effectsController.effective.value}")
+    }
+
     override fun onResume() {
         super.onResume()
+        reducedMotion = systemReducedMotion()
         // Back from the "install unknown apps" page: carry on with the update that was waiting for the grant. Without the grant
         // nothing happens and the flag stays. Only the update runs here; dsh is not touched.
         if (ready && pendingUpdate.isPending && app.apkInstaller.canInstall()) {
@@ -194,6 +250,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         if (ready) {
             app.uiPrefs.lastSessionId = nav.openSessionId
+            stopJankTracking()
             app.uiHolder.onUiStop()
         }
         super.onStop()
@@ -235,13 +292,28 @@ class MainActivity : ComponentActivity() {
             ),
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,
+            // dsh waits on these: the cards are global and never dismissed (a subagent's card names it through the agents' originOf)
+            overlay = { PromptHost(session?.events, session?.tree, originOf = { id -> session?.agents?.originOf(id) }) },
+            modalOverlay = rememberHasPrompt(session?.events),
         ) { tab ->
             when (tab) {
                 ShellTab.SETTINGS -> {
                     val draft = settingsDraft ?: SettingsDraft.from(settingsEnv).also { settingsDraft = it }
                     SettingsScreen(settingsEnv, onClose = null, contentPadding = LocalPagePadding.current, draft = draft)
                 }
-                ShellTab.CHAT -> session?.let { ChatTab(it) }
+                ShellTab.CHAT -> session?.let { ChatTab(it) } ?: EmptyPage(tab)
+                ShellTab.AGENTS -> session?.let { sess ->
+                    // The limit is the configured subagent cap; read when the tab is shown (changing it needs "apply and restart" anyway).
+                    val limit = remember {
+                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
+                    }
+                    AgentsTab(sess.agents, sess.tree, sess.scope, limit, nav::openSession)
+                } ?: EmptyPage(tab)
+                ShellTab.OVERVIEW -> {
+                    // Collected only while the overview is the current page (the page lambda is composed for the current tab only).
+                    val overview by remember { app.overviewSource.state() }.collectAsState(initial = null)
+                    overview?.let { OverviewScreen(it, nav::openSession) { nav.select(ShellTab.AGENTS) } } ?: EmptyPage(tab)
+                }
                 else -> EmptyPage(tab)
             }
         }
@@ -541,7 +613,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** The overview and agents pages until their tasks fill them: an empty FOGCITY panel with the page's names. */
+/** The fallback for a page that has nothing to show yet (no session, no data): an empty FOGCITY panel with the page's names. */
 @Composable
 private fun EmptyPage(tab: ShellTab) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(LocalPagePadding.current)) {

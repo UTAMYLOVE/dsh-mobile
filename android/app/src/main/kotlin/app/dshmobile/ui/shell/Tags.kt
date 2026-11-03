@@ -93,4 +93,32 @@ object Tags {
     const val CHAT_HEADER = "chat-header"
     /** The ↓ pill: new messages arrived below while the list was scrolled up. */
     const val SCROLL_TO_NEWEST = "scroll-to-newest"
+
+    const val PROMPT_SHEET = "prompt-sheet"
+    /** The scrolling part of the sheet (the long reason or the questions); the buttons stay below it. */
+    const val PROMPT_SCROLL = "prompt-scroll"
+    const val PROMPT_MORE = "prompt-more"
+    const val APPROVE_ONCE = "approve-once"
+    const val REJECT = "reject"
+    /** + question id + "-" + option index. */
+    const val OPTION = "option-"
+    const val QUESTION_SUBMIT = "question-submit"
+    const val QUESTION_DECLINE = "question-decline"
+    const val PROMPT_ERROR = "prompt-error"
+    const val PROMPT_CONNECTING = "prompt-connecting"
+
+    /** + child session id: the tappable text of an agent row (opens the parent conversation). */
+    const val AGENT_ROW = "agent-row-"
+    /** + child session id: its 「叫它停」 button. */
+    const val AGENT_STOP = "agent-stop-"
+    const val AGENTS_EMPTY = "agents-empty"
+
+    const val OVERVIEW_RING = "overview-ring"
+    const val OVERVIEW_SPLIT = "overview-split"
+    const val OVERVIEW_AGENTS = "overview-agents"
+    const val OVERVIEW_HEARTBEAT = "overview-heartbeat"
+    const val OVERVIEW_REMINDERS = "overview-reminders"
+    /** + [app.dshmobile.chat.SessionRow.id]: a recent conversation on the overview. */
+    const val OVERVIEW_RECENT = "overview-recent-"
+    const val UNVERIFIED_BANNER = "unverified-banner"
 }

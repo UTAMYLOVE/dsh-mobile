@@ -35,6 +35,7 @@ class ShellSessionHolderTest {
             following += sessionId
             try { kotlinx.coroutines.awaitCancellation() } finally { following -= sessionId }
         }
+        override suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) = Unit
         override suspend fun prompt(sessionId: String, requestId: String, parts: List<app.dshmobile.remote.PromptPart>) = Unit
         override suspend fun cancel(sessionId: String) = Unit
         override suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): kotlinx.serialization.json.JsonElement = kotlinx.serialization.json.JsonNull

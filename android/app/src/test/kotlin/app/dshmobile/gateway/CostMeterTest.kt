@@ -110,4 +110,51 @@ class CostMeterTest {
         threads.forEach { it.join() }
         assertEquals(2.0 * 8 * 250, m.todayUsd(), 1e-6)
     }
+
+    @Test fun perProviderTodayAddsUpToTheTotal() {
+        val m = meter(MutableClock(at("2026-11-02T10:00:00")))
+        m.record(Provider.ANTHROPIC, "claude-sonnet-5-5", twoDollars)
+        m.record(Provider.DEEPSEEK, "deepseek-v4-flash", Usage(inputTokens = 1_000_000, outputTokens = 0))
+        val ds = m.todayUsd(Provider.DEEPSEEK)
+        val cl = m.todayUsd(Provider.ANTHROPIC)
+        assertEquals(2.0, cl, 1e-9)
+        assertTrue(ds > 0.0)
+        assertEquals(m.todayUsd(), ds + cl, 1e-9)
+    }
+
+    @Test fun monthRollsOverAtTaipeiMidnightOnTheFirst() {
+        val clock = MutableClock(Instant.parse("2026-10-31T15:59:00Z")) // Taipei 10/31 23:59
+        val m = meter(clock)
+        m.record(Provider.ANTHROPIC, "claude-sonnet-5-5", twoDollars)
+        assertEquals(2.0, m.monthUsd(), 1e-9)
+        clock.now = Instant.parse("2026-10-31T16:00:00Z") // Taipei 11/01 00:00
+        assertEquals(0.0, m.monthUsd(), 1e-12)
+        m.record(Provider.ANTHROPIC, "claude-sonnet-5-5", twoDollars)
+        clock.now = at("2026-11-20T10:00:00")
+        m.record(Provider.ANTHROPIC, "claude-sonnet-5-5", twoDollars)
+        assertEquals(4.0, m.monthUsd(), 1e-9)
+    }
+
+    @Test fun revisionBumpsOnRecordAndOnSettings() {
+        val m = meter(MutableClock(at("2026-11-02T10:00:00")))
+        val r0 = m.revision.value
+        m.record(Provider.ANTHROPIC, "claude-sonnet-5-5", twoDollars)
+        val r1 = m.revision.value
+        assertTrue(r1 > r0)
+        m.alertUsd = 9.0
+        val r2 = m.revision.value
+        assertTrue(r2 > r1)
+        m.hardCapUsd = 30.0
+        assertTrue(m.revision.value > r2)
+    }
+
+    @Test fun oldStoresWithoutTheNewKeysStillReportTheTotal() {
+        val store = InMemorySharedPreferences()
+        store.edit().putString("day", "2026-11-02").putString("day_usd", "3.5").apply()
+        val m = meter(MutableClock(at("2026-11-02T10:00:00")), store)
+        assertEquals(3.5, m.todayUsd(), 1e-12)
+        assertEquals(0.0, m.todayUsd(Provider.DEEPSEEK), 0.0)
+        assertEquals(0.0, m.todayUsd(Provider.ANTHROPIC), 0.0)
+        assertEquals(0.0, m.monthUsd(), 0.0)
+    }
 }

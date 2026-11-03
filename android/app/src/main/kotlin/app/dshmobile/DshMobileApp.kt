@@ -18,6 +18,14 @@ import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.heartbeat.HeartbeatWorker
 import app.dshmobile.heartbeat.HeartbeatWorkerFactory
 import app.dshmobile.log.ErrorLog
+import app.dshmobile.overview.OverviewSource
+import app.dshmobile.overview.ReminderLog
+import app.dshmobile.heartbeat.nextRunAt
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import app.dshmobile.notify.Notifier
 import app.dshmobile.export.Exporter
 import app.dshmobile.runtime.AppPaths
@@ -40,6 +48,7 @@ import app.dshmobile.service.asWorkRemote
 import app.dshmobile.system.PhantomProcessDetector
 import app.dshmobile.ui.SettingsJobs
 import app.dshmobile.ui.UiHolder
+import app.dshmobile.ui.fog.EffectsController
 import app.dshmobile.ui.fog.UiPrefs
 import app.dshmobile.ui.shell.ShellSession
 import app.dshmobile.ui.shell.ShellSessionHolder
@@ -192,8 +201,16 @@ class DshMobileApp : Application(), Configuration.Provider {
         )
     }
 
+    /** The last ten reminders the heartbeat's dream produced (the overview's 記憶提醒). */
+    val reminderLog: ReminderLog by lazy {
+        ReminderLog(getSharedPreferences(ReminderLog.PREFS, Context.MODE_PRIVATE), Clock.systemUTC())
+    }
+
     /** Small per-install UI choices (effect level, last conversation). */
     val uiPrefs: UiPrefs by lazy { UiPrefs(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)) }
+
+    /** The effect level the screen draws with: the user's choice held down by the jank governor. One per process. */
+    val effectsController: EffectsController by lazy { EffectsController(uiPrefs) }
 
     /**
      * The native interface's link to the running dsh: one [ShellSession] per dsh instance, in a scope of its own (a child of
@@ -211,6 +228,30 @@ class DshMobileApp : Application(), Configuration.Provider {
             controller.isRunning.collect { running -> if (!running) holder.detach() }
         }
         holder
+    }
+
+    /**
+     * What the overview shows. The agents and recent flows follow whichever dsh session is current. [unverifiedDshVersion] is wired
+     * to null until Task 13 provides the verified-version check.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val overviewSource: OverviewSource by lazy {
+        val sessions = shellSessions.current
+        val agents: Flow<Int?> = sessions.flatMapLatest { it?.agents?.runningCount ?: flowOf(null) }
+        val recent = sessions.flatMapLatest { s -> s?.index?.rows?.map { it.take(3) } ?: flowOf(emptyList()) }
+        OverviewSource(
+            meter = costMeter,
+            reminders = reminderLog,
+            agentsLimit = {
+                agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
+            },
+            heartbeatIntervalMin = { agentSettingsStore.heartbeatIntervalMin },
+            nextHeartbeatAt = HeartbeatScheduler.nextRunAt(this),
+            agentsRunning = agents,
+            recent = recent,
+            unverifiedDshVersion = { null },
+            clock = Clock.systemUTC(),
+        )
     }
 
     /** Asks the public releases repo for a newer shell app (no credentials; a failure is the caller's to log). */
@@ -241,7 +282,11 @@ class DshMobileApp : Application(), Configuration.Provider {
         HeartbeatDeps(
             runtime = controller,
             clientFor = { launch -> DshClient(http, launch) },
-            notify = notifier::show,
+            // Only the heartbeat's own reminders are logged for the overview (the gateway's onNotify is dsh's plugins and is not).
+            notify = { request ->
+                reminderLog.add(request.title, request.body)
+                notifier.show(request)
+            },
             serviceNotification = notifier::serviceNotification,
             errorLog = errorLog,
             updateCheck = dailyUpdateCheck,
