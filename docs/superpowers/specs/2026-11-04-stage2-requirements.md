@@ -223,3 +223,21 @@ Elements to adapt to our palette and our data:
 - **Tap** a spirit to get the detailed status (G).
 - **Performance:** they animate only on the visible page; their number is capped; at SAVER they are static; with reduced motion they don't drift.
 - Every mention of "jellyfish/medusa" in H means these spirits now.
+
+## I. Device findings, 2026-11-04 03:07 (owner screenshots)
+1. **Wide Markdown tables are clipped on the right.**
+   - Example: a 2-column table whose cells hold long text. Neither the columns nor the cell text are reachable.
+   - Fix the table renderer:
+     - Scroll horizontally, with a visible scroll hint and a fade on the right edge.
+     - Or wrap cell text with sensible column widths.
+     - Or both: wrap first, and scroll only when a column can't shrink.
+2. **Team limit reached at 8 ("Team member limit 8 reached").**
+   - The owner wanted 16. Our settings already allow team size 1..16 (default 8), clamped to `maxConcurrent`. The owner probably never raised it.
+   - When a limit is hit, the UI should say which app setting controls it. Also:
+     - show the current team and concurrency limits in the 代理人 war room;
+     - raise the default team size if the phantom-process limit is off.
+   - The dsh agent suggested editing config under /opt/dsh. The app must never rely on that: the app regenerates config, and the rootfs is reinstalled. If cheap, add a dshm skill/plugin hint that tells the agent to ask the owner to change the app setting instead.
+3. **dsh workflow fan-out fails: "需要 workspace-write sandbox, 這台機器沒有可用的 sandbox".**
+   - dsh's workflow sandbox (bubblewrap or landlock style) is not available inside proot on Android.
+   - Investigate in batch 2: is there a supported sandbox mode or config that works under proot, or a safe "no sandbox, owner approved" profile? Never weaken it silently.
+   - Until then, show a clear explanation when a workflow can't run.
