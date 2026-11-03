@@ -5,6 +5,7 @@ import app.dshmobile.remote.SearchHit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -106,5 +107,21 @@ class SessionIndexTest {
         assertEquals(listOf("b", "a"), r.map { it.id })
         assertEquals(listOf("…命中 B…", "…命中 A…"), r.map { it.lastLine })
         assertEquals(listOf("B", "A"), r.map { it.title })
+    }
+
+    /** Final review B2-M7: a double tap on 新對話 (or two quick dock sends) makes one conversation, not two. */
+    @Test fun aCreateWhileAnotherRunsJoinsIt() = runBlocking {
+        val remote = FakeIndexRemote()
+        val idx = index(remote)
+        remote.createGate = kotlinx.coroutines.CompletableDeferred()
+        val first = scope.async { idx.create() }
+        waitUntil("first create sent") { remote.created.size == 1 }
+        val second = scope.async { idx.create() }
+        Thread.sleep(50)
+        remote.createGate!!.complete(Unit)
+        assertEquals("new1", first.await())
+        assertEquals("new1", second.await())
+        assertEquals(1, remote.created.size)
+        assertEquals("a later create is a new one", "new2", idx.create())
     }
 }

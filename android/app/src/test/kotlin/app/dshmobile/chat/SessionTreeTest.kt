@@ -53,7 +53,8 @@ internal class FakeIndexRemote(var list: List<SessionSummary> = emptyList()) : I
         return snapshot
     }
     override suspend fun searchSessions(query: String) = hits
-    override suspend fun createSession(workspaceId: String?): String { created += workspaceId; return "new1" }
+    @Volatile var createGate: CompletableDeferred<Unit>? = null
+    override suspend fun createSession(workspaceId: String?): String { created += workspaceId; createGate?.await(); return "new${created.size}" }
     override suspend fun rename(sessionId: String, title: String): String { renamed += sessionId to title; return title }
     override suspend fun archive(sessionId: String) { archived += sessionId }
     val controlOpens = AtomicInteger()

@@ -892,7 +892,10 @@ class MainActivityTest {
         assertEquals(ShellTab.CHAT, activity.navForTest.tab)
     }
 
-    /** M1: a deep link asks the same as a tab tap: while settings is busy it does nothing (settings says why). */
+    /**
+     * M1: a deep link asks the same as a tab tap: while settings is busy the tab stays (settings says why). Final review B2-M5:
+     * the link is not dropped: the conversation opens once the job has ended.
+     */
     @Test fun aDeepLinkWaitsWhileSettingsIsBusy() {
         completeSetup()
         val ctl = build().create().start().resume()
@@ -909,6 +912,8 @@ class MainActivityTest {
         } finally {
             gate.complete(Unit)
         }
+        waitUntil { activity.navForTest.openSessionId == "s2" }
+        assertEquals(ShellTab.CHAT, activity.navForTest.tab)
     }
 
     @Test fun stopShowsWhileRunningWithAnEmptyInput() {
@@ -1446,5 +1451,76 @@ class MainActivityTest {
             idleFor(200)
         }
         assertEquals("no decrypt for a tab", atStart, decrypts.get())
+    }
+
+    // --- final review B2-I1 / B2-M1 / B2-M4: the shell and the draft outlive the activity ---
+
+    @Test fun aProcessDeathRestoresTheTabTheConversationTheListAndTheDraft() {
+        completeSetup()
+        answerChatRpc()
+        val first = build().create().start().resume().visible()
+        waitForShellOn(0, first.get())
+        first.get().navForTest.openSession("s1")
+        first.get().navForTest.listOpen = true
+        type("還沒寫完")
+        val saved = android.os.Bundle()
+        first.pause().saveInstanceState(saved).stop()
+        app.uiPrefs.lastSessionId = "other" // the saved state, not the last-conversation preference, wins
+        first.destroy()
+        activities.remove(first)
+        // A new activity with the saved state and a fresh view model store: what Android does after a process death.
+        val second = build().setup(saved)
+        val nav = second.get().navForTest
+        assertEquals(ShellTab.CHAT, nav.tab)
+        assertEquals("s1", nav.openSessionId)
+        assertTrue(nav.listOpen)
+        compose.waitForIdle()
+        assertEquals("還沒寫完", composerText())
+    }
+
+    @Test fun aFreshStartOpensTheLastConversation() {
+        completeSetup()
+        app.uiPrefs.lastSessionId = "s7"
+        val activity = build().create().get()
+        assertEquals("s7", activity.navForTest.openSessionId)
+    }
+
+    @Test fun turningThePhoneKeepsTheDraftAndTheAttachments() {
+        completeSetup()
+        answerChatRpc()
+        val ctl = build().create().start().resume().visible()
+        waitForShellOn(0, ctl.get())
+        ctl.get().navForTest.select(ShellTab.AGENTS)
+        type("草稿")
+        ctl.get().attachForTest(listOf(pick("a.png")))
+        waitUntil { hasChips() == 1 }
+        ctl.recreate()
+        compose.waitForIdle()
+        assertEquals(ShellTab.AGENTS, ctl.get().navForTest.tab)
+        waitUntil { hasChips() == 1 }
+        assertEquals("草稿", composerText())
+    }
+
+    @Test fun aTextSendCutShortPutsTheTextBack() {
+        completeSetup()
+        answerChatRpc()
+        val base = rpc
+        val hold = java.util.concurrent.CountDownLatch(1)
+        val arrived = java.util.concurrent.atomic.AtomicBoolean()
+        rpc = { req -> if (req.path == "/api/session/prompt") { arrived.set(true); hold.await(10, java.util.concurrent.TimeUnit.SECONDS); base(req) } else base(req) }
+        try {
+            val activity = build().create().start().resume().visible().get()
+            waitForShellOn(0, activity)
+            activity.navForTest.openSession("s1")
+            type("別弄丟")
+            compose.onNodeWithTag(Tags.SEND).performClick()
+            compose.waitForIdle()
+            assertEquals("emptied while it goes out", "", composerText())
+            waitUntil { arrived.get() }
+            app.shellSessions.detach() // dsh went away mid-send: the session's scope is cancelled
+            waitUntil { compose.waitForIdle(); composerText() == "別弄丟" }
+        } finally {
+            hold.countDown()
+        }
     }
 }

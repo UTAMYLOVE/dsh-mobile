@@ -19,6 +19,10 @@ import app.dshmobile.heartbeat.HeartbeatWorker
 import app.dshmobile.heartbeat.HeartbeatWorkerFactory
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.overview.OverviewSource
+import app.dshmobile.overview.OverviewState
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import app.dshmobile.overview.ReminderLog
 import app.dshmobile.heartbeat.nextRunAt
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -255,6 +259,14 @@ class DshMobileApp : Application(), Configuration.Provider {
         )
     }
 
+    /**
+     * [overviewSource]'s state shared by every overview visit: computed while the page shows and for five seconds after it, and
+     * the last state kept, so a revisit never flashes an empty page (final review B2-M12).
+     */
+    val overviewState: StateFlow<OverviewState?> by lazy {
+        overviewSource.state().stateIn(applicationScope, SharingStarted.WhileSubscribed(OVERVIEW_LINGER_MS), null)
+    }
+
     /** Asks the public releases repo for a newer shell app (no credentials; a failure is the caller's to log). */
     val updateChecker: ApkUpdateChecker by lazy {
         val http = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()
@@ -313,6 +325,10 @@ class DshMobileApp : Application(), Configuration.Provider {
         } catch (e: Exception) {
             errorLog.append("paths", "could not move user data out of the rootfs (${e.javaClass.simpleName})")
         }
+    }
+
+    private companion object {
+        const val OVERVIEW_LINGER_MS = 5_000L
     }
 
     /** DNS servers of the active network as literals; link-local IPv6 ones are unusable in the guest without a scope id. */
