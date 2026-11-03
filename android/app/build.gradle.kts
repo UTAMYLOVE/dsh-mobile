@@ -158,6 +158,11 @@ dependencies {
     // Ktor logs through SLF4J; the no-op binding keeps request URLs (which carry the session token) out of any log.
     implementation(libs.slf4j.nop)
 
+    // Model replies are parsed with commonmark-java (BSD-2, pure Java, offline) and drawn natively; see ui/markdown/Markdown.kt.
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.ext.gfm.tables)
+    implementation(libs.commonmark.ext.gfm.strikethrough)
+
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
