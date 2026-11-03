@@ -71,7 +71,7 @@ class ShellSession(
     fun chatUi(id: String): ChatUiCache = open(id).ui
 
     private fun open(id: String): Open = synchronized(stores) {
-        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensureAutoReview(id) }), ChatUiCache()).also { fresh ->
+        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensureAutoReview(id) }, decorate = { parts -> app.dshmobile.chat.ReviewRounds.decorate(synchronized(stores) { stores[id] }?.ui?.reviewRounds ?: 0, parts) }), ChatUiCache()).also { fresh ->
             stores[id] = fresh
             if (stores.size > MAX_STORES) {
                 val evictable = stores.entries.filter { it.key != id && it.value.store.pending.value.isEmpty() }

@@ -38,6 +38,10 @@ interface ChatRemote {
     suspend fun selectModel(sessionId: String, provider: String, model: String)
     suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String
 
+    /** Selects the model with a thinking strength (stage 2 §B.1); the default ignores [reasoningEffort] (test fakes). */
+    suspend fun selectModelEffort(sessionId: String, provider: String, model: String, reasoningEffort: String?) =
+        selectModel(sessionId, provider, model)
+
     /** Runs a dsh slash command in [sessionId] (e.g. `/permission auto`). The default does nothing (test fakes). */
     suspend fun runCommand(sessionId: String, line: String) {}
 }
@@ -72,6 +76,8 @@ class ConversationStore(
     private val runningHint: () -> Boolean? = { null },
     /** Runs before each prompt (stage 2 §J: switch the session to Auto review once); a failure never blocks the send. */
     private val beforeSend: suspend () -> Unit = {},
+    /** Rewrites the prompt parts just before they go out (stage 2 §B.2: the reviewer-rounds instruction). */
+    private val decorate: (List<PromptPart>) -> List<PromptPart> = { it },
 ) {
     private val _state = MutableStateFlow(ConversationState(sessionId))
     val state: StateFlow<ConversationState> = _state.asStateFlow()
@@ -294,7 +300,7 @@ class ConversationStore(
             } catch (_: Exception) {
                 // Auto review could not be switched on: the prompt still goes out under the session's current permission.
             }
-            remote.prompt(sessionId, requestId, parts)
+            remote.prompt(sessionId, requestId, decorate(parts))
             true
         } catch (e: CancellationException) {
             _pending.update { list -> list.filter { it.requestId != requestId } }
@@ -378,8 +384,9 @@ class ConversationStore(
     }
 
     /** False when dsh refused it ([sendError] holds the code). */
-    suspend fun selectModel(model: AgentModels.Model): Boolean = try {
-        remote.selectModel(sessionId, model.provider, model.id)
+    suspend fun selectModel(model: AgentModels.Model, reasoningEffort: String? = null): Boolean = try {
+        if (reasoningEffort == null) remote.selectModel(sessionId, model.provider, model.id)
+        else remote.selectModelEffort(sessionId, model.provider, model.id, reasoningEffort)
         true
     } catch (e: CancellationException) {
         throw e

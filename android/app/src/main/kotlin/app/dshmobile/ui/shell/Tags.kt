@@ -143,4 +143,10 @@ object Tags {
     const val VERIFIED_NOTE = "verified-note"
     /** The chat's 「重新啟動 dsh」 next to the writer-held refusal. */
     const val CHAT_RESTART_DSH = "chat-restart-dsh"
+    /** Thinking strength options in the model menu: + "default" / off / low / high / max. */
+    const val EFFORT_OPTION = "effort-option-"
+    /** Reviewer-round options in the model menu: + 0..3. */
+    const val REVIEW_OPTION = "review-option-"
+    /** The line under the chat header summarising thinking strength and reviewer rounds. */
+    const val CHAT_TUNING = "chat-tuning"
 }

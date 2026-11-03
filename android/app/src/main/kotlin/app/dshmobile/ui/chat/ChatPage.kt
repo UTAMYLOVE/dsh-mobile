@@ -232,6 +232,7 @@ private fun ConversationPage(
         state = ChatUiState(
             title, conversation.items, conversation.live, conversation.running, pending, models, conversation.hasMore, sendError,
             followError = followError, olderError = olderError, modelLabel = AgentModels.displayName(current),
+            effort = ui.effort, reviewRounds = ui.reviewRounds,
         ),
         onOpenList = { nav.listOpen = true },
         onPickModel = { mid ->
@@ -245,6 +246,11 @@ private fun ConversationPage(
         onLoadOlder = { session.scope.launch { store.loadOlder() } },
         onRetryFollow = store::retry,
         onRestartDsh = onRestartDsh,
+        onPickEffort = { e ->
+            ui.effort = e
+            AgentModels.find(current)?.let { m -> session.scope.launch { store.selectModel(m, e ?: "high") } }
+        },
+        onPickReview = { n -> ui.reviewRounds = n },
         onRetrySend = { rid -> session.scope.launch { store.retrySend(rid) } },
         onDismissSend = store::dismissSend,
         ui = ui,

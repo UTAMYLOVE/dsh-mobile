@@ -150,6 +150,13 @@ class DshRemote(
         call("workspace/archiveSession", request { put("sessionId", sessionId); put("stopActivity", true) })
     }
 
+    override suspend fun selectModelEffort(sessionId: String, provider: String, model: String, reasoningEffort: String?) {
+        call("session/selectModel", request {
+            put("sessionId", sessionId); put("provider", provider); put("model", model)
+            reasoningEffort?.let { put("reasoningEffort", it) }
+        })
+    }
+
     override suspend fun runCommand(sessionId: String, line: String) {
         call("commands/execute", buildJsonObject {
             put("agentId", sessionId)

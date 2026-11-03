@@ -17,6 +17,7 @@ import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import app.dshmobile.chat.ChatItem
@@ -49,6 +50,8 @@ internal class ChatHarness {
     val picked = mutableListOf<String>()
     val retried = mutableListOf<String>()
     val dismissed = mutableListOf<String>()
+    val efforts = mutableListOf<String>()
+    val reviews = mutableListOf<Int>()
     var lists = 0
     var olders = 0
     var follows = 0
@@ -61,6 +64,8 @@ internal class ChatHarness {
         state = state,
         onOpenList = { lists++ },
         onPickModel = { picked += it },
+        onPickEffort = { efforts += it.toString() },
+        onPickReview = { reviews += it },
         onLink = { links += it },
         onShare = { shares += it },
         onLoadOlder = { olders++ },
@@ -207,13 +212,26 @@ class ChatScreenTest {
         rule.onNodeWithTag(Tags.MODEL_CHIP).assertTextEquals("DEEPSEEK FLASH")
         assertEquals(0, rule.onAllNodesWithTag(Tags.MODEL_MENU).fetchSemanticsNodes().size)
         rule.onNodeWithTag(Tags.MODEL_CHIP).performClick()
-        rule.onNodeWithTag(Tags.MODEL_MENU).assertTextContains("這個對話使用的模型", substring = true)
+        rule.onNodeWithText("這個對話使用的模型", substring = true).assertExists()
         val options = rule.onAllNodes(hasTestTagPrefix(Tags.MODEL_OPTION)).fetchSemanticsNodes().map { it.config[SemanticsProperties.TestTag] }
         assertEquals(listOf(Tags.MODEL_OPTION + "deepseek-flash", Tags.MODEL_OPTION + "deepseek-v4-pro"), options)
         rule.onNodeWithTag(Tags.MODEL_OPTION + "deepseek-v4-pro").performClick()
         rule.waitForIdle()
         assertEquals(listOf("deepseek-v4-pro"), h.picked)
         assertEquals("the menu closes", 0, rule.onAllNodesWithTag(Tags.MODEL_MENU).fetchSemanticsNodes().size)
+    }
+
+    @Test fun theModelMenuOffersThinkingStrengthAndReviewerRoundsAndTheHeaderSummarisesThem() {
+        show()
+        rule.onNodeWithTag(Tags.MODEL_CHIP).performClick()
+        rule.onNodeWithTag(Tags.EFFORT_OPTION + "max").performClick()
+        rule.onNodeWithTag(Tags.REVIEW_OPTION + "2").performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("max"), h.efforts)
+        assertEquals(listOf(2), h.reviews)
+        h.state = h.state.copy(effort = "max", reviewRounds = 2)
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.CHAT_TUNING).assertTextEquals("思考 最高 · 審查 2 輪")
     }
 
     @Test fun withAClaudeKeyTheClaudeModelsAreChoicesToo() {

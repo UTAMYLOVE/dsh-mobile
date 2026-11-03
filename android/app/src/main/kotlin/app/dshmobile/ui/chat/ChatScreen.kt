@@ -102,7 +102,14 @@ data class ChatUiState(
     val followError: String? = null,
     val olderError: String? = null,
     val modelLabel: String? = null,
+    /** Thinking strength picked for this conversation (dsh reasoningEffort), null = the model's default. */
+    val effort: String? = null,
+    /** Independent reviewer rounds per reply. */
+    val reviewRounds: Int = 0,
 )
+
+/** The thinking strengths dsh's model selection accepts (stage 2 §B.1). */
+val EFFORTS = listOf("off", "low", "high", "max")
 
 /** The models this conversation can switch to: the app's own list (DeepSeek always, Claude only with a key), [current] selected. */
 fun modelChoices(hasClaudeKey: Boolean, current: String?): List<ModelChoice> =
@@ -512,6 +519,10 @@ private fun rememberLiveEntry(live: LiveReply?, cache: BlockCache): BlockCache.E
  */
 @Stable
 class ChatUiCache {
+    /** This conversation's thinking strength (dsh reasoningEffort: off/low/high/max); null = the model's default. */
+    var effort by mutableStateOf<String?>(null)
+    /** How many independent reviewer rounds each reply gets (0..[app.dshmobile.chat.ReviewRounds.MAX]). */
+    var reviewRounds by mutableIntStateOf(0)
     internal val blocks = BlockCache()
     internal var expanded by mutableStateOf(emptySet<String>())
     internal var scrollIndex = 0
@@ -557,6 +568,8 @@ fun ChatScreen(
     ui: ChatUiCache = remember { ChatUiCache() },
     /** Restarts dsh for the 「被舊的 dsh 佔住」 refusal (stage 2 §A). */
     onRestartDsh: () -> Unit = {},
+    onPickEffort: (String?) -> Unit = {},
+    onPickReview: (Int) -> Unit = {},
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
@@ -622,7 +635,13 @@ fun ChatScreen(
         ) {
             val chip = (state.models.firstOrNull { it.selected }?.label ?: state.modelLabel ?: stringResource(R.string.chat_model_unknown)).uppercase()
             ChatHeader(state.title.ifBlank { stringResource(R.string.chat_untitled) }, chip, onOpenList) { menuOpen = !menuOpen }
-            if (menuOpen) ModelMenu(state.models) { id -> menuOpen = false; onPickModel(id) }
+            if (menuOpen) ModelMenu(state.models, state.effort, state.reviewRounds, onPickEffort, onPickReview) { id -> menuOpen = false; onPickModel(id) }
+            if (state.effort != null || state.reviewRounds > 0) {
+                Text(
+                    tuningSummary(state.effort, state.reviewRounds), color = Sakura.TextSecondary, fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 12.dp).testTag(Tags.CHAT_TUNING),
+                )
+            }
             state.followError?.let { FollowBanner(it, onRetryFollow) }
             state.sendError?.let { code ->
                 if (code == WRITER_HELD) {
@@ -770,14 +789,54 @@ private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onCh
 }
 
 /** 「這個對話使用的模型」: inline under the header (it pushes the messages down, so it never covers a control). */
+private fun effortLabel(e: String?): String = when (e) {
+    "off" -> "關"; "low" -> "低"; "high" -> "高"; "max" -> "最高"; else -> "預設"
+}
+
 @Composable
-private fun ModelMenu(models: List<ModelChoice>, onPick: (String) -> Unit) {
+private fun tuningSummary(effort: String?, rounds: Int): String =
+    listOfNotNull(
+        effort?.let { stringResource(R.string.chat_effort_summary, effortLabel(it)) },
+        rounds.takeIf { it > 0 }?.let { stringResource(R.string.chat_review_summary, it) },
+    ).joinToString(" · ")
+
+/** A row of small selectable chips (thinking strength, reviewer rounds). */
+@Composable
+private fun <T> ChipRow(title: String, options: List<T>, current: T, label: (T) -> String, tag: (T) -> String, onPick: (T) -> Unit) {
+    Text(title, color = Sakura.TextSecondary, fontSize = 13.sp, letterSpacing = 0.12.em, modifier = Modifier.padding(start = 6.dp, top = 8.dp, bottom = 2.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 6.dp)) {
+        options.forEach { o ->
+            val on = o == current
+            Box(
+                Modifier
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(FogDimens.Thumb))
+                    .background(if (on) Color.White.copy(alpha = .7f) else Color.White.copy(alpha = .25f))
+                    .border(1.dp, if (on) Sakura.Primary else Color.Transparent, RoundedCornerShape(FogDimens.Thumb))
+                    .clickable(role = Role.Button) { onPick(o) }
+                    .testTag(tag(o))
+                    .semantics { selected = on }
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label(o), color = Sakura.Text, fontSize = 14.sp) }
+        }
+    }
+}
+
+@Composable
+private fun ModelMenu(
+    models: List<ModelChoice>,
+    effort: String?,
+    reviewRounds: Int,
+    onPickEffort: (String?) -> Unit,
+    onPickReview: (Int) -> Unit,
+    onPick: (String) -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
             .glass(RoundedCornerShape(FogDimens.Sheet))
             .testTag(Tags.MODEL_MENU)
-            .semantics(mergeDescendants = true) {}
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -807,6 +866,8 @@ private fun ModelMenu(models: List<ModelChoice>, onPick: (String) -> Unit) {
                 )
             }
         }
+        ChipRow(stringResource(R.string.chat_effort_title), listOf<String?>(null) + EFFORTS, effort, { effortLabel(it) }, { Tags.EFFORT_OPTION + (it ?: "default") }, onPickEffort)
+        ChipRow(stringResource(R.string.chat_review_title), (0..app.dshmobile.chat.ReviewRounds.MAX).toList(), reviewRounds, { if (it == 0) "不審" else "$it 輪" }, { Tags.REVIEW_OPTION + it }, onPickReview)
     }
 }
 
