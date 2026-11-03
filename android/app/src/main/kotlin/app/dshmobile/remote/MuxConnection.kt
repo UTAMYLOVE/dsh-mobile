@@ -38,10 +38,11 @@ sealed interface StreamSignal {
  * - [stream] is cold: collecting sends `open` with a fresh id (`s1`, `s2`, …, never reused here), cancelling the
  *   collector sends `cancel`, dsh's `end` completes the flow and dsh's `error` emits [StreamSignal.Failed] and completes it.
  * - When the socket goes away the state turns [MuxState.RECONNECTING] and a new socket is tried after [backoffMs]
- *   (the last value repeats; the list restarts after every successful open). An upgrade answered 401 calls [relogin]
- *   before the next try; every other try first runs [beforeConnect]. Once open again, every stream still being
+ *   (the last value repeats; the list restarts once a socket has stayed open longer than the last value). An upgrade
+ *   answered 401 calls [relogin] before the next try; every other try first runs [beforeConnect]. Once open again, every stream still being
  *   collected gets [StreamSignal.Reopened] and is opened again under its original id. A new dsh instance gets a new
  *   [MuxConnection]; [close] the old one.
+ * - Cancelling [scope] without [close] closes too: the socket is closed and nothing more is queued.
  * - Every listener callback goes through one queue that a single coroutine on [Dispatchers.IO] drains, so frames are
  *   parsed off the socket's thread and a stream never sees an old socket's frame after its [StreamSignal.Reopened].
  *
@@ -76,6 +77,8 @@ class MuxConnection(
         require(backoffMs.isNotEmpty() && backoffMs.all { it >= 0 }) { "backoffMs" }
         scope.launch(Dispatchers.IO) { for (event in inbox) handle(event) }
         connector = scope.launch(Dispatchers.IO) { connectLoop() }
+        // The caller's scope ending (the shell session going away without close()) closes the socket and the queue too.
+        connector.invokeOnCompletion { close() }
     }
 
     fun stream(endpoint: String, args: JsonObject = JsonObject(emptyMap())): Flow<StreamSignal> = flow {
@@ -95,7 +98,7 @@ class MuxConnection(
     /** Stops for good: no more tries, the socket is closed and every stream's flow completes quietly. */
     fun close() {
         val ending: List<Live>
-        val attempt: Attempt?
+        val starting: WebSocket?
         val open: WebSocket?
         synchronized(lock) {
             if (closed) return
@@ -103,13 +106,14 @@ class MuxConnection(
             _state.value = MuxState.CLOSED
             ending = streams.values.toList()
             streams.clear()
-            attempt = current
+            // Null while open() has not returned yet: connectLoop then sees [closed] under the lock and cancels it.
+            starting = current?.socket
             open = socket
             current = null
             socket = null
         }
         connector.cancel()
-        if (open != null) open.close(NORMAL_CLOSURE, null) else attempt?.socket?.cancel()
+        if (open != null) open.close(NORMAL_CLOSURE, null) else starting?.cancel()
         ending.forEach { it.channel.close() }
         inbox.close()
     }
@@ -153,8 +157,8 @@ class MuxConnection(
                 if (closed) return
                 current = attempt
             }
-            try {
-                attempt.socket = open(attempt)
+            val ws = try {
+                open(attempt)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -162,8 +166,19 @@ class MuxConnection(
                 failures++
                 continue
             }
+            val stale = synchronized(lock) {
+                if (!closed) attempt.socket = ws
+                closed
+            }
+            if (stale) { // close() ran while open() was starting this socket
+                ws.cancel()
+                return
+            }
             val status = attempt.gone.await()
-            if (attempt.opened) failures = 0 else failures++
+            // Only a socket that stayed up longer than the last backoff restarts the list; one that keeps opening and
+            // dropping at once keeps backing off instead of retrying at the first value forever.
+            val openNanos = if (attempt.opened) System.nanoTime() - attempt.openedAtNanos else -1L
+            if (openNanos > backoffMs.last() * NANOS_PER_MS) failures = 0 else failures++
             needRelogin = status == HTTP_UNAUTHORIZED
         }
     }
@@ -180,6 +195,7 @@ class MuxConnection(
                     event.ws.cancel()
                     return
                 }
+                event.attempt.openedAtNanos = System.nanoTime()
                 event.attempt.opened = true
                 socket = event.ws
                 _state.value = MuxState.OPEN
@@ -232,6 +248,7 @@ class MuxConnection(
     private inner class Attempt : WebSocketListener() {
         val gone = CompletableDeferred<Int?>()
         @Volatile var opened = false
+        @Volatile var openedAtNanos = 0L
         @Volatile var socket: WebSocket? = null
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -269,5 +286,6 @@ class MuxConnection(
         val BACKOFF_MS = listOf(250L, 500L, 1_000L, 2_000L, 4_000L, 5_000L)
         private const val NORMAL_CLOSURE = 1000
         private const val HTTP_UNAUTHORIZED = 401
+        private const val NANOS_PER_MS = 1_000_000L
     }
 }
