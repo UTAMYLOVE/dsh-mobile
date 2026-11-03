@@ -52,7 +52,8 @@ jobs:
         arch: [arm64, x86_64]
     steps:
       - uses: actions/checkout@v4
-      # The rootfs only depends on rootfs/ and plugins/: an unchanged pair reuses the last build (saves ~15 min per push).
+      # The rootfs only depends on rootfs/, plugins/ and the staging steps below (this file): unchanged, the last build is reused
+      # (saves ~15 min per push). Its version marker is ROOTFS_VERSION plus a content hash of rootfs/ and plugins/ (source-hash.sh).
       - name: Restore a rootfs built from the same sources
         id: rootfs-cache
         uses: actions/cache@v4
@@ -61,7 +62,7 @@ jobs:
             out/dshm-rootfs-${{ matrix.arch }}.tar.xz
             out/dshm-rootfs-${{ matrix.arch }}.package-lock.json
             out/dshm-rootfs-${{ matrix.arch }}.npm-ls.txt
-          key: rootfs-${{ matrix.arch }}-${{ hashFiles('rootfs/**', 'plugins/**') }}
+          key: rootfs-${{ matrix.arch }}-${{ hashFiles('rootfs/**', 'plugins/**', '.github/workflows/ci.yml') }}
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64

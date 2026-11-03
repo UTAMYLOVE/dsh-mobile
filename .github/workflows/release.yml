@@ -1,8 +1,13 @@
 name: Release
 
 # A tag push (v<versionName>+<versionCode>, e.g. v0.2.0+2) builds, signs and publishes the shell app to the public releases repo.
+# It only runs once CI (ci.yml) is green on the tagged commit, emulator end-to-end suite included (job "gate"), and only for a
+# versionCode above the newest published release. The release is created as a draft and published after both assets are up.
 # A manual run (workflow_dispatch) only does the dry run: tests, rootfs and an UNSIGNED release APK, stopping before signing.
-# The dry run needs no secret.
+# The dry run needs no secret and skips the CI gate.
+#
+# Ruling: the rootfs is built fresh here, as in CI. dsh itself is pinned (version + integrity); its transitive npm dependencies
+# and the Debian packages float, so the published tree can differ slightly from the one CI's e2e run tested (accepted risk).
 on:
   push:
     tags: ["v*"]
@@ -21,7 +26,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Spec §9: publish only what passed every test on a real Android. The tagged commit must have green check runs from ci.yml for
+  # every job below (any successful run of that job on this exact commit counts; a CI run the tag push itself starts may still
+  # be in progress).
+  gate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: read
+      contents: read
+    steps:
+      - name: Require a green CI run on the tagged commit (e2e included)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+            --jq '.check_runs[] | select(.app.slug == "github-actions") | [.name, (.conclusion // "pending")] | @tsv' > runs.tsv
+          missing=0
+          for job in "android" "plugins" "rootfs (arm64)" "rootfs (x86_64)" "e2e"; do
+            if awk -F'\t' -v j="$job" '$1 == j && $2 == "success" { found = 1 } END { exit !found }' runs.tsv; then
+              echo "ok: $job"
+            else
+              seen="$(awk -F'\t' -v j="$job" '$1 == j { print $2 }' runs.tsv | sort | uniq -c | tr '\n' ' ')"
+              echo "::error::CI job '$job' has no successful run on $SHA (seen: ${seen:-none}). Get CI green on this commit first, then tag it again."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
   release:
+    needs: gate
+    # A dry run (workflow_dispatch) skips the gate; a tag push needs it green.
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.gate.result == 'skipped')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -67,6 +107,34 @@ jobs:
             echo "releases_repo=$releases_repo"
           } >> "$GITHUB_OUTPUT"
           echo "### Release build: v${version_name}+${version_code} (publish=$publish)" >> "$GITHUB_STEP_SUMMARY"
+
+      # An update must have a higher versionCode than what users have (Android refuses a downgrade, and the app's update check
+      # only offers a higher code). No published release yet passes.
+      - name: Require a versionCode above the newest published release
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASES_REPO: ${{ steps.ver.outputs.releases_repo }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          if ! latest="$(gh api "repos/$RELEASES_REPO/releases/latest" --jq .tag_name 2> err.txt)"; then
+            if grep -q "HTTP 404" err.txt; then
+              echo "no published release yet: any versionCode is fine"
+              exit 0
+            fi
+            cat err.txt >&2
+            exit 1
+          fi
+          if ! [[ "$latest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\+([0-9]+)$ ]]; then
+            echo "::error::newest release tag '$latest' does not match v<major>.<minor>.<patch>+<versionCode>"
+            exit 1
+          fi
+          if (( VERSION_CODE <= BASH_REMATCH[1] )); then
+            echo "::error::versionCode $VERSION_CODE is not above the newest release $latest (versionCode ${BASH_REMATCH[1]})"
+            exit 1
+          fi
+          echo "versionCode $VERSION_CODE > ${BASH_REMATCH[1]} ($latest)"
 
       # ---- tests ----
       - uses: actions/setup-java@v5
@@ -198,11 +266,20 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
           RELEASES_REPO: ${{ steps.ver.outputs.releases_repo }}
           VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+        # A draft first: nobody (and no app's daily check, which reads releases/latest) sees a release until both assets are up.
         run: |
           set -euo pipefail
-          gh release create "$TAG" --repo "$RELEASES_REPO" "$apk" "$apk.sha256" \
+          gh release create "$TAG" --repo "$RELEASES_REPO" --draft \
             --title "DSH Mobile $VERSION_NAME" \
             --notes "DSH Mobile $VERSION_NAME. The app checks this page once a day; verify the APK against the .sha256 file."
+          gh release upload "$TAG" --repo "$RELEASES_REPO" --clobber "$apk" "$apk.sha256"
+          names="$(gh release view "$TAG" --repo "$RELEASES_REPO" --json assets --jq '[.assets[].name] | sort | join(",")')"
+          want="$(printf '%s\n' "$(basename "$apk")" "$(basename "$apk").sha256" | sort | paste -sd, -)"
+          if [ "$names" != "$want" ]; then
+            echo "::error::draft release has assets '$names', expected '$want'; left as a draft"
+            exit 1
+          fi
+          gh release edit "$TAG" --repo "$RELEASES_REPO" --draft=false
 
       - name: Delete keystore
         if: always() && steps.ver.outputs.publish == 'true'
