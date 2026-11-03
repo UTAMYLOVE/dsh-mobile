@@ -35,6 +35,8 @@ import app.dshmobile.remote.MuxState
 import app.dshmobile.service.DshService
 import app.dshmobile.service.RunningDsh
 import app.dshmobile.system.OnboardingState
+import app.dshmobile.system.PhantomProcessDetector
+import app.dshmobile.ui.agents.AgentsTab
 import app.dshmobile.ui.fog.FogPanel
 import app.dshmobile.ui.fog.FogTheme
 import app.dshmobile.ui.fog.effectsFor
@@ -215,8 +217,8 @@ class MainActivity : ComponentActivity() {
             ),
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,
-            // dsh waits on these: the cards are global and never dismissed (Task 11 wires originOf for subagents)
-            overlay = { PromptHost(session?.events, session?.tree) },
+            // dsh waits on these: the cards are global and never dismissed (a subagent's card names it through the agents' originOf)
+            overlay = { PromptHost(session?.events, session?.tree, originOf = { id -> session?.agents?.originOf(id) }) },
             modalOverlay = rememberHasPrompt(session?.events),
         ) { tab ->
             when (tab) {
@@ -224,6 +226,13 @@ class MainActivity : ComponentActivity() {
                     val draft = settingsDraft ?: SettingsDraft.from(settingsEnv).also { settingsDraft = it }
                     SettingsScreen(settingsEnv, onClose = null, contentPadding = LocalPagePadding.current, draft = draft)
                 }
+                ShellTab.AGENTS -> session?.let { sess ->
+                    // The limit is the configured subagent cap; read when the tab is shown (changing it needs "apply and restart" anyway).
+                    val limit = remember {
+                        app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), app.keyVault.get(Provider.ANTHROPIC) != null).maxConcurrent
+                    }
+                    AgentsTab(sess.agents, sess.tree, sess.scope, limit, nav::openSession)
+                } ?: EmptyPage(tab)
                 else -> EmptyPage(tab)
             }
         }

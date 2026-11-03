@@ -175,4 +175,15 @@
     <string name="prompt_decline">不回答</string>
     <string name="prompt_error">沒有送出，請再試一次</string>
     <string name="prompt_connecting">連線中…</string>
+
+    <string name="agents_title">代理人</string>
+    <string name="agents_meta">在跑 %1$d / 上限 %2$d</string>
+    <string name="agents_empty">目前沒有在跑的代理人</string>
+    <string name="agents_from">來自：%1$s</string>
+    <string name="agents_parent_untitled">新對話</string>
+    <string name="agents_running">執行中</string>
+    <string name="agents_finished">已結束</string>
+    <string name="agents_stop">叫它停</string>
+    <string name="agents_stopping">停止中…</string>
+    <string name="agents_stop_failed">沒能叫停，請再試一次</string>
 </resources>

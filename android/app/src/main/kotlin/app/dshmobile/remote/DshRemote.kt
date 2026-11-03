@@ -158,7 +158,7 @@ class DshRemote(
         put("maxMessages", maxMessages)
     })
 
-    suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) {
+    override suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) {
         call("subagents/interruptByParent", buildJsonObject {
             put("childSessionId", childSessionId)
             put("parentSessionId", parentSessionId)

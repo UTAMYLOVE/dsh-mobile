@@ -29,6 +29,7 @@ class ShellSessionHolderTest {
         override val muxState: StateFlow<MuxState> = MutableStateFlow(MuxState.CONNECTING)
         var closes = 0
         override fun close() { closes++ }
+        override suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) = Unit
         override fun follow(sessionId: String): kotlinx.coroutines.flow.Flow<app.dshmobile.remote.StreamSignal> = kotlinx.coroutines.flow.emptyFlow()
         override suspend fun prompt(sessionId: String, requestId: String, parts: List<app.dshmobile.remote.PromptPart>) = Unit
         override suspend fun cancel(sessionId: String) = Unit

@@ -10,6 +10,7 @@ import android.os.Looper
 import androidx.core.content.FileProvider
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import app.dshmobile.ui.shell.Tags
 import androidx.test.core.app.ApplicationProvider
@@ -364,6 +365,20 @@ class MainActivityTest {
             args,
         )
         waitUntil { !hasTag(Tags.PROMPT_SHEET) }
+    }
+
+    @Test fun aSubagentApprovalNamesTheSubagent() {
+        completeSetup()
+        val ctl = build().create().start().resume().visible()
+        val activity = ctl.get()
+        waitForShellOn(0, activity)
+        sendOnEvents(0, """{"type":"ready","clientId":"c-main","host":{"home":"/root"}}""")
+        sendOnEvents(0, """{"type":"emit","event":"api-session/added","args":[{"sessionId":"s1","updatedAt":1,"running":true,"projections":{"values":{"title":"天氣"}}}]}""")
+        sendOnEvents(0, """{"type":"emit","event":"api-session/added","args":[{"sessionId":"c1","parentSessionId":"s1","origin":"subagent","updatedAt":2,"running":true,"projections":{"values":{"subagent":{"label":"查資料"}}}}]}""")
+        waitUntil { app.shellSessions.current.value?.tree?.state?.value?.summaries?.containsKey("c1") == true }
+        sendOnEvents(0, """{"type":"waterfall","event":"approval/request","eventId":"e1","agentId":"c1","request":{"toolName":"write","callId":"t1","reason":"escalate"}}""")
+        waitUntil { hasTag(Tags.PROMPT_SHEET) }
+        compose.onNodeWithText("來自：子代理人「查資料」（來自 天氣）", substring = true).assertExists()
     }
 
     @Test fun backDoesNotDismissAPendingPrompt() {
