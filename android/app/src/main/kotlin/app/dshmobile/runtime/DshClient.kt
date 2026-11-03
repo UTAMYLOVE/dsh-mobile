@@ -16,6 +16,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import java.io.IOException
 import java.net.Proxy
 import kotlin.coroutines.resume
@@ -69,11 +71,30 @@ class DshClient(base: OkHttpClient, private val launch: LaunchUrl) {
      * [postJson] the whole exchange, body included, is cancelled with the calling coroutine, so a timeout around it
      * also holds while the server dribbles its body.
      */
-    suspend fun postJsonForText(path: String, json: String): TextResponse = coroutineScope {
+    suspend fun postJsonForText(path: String, json: String): TextResponse =
+        postAndRead(path, json) { TextResponse(it.code, it.peekBody(MAX_TEXT_BYTES).string()) }
+
+    /**
+     * Like [postJsonForText], but the whole body is read up to [maxBytes] and a longer one fails with
+     * [ResponseTooLargeException] instead of being cut off (DshRemote's RPC answers, e.g. a long `session/list`).
+     */
+    suspend fun postJsonForBoundedText(path: String, json: String, maxBytes: Long): TextResponse =
+        postAndRead(path, json) { TextResponse(it.code, readBounded(it, maxBytes)) }
+
+    /**
+     * Opens [path] on dsh as a WebSocket through the same client (session cookie, [Proxy.NO_PROXY], loopback origin only).
+     * No `Origin` header is sent: dsh accepts a non-browser client without one and refuses a foreign one with 403.
+     */
+    fun openWebSocket(path: String, listener: WebSocketListener): WebSocket = client.newWebSocket(request(path).build(), listener)
+
+    /** The body was longer than the caller allowed. */
+    class ResponseTooLargeException : IOException("dsh answer too large")
+
+    private suspend fun <T> postAndRead(path: String, json: String, read: (Response) -> T): T = coroutineScope {
         val call = client.newCall(request(path).post(json.toRequestBody(JSON)).build())
         val exchange = async(Dispatchers.IO) {
             try {
-                call.execute().use { TextResponse(it.code, it.peekBody(MAX_TEXT_BYTES).string()) }
+                call.execute().use(read)
             } catch (e: IOException) {
                 // Our own cancel() surfaces as an IOException; it must not outrank the cancellation that caused it.
                 if (call.isCanceled()) throw CancellationException("dsh request cancelled").also { it.initCause(e) }
@@ -86,6 +107,14 @@ class DshClient(base: OkHttpClient, private val launch: LaunchUrl) {
             call.cancel() // unblocks the thread reading the body
             throw e
         }
+    }
+
+    private fun readBounded(response: Response, maxBytes: Long): String {
+        val body = response.body ?: return ""
+        if (body.contentLength() > maxBytes) throw ResponseTooLargeException()
+        val source = body.source()
+        if (source.request(maxBytes + 1)) throw ResponseTooLargeException()
+        return source.buffer.readString(body.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8)
     }
 
     /** Status code and (bounded) body text of a finished exchange. */

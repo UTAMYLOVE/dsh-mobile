@@ -3,6 +3,9 @@ package app.dshmobile.remote
 import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
@@ -18,20 +21,50 @@ import java.util.Base64
 import java.util.UUID
 
 /**
- * The app's typed view of one running dsh: unary calls over `POST /api/<namespace>/<method>` with the session cookie of
- * [client] (which only talks to `127.0.0.1:<launch port>`). Exception messages carry the method name, an HTTP status or a
- * [DshErrors.safeCode]; never the launch URL, a token, a cookie or dsh's free-text error message.
+ * The app's typed view of one running dsh: unary calls over `POST /api/<namespace>/<method>` and streams over one
+ * `/api/remote.mux` WebSocket ([mux]), both with the session cookie of [client] (which only talks to
+ * `127.0.0.1:<launch port>`). Exception messages carry the method name, an HTTP status or a [DshErrors.safeCode]; never
+ * the launch URL, a token, a cookie or dsh's free-text error message.
  *
- * [scope] belongs to the caller (the shell session) and is where later streaming work runs; [zone] is sent with every prompt.
+ * [scope] belongs to the caller (the shell session); the mux and [events] (started here) run in it. [zone] is sent with
+ * every prompt. A new dsh instance gets a new [DshRemote]; [close] the old one.
  */
 class DshRemote(
     private val client: DshClient,
-    @Suppress("unused") private val scope: CoroutineScope,
+    private val scope: CoroutineScope,
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
     private val loginLock = Mutex()
     @Volatile private var loggedIn = false
     @Volatile private var closed = false
+
+    /** The one stream connection; it logs in (once, shared with [call]) before its first upgrade and again on a 401. */
+    val mux: MuxConnection = MuxConnection(
+        open = { listener -> client.openWebSocket(MUX_PATH, listener) },
+        relogin = { loginLock.withLock { client.login(); loggedIn = true } },
+        scope = scope,
+        beforeConnect = { ensureLoggedIn() },
+    )
+
+    /** `$events`: prompts to answer and session lifecycle, open from construction on. */
+    val events: DshEvents = DshEvents(mux, ::call, scope)
+
+    val hostEvents: SharedFlow<HostEvent> get() = events.hostEvents
+    val muxState: StateFlow<MuxState> get() = mux.state
+
+    /** History and live events of [sessionId] (`session/follow`, with the live assistant stream). */
+    fun follow(sessionId: String): Flow<StreamSignal> = mux.stream("session/follow", request {
+        putJsonObject("address") { put("kind", "session"); put("sessionId", sessionId) }
+        put("assistantStream", true)
+        put("maxMessages", FOLLOW_MAX_MESSAGES)
+        putJsonObject("turnWindow") { put("minMessages", FOLLOW_MIN_MESSAGES); put("minTurns", FOLLOW_MIN_TURNS) }
+    })
+
+    /** Host-wide live projections of every session (`session/control`). */
+    fun control(): Flow<StreamSignal> = mux.stream("session/control")
+
+    /** Workspaces (`workspace/follow`). */
+    fun workspaces(): Flow<StreamSignal> = mux.stream("workspace/follow")
 
     /**
      * One unary call. Logs in on first use and once more when dsh answers 401 (then retries once).
@@ -43,10 +76,10 @@ class DshRemote(
         if (closed) throw IOException("dsh remote closed")
         ensureLoggedIn()
         val body = RpcEnvelope.request(method, args, "dshm-${UUID.randomUUID()}")
-        var response = client.postJsonForText("/api/$method", body)
+        var response = post(method, body)
         if (response.code == 401) {
             loginLock.withLock { client.login() }
-            response = client.postJsonForText("/api/$method", body)
+            response = post(method, body)
         }
         if (response.code != 200) throw IOException("dsh $method: HTTP ${response.code}")
         return when (val result = RpcEnvelope.parse(response.body)) {
@@ -130,9 +163,17 @@ class DshRemote(
         })
     }
 
-    /** Later calls fail with an [IOException]. */
+    /** Later calls fail with an [IOException]; the mux closes and every stream completes. */
     fun close() {
         closed = true
+        mux.close()
+    }
+
+    /** Answers are read whole up to [MAX_ANSWER_BYTES] (a long `session/list` or `session/page`); longer ones fail. */
+    private suspend fun post(method: String, body: String): DshClient.TextResponse = try {
+        client.postJsonForBoundedText("/api/$method", body, MAX_ANSWER_BYTES)
+    } catch (_: DshClient.ResponseTooLargeException) {
+        throw rpcError(method, ANSWER_TOO_LARGE)
     }
 
     private suspend fun ensureLoggedIn() {
@@ -159,6 +200,12 @@ class DshRemote(
     }
 
     private companion object {
+        const val MUX_PATH = "/api/remote.mux"
+        const val MAX_ANSWER_BYTES = 16L shl 20
+        const val ANSWER_TOO_LARGE = "response-too-large"
+        const val FOLLOW_MAX_MESSAGES = 500
+        const val FOLLOW_MIN_MESSAGES = 50
+        const val FOLLOW_MIN_TURNS = 2
         const val LIST = "session/list"
         const val SEARCH = "session/search"
         const val CREATE = "session/create"

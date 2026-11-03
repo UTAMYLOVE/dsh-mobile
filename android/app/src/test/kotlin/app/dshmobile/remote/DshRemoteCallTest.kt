@@ -37,7 +37,7 @@ class DshRemoteCallTest {
 
     @Test fun callPostsToApiNamespaceMethodWithTheCookie() = runBlocking {
         remote.call("session/list", buildJsonObject { putJsonObject("_request") {} })
-        val sent = dsh.requests.last()
+        val sent = dsh.requests.last { it.method == "POST" }
         assertEquals("/api/session/list", sent.path)
         assertEquals("POST", sent.method)
         assertTrue(sent.getHeader("Cookie")!!.contains("dsh-auth-x=signed"))
@@ -124,7 +124,7 @@ class DshRemoteCallTest {
             case.first()
             val envelope = Json.parseToJsonElement(rpcBodies.last()).jsonObject
             assertEquals(methods[i], envelope["method"]!!.jsonPrimitive.content)
-            assertEquals("/api/${methods[i]}", dsh.requests.last().path)
+            assertEquals("/api/${methods[i]}", dsh.requests.last { it.method == "POST" }.path)
             assertEquals(methods[i], Json.parseToJsonElement(case.second), envelope["payload"]!!.jsonObject["args"])
         }
     }
