@@ -178,3 +178,53 @@ I downloaded the run's `e2e-reports` artifact with `gh api .../artifacts/1323249
    - a subagent child's request carries `E2E_CHILD` in its last user text (t19);
    - the file attachment shows up in the request body by name or content (t16).
 5. **The wall-clock budget.** I estimate 35–45 min for the test step; the job is now allowed 90.
+
+## Fix round 1 (commit `e1ff8d2`, on top of `1294352`)
+
+All items in `task-15-fix1.md` are done.
+
+### Important
+
+1. **t21: FULL without hanging and without auto-degrade.**
+   - It starts the shell with the new shared `E2e.startShell()` and ends it with `E2e.finishShell()`. These use `startActivity` (`NEW_TASK | CLEAR_TASK`) instead of `ActivityScenario.launch`/`close`, as PerfGate does. A start that fails finishes the shell it left behind.
+   - Inside the try block, `effectsController.governor.autoDegrade` is set to false. Its previous value is restored in `finally`, together with SAVER.
+2. **t20: spend must grow.** It reads `app.costMeter.todayUsd()` before sending E2E_HELLO. After its own reply it waits until the meter is higher, then until the ring's content description (parsed as US$) is higher. There is no longer a comparison with a zero string.
+3. **No `waitForIdle` left in E2eTest.** Every wait is bounded and names what it waited for. New helpers in `E2eSupport`:
+   - `onEachFrame(frames = 10)` advances the main clock one frame at a time and runs the check on each frame.
+   - `awaitStable(what, timeoutMs = 30 s, times = 3)` waits until a sample stops changing.
+   Where they are used:
+   - t12: after `nav.select(SETTINGS)`, it awaits the settings tab, then checks the card on each of 10 frames.
+   - t23: after the reconnect, it checks on each of 10 frames that there is exactly one card.
+   - t24 `everyTab`: it awaits the selected tab, then waits until the bounds of all clickable nodes are stable.
+   - `assertLastPageControlClearsTheDock`: after `ScrollBy`, it waits until the lowest control's bottom is stable.
+4. **t19: the row says it ended.** After the stop, it waits up to 30 s until AGENT_STOP is gone and the row's status reads `R.string.agents_finished` (已結束). That status is the content description of the dot on the same line as AGENT_ROW. It then asserts the row is still there.
+5. **t18: dsh-level check, and independent of other tests.**
+   - After the delete, it logs in and calls `session/list` through `rpc()`. The id must be gone, or appear only as archived. The app deletes through `workspace/archiveSession`; I have not confirmed whether `session/list` omits archived sessions, so an id that dsh's `storages/workspace.json` lists under an "archived" key is accepted.
+   - After the restart, the test makes its own witness conversation and waits for that row before asserting the deleted row is absent (on 10 frames) and absent from the app's index. It no longer waits for rows left by other tests.
+
+### Minor
+
+- **t05** now runs the real `buildSettingsEnv(...).versions.checkUpdate()`. It goes through a new seam, `buildSettingsEnv(dshVersions: () -> DshVersions = { app.dshVersions })` (production default unchanged), which gets a `DshVersions` whose npm only records calls. It asserts UpToDate and that npm got no calls.
+- **t24 and the overlap check:**
+  - The width now comes from the activity's `resources.displayMetrics` after `wm density`, and the test fails if it is outside 360..480. The log-only path is gone.
+  - `assertNoFloatingOverlap(minControls)` defaults to 8 (attach, input, send or stop, five tabs). It requires 10 with the attach menu open and 2 for the approval card, where the modal card hides the dock from semantics.
+- **PerfGate:** `@After` restores the auto-degrade value saved in `@Before`. `startShell` goes through `E2e.startShell`, which finishes the activity if the start fails, and the test finishes it too if the tabs never show.
+- **`withAnimationsOn`:** each of the three restores runs on its own inside `runCatching` and logs if it fails.
+- **FogShell:** the sweep's imports are now in their sorted places.
+- **New unit test:** `FogShellSweepTest.aTapDuringTheSweepReachesThePage`.
+  - It taps a page control 300 ms into the sweep and expects exactly 1 tap.
+  - Mutation check: I added a pointer-consuming `pointerInput` to the sweep, and the test failed with "the sweep swallowed the tap expected:<1> but was:<0>". I then reverted the mutation.
+
+### Verification
+
+- Full unit suite (`--max-workers=2`): **980 tests, 0 failures, 0 errors** (979 plus the tap test).
+- `assembleDebug` and `assembleDebugAndroidTest`: BUILD SUCCESSFUL, with no Kotlin warnings or errors.
+
+### CI
+
+The first-pass run on main `bb25aa7` (run 85) ran no jobs. Every job failed within 2 s with this annotation: "The job was not started because recent account payments have failed or your spending limit needs to be increased". This is a GitHub billing block, not the code. So there are still no e2e or perf numbers. The newest evidence remains run 84 (§1).
+
+### Concerns
+
+- None of the e2e changes have run on an emulator. They wait on GitHub billing.
+- t18 accepts an id that dsh still lists, as long as the workspace store marks it archived. This is how the app deletes; the shape of that store's keys was not observed on a device.
