@@ -73,17 +73,18 @@ object E2e {
         return url?.startsWith("http://127.0.0.1:") == true
     }
 
-    /** Waits until the main screen shows dsh's own page (title set, app root rendered) painted in sakura pink. */
-    fun ActivityScenario<MainActivity>.awaitDshInSakuraPink() {
+    /** Waits until the main screen shows dsh's own page (title set, app root rendered) painted in FOGCITY's blush pink. */
+    fun ActivityScenario<MainActivity>.awaitDshInFogcity() {
         waitFor(300_000, "dsh to load in the WebView") { onDsh() }
         waitFor(120_000, "dsh's page (document.title and a rendered body)") {
             eval("document.title.length > 0 && document.body != null && document.body.children.length > 0") == "true"
         }
-        waitFor(60_000, "the sakura background") { eval(BG) == SAKURA }
+        waitFor(60_000, "the FOGCITY background") { eval(BG) == FOGCITY }
     }
 
     const val BG = "getComputedStyle(document.body).backgroundColor"
-    const val SAKURA = "\"rgb(255, 245, 248)\""
+    /** FOGCITY's blush background #FEDFE1 (packages/ui/src/fogcity.ts). */
+    const val FOGCITY = "\"rgb(254, 223, 225)\""
 
     /** On failure, puts the masked error log into logcat (uploaded by CI on failure). */
     class DumpErrorLogOnFailure : TestWatcher() {

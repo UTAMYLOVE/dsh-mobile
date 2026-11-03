@@ -337,7 +337,7 @@ fun SettingsScreen(env: SettingsEnv, onClose: () -> Unit = {}, modifier: Modifie
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.set_title), style = MaterialTheme.typography.headlineSmall, color = Sakura.Primary, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.set_title), style = MaterialTheme.typography.headlineSmall, color = Sakura.Text, modifier = Modifier.weight(1f))
                 TextButton(onClick = onClose, enabled = !busy, modifier = Modifier.testTag("close")) { Text(stringResource(R.string.set_close)) }
             }
             if (busy) {
@@ -495,7 +495,7 @@ private fun Section(title: Int, content: @Composable () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(stringResource(title), style = MaterialTheme.typography.titleMedium, color = Sakura.Primary)
+            Text(stringResource(title), style = MaterialTheme.typography.titleMedium, color = Sakura.Text)
             content()
         }
     }
@@ -509,7 +509,7 @@ private fun KeyRow(label: Int, tag: String, configured: Boolean, enabled: Boolea
             Text(
                 stringResource(if (configured) R.string.set_key_set else R.string.set_key_unset),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (configured) Sakura.TagText else Sakura.Text,
+                color = if (configured) Sakura.Text else Sakura.TextSecondary,
             )
         }
         OutlinedButton(onClick = onReplace, enabled = enabled, modifier = Modifier.testTag("replace-$tag")) {

@@ -1,5 +1,6 @@
 package app.dshmobile.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.dshmobile.R
+import app.dshmobile.ui.theme.Sakura
 
 enum class MainUiState { Loading, Error, Ready }
 
@@ -68,8 +70,9 @@ fun MainOverlay(
                 .semantics { contentDescription = description }
                 .clickable(onClick = onOpenSettings),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-            contentColor = MaterialTheme.colorScheme.primary,
+            color = Sakura.White.copy(alpha = 0.75f),
+            contentColor = Sakura.Text,
+            border = BorderStroke(1.dp, Sakura.Primary),
         ) {
             Box(contentAlignment = Alignment.Center) { Text(stringResource(R.string.main_settings_button)) }
         }

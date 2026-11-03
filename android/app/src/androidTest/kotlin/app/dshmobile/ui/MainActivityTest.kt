@@ -78,14 +78,14 @@ class MainActivityTest {
         return url
     }
 
-    @Test fun showsTheDshPageInSakuraPink() {
+    @Test fun showsTheDshPageInFogcity() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.awaitDshPage()
             // the page itself (not only the URL) must be there, then the plugin's stylesheet must have taken effect
-            waitFor(60_000, "the sakura background") {
-                scenario.eval("getComputedStyle(document.body).backgroundColor") == "\"rgb(255, 245, 248)\""
+            waitFor(60_000, "the FOGCITY background") {
+                scenario.eval("getComputedStyle(document.body).backgroundColor") == "\"rgb(254, 223, 225)\""
             }
-            assertEquals("\"rgb(255, 245, 248)\"", scenario.eval("getComputedStyle(document.body).backgroundColor"))
+            assertEquals("\"rgb(254, 223, 225)\"", scenario.eval("getComputedStyle(document.body).backgroundColor"))
         }
     }
 

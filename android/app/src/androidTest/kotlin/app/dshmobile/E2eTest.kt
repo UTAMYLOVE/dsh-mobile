@@ -7,7 +7,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
-import app.dshmobile.E2e.awaitDshInSakuraPink
+import app.dshmobile.E2e.awaitDshInFogcity
 import app.dshmobile.E2e.eval
 import app.dshmobile.E2e.waitFor
 import app.dshmobile.heartbeat.HeartbeatScheduler
@@ -67,10 +67,10 @@ class E2eTest {
     }
 
     /** §9.1: the main screen loads dsh's interface in the WebView, painted by the ui plugin. */
-    @Test fun t1_mainScreenShowsDshInSakuraPink() {
+    @Test fun t1_mainScreenShowsDshInFogcity() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.awaitDshInSakuraPink()
-            assertEquals(E2e.SAKURA, scenario.eval(E2e.BG))
+            scenario.awaitDshInFogcity()
+            assertEquals(E2e.FOGCITY, scenario.eval(E2e.BG))
             assertTrue("document.title is empty", scenario.eval("document.title.length") != "0")
         }
     }
@@ -159,7 +159,7 @@ class E2eTest {
         assertFalse("the failed version is still on disk", File(optDsh, BROKEN).exists())
         val running = runBlocking { app.controller.ensureRunning() }
         assertTrue("health check after the rollback", runBlocking { HealthCheck(http).check(running.launch) })
-        ActivityScenario.launch(MainActivity::class.java).use { it.awaitDshInSakuraPink() }
+        ActivityScenario.launch(MainActivity::class.java).use { it.awaitDshInFogcity() }
     }
 
     /**
@@ -186,7 +186,7 @@ class E2eTest {
      */
     @Test fun t8_dshsFolderPickerIsLoadedAndSeesTheWorkspace() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.awaitDshInSakuraPink()
+            scenario.awaitDshInFogcity()
             waitFor(30_000, "the picker's browser half among the page's plugin bundles") { scenario.eval(PICKER_LOADED) == "true" }
         }
         val running = runBlocking { app.controller.ensureRunning() }
@@ -196,6 +196,21 @@ class E2eTest {
         val entries = listing.getJSONArray("entries")
         val names = (0 until entries.length()).map { entries.getJSONObject(it).optString("name") }
         assertTrue("/root lists $names", "workspace" in names)
+    }
+
+    /**
+     * Follow-up 1: the settings DSH Mobile manages are hidden in dsh's interface. Opens Plugins > 子智能体 in the real WebView
+     * (by dsh's own hooks: the sidebar button's label in either language, the card's `data-plugin-item`) and checks that the
+     * 最大递归深度 field is rendered but invisible, with the app's note in its place.
+     */
+    @Test fun t7_theSubagentDepthFieldIsHiddenInDshsSettings() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.awaitDshInFogcity()
+            waitFor(30_000, "dsh's Plugins button") { scenario.eval(OPEN_PLUGINS) == "true" }
+            waitFor(30_000, "the 子智能体 card") { scenario.eval(OPEN_SUBAGENT) == "true" }
+            waitFor(30_000, "the 最大递归深度 field, rendered and hidden") { scenario.eval(DEPTH_FIELD) == "\"hidden\"" }
+            assertTrue("no DSH Mobile note where the limits were", scenario.eval(NOTE).contains("DSH Mobile"))
+        }
     }
 
     /** The paths of every workspace in dsh's own registry file (`$DSH_HOME/storages/workspace.json`). */
@@ -263,6 +278,27 @@ class E2eTest {
   var urls = performance.getEntriesByType('resource').map(function (e) { return e.name; });
   document.querySelectorAll('script[src]').forEach(function (s) { urls.push(s.src); });
   return urls.some(function (u) { return decodeURIComponent(u).indexOf(name) >= 0; });
+})()"""
+        private const val OPEN_PLUGINS = """(function () {
+  var b = Array.prototype.find.call(document.querySelectorAll('button[aria-label]'), function (x) {
+    var l = x.getAttribute('aria-label'); return l === '插件' || l === 'Plugins';
+  });
+  if (b) b.click();
+  return !!b;
+})()"""
+        private const val OPEN_SUBAGENT = """(function () {
+  var li = document.querySelector('li[data-plugin-item="subagent"]');
+  if (li) (li.querySelector('button') || li).click();
+  return !!li;
+})()"""
+        private const val DEPTH_FIELD = """(function () {
+  var d = document.getElementById('plugin-config-subagent-depth');
+  if (!d) return 'absent';
+  return d.offsetParent === null && d.getClientRects().length === 0 ? 'hidden' : 'visible';
+})()"""
+        private const val NOTE = """(function () {
+  var s = document.querySelector('[data-dshm-managed="note"]');
+  return s ? getComputedStyle(s, '::before').content : 'none';
 })()"""
 
         @AfterClass @JvmStatic fun releaseDsh() {

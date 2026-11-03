@@ -95,7 +95,7 @@ fun OnboardingScreen(
                 Text(
                     stringResource(R.string.onb_step_counter, step.ordinal + 1, Step.values().size),
                     style = MaterialTheme.typography.labelLarge,
-                    color = Sakura.TagText,
+                    color = Sakura.TextSecondary,
                 )
                 when (step) {
                     Step.NOTIFICATIONS -> NotificationsStep(platform, resumes, onDone = { done(step) }, onSkip = { skip(step) })
@@ -118,7 +118,7 @@ private fun StepCard(title: String, body: String, content: @Composable () -> Uni
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineSmall, color = Sakura.Primary)
+            Text(title, style = MaterialTheme.typography.headlineSmall, color = Sakura.Text)
             Text(body, style = MaterialTheme.typography.bodyLarge)
             content()
         }
@@ -168,7 +168,7 @@ private fun PhantomStep(
     val developerOptions = remember(resumes) { platform.developerOptionsEnabled() }
     StepCard(stringResource(R.string.onb_phantom_title), stringResource(R.string.onb_phantom_body)) {
         if (!developerOptions) {
-            Text(stringResource(R.string.onb_phantom_tutorial), color = Sakura.TagText)
+            Text(stringResource(R.string.onb_phantom_tutorial), color = Sakura.TextSecondary)
             Button(onClick = platform::openDeviceInfoSettings) { Text(stringResource(R.string.onb_phantom_open_about)) }
         } else {
             Button(onClick = platform::openDeveloperSettings) { Text(stringResource(R.string.onb_phantom_open_dev)) }
@@ -183,7 +183,7 @@ private fun PhantomStep(
                         PhantomState.UNKNOWN -> R.string.onb_phantom_state_unknown
                     },
                 ),
-                color = Sakura.TagText,
+                color = Sakura.TextSecondary,
                 style = MaterialTheme.typography.titleMedium,
             )
         }

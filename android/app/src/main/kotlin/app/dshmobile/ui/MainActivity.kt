@@ -215,7 +215,7 @@ class MainActivity : ComponentActivity() {
             }
         })
         webView = WebView(this).apply {
-            setBackgroundColor(Color.parseColor("#FFF5F8"))
+            setBackgroundColor(Color.parseColor("#FEDFE1"))
             webViewClient = webClient
             webChromeClient = chromeClient // file inputs and the default alert/confirm/prompt dialogs
             settings.apply {
@@ -250,7 +250,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val root = FrameLayout(this)
-        root.setBackgroundColor(Color.parseColor("#FFF5F8"))
+        root.setBackgroundColor(Color.parseColor("#FEDFE1"))
         root.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(overlay, overlayLayout(uiState.value))
         // Edge-to-edge is enforced; keep the page clear of the system bars and the keyboard.
