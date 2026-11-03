@@ -265,6 +265,10 @@ private fun ConversationPage(
         conversation.replyStats.values.mapNotNull { replyCostUsd(prices, it, now) }.takeIf { it.isNotEmpty() }?.sum()
     }
 
+    val library = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.libraryStore
+    val shelf = library?.state?.collectAsState()
+    val onShelf = shelf?.value?.books?.any { it.sessionId == id } == true
+
     ChatScreen(
         state = ChatUiState(
             title, conversation.items, conversation.live, conversation.running, pending, models, conversation.hasMore, sendError,
@@ -272,6 +276,8 @@ private fun ConversationPage(
             effort = ui.effort, reviewRounds = ui.reviewRounds,
             replyLines = replyLines, contextFill = conversation.context?.fraction, statsLine = statsLine, activity = activity,
         ),
+        onAddToShelf = library?.let { lib -> { lib.addBook(title, id, null, current) } },
+        onShelf = onShelf,
         dataPanel = {
             ChatDataPanel(
                 team, speeds, loadedCost, conversation.context?.fraction, usage.cacheHit,

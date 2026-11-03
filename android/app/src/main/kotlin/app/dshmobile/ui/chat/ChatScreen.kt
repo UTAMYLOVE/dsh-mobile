@@ -585,6 +585,9 @@ fun ChatScreen(
     onPickReview: (Int) -> Unit = {},
     /** The pull-out data panel (stage 2 §H 對話); null hides its toggle. */
     dataPanel: (@Composable () -> Unit)? = null,
+    /** 「加入書架」 (stage 2 §D); null hides it, [onShelf] says it is already there. */
+    onAddToShelf: (() -> Unit)? = null,
+    onShelf: Boolean = false,
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
@@ -658,12 +661,17 @@ fun ChatScreen(
                 )
             }
             if (state.statsLine != null) ContextBar(state.contextFill, state.statsLine)
-            if (state.activity != null || dataPanel != null) {
+            if (state.activity != null || dataPanel != null || onAddToShelf != null) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         state.activity.orEmpty(), color = Sakura.RoseBrown, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).testTag(Tags.CHAT_ACTIVITY),
                     )
+                    if (onAddToShelf != null) {
+                        TextButton(onClick = onAddToShelf, enabled = !onShelf, modifier = Modifier.testTag(Tags.CHAT_ADD_SHELF)) {
+                            Text(if (onShelf) "已在書架" else "加入書架", fontSize = 12.sp)
+                        }
+                    }
                     if (dataPanel != null) {
                         TextButton(onClick = { ui.dataOpen = !ui.dataOpen }, modifier = Modifier.testTag(Tags.CHAT_DATA)) {
                             Text(if (ui.dataOpen) "收起數據" else "數據 ›", fontSize = 12.sp)

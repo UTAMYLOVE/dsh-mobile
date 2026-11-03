@@ -33,6 +33,11 @@ import androidx.lifecycle.repeatOnLifecycle
 import app.dshmobile.DshMobileApp
 import app.dshmobile.R
 import app.dshmobile.ui.agents.WarStrip
+import app.dshmobile.ui.library.LibraryDsh
+import app.dshmobile.config.AgentModels
+import app.dshmobile.remote.PromptPart
+import app.dshmobile.ui.library.LibraryScreen
+import app.dshmobile.ui.library.bookModels
 import app.dshmobile.ui.agents.rememberWarAgents
 import app.dshmobile.gateway.Provider
 import app.dshmobile.notify.Notifier
@@ -354,6 +359,26 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } ?: EmptyPage(tab)
+                }
+                ShellTab.LIBRARY -> {
+                    val hasClaude = remember { app.keyVault.has(Provider.ANTHROPIC) }
+                    val dsh = remember(session) {
+                        session?.let { sess ->
+                            LibraryDsh(
+                                startBook = { model, opening ->
+                                    val id = sess.index.create()
+                                    val store = sess.conversation(id)
+                                    AgentModels.find(model)?.let { store.selectModel(it) }
+                                    store.send(listOf(PromptPart.Text(opening)), opening, emptyList())
+                                    id
+                                },
+                                conversation = { id -> sess.conversation(id).state },
+                                send = { id, text -> sess.conversation(id).send(listOf(PromptPart.Text(text)), text, emptyList()) },
+                                openChat = nav::openSession,
+                            )
+                        }
+                    }
+                    LibraryScreen(app.libraryStore, dsh, bookModels(hasClaude), remember { app.agentSettingsStore.novelModel })
                 }
                 else -> EmptyPage(tab)
             }

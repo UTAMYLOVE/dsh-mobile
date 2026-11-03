@@ -87,6 +87,11 @@ class DshMobileApp : Application(), Configuration.Provider {
     /** Where the rootfs and the user's data (outside it, bound into the guest) live on the host. */
     val appPaths: AppPaths by lazy { AppPaths(filesDir) }
 
+    /** The bookshelf and setting cards, in the workspace (stage 2 §D). */
+    val libraryStore: app.dshmobile.library.LibraryStore by lazy {
+        app.dshmobile.library.LibraryStore(java.io.File(appPaths.workspace, app.dshmobile.library.LibraryStore.RELATIVE_PATH))
+    }
+
     val rootfsInstaller: RootfsInstaller by lazy {
         // A reinstall never touches userdata/; data an older build kept inside the rootfs moves out first. If that move fails the
         // install fails too (the old rootfs, with the data, stays): never delete what could not be moved.
