@@ -30,3 +30,14 @@ Status: DONE_WITH_CONCERNS (see Deviations / Concerns).
 
 ## Concerns
 - `rememberMarkdown` and the debounce have no dedicated test (the brief lists none).
+
+## Fix round 1
+
+Changes (all in `ui/markdown/Markdown.kt` unless noted):
+1. Streaming starvation: new `internal suspend fun conflatedParse(texts, streaming, debounceMs, parse, publish)`. It waits the 100 ms debounce once when streaming, then collects `texts.distinctUntilChanged().conflate()`: each parse runs to completion on Dispatchers.Default and is published, then only the newest text is parsed next (with a 100 ms pause while streaming). Newer text no longer cancels a parse. `rememberMarkdown` feeds it `snapshotFlow` of the latest text (`rememberUpdatedState`) from a `LaunchedEffect(streaming)`.
+2. `MarkdownParser.MAX_ROWS` / `MAX_ITEMS` = 500: a table keeps 500 body rows plus one row "…還有 N 列"; a list keeps 500 items plus one item "…還有 N 項".
+3. Truncation backs off one char when the cut would end on a high surrogate.
+4. `listMarkerWidth(block)`: ordered marker width is `max(28, (digits+1)*10+4)` dp for the largest number in the list, so "1000." fits on one line.
+
+Tests (new): `ConflatedParseTest` (slowParsesStillPublishWhileUpdatesKeepArriving: 60 updates 10 ms apart against a 60 ms parse, at least 3 results published before the producer finishes, fewer than 61 parses, final text "t60" published; nonStreamingPublishesImmediatelyWithoutDelay), `MarkdownParserTest` (aHugeTableIsCappedWithARemainderRow, aHugeListIsCappedWithARemainderItem, truncationNeverSplitsASurrogatePair), `MarkdownViewTest.fourDigitOrderedMarkersDoNotWrap` (marker "1000." has the same height as a one-line item, width >= 50 dp).
+RED to GREEN: the tests were written together with the implementation in one step, so the RED evidence is limited. Before the change `conflatedParse`, `MAX_ROWS`, `MAX_ITEMS` and `listMarkerWidth` did not exist (the new tests cannot compile), and the old LaunchedEffect restarted on every text change, which is exactly what the streaming test exercises. One real failure was seen and fixed during the work: my first marker test used "100. c" after a "1001." list, which Markdown continues as the same list (a test bug, not a code bug). After the change: markdown tests 21/21, full suite 649 tests, 0 failures, 0 errors.

@@ -18,7 +18,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -46,6 +46,9 @@ import androidx.compose.ui.unit.sp
 import app.dshmobile.ui.theme.Sakura
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
@@ -99,6 +102,8 @@ object MarkdownParser {
     private const val TRUNCATED = "（內容過長，只顯示前 20 萬字）"
     private const val MAX_BLOCK_DEPTH = 24
     private const val MAX_INLINE_DEPTH = 24
+    const val MAX_ROWS = 500
+    const val MAX_ITEMS = 500
 
     private val parser: Parser = Parser.builder()
         .extensions(listOf(TablesExtension.create(), StrikethroughExtension.create()))
@@ -109,7 +114,9 @@ object MarkdownParser {
 
     fun parse(text: String): List<MdBlock> {
         val capped = text.length > MAX_CHARS
-        val source = if (capped) text.substring(0, MAX_CHARS) else text
+        // Never end on the first half of a surrogate pair (emoji would turn into a replacement glyph).
+        val end = if (capped && Character.isHighSurrogate(text[MAX_CHARS - 1])) MAX_CHARS - 1 else MAX_CHARS
+        val source = if (capped) text.substring(0, end) else text
         val blocks = convertChildren(parser.parse(source), 0)
         return if (capped) blocks + MdBlock.Paragraph(AnnotatedString(TRUNCATED)) else blocks
     }
@@ -148,6 +155,12 @@ object MarkdownParser {
         var item = list.firstChild
         while (item != null) {
             if (item is ListItem) {
+                if (items.size == MAX_ITEMS) {
+                    var more = 0
+                    while (item != null) { if (item is ListItem) more++; item = item.next }
+                    items += listOf(MdBlock.Paragraph(AnnotatedString("…還有 $more 項")))
+                    break
+                }
                 items += if (depth >= MAX_BLOCK_DEPTH) listOf(MdBlock.Paragraph(AnnotatedString(plainText(item))))
                 else convertChildren(item, depth + 1)
             }
@@ -159,6 +172,7 @@ object MarkdownParser {
     private fun table(table: TableBlock): MdBlock {
         var header: List<AnnotatedString> = emptyList()
         val rows = ArrayList<List<AnnotatedString>>()
+        var hidden = 0
         var section = table.firstChild
         while (section != null) {
             var row = section.firstChild
@@ -170,12 +184,16 @@ object MarkdownParser {
                         if (cell is TableCell) cells += inline(cell)
                         cell = cell.next
                     }
-                    if (section is TableHead) header = cells else if (section is TableBody) rows += cells
+                    if (section is TableHead) header = cells
+                    else if (section is TableBody) {
+                        if (rows.size < MAX_ROWS) rows += cells else hidden++
+                    }
                 }
                 row = row.next
             }
             section = section.next
         }
+        if (hidden > 0) rows += listOf(listOf(AnnotatedString("…還有 $hidden 列")))
         return MdBlock.Table(header, rows)
     }
 
@@ -252,25 +270,45 @@ object MarkdownParser {
 private const val STREAM_DEBOUNCE_MS = 100L
 private const val EAGER_PARSE_CHARS = 2_000
 
-/** Parses [text] off the main thread; while [streaming], at most one parse per 100 ms so a fast token stream does not starve the UI. */
+/**
+ * Parses each latest value of [texts] off the main thread and hands it to [publish]; while [streaming], one parse at most per
+ * [debounceMs]. A parse is never cancelled by newer text: it finishes and is published, then only the newest text is parsed next
+ * (conflated), so a long reply keeps showing progress even when one parse is slower than the token gap.
+ */
+internal suspend fun conflatedParse(
+    texts: Flow<String>,
+    streaming: Boolean,
+    debounceMs: Long = STREAM_DEBOUNCE_MS,
+    parse: (String) -> List<MdBlock> = MarkdownParser::parse,
+    publish: (List<MdBlock>) -> Unit,
+) {
+    if (streaming) delay(debounceMs)
+    texts.distinctUntilChanged().conflate().collect { t ->
+        publish(withContext(Dispatchers.Default) { parse(t) })
+        if (streaming) delay(debounceMs)
+    }
+}
+
+/** Parses [text] off the main thread (see [conflatedParse]); never blocks the UI and never starves while [streaming]. */
 @Composable
 fun rememberMarkdown(text: String, streaming: Boolean): List<MdBlock> {
     var blocks by remember { mutableStateOf(if (!streaming && text.length <= EAGER_PARSE_CHARS) MarkdownParser.parse(text) else emptyList()) }
-    var parsedAt by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(text, streaming) {
-        if (streaming) {
-            val wait = STREAM_DEBOUNCE_MS - (System.nanoTime() / 1_000_000 - parsedAt)
-            if (wait > 0) delay(wait)
-        }
-        val parsed = withContext(Dispatchers.Default) { MarkdownParser.parse(text) }
-        parsedAt = System.nanoTime() / 1_000_000
-        blocks = parsed
+    val latest by rememberUpdatedState(text)
+    LaunchedEffect(streaming) {
+        conflatedParse(snapshotFlow { latest }, streaming) { blocks = it }
     }
     return blocks
 }
 
 private val BodyStyle = TextStyle(color = Sakura.Text, fontSize = 15.sp, lineHeight = 25.5.sp)
 private val CodeStyle = TextStyle(color = Sakura.Text, fontSize = 13.sp, lineHeight = 19.sp, fontFamily = FontFamily.Monospace)
+/** Wide enough for the largest number ("100." and "1000." must not wrap); bullets stay narrow. */
+internal fun listMarkerWidth(block: MdBlock.ListBlock): androidx.compose.ui.unit.Dp {
+    if (!block.ordered) return 18.dp
+    val digits = (block.start + block.items.size - 1).coerceAtLeast(1).toString().length
+    return maxOf(28, (digits + 1) * 10 + 4).dp
+}
+
 private val TableCellMax = 240.dp
 
 @Composable
@@ -289,11 +327,12 @@ private fun Block(block: MdBlock, onLink: (String) -> Unit) {
             MdText(block.text, BodyStyle.copy(fontSize = size, lineHeight = size * 1.5f, fontWeight = FontWeight.Bold), onLink)
         }
         is MdBlock.ListBlock -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val markerWidth = listMarkerWidth(block)
             block.items.forEachIndexed { i, item ->
                 Row {
                     BasicText(
                         if (block.ordered) "${block.start + i}." else "•",
-                        Modifier.width(if (block.ordered) 28.dp else 18.dp),
+                        Modifier.width(markerWidth),
                         style = BodyStyle,
                     )
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) { item.forEach { Block(it, onLink) } }

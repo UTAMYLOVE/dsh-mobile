@@ -117,4 +117,29 @@ class MarkdownParserTest {
         assertTrue(MarkdownParser.parse(">".repeat(50_000) + " x").isNotEmpty())
         assertTrue(MarkdownParser.parse("*a ".repeat(30_000)).isNotEmpty())
     }
+
+    @Test fun aHugeTableIsCappedWithARemainderRow() {
+        val md = "| a | b |\n|---|---|\n" + (1..600).joinToString("\n") { "| r$it | x |" }
+        val table = MarkdownParser.parse(md).single() as MdBlock.Table
+        assertEquals(MarkdownParser.MAX_ROWS + 1, table.rows.size)
+        assertEquals("r500", table.rows[499][0].text)
+        assertEquals("…還有 100 列", table.rows.last()[0].text)
+    }
+
+    @Test fun aHugeListIsCappedWithARemainderItem() {
+        val list = MarkdownParser.parse((1..650).joinToString("\n") { "- i$it" }).single() as MdBlock.ListBlock
+        assertEquals(MarkdownParser.MAX_ITEMS + 1, list.items.size)
+        assertEquals("…還有 150 項", (list.items.last().single() as MdBlock.Paragraph).text.text)
+        val exact = MarkdownParser.parse((1..500).joinToString("\n") { "- i$it" }).single() as MdBlock.ListBlock
+        assertEquals(500, exact.items.size)
+    }
+
+    @Test fun truncationNeverSplitsASurrogatePair() {
+        val input = "a".repeat(MarkdownParser.MAX_CHARS - 1) + "\uD83D\uDE00" + "tail"
+        val blocks = MarkdownParser.parse(input)
+        val shown = blocks.dropLast(1).joinToString("") { (it as MdBlock.Paragraph).text.text }
+        assertEquals(MarkdownParser.MAX_CHARS - 1, shown.length)
+        assertFalse(Character.isHighSurrogate(shown.last()))
+        assertEquals("（內容過長，只顯示前 20 萬字）", (blocks.last() as MdBlock.Paragraph).text.text)
+    }
 }

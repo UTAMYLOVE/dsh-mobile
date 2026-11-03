@@ -7,6 +7,7 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -62,5 +63,15 @@ class MarkdownViewTest {
         assertEquals(100, blocks.size)
         rule.setContent { MarkdownView(blocks, onLink = {}) }
         rule.onNodeWithText("END-MARK", substring = true).assertExists()
+    }
+
+    @Test fun fourDigitOrderedMarkersDoNotWrap() {
+        val blocks = MarkdownParser.parse("1000. a\n1001. b")
+        assertTrue(listMarkerWidth(blocks[0] as MdBlock.ListBlock) >= 50.dp)
+        rule.setContent { MarkdownView(blocks, onLink = {}) }
+        rule.onNodeWithText("1000.").assertExists()
+        val oneLine = rule.onNodeWithText("a").fetchSemanticsNode().size.height
+        val marker = rule.onNodeWithText("1000.").fetchSemanticsNode().size.height
+        assertEquals("marker wrapped", oneLine, marker)
     }
 }
