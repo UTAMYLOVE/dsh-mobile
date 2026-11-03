@@ -1,6 +1,9 @@
 package app.dshmobile.ui.shell
 
 import app.dshmobile.chat.ChatRemote
+import app.dshmobile.chat.IndexRemote
+import app.dshmobile.chat.SessionIndex
+import app.dshmobile.chat.SessionTree
 import app.dshmobile.remote.DshEvents
 import app.dshmobile.remote.MuxState
 import app.dshmobile.service.RunningDsh
@@ -12,8 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** What the shell needs from one running dsh; `DshRemote` implements it (later tasks widen it with chat, index and agents). */
-interface ShellRemote : ChatRemote {
-    val muxState: StateFlow<MuxState>
+interface ShellRemote : ChatRemote, IndexRemote {
+    override val muxState: StateFlow<MuxState>
     fun close()
 }
 
@@ -23,6 +26,10 @@ interface ShellRemote : ChatRemote {
  * application's scope), never the application's scope itself. Later tasks add their stores here.
  */
 class ShellSession(val remote: ShellRemote, val events: DshEvents?, val scope: CoroutineScope) {
+    /** The shared session tree and the conversation list built on it (later tasks derive agents and the overview from the tree). */
+    val tree = SessionTree(remote, scope)
+    val index = SessionIndex(tree, remote, scope)
+
     @Volatile private var closed = false
 
     fun close() {

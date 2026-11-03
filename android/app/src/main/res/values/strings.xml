@@ -146,4 +146,21 @@
     <string name="set_apply_done">已套用，DSH 已重新啟動</string>
     <string name="set_apply_failed">無法重新啟動 DSH，請查看錯誤記錄</string>
     <string name="set_apply_teams_later">Agent Teams 會在 DSH 下次啟動後生效。</string>
+
+    <string name="list_title">所有對話</string>
+    <string name="list_new">＋ 新對話</string>
+    <string name="list_close">關閉</string>
+    <string name="list_search_hint">搜尋對話</string>
+    <string name="list_empty">還沒有對話</string>
+    <string name="list_no_match">找不到符合的對話</string>
+    <string name="list_untitled">新對話</string>
+    <string name="list_running">進行中</string>
+    <string name="list_menu">更多</string>
+    <string name="list_rename">改名</string>
+    <string name="list_delete">刪除</string>
+    <string name="list_rename_title">改對話名稱</string>
+    <string name="list_rename_save">儲存</string>
+    <string name="list_cancel">取消</string>
+    <string name="list_delete_title">刪除這個對話？</string>
+    <string name="list_delete_body">對話會從清單移除，正在進行的工作也會停止。</string>
 </resources>

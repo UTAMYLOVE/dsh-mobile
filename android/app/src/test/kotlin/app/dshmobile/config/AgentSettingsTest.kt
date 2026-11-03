@@ -62,4 +62,14 @@ class AgentSettingsTest {
         assertNull(AgentModels.find("no-such-model"))
         assertFalse(AgentModels.find("deepseek-flash")!!.isClaude)
     }
+
+    @Test fun displayNamesForEveryKnownModel() {
+        assertEquals("DeepSeek Flash", AgentModels.displayName("deepseek-flash"))
+        assertEquals("DeepSeek Pro", AgentModels.displayName("deepseek-v4-pro"))
+        assertEquals("Claude Sonnet", AgentModels.displayName("claude-sonnet-5-5"))
+        assertEquals("Claude Opus", AgentModels.displayName("claude-opus-5-5"))
+        assertEquals("Claude Haiku", AgentModels.displayName("claude-haiku-5-5"))
+        assertEquals("mystery-1", AgentModels.displayName("mystery-1"))
+        assertNull(AgentModels.displayName(null))
+    }
 }
