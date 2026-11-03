@@ -130,3 +130,5 @@ T11: implementer DONE (lane-t11 b70babf..0189e17, 826 unit); extra failed-stop p
 T11: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
 - Ruling: Minor 1 (stop launched on rememberCoroutineScope is cancelled by leaving the tab) and the doubled 「子代理人」 label get a tiny round before merge; no timeout on 停止中 (reviewer: a timeout would mislead); finished rows uncapped for the simple version (stage 3 replaces the page).
 T11: minor (deferred): no "nothing running" line when only finished rows exist; error line not a live region; Column+verticalScroll composes every finished row
+T11: fix round 1/5 (2 addressed, 0 open; 0189e17..4806c40; re-review haiku)
+T11: complete (lane-t11 b70babf..4806c40, review clean) — merged
