@@ -147,15 +147,19 @@ class AttachmentSender(private val remote: ChatRemote, private val loader: Attac
     /**
      * [text] first (when it is not blank), then the attachments in pick order. Every attachment is read and, when it is not an
      * inline image, uploaded before this returns; the first failure throws [AttachmentFailure] and nothing is sent. Reads on
-     * [Dispatchers.IO], one attachment at a time, so at most one file is in memory beside the finished parts.
+     * [Dispatchers.IO], one attachment at a time, so at most one file is in memory beside the finished parts. Inline pictures
+     * stop at [INLINE_TOTAL_LIMIT] bytes per message (their base64 stays in the parts until the prompt is sent): the pictures
+     * past it are uploaded as files instead.
      */
     suspend fun toParts(sessionId: String, text: String, attachments: List<PendingAttachment>): List<PromptPart> {
         val parts = ArrayList<PromptPart>(attachments.size + 1)
         if (text.isNotBlank()) parts += PromptPart.Text(text)
+        var inline = 0L
         for (a in attachments) {
             try {
                 val bytes = withContext(Dispatchers.IO) { loader.read(a) }
-                if (a.isImage && bytes.size <= AttachmentLoader.IMAGE_LIMIT) {
+                if (a.isImage && bytes.size <= AttachmentLoader.IMAGE_LIMIT && inline + bytes.size <= INLINE_TOTAL_LIMIT) {
+                    inline += bytes.size
                     val encoded = withContext(Dispatchers.IO) { Base64.getEncoder().encodeToString(bytes) }
                     parts += PromptPart.Image(a.mime, encoded, a.name)
                 } else {
@@ -174,6 +178,11 @@ class AttachmentSender(private val remote: ChatRemote, private val loader: Attac
             }
         }
         return parts
+    }
+
+    companion object {
+        /** Final review A-I4 ruling: about 10 MB of inline picture bytes per message. */
+        const val INLINE_TOTAL_LIMIT = 10 * 1024 * 1024
     }
 
     /** A dsh code as is, [AttachmentReason.CONNECTION] for an IOException, else [AttachmentReason.UNKNOWN]; never a class name. */

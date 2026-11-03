@@ -220,4 +220,15 @@ class AttachmentsTest {
         assertTrue(fields.none { it.type == ByteArray::class.java || InputStream::class.java.isAssignableFrom(it.type) || it.type == String::class.java && it.name == "base64" })
         assertEquals(setOf("id", "uri", "name", "mime", "size"), fields.map { it.name }.toSet())
     }
+
+    /** Final review A-I4: about 10 MB of inline pictures per message; the pictures past it go up as files. */
+    @Test fun inlinePicturesStopAtTenMegabytesAndTheRestAreUploaded() = runTest {
+        val remote = UploadRemote()
+        val picked = (1..4).map { attach(uri("p$it.jpg", "image/jpeg", 4 * mb)) }
+        assertTrue(picked.all { it.isImage })
+        val parts = AttachmentSender(remote, loader).toParts("s1", "", picked)
+        assertEquals(listOf(true, true, false, false), parts.map { it is PromptPart.Image })
+        assertEquals(listOf("p3.jpg", "p4.jpg"), remote.uploads.map { it.first })
+        assertEquals(10 * mb, AttachmentSender.INLINE_TOTAL_LIMIT.toLong())
+    }
 }
