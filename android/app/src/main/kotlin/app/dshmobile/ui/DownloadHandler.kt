@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.net.Proxy
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -29,7 +30,8 @@ class DownloadHandler(
         data class Failed(val reason: String) : Result
     }
 
-    private val client = http.newBuilder().followRedirects(false).followSslRedirects(false).build()
+    // Loopback only: a system or Wi-Fi proxy must never be asked for 127.0.0.1.
+    private val client = http.newBuilder().proxy(Proxy.NO_PROXY).followRedirects(false).followSslRedirects(false).build()
 
     suspend fun download(url: String, contentDisposition: String?, mime: String?): Result {
         if (DshWebViewClient.decide(url, dshPort()) != DshWebViewClient.Decision.ALLOW) return Result.Unsupported

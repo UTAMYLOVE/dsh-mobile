@@ -25,6 +25,21 @@ class DshClientTest {
         assertTrue(dsh.unauthenticated.isEmpty())
     }
 
+    /**
+     * M-4: dsh is on this phone's loopback; a system or Wi-Fi proxy must never be asked for it (the health check would fail,
+     * count as a crash and end in a give-up). The base client here sends everything to a proxy that does not exist.
+     */
+    @Test fun loopbackTrafficNeverGoesThroughAProxy() = runBlocking {
+        val deadProxy = java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress("127.0.0.1", 1))
+        val proxied = OkHttpClient.Builder().proxySelector(object : java.net.ProxySelector() {
+            override fun select(uri: java.net.URI?) = listOf(deadProxy)
+            override fun connectFailed(uri: java.net.URI?, sa: java.net.SocketAddress?, ioe: IOException?) = Unit
+        }).proxy(deadProxy).build()
+        val client = DshClient(proxied, dsh.launch)
+        client.login()
+        client.get("/dshm/health/memory").use { assertEquals(200, it.code) }
+    }
+
     @Test fun getWithoutLoginIsUnauthorized() = runBlocking {
         DshClient(OkHttpClient(), dsh.launch).get("/").use { assertEquals(401, it.code) }
     }

@@ -17,6 +17,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.net.Proxy
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -30,6 +31,7 @@ class DshClient(base: OkHttpClient, private val launch: LaunchUrl) {
     private val origin: HttpUrl = "http://127.0.0.1:${launch.port}/".toHttpUrl()
     private val jar = LoopbackCookieJar(origin)
     private val client = base.newBuilder()
+        .proxy(Proxy.NO_PROXY) // loopback only: a system or Wi-Fi proxy must never be asked for 127.0.0.1
         .cookieJar(jar)
         .followRedirects(false)
         .followSslRedirects(false)

@@ -100,6 +100,15 @@ class DownloadHandlerTest {
         assertEquals(url("/files/a.txt"), requestedCookieFor)
     }
 
+    /** M-4: the download comes from dsh on the loopback; a system or Wi-Fi proxy is never involved. */
+    @Test fun aProxyInTheBaseClientIsNotUsed() = runBlocking {
+        server.enqueue(MockResponse().setBody("hello"))
+        val dead = java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress("127.0.0.1", 1))
+        val h = DownloadHandler({ exportDir }, OkHttpClient.Builder().proxy(dead).build(), { server.port }, { null })
+        val r = h.download(url("/files/a.txt"), null, "text/plain")
+        assertTrue("got $r", r is Result.Saved)
+    }
+
     @Test fun noCookieMeansNoCookieHeader() = runBlocking {
         cookie = null
         server.enqueue(MockResponse().setBody("x"))
