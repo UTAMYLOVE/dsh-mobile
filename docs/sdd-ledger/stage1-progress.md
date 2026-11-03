@@ -33,3 +33,6 @@ Table and 26 findings: .superpowers/sdd/stage1/preflight.md (sonnet scan of plan
 - Ruling 26: T15's grep targets `android.webkit.WebView` (Exporter's MimeTypeMap stays).
 — Cost if wrong (all): rework inside the affected task, caught by its task review.
 - Ruling: boss asked for more parallelism ("多用一點子代理跑快一點"). Wave A runs three implementers in separate local git worktrees on local-only branches (never pushed): lane 1 = T1→T2 (remote/), lane 2 = T3 (design system), lane 3 = T7 (Markdown) — disjoint files; the controller merges each lane into claude/dsh-mobile-cloud-handoff-vfhvdh after its task review, and only that branch is pushed. Later tasks stay sequential (shared MainActivity/Tags/strings/DshRemote) but each task's review overlaps the next task's implementation. Max 3 concurrent agents — Why: the 5-hour usage limit stalled all agents for ~2 h today — Cost if wrong: a merge conflict between lanes, resolved by the controller.
+
+## Execution
+Wave A (base d143f12): lane-t1 T1 dispatched (opus, worktree /home/user/wt-t1); lane-t3 T3 dispatched (sonnet, /home/user/wt-t3); lane-t7 T7 dispatched (sonnet, /home/user/wt-t7). Lanes commit locally only; controller merges after review.
