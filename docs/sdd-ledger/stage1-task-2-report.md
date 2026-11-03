@@ -130,3 +130,59 @@ Full unit suite, `./gradlew :app:testDebugUnitTest --max-workers=2`: BUILD SUCCE
 - **The 16 MiB cap.** Answers up to 16 MiB are read into memory, as a String plus `JsonElement`. A `session/list` beyond 16 MiB fails with `response-too-large` instead of being truncated, so the list screen must show that code. If a real novel workspace ever gets near that size, `session/list` needs paging; dsh's `_request` has no paging in 0.2.1-rc.5 as far as the recon shows.
 - **Mux-less `FakeDshServer` retries.** Every existing test that builds a `DshRemote` against a `FakeDshServer` without a mux now sees background `GET /api/remote.mux` → 404 retries (250 ms → 5 s). This is harmless, but later tasks that count `dsh.requests` should filter by path or method, or pass `mux = FakeMux()`.
 - **No client-side ping.** dsh pings every 2 s, and loopback death gives a reset, so a dead dsh is detected. A hung but alive dsh with an open TCP connection would not be detected. OkHttp `pingInterval` could be added later if T15 shows that case.
+
+## Hardening round
+
+These are the review items as ruled by the controller. The branch is `lane-t2fix`, on top of 36f606b. The fix commit is d5934e9 (`fix: mux and events harden reconnect edges`). Only files under `remote/` were changed, main and test.
+
+1. **`clientId` is cleared as soon as the mux leaves OPEN.**
+   - In `DshEvents`, a second collector watches `mux.state` (`DshEvents.kt:99`) and runs until CLOSED. It clears `clientId` under the lock whenever the state is not OPEN.
+   - Unconfirmed marking still happens on `Reopened`.
+   - `respond` waits for `combine(clientId, mux.state)` to give a clientId while the mux is OPEN (:131). An answer therefore can never use a clientId from a socket that is gone.
+   - `onReady` ignores a `ready` that is handled after the socket has already left OPEN (:172).
+   - Test: `DshEventsTest.anAnswerDuringReconnectingWaitsAndNeverUsesTheOldClientId`. With a 600 ms backoff, the test checks that during RECONNECTING the clientId is null, nothing is posted and the answer is still waiting. After the reopen and `ready c2`, exactly one `$events/result` goes out, with `clientId == "c2"`.
+2. **Cancelling the scope without `close()`.** `connector.invokeOnCompletion { close() }` (`MuxConnection.kt:81`). The connect loop only completes on cancellation or after `close`, so when the scope ends:
+   - the socket is closed;
+   - the inbox channel is closed, so later callbacks are dropped and the inbox stops growing;
+   - the state becomes CLOSED.
+
+   Test: `MuxConnectionTest.cancellingTheScopeWithoutCloseStillClosesTheSocket`. It checks that the server-side socket goes away, the state is CLOSED, no further upgrades happen, and `stream()` then completes empty.
+3. **`close()` racing with `open()`.**
+   - `close()` reads the starting socket under the lock (`current?.socket`).
+   - The connect loop stores the socket returned by `open()` under the same lock, but only if the mux is not closed (:169). If it is closed, the loop cancels that socket and returns.
+   - So either `close()` sees the socket or the loop sees `closed`. There is no gap between the two.
+
+   Test: `MuxConnectionTest.closeWhileTheUpgradeIsStartingCancelsTheNewSocket`. Its `open` lambda calls `mux.close()` before returning. The test checks that the server ends with 0 open sockets and that the returned socket refuses `send`.
+4. **A socket that keeps opening and dropping now backs off.**
+   - The failure count resets only when the socket stayed open longer than `backoffMs.last()` (:181). `Opened` records `openedAtNanos`.
+   - A socket that opens and drops at once counts as a failure, so the retries climb the backoff list.
+
+   Test: `MuxConnectionTest.aSocketThatClosesRightAfterOpeningBacksOff`, with `backoffMs = listOf(50, 400)` and the server closing on every `open`:
+   - Before the fix: 19 upgrades in the first second.
+   - Now: 2 to 5 upgrades in the first second.
+   - After the socket has stayed up for 500 ms, a drop reconnects within 300 ms, so the list restarts at its first value.
+5. **Test gaps.**
+   - `DshEventsTest.anAnswerWithoutReadyFailsNotConnectedAfterFiveSeconds` uses `runTest` (virtual clock) with a mux that never connects. The answer throws `DshRpcException("not-connected")` at exactly 5 000 ms of virtual time and `call` is never invoked. `kotlinx-coroutines-test` 1.10.2 is already on the unit-test classpath through Compose ui-test, so no Gradle change was needed.
+   - `DshRemoteAnswerSizeTest.aChunkedAnswerOverSixteenMebibytesFailsToo` sends a 16 MiB + 1 answer with `setChunkedBody` in 1 MiB chunks. There is no Content-Length, so this covers the `source.request(max + 1)` branch. The answer fails with `response-too-large`. Exactly 16 MiB chunked is read whole.
+
+### RED, then GREEN
+
+RED, with `./gradlew :app:testDebugUnitTest --max-workers=2 --tests 'app.dshmobile.remote.*'`: 47 tests, 4 failed.
+```
+anAnswerDuringReconnectingWaitsAndNeverUsesTheOldClientId : clientId cleared as soon as the mux left OPEN expected null, but was:<c1>
+closeWhileTheUpgradeIsStartingCancelsTheNewSocket       : the socket opened during close() is cancelled expected:<0> but was:<1>
+cancellingTheScopeWithoutCloseStillClosesTheSocket      : timed out waiting for socket closed
+aSocketThatClosesRightAfterOpeningBacksOff              : 19 upgrades in the first second
+```
+The two item-5 tests passed already in RED. They cover paths that existed but were not tested, and they found no bug.
+
+GREEN, with the same command, run 5 times with `--rerun-tasks`: BUILD SUCCESSFUL every time.
+- DshEventsTest 13, MuxConnectionTest 13, DshRemoteAnswerSizeTest 3, DshRemoteCallTest 10, MuxFramesTest 3, RpcEnvelopeTest 5. That is 47 tests, 0 failures.
+- `system-out` and `system-err` are empty.
+- No compiler warnings in `remote/`. `currentTime` is opted in with `@OptIn(ExperimentalCoroutinesApi::class)`.
+
+Full unit suite, `./gradlew :app:testDebugUnitTest --max-workers=2`: BUILD SUCCESSFUL, 723 tests, 0 failures, 0 errors, 0 skipped.
+
+### Notes
+
+- A socket that stays open only briefly now delays the next try along the list. This applies to a socket open for less than 5 s with the default `BACKOFF_MS`. After such a drop, the second reconnect waits 500 ms instead of 250 ms, and later ones wait longer. A socket that has been open for longer than 5 s still reconnects after 250 ms.
