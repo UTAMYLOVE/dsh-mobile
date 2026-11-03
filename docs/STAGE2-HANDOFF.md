@@ -1,17 +1,16 @@
 # Stage 2 (0.3.0) handoff — read this first in a new session
 
 ## Progress (update this list as work lands)
-- DONE: bug A, the dsh process-tree stop and restart status. Merged into main as 1cba479. 1,060+ unit tests pass. It has not yet been run through CI e2e; that happens with the batch.
-- NEXT, in this order:
-  - J: automatic permission review
-  - B: thinking strength and reviewer rounds
-  - C: stats
-  - I.1: table clipping
-  - G/H: war room with spirit agents and detailed status
-  - D: bookshelf
-  - F: the rest
-  - then batch 2
-- Requirements now run A–J; J is automatic permission review.
+- DONE (all on claude/dsh-mobile-cloud-handoff-vfhvdh):
+  - A restart bug (1cba479), J auto review (5e03cc5), B thinking strength + reviewer rounds (f8c6096), I.1 tables + price (f65d7f1)
+  - C stats: per-reply line, context bar, conversation totals, overview per-model stats (4bae534)
+  - E/G/H war room: spirits on LIVE FLOW, agent cards with detailed status, log, history of finished agents; overview war strip; chat activity line + data panel (f3085ac)
+  - D bookshelf: books = conversations, setting cards, auto chapters, reader, 加入書架 (1537dc9)
+  - F + I.2/I.3: share any workspace file, plain-words limit/sandbox errors, phone note for the agent, team default 16 when phantom off, small-screen modal (af7f584)
+  - Batch 2: app skills in $DSH_HOME/skills (novel, daily brief, bookkeeping, phone, pages), auto Flash/Pro routing, remote MCP servers (a5e8890). Schedules and long-term memory were already in dsh / our memory plugin.
+  - e2e t25–t28 added; t19 switches to 清單模式 first.
+- NEXT: CI green on the branch head, then give the owner the tag command for v0.3.0+5.
+- Not done / later: native dsh without proot (research); workflow sandbox under proot (needs dsh support); MCP with secrets (would break the keys rule).
 
 ## State on 2026-11-04 03:05 (Taipei)
 - 0.2.0 is released: v0.2.0+4 at commit 0d06ebf. CI is green and it is published to UTAMYLOVE/dsh-mobile-releases.

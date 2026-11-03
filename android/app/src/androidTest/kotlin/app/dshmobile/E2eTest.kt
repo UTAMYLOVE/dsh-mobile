@@ -444,6 +444,8 @@ class E2eTest {
         ui.newConversation()
         ui.send(FakeModel.SUB)
         ui.tap(Tags.TAB + ShellTab.AGENTS.name)
+        // The war room is the default; the plain list (TalkBack, small screens) carries the row tags this test drives.
+        ui.tap(Tags.WAR_LIST_TOGGLE)
         var child = ""
         ui.await("a running agent row labelled E2E child", 180_000, { agentsState(child) }) {
             val row = ui.nodes(hasTagPrefix(Tags.AGENT_ROW)).firstOrNull { n -> n.texts().any { it.contains("E2E child") } }
@@ -627,6 +629,62 @@ class E2eTest {
         ui.nodes(hasTestTag(Tags.ASSISTANT_BUBBLE)).flatMap { it.texts() }
 
     /** Waits until a finished assistant bubble contains [text]. */
+    /** Stage 2 §C: a finished reply gets its stats line, the header its context/total line, and 數據 opens the data panel. */
+    @Test fun t25_aReplyShowsItsStatsAndTheDataPanelOpens() = shell {
+        val id = ui.newConversation()
+        ui.send(FakeModel.HELLO)
+        awaitBubble("reply")
+        ui.await("the reply's stats line", 60_000, { chatState(id) }) { ui.textsOf(Tags.REPLY_STATS).any { it.contains("出 ") } }
+        ui.await("the conversation's totals", 60_000, { chatState(id) }) { ui.textsOf(Tags.CHAT_STATS).any { it.contains("tok") } }
+        ui.tap(Tags.CHAT_DATA)
+        ui.awaitTag(Tags.CHAT_DATA_PANEL, 30_000)
+        ui.tap(Tags.CHAT_DATA)
+        ui.awaitNoTag(Tags.CHAT_DATA_PANEL, 30_000)
+    }
+
+    /** Stage 2 §E/H: the war room shows the LIVE FLOW and a card for the subagent; tapping a card opens its detailed status. */
+    @Test fun t26_theWarRoomShowsTheSpiritsAndAgentCards() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.SUB)
+        ui.tap(Tags.TAB + ShellTab.AGENTS.name)
+        if (!ui.has(Tags.WAR_FLOW)) ui.tap(Tags.WAR_LIST_TOGGLE) // a list mode left on by an earlier test
+        ui.awaitTag(Tags.WAR_FLOW, 60_000)
+        ui.awaitTag(Tags.WAR_TILES, 60_000)
+        var card = ""
+        ui.await("a war-room card for E2E child", 180_000) {
+            card = ui.nodes(hasTagPrefix(Tags.WAR_CARD)).firstOrNull { n -> n.texts().any { it.contains("E2E child") } }?.tag().orEmpty()
+            card.isNotEmpty()
+        }
+        val childId = card.removePrefix(Tags.WAR_CARD)
+        ui.tap(card)
+        ui.awaitTag(Tags.WAR_DETAIL + childId, 30_000)
+    }
+
+    /** Stage 2 §D: a new book opens its own conversation with the opening; its long reply becomes a chapter that reads. */
+    @Test fun t27_aNewBookWritesItsFirstChapterAndItReads() = shell {
+        val before = FakeModel.instance.seen.size
+        ui.tap(Tags.TAB + ShellTab.LIBRARY.name)
+        ui.tap(Tags.LIB_NEW)
+        ui.type(Tags.LIB_TITLE, FakeModel.LONG)
+        ui.tap(Tags.LIB_CREATE)
+        ui.await("the book's conversation to reach the model", 120_000) {
+            FakeModel.instance.since(before).any { it.kind == FakeModel.Kind.LONG }
+        }
+        ui.awaitTag(Tags.LIB_BOOK_PAGE, 60_000)
+        ui.tap(Tags.LIB_READ, 180_000)
+        ui.awaitTag(Tags.LIB_READER, 30_000)
+        ui.await("the chapter text") { ui.textsOf(Tags.LIB_TEXT).any { it.length > 100 } }
+        assertTrue("the book is stored in the workspace", app.libraryStore.state.value.books.any { it.title == FakeModel.LONG })
+    }
+
+    /** Stage 2 batch 2: the app's skills are in dsh's skill root after a start. */
+    @Test fun t28_theAppSkillsAreInstalled() = shell {
+        for (name in listOf("dshm-novel", "dshm-daily-brief", "dshm-bookkeeping", "dshm-phone", "dshm-pages")) {
+            val f = java.io.File(app.appPaths.dshHome, "skills/$name/SKILL.md")
+            assertTrue("$name is installed", f.isFile && f.readText().startsWith("---\nname: $name"))
+        }
+    }
+
     private fun awaitBubble(text: String, timeoutMs: Long = 120_000) =
         ui.await("an answer containing '$text'", timeoutMs) { bubbleTexts().any { it.contains(text) } }
 

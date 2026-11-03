@@ -246,10 +246,14 @@ private fun ConversationPage(
     val usage by usageFlow.collectAsState(SessionUsage())
     val statsLine = remember(usage, conversation.context) { conversationStatsLine(usage, conversation.context) }
     LaunchedEffect(conversation.items) { session.warRoom.observeConversation(conversation) }
-    val treeState by session.tree.state.collectAsState()
-    val team = remember(treeState, conversation) {
-        app.dshmobile.agents.WarRoomBuilder.build(treeState, id, conversation, emptyList(), System.currentTimeMillis(), null)
+    // The team (lead + children) as a flow that only emits real changes: the tree ticks while subagents work (timing), and a
+    // streaming chat must not recompose for that. Elapsed time is left out here (the war room shows it).
+    val teamFlow = remember(session, id) {
+        kotlinx.coroutines.flow.combine(session.tree.state, store.state) { t, c ->
+            app.dshmobile.agents.WarRoomBuilder.build(t, id, c, emptyList(), 0, null).map { it.copy(activeMs = null) }
+        }.distinctUntilChanged()
     }
+    val team by teamFlow.collectAsState(emptyList())
     val lead = team.firstOrNull()
     val activity = when {
         pending.any { it.queued } -> "排隊中：${pending.count { it.queued }} 則等上一輪結束"

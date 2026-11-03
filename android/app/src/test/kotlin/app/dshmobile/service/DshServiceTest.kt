@@ -184,14 +184,19 @@ class DshServiceTest {
 
     // --- Task 16: work in the background (spec §5.11) ---
 
-    private fun startWithFakeRemote(remote: FakeWorkRemote, script: (Int) -> String = { """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 60""" }):
+    private fun startWithFakeRemote(
+        remote: FakeWorkRemote,
+        // A dsh that crashes at once may never get as far as the work tracker; the crash test waits for the give-up instead.
+        awaitTracker: Boolean = true,
+        script: (Int) -> String = { """echo "dsh web: http://127.0.0.1:45678/?token=abc"; exec sleep 60""" },
+    ):
         Triple<DshController, org.robolectric.android.controller.ServiceController<DshService>, DshService> {
         shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val c = installFakeController(script)
         app.workRemoteFactory = { _, _ -> remote }
         val sc = Robolectric.buildService(DshService::class.java)
         val service = sc.create().startCommand(0, 0).get()
-        waitUntil { service.tracker != null }
+        if (awaitTracker) waitUntil { service.tracker != null }
         return Triple(c, sc, service)
     }
 
@@ -356,7 +361,7 @@ class DshServiceTest {
     @Test fun aCrashWhileWorkIsHeldStillFollowsTheCrashPolicy() {
         // Work is in flight the whole time (the fake always lists one running session), yet three quick crashes still give up.
         val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "寫小說")))
-        val (c, sc, service) = startWithFakeRemote(remote) { "$line exit 1" }
+        val (c, sc, service) = startWithFakeRemote(remote, awaitTracker = false) { "$line exit 1" }
 
         waitUntil(60_000) { app.serviceGaveUp.value }
         waitUntil { shadowOf(service).isStoppedBySelf }
