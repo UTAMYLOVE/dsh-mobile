@@ -148,9 +148,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // DshVersions is built on first use (a rollback), not at every launch.
         ops = MainOps(app.controller, { VerifiedUpdatePolicy.previous(app.dshVersions.previous()) }, { app.dshVersions.rollback() }, app.errorLog)
-        // The view model restores the shell (tab, conversation, list, draft) after a process death, or opens the conversation that
-        // was open last time (saved in onStop) on a fresh start; a deep link (below) replaces it.
-        vm.nav
+        // The view model ([vm], made on first use) restores the shell (tab, conversation, list, draft) after a process death, or
+        // opens the conversation that was open last time (saved in onStop) on a fresh start; a deep link (below) replaces it.
         reducedMotion = systemReducedMotion()
         setContent {
             // Live: the user's level held down by the jank governor, and the system's animation setting.
