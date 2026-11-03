@@ -158,3 +158,5 @@ T13: review = spec ✅, quality Approved (sonnet), 0 Critical/Important
 T13: complete (lane-t13 0a657d9..d04e01c, review clean) — merged (code tree identical to d04e01c: 900 unit + both assembles green there)
 T13: minor (deferred): clearer message when current() throws during update; tapping the selected effect cell resets the governor cap (add no-op guard); OverviewSource IO context untested; lead-model radios show raw ids; no 412 dp settings screenshot (T15)
 T8: fix round 1/5 implementer DONE (a14fff7..093b21c incl. merges of main a5ccff2 and 25e017f; 952 unit, assembles green); re-review dispatched (sonnet)
+- Ruling: T9 starts from lane-t8 HEAD 093b21c (wt-t7, lane-t9) while T8's scoped re-review runs — Why: T9 builds on T8's composer and the re-review is small; waiting costs ~10 min of idle — Cost if wrong: if T8 needs a round 2, lane-t9 merges lane-t8 again.
+T9 dispatched (sonnet, wt-t7 lane-t9 from 093b21c); fileUploads/upload shape to be confirmed against the installed dsh packages (scratchpad/dsh-scratch/node_modules, read-only): remote fallback takes (agentId, {data: base64, name?}) → {receiptId, file}
