@@ -1238,3 +1238,50 @@ class PerfGateTest {
 **第四階段：dsh 提議分頁。** App 的霧城零件庫（大小圓環、長條、進度條、格子、清單、數字讀數、雷達、文字卡）＋宣告式 JSON 分頁格式；新 dsh 插件工具 `dshm_page_propose`／`dshm_page_update`（不能帶程式碼）；玻璃提案卡（縮小預覽、加上去／不要／改一下，拒絕過的不再提）；已核准分頁的資料更新直接生效；零件可綁 App 即時數值；需要定期更新的提案要寫明頻率與估計費用、同意後由心跳執行；固定頁不受影響。這一階段會改 `plugins/`（順便處理已不顯示的 `@dshm/ui` 網頁主題）。
 
 **第五階段：dsh 進階功能頁。** 插件（`pluginManager/*`、`pluginMarket/*`）、MCP、技能（`skills/list`）、排程任務（`schedule/*`）、斜線指令（`commands/list|execute`）、權限與代理人預設（`permissionPresets/catalog`、`agentPresets/*`）的原生管理畫面，沿用 `DshRemote` 與霧城零件；每頁先用協定實測確認形狀再做，並把新用到的 dsh 版本行為補進驗證清單流程。
+
+---
+
+## Task 16（追加，2026-11-03）：背景把工作做完再停
+
+依規格 §5.11。宇哥：「做完再停就好」。
+
+**Files:**
+- Create: `service/WorkTracker.kt`
+- Modify: `service/DshService.kt`（holder `"work"`、通知內容與「停止」動作、`onTaskRemoved` 不停止服務）、`service/DshController.kt`（若需要）、`notify/Notifier.kt`（「完成」通知）、`DshMobileApp.kt`（接線）
+- Test: `test/.../service/WorkTrackerTest.kt`、`test/.../service/DshServiceTest.kt`（新增案例）、`test/.../notify/NotifierTest.kt`（新增案例）
+
+**Interfaces:**
+- Consumes: Task 2 `DshRemote.hostEvents: Flow<HostEvent>`（`SessionStatus(sessionId, running)`、`SessionAdded`、`SessionRemoved`）、`DshRemote.muxState`；Task 1 `listSessions()`（重連時以 `running == true` 重建基準）、`cancel(sessionId)`、`interruptSubagent(child, parent)`；既有 `DshController.retain/release/stopIfUnretained`、`Notifier`。
+- Produces:
+  ```kotlin
+  class WorkTracker(remote: WorkRemote, scope: CoroutineScope) {
+      val busy: StateFlow<Boolean>                 // 任何 session（含子代理人）running
+      val running: StateFlow<List<RunningWork>>   // sessionId、parentId、title?
+      suspend fun stopAll()                        // 對每個 top-level cancel、每個子代理 interruptByParent
+  }
+  data class RunningWork(val sessionId: String, val parentId: String?, val title: String?)
+  ```
+  `busy` 由 false→true：`controller.retain("work")`、服務通知改為「DSH 正在工作…」（標題＝第一個進行中對話，其餘以「等 N 件」）、加「停止」動作（PendingIntent 到 DshService，extra `action=stop_work`）。true→false：`release("work")`；若 App 不在前景，發「完成」通知（`Notifier.showWorkDone(sessionId, title)`，點了以 `sessionId` 開 App）；之後沿用既有 10 分鐘寬限與 `stopIfUnretained`。
+  `DshService.onTaskRemoved`：有 `"work"` holder 時不得停止服務或 dsh。
+
+- [ ] **Step 1: 寫失敗的測試**
+```kotlin
+class WorkTrackerTest {
+    @Test fun aRunningStatusMakesItBusyAndRetainsWork()
+    @Test fun allSessionsIdleReleasesWorkOnce()                 // 多個 session 交錯結束只 release 一次
+    @Test fun aSubagentRunningKeepsItBusyAfterTheLeadIsIdle()
+    @Test fun reconnectRebuildsBusyFromTheListBaseline()
+    @Test fun stopAllCancelsTopLevelAndInterruptsChildren()
+}
+// DshServiceTest
+@Test fun swipingTheTaskAwayWhileWorkingKeepsTheServiceAndDsh()   // onTaskRemoved + "work" holder → 不 stopSelf、不 stop dsh
+@Test fun swipingTheTaskAwayWhenIdleBehavesAsBefore()
+@Test fun theStopActionStopsAllWork()
+@Test fun theWorkingNotificationNamesTheConversationAndOffersStop()
+// NotifierTest
+@Test fun workDoneOpensThatConversation()
+```
+- [ ] **Step 2: 跑測試確認失敗** → FAIL
+- [ ] **Step 3: 實作**（通知不得含 token、URL；標題截 40 字）
+- [ ] **Step 4: 跑測試確認通過**（focused，再全套一次）→ PASS
+- [ ] **Step 5: Commit** `feat: dsh finishes its work in the background, then stops`

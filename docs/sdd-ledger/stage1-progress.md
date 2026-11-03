@@ -60,3 +60,4 @@ T7: fix round 1 implementer DONE (ed82360): conflated parse publishes while stre
 T7: fix round 1/5 (4 addressed, 0 open; lane-t7 a6e508b..ed82360)
 T7: complete (lane-t7 d143f12..ed82360, review clean after 1 fix round) — merge into the branch batched with wave A to save CI minutes
 T7: minor (deferred): capped ordered list numbers the remainder item ("501. …還有 N 項"); short non-streaming text parsed twice
+- Ruling: new Task 16 (background: finish work, then stop) added to the plan from the boss's decision "做完再停就好" (spec §5.11); runs after T2 is merged, on lane-t7's worktree (files disjoint from the UI tasks) — Cost if wrong: none beyond the task.
