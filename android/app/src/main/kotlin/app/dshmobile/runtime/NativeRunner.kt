@@ -28,7 +28,7 @@ class NativeRunner(
     /** The libraries under their own sonames (symlinks to nativeLibraryDir), for LD_LIBRARY_PATH. */
     private val libLinks = File(baseDir, "lib")
     private val shim = File(baseDir, "shim.mjs")
-    private val cert = File(baseDir, "cert.pem")
+    private val cert = File(baseDir, "ca-bundle.crt")
 
     /** The runtime's manifest (program name to its libdshn file), or null when this APK has no native runtime. */
     val manifest: Manifest? by lazy { assets(MANIFEST)?.use { Manifest.parse(it.readBytes().toString(Charsets.UTF_8)) } }
@@ -48,7 +48,7 @@ class NativeRunner(
         for ((soname, lib) in m.libs) link(File(libLinks, soname), File(nativeLibDir, lib))
         copyAsset("dshn/shim.mjs", shim)
         copyAsset("dshn/require-builtin.cjs", File(baseDir, "require-builtin.cjs"))
-        copyAsset("native/cert.pem", cert)
+        copyAsset("native/ca-bundle.crt", cert)
     }
 
     /** nativeLibraryDir changes when the app is updated: a link to the old directory is replaced. */

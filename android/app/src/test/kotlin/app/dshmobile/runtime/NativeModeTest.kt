@@ -60,7 +60,7 @@ class NativeModeTest {
         val libDir = tmp.newFolder("lib")
         for (f in listOf("libdshn_bin_node.so", "libdshn_bin_bash.so", "libdshn_flock.so", "libdshn_libz_so_1.so")) File(libDir, f).writeText("elf")
         val manifest = """{"bins":{"node":"libdshn_bin_node.so","bash":"libdshn_bin_bash.so"},"libs":{"libz.so.1":"libdshn_libz_so_1.so"},"flock":"libdshn_flock.so"}"""
-        val assets = mapOf("native/manifest.json" to manifest, "dshn/shim.mjs" to "// shim", "dshn/require-builtin.cjs" to "//", "native/cert.pem" to "CERT")
+        val assets = mapOf("native/manifest.json" to manifest, "dshn/shim.mjs" to "// shim", "dshn/require-builtin.cjs" to "//", "native/ca-bundle.crt" to "CERT")
         val base = File(tmp.root, "native")
         val runner = NativeRunner(libDir, base, File(tmp.root, "home"), File(tmp.root, "tmp"), assets = { assets[it]?.byteInputStream() }, niceBinary = null)
         assertTrue(runner.available)

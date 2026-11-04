@@ -95,7 +95,7 @@ class NativeRuntimeTest {
     }
 
     @Test fun nodeSpeaksTlsWithTheBundledCertificates() {
-        val cert = File(home, "cert.pem").apply { app.assets.open("native/cert.pem").use { input -> outputStream().use { input.copyTo(it) } } }
+        val cert = File(home, "ca-bundle.crt").apply { app.assets.open("native/ca-bundle.crt").use { input -> outputStream().use { input.copyTo(it) } } }
         val (code, out) = run(
             lib("node"), "-e", "const tls=require('tls');tls.createSecureContext();console.log('tls-ok', require('crypto').getHashes().includes('sha256'))",
             env = mapOf("SSL_CERT_FILE" to cert.path),

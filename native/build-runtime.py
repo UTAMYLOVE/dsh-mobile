@@ -5,7 +5,7 @@ Usage: build-runtime.py ABI USR FLOCK OUT
   ABI    arm64-v8a | x86_64
   USR    the Termux prefix unpacked by fetch-termux.py (OUT_OF_FETCH/usr)
   FLOCK  dsh's file-lock addon built for Android (build-flock.sh)
-  OUT    gets jniLibs/<ABI>/libdshn_*.so and assets/native/{manifest.json,cert.pem}
+  OUT    gets jniLibs/<ABI>/libdshn_*.so and assets/native/{manifest.json,ca-bundle.crt}
 
 Android only runs code an app ships in its native library directory (W^X: files under the app's data are never executable),
 and only files named lib*.so are installed there. So every executable and every shared library it needs becomes one
@@ -85,7 +85,7 @@ def main() -> None:
         bins[alias] = bins[target]
     place(flock, "libdshn_flock.so")
 
-    shutil.copyfile(os.path.join(usr, "etc", "tls", "cert.pem"), os.path.join(assets, "cert.pem"))
+    shutil.copyfile(os.path.join(usr, "etc", "tls", "cert.pem"), os.path.join(assets, "ca-bundle.crt"))
     versions = {}
     packages_txt = os.path.join(os.path.dirname(usr), "packages.txt")
     if os.path.exists(packages_txt):
