@@ -24,7 +24,7 @@ http.createServer(async (req, res) => {
   const sys = typeof j.system === 'string' ? j.system : (j.system || []).map(s => s.text).join('\n')
   const toolNames = (j.tools || []).map(t => t.name)
   fs.appendFileSync(LOG, JSON.stringify({ id, url: req.url, model: j.model, nMsgs: msgs.length, tools: toolNames, sysHead: sys.slice(0, 200), lastText: lastText.slice(-600) }) + '\n')
-  if (id === 1 || process.env.DUMP_TOOLS) fs.writeFileSync(LOG + '.tools.json', JSON.stringify(j.tools, null, 1))
+  if ((j.tools || []).length && !fs.existsSync(LOG + '.tools.json') || process.env.DUMP_TOOLS) fs.writeFileSync(LOG + '.tools.json', JSON.stringify(j.tools || [], null, 1))
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
   const send = (ev, data) => res.write(`event: ${ev}\ndata: ${JSON.stringify({ type: ev, ...data })}\n\n`)
   send('message_start', { message: { id: 'msg_' + id, type: 'message', role: 'assistant', model: j.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1000 + id, output_tokens: 1, cache_read_input_tokens: 500 } } })
@@ -58,3 +58,6 @@ http.createServer(async (req, res) => {
   send('message_stop', {})
   res.end()
 }).listen(port, '0.0.0.0', () => console.log('fake llm on', port))
+// One bad request must never take the fake model down for the rest of the run.
+process.on('uncaughtException', (e) => fs.appendFileSync(LOG + '.conn', JSON.stringify({ t: Date.now(), crash: String(e && e.stack || e).slice(0, 400) }) + '\n'))
+process.on('unhandledRejection', (e) => fs.appendFileSync(LOG + '.conn', JSON.stringify({ t: Date.now(), crash: String(e && e.stack || e).slice(0, 400) }) + '\n'))
