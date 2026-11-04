@@ -52,7 +52,7 @@ jobs:
           for d in glibc musl; do cp flock.node "$A/node-addon-system-linux-x64/bin/$d/system.node"; done
           RG="$(cd "$S/dsh" && node -p "require('@vscode/ripgrep').rgPath")"
           echo "ripgrep at $RG"; cp "$S/usr/bin/rg" "$RG"
-          cp spike/native/device-run.sh spike/native/shim.mjs spike/native/patch.yml "$S/"
+          cp spike/native/device-run.sh spike/native/shim.mjs spike/native/require-builtin.cjs spike/native/patch.yml "$S/"
           du -sh "$S" "$S/usr" "$S/dsh"
       - name: Start the fake model
         run: |

@@ -13,18 +13,18 @@ NODE="$P/bin/node --import file://$N/shim.mjs --expose-internals"
 BIN=$N/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js
 case "$1" in
   checks)
-    r() { echo "### $1"; shift; "$@" 2>&1 | head -20; echo "exit=$?"; }
-    r "uname" uname -a
-    r "/bin/sh exists" ls -l /bin/sh /system/bin/sh
-    r "/bin/ps" ls -l /bin/ps
-    r "ps -axo pid=,ppid=,lstart=" /bin/ps -axo pid=,ppid=,lstart=
-    r "node --version" $P/bin/node --version
-    r "node platform" $P/bin/node -p "process.platform+' '+process.arch+' '+process.versions.node"
-    r "node https" $P/bin/node -e "fetch('https://registry.npmjs.org/').then(r=>console.log('https',r.status)).catch(e=>console.log('https-fail',e.cause?.code||e.message))"
-    r "bash" $P/bin/bash -c 'echo bash-ok $BASH_VERSION'
-    r "rg" $P/bin/rg --version
-    r "flock addon" $NODE -e "import('@deepseek-ai/node-addon-system/flock').then(async m=>{const fs=await import('node:fs');const fd=fs.openSync('$TMPDIR/l','w');await m.tryLockExclusive(fd);console.log('flock-ok')}).catch(e=>console.log('flock-fail',e.message))" 
-    r "dsh --version" $NODE $BIN --version
+    chk() { echo "### $1"; shift; "$@" 2>&1 | head -20; echo "exit=$?"; }
+    chk "uname" uname -a
+    chk "/bin/sh exists" ls -l /bin/sh /system/bin/sh
+    chk "/bin/ps" ls -l /bin/ps
+    chk "ps -axo pid=,ppid=,lstart=" /bin/ps -axo pid=,ppid=,lstart=
+    chk "node --version" $P/bin/node --version
+    chk "node platform" $P/bin/node -p "process.platform+' '+process.arch+' '+process.versions.node"
+    chk "node https" $P/bin/node -e "fetch('https://registry.npmjs.org/').then(r=>console.log('https',r.status)).catch(e=>console.log('https-fail',e.cause?.code||e.message))"
+    chk "bash" $P/bin/bash -c 'echo bash-ok $BASH_VERSION'
+    chk "rg" $P/bin/rg --version
+    chk "flock addon" $NODE -e "import('@deepseek-ai/node-addon-system/flock').then(async m=>{const fs=await import('node:fs');const fd=fs.openSync('$TMPDIR/l','w');await m.tryLockExclusive(fd);console.log('flock-ok')}).catch(e=>console.log('flock-fail',e.message))" 
+    chk "dsh --version" $NODE $BIN --version
     ;;
   start)
     cd $N/ws
