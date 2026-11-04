@@ -25,6 +25,7 @@ case "$1" in
     chk "rg" $P/bin/rg --version
     cd $N/dsh; chk "flock addon" $NODE -e "import('@deepseek-ai/node-addon-system/flock').then(async m=>{const fs=await import('node:fs');const fd=fs.openSync('$TMPDIR/l','w');await m.tryLockExclusive(fd);console.log('flock-ok')}).catch(e=>console.log('flock-fail',e.message))" 
     chk "hard link" ln $TMPDIR/l $TMPDIR/l2; rm -f $TMPDIR/l2
+    chk "landlock probe" $N/dsh/node_modules/@deepseek-ai/node-addon-system-linux-x64/bin/landlock-run --probe
     chk "dsh --version" $NODE $BIN --version
     ;;
   start)

@@ -5,6 +5,7 @@ const LOG = process.argv[3] || 'fake-llm.log'
 const port = Number(process.argv[2] || 3999)
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 let n = 0
+const retriedEscalation = (msgs) => msgs.some(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use' && b.input && b.input.sandbox_permissions))
 function textOf(content) {
   if (typeof content === 'string') return content
   return (content || []).map(b => b.type === 'text' ? b.text : b.type === 'tool_result' ? '[tool_result]' + JSON.stringify(b.content).slice(0, 300) : '').join('\n')
@@ -37,6 +38,14 @@ http.createServer(async (req, res) => {
   const scenario = (process.env.SCENARIO_FILE && fs.existsSync(process.env.SCENARIO_FILE)) ? JSON.parse(fs.readFileSync(process.env.SCENARIO_FILE, 'utf8')) : {}
   if (!toolNames.length || /title/i.test(sys.slice(0, 400)) && !toolNames.length) {
     await text('Fake Session Title')
+  } else if (isToolResult && /no sandbox backend is usable|escalation available/.test(JSON.stringify(last.content)) && !retriedEscalation(msgs)) {
+    // What a real model does after a sandbox refusal: retry the exact call once with sandbox_permissions + justification,
+    // which makes dsh ask the user (the client approves allowed-once).
+    const prev = [...msgs].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
+    const call = prev.content.filter(b => b.type === 'tool_use').pop()
+    await thinking('The sandbox is unavailable here so I will ask for approval')
+    await tool(call.name, { ...call.input, sandbox_permissions: 'danger-full-access', justification: 'This phone has no sandbox backend; run this one command with your approval.' })
+    stop = 'tool_use'
   } else if (isToolResult) {
     await text('Tool finished. All good: ' + lastText.slice(0, 80).replace(/\s+/g, ' '))
   } else {
