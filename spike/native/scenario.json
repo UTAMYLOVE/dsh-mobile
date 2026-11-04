@@ -1,0 +1,7 @@
+{"rules": [
+  {"match": "CHILD_TASK", "text": "Child agent finished the research and reports back now", "delay": 60},
+  {"match": "DO_BASH", "tool": "bash", "input": {"description": "Print a greeting", "command": "echo hi-from-bash $((6*7))"}},
+  {"match": "DO_WRITE", "tool": "write", "input": {"file_path": "notes/native.md", "content": "written-on-android"}},
+  {"match": "DO_GREP", "tool": "grep", "input": {"pattern": "written-on-android"}},
+  {"match": "DO_SUB", "tool": "subagent", "input": {"description": "Child research task", "prompt": "CHILD_TASK research the thing"}}
+]}

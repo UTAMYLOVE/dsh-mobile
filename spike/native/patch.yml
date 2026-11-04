@@ -1,0 +1,12 @@
+- id: session-telemetry-otel
+  config:
+    mode: DISABLED
+- id: session-log-deepseek
+  config:
+    enabled: false
+- id: plugin-package-inventory-deepseek
+  config:
+    enabled: false
+- id: terminal-bash
+  config:
+    shellPath: /data/local/tmp/n/usr/bin/bash

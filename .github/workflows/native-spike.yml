@@ -1,0 +1,99 @@
+name: Native dsh spike
+
+# Feasibility test (owner, 2026-11-04): run the official dsh on Termux's Android-native Node 24 on an Android emulator, with no
+# proot and no Debian. Separate from CI: it never gates a release. Results go to the job summary.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "spike/native/**"
+      - ".github/workflows/native-spike.yml"
+
+concurrency:
+  group: native-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker image prune --all --force > /dev/null || true
+          df -h / | tail -1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: android-actions/setup-android@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Stage Android Node, official dsh and the Android file-lock addon
+        run: |
+          set -euo pipefail
+          source rootfs/versions.env
+          S=$GITHUB_WORKSPACE/stage/n
+          mkdir -p "$S"
+          python3 spike/native/fetch-termux.py x86_64 "$S" nodejs-lts bash ripgrep ca-certificates
+          cat "$S/packages.txt"
+          npm install --prefix "$S/dsh" "@deepseek-ai/dsh@${DSH_PINNED_VERSION}" --no-audit --no-fund --loglevel=error
+          GOT="$(node -p "require('$S/dsh/package-lock.json').packages['node_modules/@deepseek-ai/dsh'].integrity")"
+          [ "$GOT" = "$DSH_INTEGRITY" ] || { echo "dsh integrity mismatch: $GOT"; exit 1; }
+          rm -rf "$S"/dsh/node_modules/sherpa-onnx* "$S/dsh/node_modules/@img" "$S"/dsh/node_modules/node-pty/prebuilds/win32* "$S"/dsh/node_modules/node-pty/prebuilds/darwin*
+          A="$S/dsh/node_modules/@deepseek-ai"
+          echo "NDK: ${ANDROID_NDK_LATEST_HOME:-none}"
+          bash spike/native/build-flock.sh x86_64 "$S/usr/include/node" "$A/node-addon-system/src/flock.c" flock.node
+          for d in glibc musl; do cp flock.node "$A/node-addon-system-linux-x64/bin/$d/system.node"; done
+          RG="$(cd "$S/dsh" && node -p "require('@vscode/ripgrep').rgPath")"
+          echo "ripgrep at $RG"; cp "$S/usr/bin/rg" "$RG"
+          cp spike/native/device-run.sh spike/native/shim.mjs spike/native/patch.yml "$S/"
+          du -sh "$S" "$S/usr" "$S/dsh"
+      - name: Start the fake model
+        run: |
+          SCENARIO_FILE=$GITHUB_WORKSPACE/spike/native/scenario.json nohup node spike/native/fake-llm.mjs 3999 fake-llm.log > fake.out 2>&1 &
+          sleep 2; cat fake.out
+      - name: Run on the emulator (no proot)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disk-size: 6G
+          ram-size: 3072M
+          cores: 2
+          emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash spike/native/emu.sh "$GITHUB_WORKSPACE/stage/n"
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "## Native dsh on Android (no proot)"; echo
+            echo '### Device checks'; echo '```'; cat checks.txt 2>/dev/null | grep -vE "token=" | head -120; echo '```'
+            echo '### Capabilities'
+            python3 - <<'PY'
+          import json, os
+          for f in ('results-first.json', 'results-second.json'):
+              if os.path.exists(f):
+                  for r in json.load(open(f)):
+                      print(f"- {'PASS' if r['pass'] else 'FAIL'} {r['name']} {r['note'][:160]}")
+          PY
+            echo '### dsh log tail'; echo '```'; cat dsh-final.txt 2>/dev/null | tail -40; echo '```'
+            echo '### fake model requests'; echo '```'; tail -12 fake-llm.log 2>/dev/null | cut -c1-200; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-spike
+          path: |
+            checks.txt
+            dsh-final.txt
+            results-*.json
+            fake-llm.log
+          retention-days: 7

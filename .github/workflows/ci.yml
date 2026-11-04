@@ -4,6 +4,8 @@ on:
   push:
     paths-ignore:
       - "docs/**"
+      - "spike/**"
+      - ".github/workflows/native-spike.yml"
   pull_request:
   # A manual run can bisect a renderer crash on the emulator: the shell then draws only its plain pink ground.
   workflow_dispatch:
