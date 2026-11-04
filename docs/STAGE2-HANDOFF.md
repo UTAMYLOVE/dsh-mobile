@@ -81,3 +81,14 @@
 - Commit trailers:
   - Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
   - Claude-Session: https://claude.ai/code/session_01TjBB5vvKdwZye97QPVXiMw
+
+## 0.3.2 and the native spike (2026-11-04)
+- 0.3.2+7 released (1968f2e): data panel no longer freezes the chat; 複製 button + long-press copy on messages.
+- Native dsh spike (spike/native, workflow native-spike.yml, run 41819651266): official dsh 0.2.1-rc.5 on Termux's Android Node 24.22.2,
+  no proot, API 34 x86_64 emulator, adb shell user. ALL PASS: start, login, workspace, create, streamed reply, bash (after the
+  sandbox-escalation approval), write, grep (Termux ripgrep), subagent, restart keeps the session (NDK-built flock).
+  Shim (`node --import shim.mjs --expose-internals`, no dsh file changed): platform → linux; node-addon-require-builtin → a
+  require() stand-in; hard link (SELinux-denied) → COPYFILE_EXCL + fsync.
+  Facts: Landlock not enforced by the Android kernel and no bwrap → every command needs approval (same as the proot app today);
+  toybox `ps` rejects `-axo`; node-pty not built for Android yet (terminal); in the real app, executables must live in
+  nativeLibraryDir (W^X) — not yet tested, the spike ran as the shell user from /data/local/tmp.
