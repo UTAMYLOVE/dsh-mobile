@@ -688,6 +688,10 @@ class E2eTest {
             val f = java.io.File(app.appPaths.dshHome, "skills/$name/SKILL.md")
             assertTrue("$name is installed", f.isFile && f.readText().startsWith("---\nname: $name"))
         }
+        // The superpowers port (on by default), with its licence and its dsh tool mapping.
+        val sp = java.io.File(app.appPaths.dshHome, "skills/dshm-sp-using-superpowers")
+        assertTrue("superpowers is installed", java.io.File(sp, "SKILL.md").readText().startsWith("---\nname: dshm-sp-using-superpowers"))
+        assertTrue(java.io.File(sp, "references/dsh-tools.md").isFile && java.io.File(sp, "LICENSE-superpowers").isFile)
     }
 
     private fun awaitBubble(text: String, timeoutMs: Long = 120_000) =

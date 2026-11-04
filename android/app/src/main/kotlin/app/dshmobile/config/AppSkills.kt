@@ -80,10 +80,24 @@ object AppSkills {
     private fun skill(name: String, description: String, body: String): String =
         "---\nname: $name\ndescription: ${description.replace("\n", " ")}\n---\n\n" + body.trimIndent() + "\n"
 
-    /** Writes every app skill under [dshHome]`/skills` and removes `dshm-*` folders the app no longer ships. Never throws. */
-    fun install(dshHome: File) {
+    /**
+     * Writes every app skill under [dshHome]`/skills` and removes `dshm-*` folders the app no longer ships. [bundled] are whole
+     * skill folders from the APK (assets/dsh-skills: the superpowers port), relative path to bytes; they are written the same
+     * way, file by file, and a folder whose files changed is rewritten. Never throws.
+     */
+    fun install(dshHome: File, bundled: Map<String, Map<String, ByteArray>> = emptyMap()) {
         runCatching {
             val root = File(dshHome, "skills").apply { mkdirs() }
+            for ((name, files) in bundled) {
+                val dir = File(root, name)
+                val current = dir.walkTopDown().filter { it.isFile }.associate { it.relativeTo(dir).path to it }
+                val same = current.keys == files.keys && files.all { (rel, bytes) -> current.getValue(rel).readBytes().contentEquals(bytes) }
+                if (same) continue
+                val tmp = File(root, ".$name.tmp").apply { deleteRecursively() }
+                for ((rel, bytes) in files) File(tmp, rel).apply { parentFile?.mkdirs(); writeBytes(bytes); if (rel.startsWith("scripts/")) setExecutable(true) }
+                dir.deleteRecursively()
+                if (!tmp.renameTo(dir)) { tmp.copyRecursively(dir, overwrite = true); tmp.deleteRecursively() }
+            }
             for ((name, text) in all) {
                 val dir = File(root, name).apply { mkdirs() }
                 val file = File(dir, "SKILL.md")
@@ -93,7 +107,7 @@ object AppSkills {
                     if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
                 }
             }
-            root.listFiles()?.filter { it.isDirectory && it.name.startsWith(PREFIX) && it.name !in all }?.forEach { it.deleteRecursively() }
+            root.listFiles()?.filter { it.isDirectory && it.name.startsWith(PREFIX) && it.name !in all && it.name !in bundled }?.forEach { it.deleteRecursively() }
         }
     }
 }

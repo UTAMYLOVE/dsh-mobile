@@ -7,6 +7,7 @@ import android.net.ConnectivityManager
 import androidx.annotation.VisibleForTesting
 import androidx.work.Configuration
 import app.dshmobile.config.AgentConfigWriter
+import app.dshmobile.config.AppSkills
 import app.dshmobile.config.AgentPatchProvider
 import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.runtime.DshClient
@@ -193,7 +194,26 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     /** dsh's own home on the host (guest `/root/.dsh`, bound in from [AppPaths.dshHome]). */
-    val agentConfigWriter: AgentConfigWriter by lazy { AgentConfigWriter(appPaths.dshHome) }
+    val agentConfigWriter: AgentConfigWriter by lazy { AgentConfigWriter(appPaths.dshHome, bundledSkills = ::assetSkills) }
+
+    /**
+     * The whole-folder skills in assets/dsh-skills (the superpowers port, third_party/superpowers): skill name to its files
+     * (relative path to bytes), each with the upstream licence beside it.
+     */
+    private fun assetSkills(): Map<String, Map<String, ByteArray>> = runCatching {
+        val root = "dsh-skills"
+        val license = assets.open("$root/LICENSE-superpowers").use { it.readBytes() }
+        fun walk(dir: String, rel: String, out: MutableMap<String, ByteArray>) {
+            for (name in assets.list(dir).orEmpty()) {
+                val path = "$dir/$name"
+                val child = if (rel.isEmpty()) name else "$rel/$name"
+                if (assets.list(path).isNullOrEmpty()) out[child] = assets.open(path).use { it.readBytes() } else walk(path, child, out)
+            }
+        }
+        assets.list(root).orEmpty().filter { it.startsWith(AppSkills.PREFIX) }.associateWith { skill ->
+            linkedMapOf<String, ByteArray>().also { walk("$root/$skill", "", it); it["LICENSE-superpowers"] = license }
+        }
+    }.getOrElse { e -> errorLog.append("skills", "bundled skills unreadable: ${e.javaClass.simpleName}"); emptyMap() }
 
     /**
      * Test-only: the model upstreams the gateway forwards to (the emulator end-to-end test points them at an in-process fake

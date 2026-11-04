@@ -518,6 +518,11 @@ fun SettingsScreen(
                     Switch(checked = settings.autoRoute, onCheckedChange = { settings = settings.copy(autoRoute = it) }, enabled = !busy, modifier = Modifier.testTag("switch-auto-route"))
                 }
                 Text(stringResource(R.string.set_auto_route_note), style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.set_superpowers), Modifier.weight(1f))
+                    Switch(checked = settings.superpowers, onCheckedChange = { settings = settings.copy(superpowers = it) }, enabled = !busy, modifier = Modifier.testTag("switch-superpowers"))
+                }
+                Text(stringResource(R.string.set_superpowers_note), style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.OutlinedTextField(
                     settings.mcpServers, { settings = settings.copy(mcpServers = it) }, enabled = !busy,
                     label = { Text(stringResource(R.string.set_mcp)) }, minLines = 2,

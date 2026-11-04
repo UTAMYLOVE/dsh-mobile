@@ -19,7 +19,11 @@ import java.nio.file.StandardCopyOption
  * bundle entry in the web profile's `package.json` ([ensureAgentTeamsBundle]). [dshHome] is the host side of `$DSH_HOME`
  * (`AppPaths.dshHome`, bound to the guest's `/root/.dsh`). Row `config` values replace the whole row, so every row lists all the keys it needs.
  */
-class AgentConfigWriter(private val dshHome: File) {
+class AgentConfigWriter(
+    private val dshHome: File,
+    /** The APK's whole-folder skills (assets/dsh-skills), read when skills are installed; none in tests. */
+    private val bundledSkills: () -> Map<String, Map<String, ByteArray>> = { emptyMap() },
+) {
     private val packageJson get() = File(dshHome, "profiles/web/package.json")
 
     /**
@@ -61,7 +65,8 @@ class AgentConfigWriter(private val dshHome: File) {
     fun ensureAutoReviewBundle(enabled: Boolean): Boolean = ensureBundle(AUTO_REVIEW_BUNDLE, enabled)
 
     /** The app's skills in dsh's skill root (stage 2 batch 2). */
-    fun installSkills() = AppSkills.install(dshHome)
+    /** [superpowers] off leaves the superpowers port out (its folders are then removed like any skill the app stopped shipping). */
+    fun installSkills(superpowers: Boolean = true) = AppSkills.install(dshHome, if (superpowers) bundledSkills() else emptyMap())
 
     private fun ensureBundle(name: String, enabled: Boolean): Boolean {
         fun isIt(e: kotlinx.serialization.json.JsonElement) = e is JsonPrimitive && e.isString && e.content == name
@@ -129,7 +134,7 @@ class AgentPatchProvider(
         // dsh warns "entry not found" for an agent-team row whose bundle is not loaded: write the row only when the bundle is in place.
         val teamsActive = writer.ensureAgentTeamsBundle(settings.agentTeams)
         writer.ensureAutoReviewBundle(settings.autoReview)
-        writer.installSkills()
+        writer.installSkills(settings.superpowers)
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)
         val lay = layout()
         return DshPatch.render(gatewayBase, lay.pluginDir, section, includeAnthropic = hasClaudeKey, workspace = lay.workspace, shellPath = lay.shellPath)

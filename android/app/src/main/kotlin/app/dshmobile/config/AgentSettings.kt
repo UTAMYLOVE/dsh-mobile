@@ -19,6 +19,8 @@ data class AgentSettings(
     val autoRoute: Boolean = false,
     /** Remote MCP servers, one per line: `name https://…/mcp` (no headers: the app never hands dsh a secret). */
     val mcpServers: String = "",
+    /** The superpowers working methods (brainstorm, plan, test first, debug systematically) as dsh skills; on by default. */
+    val superpowers: Boolean = true,
 ) {
     init {
         require(maxConcurrent in MAX_CONCURRENT_RANGE) { "maxConcurrent $maxConcurrent not in $MAX_CONCURRENT_RANGE" }
