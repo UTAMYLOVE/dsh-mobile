@@ -23,7 +23,8 @@ case "$1" in
     chk "node https" $P/bin/node -e "fetch('https://registry.npmjs.org/').then(r=>console.log('https',r.status)).catch(e=>console.log('https-fail',e.cause?.code||e.message))"
     chk "bash" $P/bin/bash -c 'echo bash-ok $BASH_VERSION'
     chk "rg" $P/bin/rg --version
-    chk "flock addon" $NODE -e "import('@deepseek-ai/node-addon-system/flock').then(async m=>{const fs=await import('node:fs');const fd=fs.openSync('$TMPDIR/l','w');await m.tryLockExclusive(fd);console.log('flock-ok')}).catch(e=>console.log('flock-fail',e.message))" 
+    cd $N/dsh; chk "flock addon" $NODE -e "import('@deepseek-ai/node-addon-system/flock').then(async m=>{const fs=await import('node:fs');const fd=fs.openSync('$TMPDIR/l','w');await m.tryLockExclusive(fd);console.log('flock-ok')}).catch(e=>console.log('flock-fail',e.message))" 
+    chk "hard link" ln $TMPDIR/l $TMPDIR/l2; rm -f $TMPDIR/l2
     chk "dsh --version" $NODE $BIN --version
     ;;
   start)

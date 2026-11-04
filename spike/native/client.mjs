@@ -59,7 +59,7 @@ const ask = async (name, prompt, expect, ms = 60000) => {
     if (expect.test(text())) { ok(name, true); return }
     await sleep(300)
   }
-  ok(name, false, text().slice(-300))
+  ok(name, false, (t => t.length > 420 ? t.slice(0, 160) + ' … ' + t.slice(-260) : t)(text()))
 }
 await ask('模型回覆（串流）', 'hello there', /Hello from the fake model/)
 await ask('bash 工具', 'DO_BASH please', /hi-from-bash 42/)
