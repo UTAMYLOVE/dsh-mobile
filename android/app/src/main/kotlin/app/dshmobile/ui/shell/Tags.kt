@@ -49,6 +49,7 @@ object Tags {
     const val CHAT_DATA = "chat-data"
     const val CHAT_ACTIVITY = "chat-activity"
     const val CHAT_DATA_PANEL = "chat-data-panel"
+    const val CHAT_DATA_SCROLL = "chat-data-scroll"
     /** + [ShellTab.name]. */
     const val TAB = "tab-"
     const val COMPOSER_INPUT = "composer-input"

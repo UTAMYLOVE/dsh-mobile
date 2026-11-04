@@ -317,7 +317,7 @@ private fun LiveFlow(agents: List<AgentStatus>, decisions: List<Decision>, lead:
 }
 
 @Composable
-private fun MiniTile(label: String, value: String, note: String, border: Color, modifier: Modifier) {
+internal fun MiniTile(label: String, value: String, note: String, border: Color, modifier: Modifier) {
     Column(
         modifier.background(Color.White.copy(alpha = .7f), RoundedCornerShape(8.dp)).border(1.dp, border, RoundedCornerShape(8.dp)).padding(6.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp),

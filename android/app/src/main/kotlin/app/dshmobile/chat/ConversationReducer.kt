@@ -16,6 +16,9 @@ import kotlinx.serialization.json.longOrNull
 object ConversationReducer {
     const val WORKSPACE_ROOT = "/root/workspace/"
     private const val SUMMARY_MAX = 80
+    private val SUMMARY_KEYS = listOf(
+        "description", "command", "file_path", "path", "url", "query", "pattern", "subject", "title", "name", "question", "prompt", "message",
+    )
     private const val ERROR_MAX = 200
     private const val STOPPED = "已停止"
     private const val REJECTED = "已拒絕"
@@ -360,10 +363,18 @@ object ConversationReducer {
                 val queries = (args["queries"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
                 if (!queries.isNullOrEmpty()) return queries.joinToString(", ").take(SUMMARY_MAX)
             }
-            for (key in listOf("description", "command", "file_path", "path", "url", "query")) {
+            for (key in SUMMARY_KEYS) {
                 args.str(key)?.takeIf { it.isNotBlank() }?.let { return it.take(SUMMARY_MAX) }
             }
-            return args.toString().take(SUMMARY_MAX)
+            // A list argument (present's `files`, ask's `questions`…): its first item's readable field and how many there are.
+            for ((_, v) in args) {
+                val list = v as? JsonArray ?: continue
+                val first = list.firstOrNull() as? JsonObject ?: continue
+                val label = SUMMARY_KEYS.firstNotNullOfOrNull { k -> first.str(k)?.takeIf { it.isNotBlank() } } ?: continue
+                return (if (list.size > 1) "$label 等 ${list.size} 項" else label).take(SUMMARY_MAX)
+            }
+            // Never raw JSON on screen: the first short text value, else nothing.
+            return args.values.firstNotNullOfOrNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString && p.content.isNotBlank() }?.content }?.take(SUMMARY_MAX) ?: ""
         }
         return ((raw as? JsonPrimitive)?.takeIf { it.isString }?.content ?: "").take(SUMMARY_MAX)
     }

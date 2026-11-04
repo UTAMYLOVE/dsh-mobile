@@ -512,6 +512,7 @@ internal fun ReplyStatsLine(text: String) {
 }
 
 /** How full the model's context is (a thin bar, rose past 80 %) and the conversation's totals beside it (stage 2 §C.2). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ContextBar(fill: Float?, text: String) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).semantics(mergeDescendants = true) {}.testTag(Tags.CHAT_STATS), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -523,6 +524,11 @@ internal fun ContextBar(fill: Float?, text: String) {
                 )
             }
         }
-        Text(text, color = Sakura.TextSecondary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        // Each item stays whole (「190 tok/s」 never splits across lines); the items wrap as units.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            text.split(" · ").forEachIndexed { i, part ->
+                Text((if (i > 0) "· " else "") + part, color = Sakura.TextSecondary, fontSize = 11.sp, maxLines = 1, softWrap = false)
+            }
+        }
     }
 }

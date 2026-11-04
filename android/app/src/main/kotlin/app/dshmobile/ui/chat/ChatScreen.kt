@@ -1,5 +1,7 @@
 package app.dshmobile.ui.chat
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 import app.dshmobile.ui.fog.LocalBackdrop
@@ -679,7 +681,12 @@ fun ChatScreen(
                     }
                 }
             }
-            if (dataPanel != null && ui.dataOpen) dataPanel()
+            if (dataPanel != null && ui.dataOpen) {
+                // Owner, 2026-11-04: the open panel squeezed the message list to nothing and nothing could scroll. It takes at most
+                // 45 % of the screen and scrolls inside; the messages below keep the rest.
+                val maxPanel = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.45f).dp
+                Box(Modifier.fillMaxWidth().heightIn(max = maxPanel).verticalScroll(rememberScrollState()).testTag(Tags.CHAT_DATA_SCROLL)) { dataPanel() }
+            }
             state.followError?.let { FollowBanner(it, onRetryFollow) }
             state.sendError?.let { code ->
                 if (code == WRITER_HELD) {
