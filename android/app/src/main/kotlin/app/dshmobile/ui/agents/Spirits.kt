@@ -104,7 +104,7 @@ fun SpiritFlow(agents: List<AgentStatus>, onTap: (AgentStatus) -> Unit, modifier
             val pulse = if (animate) 0.6f + 0.4f * sin(t / 450f + stage.ordinal) else 0.8f
             drawCircle(Brush.radialGradient(listOf(moodColor(first.mood).copy(alpha = .7f * pulse), Color.Transparent), p, 22.dp.toPx()), 22.dp.toPx(), p)
             if (n > PER_STAGE) {
-                val more = measurer.measure("+${n - PER_STAGE}", TextStyle(fontFamily = FogFonts.Orbitron, fontSize = 9.sp, color = Sakura.Text))
+                val more = measurer.measure("+${n - PER_STAGE}", TextStyle(fontFamily = FogFonts.ChakraPetch, fontSize = 9.sp, color = Sakura.Text))
                 drawText(more, topLeft = Offset(p.x + r * 1.4f, p.y - r * 2.6f))
             }
         }

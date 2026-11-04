@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -139,14 +140,15 @@ fun WarRoomPink(
             }
         }
         SpeedChart(input.samples, agents)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.weight(1f)) { TemperatureGauge(agents) }
-            Box(Modifier.weight(1.1f)) { TokenRadar(agents) }
+        // Side by side cards share one height (owner, 2026-11-05: a short card left a hole beside a tall one).
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+            Box(Modifier.weight(1f).fillMaxHeight()) { TemperatureGauge(agents, Modifier.fillMaxHeight()) }
+            Box(Modifier.weight(1.1f).fillMaxHeight()) { TokenRadar(agents, Modifier.fillMaxHeight()) }
         }
         DecisionStack(decisions, tools)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.weight(1.05f)) { ToolDetail(tools.lastOrNull(), leadAgent, leadAgent?.let(costOf)) }
-            Box(Modifier.weight(1f)) { TailLog(input.log) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(IntrinsicSize.Min)) {
+            Box(Modifier.weight(1.05f).fillMaxHeight()) { ToolDetail(tools.lastOrNull(), leadAgent, leadAgent?.let(costOf), Modifier.fillMaxHeight()) }
+            Box(Modifier.weight(1f).fillMaxHeight()) { TailLog(input.log, Modifier.fillMaxHeight()) }
         }
         ActionTree(counts)
         StartVsNow(input, agents)
@@ -487,11 +489,11 @@ private fun SpeedChart(samples: List<WarSample>, agents: List<AgentStatus>) {
                     for (g in 0..3) {
                         val y = top + (bottom - top) * g / 3
                         drawLine(War.pink.copy(alpha = .45f), Offset(left, y), Offset(350f, y), 1f)
-                        val lab = measurer.measure(String.format(Locale.US, "%.0f", max * (3 - g) / 3), TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.sp, color = War.ink2))
+                        val lab = measurer.measure(String.format(Locale.US, "%.0f", max * (3 - g) / 3), TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.sp, color = War.ink2), density = DESIGN_UNITS)
                         drawText(lab, topLeft = Offset(0f, y - 5f))
                     }
                     listOf(samples.first(), samples.last()).forEachIndexed { i, s ->
-                        val lab = measurer.measure(HM.format(Instant.ofEpochMilli(s.atMs)), TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.sp, color = War.ink2))
+                        val lab = measurer.measure(HM.format(Instant.ofEpochMilli(s.atMs)), TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.sp, color = War.ink2), density = DESIGN_UNITS)
                         drawText(lab, topLeft = Offset(if (i == 0) left else right - lab.size.width, bottom + 6f))
                     }
                     lines.asReversed().forEachIndexed { ri, l ->
@@ -513,7 +515,7 @@ private fun SpeedChart(samples: List<WarSample>, agents: List<AgentStatus>) {
                         end?.let { e ->
                             if (i == 0) { drawCircle(Color.White, 4f, e); drawCircle(War.pink, 4f, e, style = Stroke(2f)) }
                             val v = l.values.lastOrNull { it != null } ?: 0f
-                            val tag = measurer.measure(String.format(Locale.US, "%.0f", v), TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.5.sp, fontWeight = FontWeight.Bold, color = War.ink))
+                            val tag = measurer.measure(String.format(Locale.US, "%.0f", v), TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.5.sp, fontWeight = FontWeight.Bold, color = War.ink), density = DESIGN_UNITS)
                             val y = (e.y - 5.5f + i * 2f).coerceIn(0f, bottom)
                             drawRoundRect(LINE_COLORS[i], Offset(322f, y), Size(36f, 11f), CornerRadius(2f))
                             drawText(tag, topLeft = Offset(325f, y + .5f))
@@ -528,9 +530,9 @@ private fun SpeedChart(samples: List<WarSample>, agents: List<AgentStatus>) {
 // ---- 8. Temperature gauge and token radar ----------------------------------------------------------------------------
 
 @Composable
-private fun TemperatureGauge(agents: List<AgentStatus>) {
+private fun TemperatureGauge(agents: List<AgentStatus>, modifier: Modifier = Modifier) {
     val temp = remember(agents) { WarDerive.temperature(agents) }
-    WarPanel(gap = 3.dp) {
+    WarPanel(gap = 3.dp, modifier = modifier) {
         Text("1. 代理人溫度", style = War.zh.copy(fontSize = 11.sp))
         val word = when {
             temp == null -> "沒人在工作"
@@ -570,10 +572,10 @@ private fun TemperatureGauge(agents: List<AgentStatus>) {
 }
 
 @Composable
-private fun TokenRadar(agents: List<AgentStatus>) {
+private fun TokenRadar(agents: List<AgentStatus>, modifier: Modifier = Modifier) {
     val rank = remember(agents) { WarDerive.ranking(agents) }
     val max = rank.firstOrNull()?.second?.toFloat() ?: 1f
-    WarPanel(gap = 4.dp) {
+    WarPanel(gap = 4.dp, modifier = modifier) {
         Text("2. token 熱度雷達", style = War.zh.copy(fontSize = 11.sp))
         if (rank.isEmpty()) Text("還沒有用量", style = War.mono.copy(color = War.ink2))
         rank.forEachIndexed { i, (a, n) ->
@@ -627,8 +629,8 @@ private fun DecisionStack(decisions: List<Decision>, tools: List<ChatItem.Tool>)
 // ---- 10. Tool detail and tail -f -------------------------------------------------------------------------------------
 
 @Composable
-private fun ToolDetail(t: ChatItem.Tool?, lead: AgentStatus?, cost: Double?) {
-    WarPanel(gap = 4.dp) {
+private fun ToolDetail(t: ChatItem.Tool?, lead: AgentStatus?, cost: Double?, modifier: Modifier = Modifier) {
+    WarPanel(gap = 4.dp, modifier = modifier) {
         WarHeader("工具 · 輸入 vs 結果", null)
         if (t == null) { Text("還沒有工具呼叫", style = War.mono.copy(color = War.ink2)); return@WarPanel }
         val (stage, _, _) = stageOf(t.name, t.summary)
@@ -650,9 +652,9 @@ private fun ToolDetail(t: ChatItem.Tool?, lead: AgentStatus?, cost: Double?) {
 }
 
 @Composable
-private fun TailLog(log: List<WarLogRow>) {
+private fun TailLog(log: List<WarLogRow>, modifier: Modifier = Modifier) {
     val time = rememberWarTime()
-    WarPanel(border = War.ink, background = Brush.verticalGradient(listOf(War.ink.copy(alpha = .93f), War.ink.copy(alpha = .9f))), gap = 3.dp, modifier = Modifier.testTag(Tags.WAR_LOG)) {
+    WarPanel(border = War.ink, background = Brush.verticalGradient(listOf(War.ink.copy(alpha = .93f), War.ink.copy(alpha = .9f))), gap = 3.dp, modifier = modifier.testTag(Tags.WAR_LOG)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("$ tail -f 戰情.log", style = War.ttl.copy(color = Sakura.Background), modifier = Modifier.weight(1f))
             Box(Modifier.size(5.dp, 9.dp).graphicsLayer { alpha = if ((time.longValue / 500) % 2 == 1L) 0f else 1f }.background(War.aqua))

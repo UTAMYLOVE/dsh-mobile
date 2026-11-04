@@ -73,11 +73,11 @@ fun CoreOrb(strips: List<CoreStrip>, spirits: List<AgentStatus>, topNote: String
             strips.take(6).forEachIndexed { i, s ->
                 val top = 8f + i * 52f
                 drawRoundRect(Color.White.copy(alpha = .7f), Offset(2f, top), Size(104f, 44f), CornerRadius(6f))
-                val title = measurer.measure(s.name, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.sp, fontWeight = FontWeight.Bold, color = War.ink))
+                val title = measurer.measure(s.name, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.sp, fontWeight = FontWeight.Bold, color = War.ink), density = DESIGN_UNITS)
                 drawText(title, topLeft = Offset(8f, top + 4f))
-                val value = measurer.measure(s.value, TextStyle(fontFamily = FogFonts.Orbitron, fontSize = 8.sp, fontWeight = FontWeight.Bold, color = War.ink))
+                val value = measurer.measure(s.value, TextStyle(fontFamily = FogFonts.ChakraPetch, fontSize = 8.sp, fontWeight = FontWeight.Bold, color = War.ink), density = DESIGN_UNITS)
                 drawText(value, topLeft = Offset(100f - value.size.width, top + 3f))
-                val note = measurer.measure(s.note, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 5.6.sp, color = War.ink2))
+                val note = measurer.measure(s.note, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 5.6.sp, color = War.ink2), density = DESIGN_UNITS)
                 drawText(note, topLeft = Offset(8f, top + 13f))
                 val base = top + 40f
                 val values = s.series.ifEmpty { listOf(0f, 0f) }.let { if (it.size == 1) it + it else it }
@@ -124,11 +124,11 @@ fun CoreOrb(strips: List<CoreStrip>, spirits: List<AgentStatus>, topNote: String
             drawCircle(War.aqua, 17f, Offset(CX, CY), style = Stroke(2f))
             drawRoundRect(War.ink, Offset(CX - 6.5f, CY - 7f), Size(4f, 11f), CornerRadius(2f))
             drawRoundRect(War.ink, Offset(CX + 2.5f, CY - 7f), Size(4f, 11f), CornerRadius(2f))
-            val lead = measurer.measure("主代理人", TextStyle(fontFamily = FontFamily.Monospace, fontSize = 6.5.sp, fontWeight = FontWeight.Bold, color = War.ink))
+            val lead = measurer.measure("主代理人", TextStyle(fontFamily = FontFamily.Monospace, fontSize = 6.5.sp, fontWeight = FontWeight.Bold, color = War.ink), density = DESIGN_UNITS)
             drawText(lead, topLeft = Offset(CX - lead.size.width / 2f, CY + 24f))
-            val tn = measurer.measure(topNote, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 6.5.sp, color = War.ink2))
+            val tn = measurer.measure(topNote, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 6.5.sp, color = War.ink2), density = DESIGN_UNITS)
             drawText(tn, topLeft = Offset(W - tn.size.width - 6f, 8f))
-            val bn = measurer.measure(bottomNote, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 6.5.sp, color = War.ink2))
+            val bn = measurer.measure(bottomNote, TextStyle(fontFamily = FontFamily.Monospace, fontSize = 6.5.sp, color = War.ink2), density = DESIGN_UNITS)
             drawText(bn, topLeft = Offset(W - bn.size.width - 6f, H - 14f))
             // Spirits drifting around the core, each at its own spot.
             val spots = listOf(Offset(150f, 40f), Offset(160f, 290f), Offset(345f, 60f), Offset(350f, 275f))

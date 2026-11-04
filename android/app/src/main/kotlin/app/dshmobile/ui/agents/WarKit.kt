@@ -58,8 +58,16 @@ object War {
     val ttl = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.5.sp, fontWeight = FontWeight.Bold, letterSpacing = .1.em, color = ink)
     val zh = TextStyle(fontWeight = FontWeight.Bold, color = ink)
     fun num(size: TextUnit, color: Color = ink) =
-        TextStyle(fontFamily = FogFonts.Orbitron, fontWeight = FontWeight.Bold, fontSize = size, color = color, fontFeatureSettings = "tnum")
+        // Chakra Petch, not Orbitron: Orbitron's slashed zero read as a 「禁止」 sign on the owner's phone (2026-11-05).
+        TextStyle(fontFamily = FogFonts.ChakraPetch, fontWeight = FontWeight.Bold, fontSize = size, color = color, fontFeatureSettings = "tnum")
 }
+
+/**
+ * Text drawn inside a canvas that is scaled from a fixed design space (CoreOrb, the speed chart) is measured in design units:
+ * measured at the screen's density and font scale and then scaled again it came out several times too big and overlapped on
+ * the owner's phone (2026-11-05).
+ */
+internal val DESIGN_UNITS = androidx.compose.ui.unit.Density(1f, 1f)
 
 /** A white glass panel with a pink rim. */
 @Composable
