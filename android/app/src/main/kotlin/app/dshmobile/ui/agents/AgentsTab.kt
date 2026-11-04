@@ -96,6 +96,8 @@ fun AgentsTab(
     lead: Flow<ConversationState?> = flowOf(null),
     todayUsd: Double? = null,
     limits: String = "",
+    alertUsd: Double? = null,
+    team: Int? = null,
 ) {
     val rows by agents.rows.collectAsState()
     val stopping by agents.stopping.collectAsState()
@@ -118,21 +120,28 @@ fun AgentsTab(
         return
     }
     val war = rememberWarAgents(tree, recorder, openId, lead)
+    val leadState by remember(lead) { lead }.collectAsState(null)
     val log by recorder.log.collectAsState()
+    val samples by recorder.samples.collectAsState()
     val prices = remember { PriceTable() }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
+    val leadId = war.firstOrNull { it.isLead }?.id
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(LocalPagePadding.current),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ModeToggle(listMode) { listMode = !listMode }
-        WarRoom(
-            agents = war, log = log, todayUsd = todayUsd, limits = limits, expanded = expanded, onExpand = { expanded = it },
+        WarRoomPink(
+            input = WarRoomInput(
+                agents = war, lead = leadState?.takeIf { it.sessionId == leadId }, log = log, samples = samples,
+                todayUsd = todayUsd, alertUsd = alertUsd, limit = limit, team = team, nowMs = System.currentTimeMillis(),
+            ),
+            expanded = expanded, onExpand = { expanded = it },
             costOf = { agentCostUsd(prices, it) },
-            onStop = { a -> rows.firstOrNull { it.childId == a.id }?.let { r: AgentRow -> sessionScope.launch { agents.stop(r) } } },
             stopping = stopping,
+            onStop = { a -> rows.firstOrNull { it.childId == a.id }?.let { r: AgentRow -> sessionScope.launch { agents.stop(r) } } },
             onOpen = { a -> onOpenParent(if (a.isLead) a.id else a.parentId ?: a.id) },
-            limit = limit,
+            limits = limits,
         )
     }
 }

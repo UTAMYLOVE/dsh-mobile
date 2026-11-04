@@ -342,6 +342,7 @@ class MainActivity : ComponentActivity() {
                         sess.agents, sess.tree, sess.scope, limit, nav::openSession,
                         recorder = sess.warRoom, openId = openId, lead = lead, todayUsd = today,
                         limits = getString(R.string.war_limits, settings.maxConcurrent, settings.teamSize, settings.maxDepth),
+                        alertUsd = remember(spend) { app.costMeter.alertUsd }, team = settings.teamSize,
                     )
                 } ?: EmptyPage(tab)
                 ShellTab.OVERVIEW -> {

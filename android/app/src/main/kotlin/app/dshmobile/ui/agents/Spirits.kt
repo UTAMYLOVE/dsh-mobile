@@ -67,7 +67,8 @@ const val MAX_SPIRITS = 12
 @Composable
 fun SpiritFlow(agents: List<AgentStatus>, onTap: (AgentStatus) -> Unit, modifier: Modifier = Modifier, height: Dp = 210.dp, compact: Boolean = false) {
     val animate = LocalEffects.current.ambient && LocalPageActive.current
-    val shown = agents.take(MAX_SPIRITS)
+    val shown = remember(agents) { flyers(agents) }
+    val hidden = agents.size - shown.size
     val time = remember { mutableLongStateOf(0L) }
     if (animate) {
         LaunchedEffect(Unit) {
@@ -93,10 +94,23 @@ fun SpiritFlow(agents: List<AgentStatus>, onTap: (AgentStatus) -> Unit, modifier
         val nodes = stageNodes(size, compact)
         drawPipeline(nodes, t, animate, measurer, compact)
         val perStage = HashMap<Stage, Int>()
+        val atStage = shown.groupingBy { it.stage }.eachCount()
         val r = if (compact) 13.dp.toPx() else 17.dp.toPx()
         hits.clear()
+        // A busy stop glows in the colour of its first agent.
+        for ((stage, n) in atStage) {
+            val p = nodes.getValue(stage)
+            val first = shown.first { it.stage == stage }
+            val pulse = if (animate) 0.6f + 0.4f * sin(t / 450f + stage.ordinal) else 0.8f
+            drawCircle(Brush.radialGradient(listOf(moodColor(first.mood).copy(alpha = .7f * pulse), Color.Transparent), p, 22.dp.toPx()), 22.dp.toPx(), p)
+            if (n > PER_STAGE) {
+                val more = measurer.measure("+${n - PER_STAGE}", TextStyle(fontFamily = FogFonts.Orbitron, fontSize = 9.sp, color = Sakura.Text))
+                drawText(more, topLeft = Offset(p.x + r * 1.4f, p.y - r * 2.6f))
+            }
+        }
         for ((i, a) in shown.withIndex()) {
             val slot = perStage.merge(a.stage, 1, Int::plus)!! - 1
+            if (slot >= PER_STAGE) continue
             val node = nodes.getValue(a.stage)
             val ring = slot % 4
             val target = node + Offset((ring - 1.5f) * r * 1.6f * (if (slot == 0) 0f else 1f), -r * 2.1f - (slot / 4) * r * 2.2f)
@@ -109,7 +123,7 @@ fun SpiritFlow(agents: List<AgentStatus>, onTap: (AgentStatus) -> Unit, modifier
             val c = now + Offset(0f, bob + hop)
             drawSpirit(c, r, a, t, animate, phase)
             hits[a.id] = Rect(c - Offset(r * 1.6f, r * 1.6f), Size(r * 3.2f, r * 3.6f))
-            if (!compact || shown.size <= 3) {
+            if ((atStage[a.stage] ?: 0) <= 2 && (!compact || shown.size <= 3)) {
                 val text = measurer.measure(
                     a.label.take(8), TextStyle(fontFamily = FogFonts.ChakraPetch, fontSize = 9.sp, color = Sakura.Text),
                     overflow = TextOverflow.Ellipsis, maxLines = 1,
@@ -118,7 +132,21 @@ fun SpiritFlow(agents: List<AgentStatus>, onTap: (AgentStatus) -> Unit, modifier
             }
         }
         positions.keys.retainAll(shown.mapTo(HashSet()) { it.id })
+        if (hidden > 0) {
+            val more = measurer.measure("其餘 $hidden 位收在下面的卡片", TextStyle(fontFamily = FogFonts.ChakraPetch, fontSize = 8.sp, color = Sakura.TextSecondary))
+            drawText(more, topLeft = Offset(size.width - more.size.width - 4.dp.toPx(), size.height - more.size.height))
+        }
     }
+}
+
+/** At most this many spirits wait at one stop; more show as 「+N」. */
+const val PER_STAGE = 4
+
+/** Who flies: everyone still working or waiting, then the three most recently finished (stage 2 owner report: all 17 piled up). */
+internal fun flyers(agents: List<AgentStatus>): List<AgentStatus> {
+    val working = agents.filter { it.mood != Mood.DONE }
+    val done = agents.filter { it.mood == Mood.DONE }.sortedByDescending { it.finishedAtMs ?: Long.MAX_VALUE }.take(3)
+    return (working + done).take(MAX_SPIRITS)
 }
 
 private fun DrawScope.stageNodes(size: Size, compact: Boolean): Map<Stage, Offset> {
@@ -162,7 +190,7 @@ private fun DrawScope.drawPipeline(
 }
 
 /** One spirit: a soft round body with a glowing tail, a face for its mood and a prop for its tool. */
-private fun DrawScope.drawSpirit(c: Offset, r: Float, a: AgentStatus, t: Long, animate: Boolean, phase: Float) {
+internal fun DrawScope.drawSpirit(c: Offset, r: Float, a: AgentStatus, t: Long, animate: Boolean, phase: Float) {
     val color = moodColor(a.mood)
     val blink = a.mood == Mood.ERROR && animate && (t / 400) % 2 == 0L
     val body = if (blink) Sakura.RoseBrown.copy(alpha = .55f) else color
