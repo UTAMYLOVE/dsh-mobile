@@ -20,16 +20,31 @@ object DshPatch {
         pluginDir: String = DEFAULT_PLUGIN_DIR,
         agentSection: String = "",
         includeAnthropic: Boolean = false,
+        workspace: String = AppPaths.GUEST_WORKSPACE,
+        shellPath: String? = null,
     ): String {
         require(includeAnthropic || !agentSection.contains("anthropic", ignoreCase = true)) { "agent section names anthropic but there is no Claude key" }
-        return sections(gatewayBase, pluginDir, agentSection, includeAnthropic)
+        return sections(gatewayBase, pluginDir, agentSection, includeAnthropic, workspace, shellPath)
             .filter { it.isNotBlank() }
             .joinToString("\n", postfix = "\n") { it.trimEnd() }
     }
 
     /** The sections in output order; [render] joins them. */
-    internal fun sections(gatewayBase: String, pluginDir: String, agentSection: String = "", includeAnthropic: Boolean = false): List<String> =
-        listOf(providers(gatewayBase, includeAnthropic), agentSection, privacy(), directoryPicker(), workspaceController(), plugins(pluginDir))
+    internal fun sections(
+        gatewayBase: String, pluginDir: String, agentSection: String = "", includeAnthropic: Boolean = false,
+        workspace: String = AppPaths.GUEST_WORKSPACE, shellPath: String? = null,
+    ): List<String> =
+        listOf(
+            providers(gatewayBase, includeAnthropic), agentSection, privacy(), directoryPicker(), workspaceController(workspace),
+            shellPath?.let { terminalShell(it) }.orEmpty(), plugins(pluginDir),
+        )
+
+    /** Native mode: Android has no /bin/bash, so dsh's shell is the bundled bash (see `NativeRunner`). */
+    internal fun terminalShell(shellPath: String): String = """
+        |- id: terminal-bash
+        |  config:
+        |    shellPath: ${q(shellPath)}
+    """.trimMargin()
 
     /**
      * Model providers talk to the local gateway with the fake key; only env var names appear here. The pi-ai (Anthropic) row
@@ -91,10 +106,10 @@ object DshPatch {
      * workspace failed (`spawn xdg-user-dir ENOENT`). Pointed at the app's workspace, a default (if dsh ever makes one, i.e. when
      * the app's own registration of /root/workspace failed) lands in user data, under `deepseek-harness/default-workspace`.
      */
-    internal fun workspaceController(): String = """
+    internal fun workspaceController(workspace: String = AppPaths.GUEST_WORKSPACE): String = """
         |- id: workspace-controller
         |  config:
-        |    documentsDirectory: ${q(AppPaths.GUEST_WORKSPACE)}
+        |    documentsDirectory: ${q(workspace)}
         |    documentsLookupTimeoutMs: 10000
     """.trimMargin()
 

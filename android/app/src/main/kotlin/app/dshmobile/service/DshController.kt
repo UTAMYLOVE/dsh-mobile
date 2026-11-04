@@ -7,6 +7,7 @@ import app.dshmobile.gateway.Provider
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshLaunchLine
+import app.dshmobile.runtime.DshLayout
 import app.dshmobile.runtime.GuestNetworkFiles
 import app.dshmobile.runtime.LaunchUrl
 import app.dshmobile.runtime.ProcId
@@ -114,6 +115,8 @@ class DshController(
     private val killer: ProcessTreeKiller,
     /** proot's pid from its [Process] (production: [ProcessTreeKiller.pidOf]). */
     private val pidOf: (Process) -> Int? = ProcessTreeKiller::pidOf,
+    /** The layout of the next start (proot or the experimental native mode); read once per start and published as [DshLayout.active]. */
+    private val layout: () -> DshLayout = { DshLayout.PROOT },
     private val clock: () -> Long = ::monotonicMs,
 ) : DshHolderRuntime {
     private class Run(val process: Process, val pid: Int?, val gateway: LocalGateway, val patch: File) {
@@ -285,9 +288,11 @@ class DshController(
             val gatewayBase = "http://127.0.0.1:$gatewayPort/${token.value}"
             GuestNetworkFiles.write(rootfs, dnsServers())
             beforeLaunch()
+            val lay = layout()
+            DshLayout.active = lay
             val patch = writePatch(patchProvider(gatewayBase))
             val process = try {
-                launcher.start(guestEnv(gatewayBase), DSH_ARGS)
+                launcher.start(guestEnv(gatewayBase, lay), lay.args)
             } catch (e: IOException) {
                 throw LaunchFailed(e)
             }
@@ -493,10 +498,10 @@ class DshController(
      * The fake key only for providers that have a real key in the vault. pi-ai discovers the anthropic provider from
      * `ANTHROPIC_API_KEY` alone (with its default endpoint, api.anthropic.com), so without a Claude key the variable stays out.
      */
-    private fun guestEnv(gatewayBase: String): Map<String, String> = linkedMapOf(
+    private fun guestEnv(gatewayBase: String, lay: DshLayout): Map<String, String> = linkedMapOf(
         "DSHM_GATEWAY" to gatewayBase,
-        "DSHM_WORKSPACE" to AppPaths.GUEST_WORKSPACE,
-        "DSH_HOME" to AppPaths.GUEST_DSH_HOME,
+        "DSHM_WORKSPACE" to lay.workspace,
+        "DSH_HOME" to lay.dshHome,
         "DSH_TELEMETRY_MODE" to "DISABLED",
         "DEEPSEEK_API_KEY" to FAKE_KEY,
     ).also { env ->
@@ -511,15 +516,10 @@ class DshController(
         )
 
         /** Launcher flags (`--profile`, `--patch`) must come before the app flags (`--no-open`, `--host`, `--port`). */
-        val DSH_ARGS = listOf(
-            "/usr/bin/env", "-u", "LD_LIBRARY_PATH",
-            "node", "/opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js",
-            "--profile", "web", "--patch", "/opt/dshm/dshm.cordis.yml",
-            "--no-open", "--host", "127.0.0.1", "--port", "0",
-        )
+        val DSH_ARGS = DshLayout.PROOT.args
 
-        /** What makes a process a leftover dsh for the sweep: proot (`libproot.so`) and dsh's own entry point. */
-        val SWEEP_MARKERS = listOf("libproot.so", "@deepseek-ai/dsh/lib/bin.js")
+        /** What makes a process a leftover dsh for the sweep: proot (`libproot.so`), native node (`libdshn_`) and dsh's own entry point. */
+        val SWEEP_MARKERS = listOf("libproot.so", "libdshn_bin_node.so", "@deepseek-ai/dsh/lib/bin.js")
 
         private const val REAP_MS = 1_000L
         private const val PATCH_PATH = "opt/dshm/dshm.cordis.yml"

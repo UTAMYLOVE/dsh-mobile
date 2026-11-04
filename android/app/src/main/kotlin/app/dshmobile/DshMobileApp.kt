@@ -42,6 +42,9 @@ import app.dshmobile.runtime.ProcessTreeKiller
 import app.dshmobile.runtime.ProcfsSource
 import app.dshmobile.runtime.ProotGuestCommand
 import app.dshmobile.runtime.ProotRunner
+import app.dshmobile.runtime.RuntimeModeStore
+import app.dshmobile.runtime.NativeRunner
+import app.dshmobile.runtime.DshLayout
 import app.dshmobile.runtime.RootfsInstaller
 import app.dshmobile.runtime.WorkspaceRegistrar
 import app.dshmobile.security.AndroidKeyVault
@@ -160,6 +163,31 @@ class DshMobileApp : Application(), Configuration.Provider {
         ProotRunner(File(applicationInfo.nativeLibraryDir), appPaths.rootfs, File(cacheDir, "proot"), appPaths.binds)
     }
 
+    /** The experimental native mode's launcher (Android's own node; no proot), see [layoutForStart]. */
+    val nativeRunner: NativeRunner by lazy {
+        NativeRunner(
+            File(applicationInfo.nativeLibraryDir ?: File(filesDir, "no-native-libs").path), File(filesDir, "native"), File(appPaths.userData, "home"), File(cacheDir, "native-tmp"),
+            assets = { name -> try { assets.open(name) } catch (_: java.io.IOException) { null } },
+        )
+    }
+
+    val runtimeMode: RuntimeModeStore by lazy { RuntimeModeStore(getSharedPreferences(RuntimeModeStore.PREFS, Context.MODE_PRIVATE)) }
+
+    /**
+     * The layout of the next dsh start: native when the switch is on and this APK carries the native runtime, proot otherwise.
+     * Native runs the same dsh version (rootfs/opt/dsh/<current>) and plugins as proot would.
+     */
+    private fun layoutForStart(): DshLayout {
+        if (!runtimeMode.native.value) return DshLayout.PROOT
+        if (!nativeRunner.available) {
+            errorLog.append("native", "native mode is on but this build has no native runtime: using proot")
+            return DshLayout.PROOT
+        }
+        nativeRunner.prepare()
+        val dshDir = File(appPaths.rootfs, "opt/dsh/" + dshVersions.current())
+        return DshLayout.native(appPaths, dshDir, nativeRunner.node(), nativeRunner.shellPath)
+    }
+
     val agentSettingsStore: AgentSettingsStore by lazy {
         AgentSettingsStore(getSharedPreferences(AgentSettingsStore.PREFS, Context.MODE_PRIVATE))
     }
@@ -182,7 +210,10 @@ class DshMobileApp : Application(), Configuration.Provider {
         DshController(
             filesDir = filesDir,
             isRootfsInstalled = rootfsInstaller::isInstalled,
-            launcher = DshLauncher { env, args -> proot.command(args, env).start() },
+            launcher = DshLauncher { env, args ->
+                if (DshLayout.active.native) nativeRunner.command(args, env, appPaths.workspace).start() else proot.command(args, env).start()
+            },
+            layout = ::layoutForStart,
             vault = keyVault,
             meter = costMeter,
             errorLog = errorLog,

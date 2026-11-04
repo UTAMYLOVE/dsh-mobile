@@ -1,5 +1,6 @@
 package app.dshmobile.chat
 
+import app.dshmobile.runtime.DshLayout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -382,9 +383,10 @@ object ConversationReducer {
     internal fun sharePath(name: String, args: JsonObject?): String? {
         if (name != "write" && name != "edit") return null
         val path = args?.str("file_path") ?: return null
-        if (!path.startsWith(WORKSPACE_ROOT)) return null
+        // Either mode's workspace: proot's /root/workspace/ or the host path the native mode uses.
+        val root = DshLayout.workspacePrefixes().firstOrNull { path.startsWith(it) } ?: return null
         val stack = ArrayList<String>()
-        for (segment in path.removePrefix(WORKSPACE_ROOT).split('/')) {
+        for (segment in path.removePrefix(root).split('/')) {
             when (segment) {
                 "", "." -> {}
                 ".." -> if (stack.isEmpty()) return null else stack.removeAt(stack.lastIndex)

@@ -27,14 +27,15 @@ import java.util.UUID
 class WorkspaceRegistrar(
     private val http: OkHttpClient,
     private val errorLog: ErrorLog,
-    private val path: String = AppPaths.GUEST_WORKSPACE,
+    private val pathOf: () -> String = { DshLayout.active.workspace },
     private val timeoutMs: Long = 15_000,
 ) {
     enum class Outcome { REGISTERED, ALREADY_LISTED, FAILED }
 
     suspend fun ensure(launch: LaunchUrl): Outcome {
+        val path = pathOf()
         val result = try {
-            withTimeoutOrNull(timeoutMs) { create(DshClient(http, launch)) } ?: Failure("timed out")
+            withTimeoutOrNull(timeoutMs) { create(DshClient(http, launch), path) } ?: Failure("timed out")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -56,7 +57,7 @@ class WorkspaceRegistrar(
     private class Failure(val reason: String)
 
     /** True: dsh added it now; false: it was already listed; [Failure] otherwise. */
-    private suspend fun create(client: DshClient): Any {
+    private suspend fun create(client: DshClient, path: String): Any {
         client.login()
         val envelope = buildJsonObject {
             put("type", "client-request")

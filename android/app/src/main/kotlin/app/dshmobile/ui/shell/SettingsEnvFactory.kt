@@ -1,5 +1,6 @@
 package app.dshmobile.ui.shell
 
+import app.dshmobile.runtime.NativeModeControl
 import androidx.activity.ComponentActivity
 import app.dshmobile.DshMobileApp
 import app.dshmobile.heartbeat.HeartbeatScheduler
@@ -59,6 +60,16 @@ fun buildSettingsEnv(
         openDeveloperSettings = { if (platform.developerOptionsEnabled()) platform.openDeveloperSettings() else platform.openDeviceInfoSettings() },
         exportErrorLog = { app.exporter.share(app.exporter.errorLogZip()) },
         exportMemory = { app.exporter.share(app.exporter.memoryBackupZip()) },
+        // The native switch restarts dsh in the chosen mode on the app's settings jobs (it outlives the screen).
+        nativeMode = NativeModeControl(app.nativeRunner.available, app.runtimeMode.native) { on ->
+            app.runtimeMode.set(on)
+            app.settingsJobs.launch {
+                runCatching {
+                    app.controller.stop()
+                    app.controller.ensureRunning()
+                }.onFailure { app.errorLog.append("native", "restart after the mode switch failed: ${it.javaClass.simpleName}") }
+            }
+        },
         exportWorkspace = { app.exporter.share(app.exporter.workspaceZip()) },
         jobs = app.settingsJobs,
         effectLevel = app.effectsController.level,

@@ -48,6 +48,8 @@ class WorkTrackerTest {
         remote.status("a", true)
         remote.status("b", true)
         waitUntil("two running") { tracker.running.value.size == 2 }
+        // busy is a StateFlow: a collector that has not seen the rise yet would miss it if both went idle at once.
+        waitUntil("rise seen") { true in busyChanges }
         remote.status("a", false)
         remote.status("b", false)
         waitUntil("idle") { !tracker.busy.value }

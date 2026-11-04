@@ -1,12 +1,12 @@
 package app.dshmobile.chat
 
+import app.dshmobile.runtime.DshLayout
 import app.dshmobile.remote.DshErrors
 import app.dshmobile.remote.HostEvent
 import app.dshmobile.remote.MuxState
 import app.dshmobile.remote.SearchHit
 import app.dshmobile.remote.SessionSummary
 import app.dshmobile.remote.StreamSignal
-import app.dshmobile.runtime.AppPaths
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -67,7 +67,7 @@ object SessionTreeReducer {
         when ((f?.get("type") as? JsonPrimitive)?.content) {
             "baseline", "replace" -> {
                 val items = body?.get("items") as? JsonArray
-                val ws = items?.mapNotNull { it as? JsonObject }?.firstOrNull { str(it, "path") == AppPaths.GUEST_WORKSPACE }
+                val ws = items?.mapNotNull { it as? JsonObject }?.firstOrNull { str(it, "path") == DshLayout.active.workspace }
                 s.copy(
                     workspaceId = ws?.let { str(it, "workspaceId") } ?: s.workspaceId,
                     archived = ids(body?.get("archivedSessionIds")) ?: s.archived,
@@ -75,7 +75,7 @@ object SessionTreeReducer {
             }
             "upsert" -> {
                 val w = f?.get("workspace") as? JsonObject
-                if (w != null && str(w, "path") == AppPaths.GUEST_WORKSPACE) s.copy(workspaceId = str(w, "workspaceId") ?: s.workspaceId) else s
+                if (w != null && str(w, "path") == DshLayout.active.workspace) s.copy(workspaceId = str(w, "workspaceId") ?: s.workspaceId) else s
             }
             "archived" -> ids(body?.get("archivedSessionIds"))?.let { s.copy(archived = s.archived + it) } ?: s
             else -> s

@@ -1,5 +1,6 @@
 package app.dshmobile.config
 
+import app.dshmobile.runtime.DshLayout
 import app.dshmobile.gateway.Provider
 import app.dshmobile.security.KeyVault
 import app.dshmobile.system.PhantomState
@@ -119,7 +120,8 @@ class AgentPatchProvider(
     private val store: AgentSettingsStore,
     private val writer: AgentConfigWriter,
     private val phantom: () -> PhantomState,
-    private val pluginDir: String = DshPatch.DEFAULT_PLUGIN_DIR,
+    /** Where dsh sees things for this start (the controller publishes it before asking for the patch). */
+    private val layout: () -> DshLayout = { DshLayout.active },
 ) : (String) -> String {
     override fun invoke(gatewayBase: String): String {
         val hasClaudeKey = vault.get(Provider.ANTHROPIC) != null // asked once: the section and the provider row must agree
@@ -129,7 +131,8 @@ class AgentPatchProvider(
         writer.ensureAutoReviewBundle(settings.autoReview)
         writer.installSkills()
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)
-        return DshPatch.render(gatewayBase, pluginDir, section, includeAnthropic = hasClaudeKey)
+        val lay = layout()
+        return DshPatch.render(gatewayBase, lay.pluginDir, section, includeAnthropic = hasClaudeKey, workspace = lay.workspace, shellPath = lay.shellPath)
     }
 }
 

@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -123,6 +124,8 @@ class SettingsEnv(
     val dshStatus: StateFlow<app.dshmobile.service.DshStatus>? = null,
     /** Opens this app's page in Android's settings (the force-stop button lives there). */
     val openAppSettings: () -> Unit = {},
+    /** 「實驗：原生模式」; null hides the section. */
+    val nativeMode: app.dshmobile.runtime.NativeModeControl? = null,
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
@@ -672,7 +675,34 @@ fun SettingsScreen(
                 exportMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
 
-            Section(R.string.set_apply, R.string.set_en_apply, 9) {
+            env.nativeMode?.let { native ->
+                Section(R.string.set_section_native, R.string.set_en_native, 9) {
+                    val on by native.enabled.collectAsState()
+                    Text(stringResource(R.string.set_native_note), style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.set_native_switch), modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = on && native.available,
+                            onCheckedChange = { native.set(it) },
+                            enabled = !busy && native.available,
+                            modifier = Modifier.testTag("switch-native"),
+                        )
+                    }
+                    Text(
+                        stringResource(
+                            when {
+                                !native.available -> R.string.set_native_unavailable
+                                on -> R.string.set_native_on
+                                else -> R.string.set_native_off
+                            },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("native-state"),
+                    )
+                }
+            }
+
+            Section(R.string.set_apply, R.string.set_en_apply, 10) {
                 Text(stringResource(R.string.set_apply_note), style = MaterialTheme.typography.bodySmall)
                 Button(onClick = { askOrRun(StopAction.APPLY, ::apply) }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("apply")) { Text(stringResource(R.string.set_apply)) }
                 if (confirming == StopAction.APPLY) StopConfirmCard(StopAction.APPLY, { confirming = null }) { confirmed(StopAction.APPLY) }

@@ -1,7 +1,7 @@
 package app.dshmobile.remote
 
+import app.dshmobile.runtime.DshLayout
 import app.dshmobile.chat.ChatRemote
-import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.ui.shell.ShellRemote
 import kotlinx.coroutines.CoroutineScope
@@ -118,7 +118,7 @@ class DshRemote(
 
     /** A new session in workspace [workspaceId], or in the app's workspace directory when there is none. Returns its id. */
     override suspend fun createSession(workspaceId: String?): String {
-        val value = call(CREATE, request { if (workspaceId != null) put("workspaceId", workspaceId) else put("cwd", AppPaths.GUEST_WORKSPACE) })
+        val value = call(CREATE, request { if (workspaceId != null) put("workspaceId", workspaceId) else put("cwd", DshLayout.active.workspace) })
         return field(CREATE, value, "sessionId")
     }
 
