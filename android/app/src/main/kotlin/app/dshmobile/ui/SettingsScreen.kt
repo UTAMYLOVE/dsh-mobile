@@ -704,6 +704,17 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.testTag("native-state"),
                     )
+                    val noApproval by native.noApproval.collectAsState()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.set_native_no_approval), modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = noApproval,
+                            onCheckedChange = { native.setNoApproval(it) },
+                            enabled = !busy && native.available,
+                            modifier = Modifier.testTag("switch-native-no-approval"),
+                        )
+                    }
+                    Text(stringResource(R.string.set_native_no_approval_note), style = MaterialTheme.typography.bodySmall)
                 }
             }
 

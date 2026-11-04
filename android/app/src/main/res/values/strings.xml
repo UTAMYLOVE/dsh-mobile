@@ -181,6 +181,8 @@
     <string name="set_native_note">實驗中。開啟後 dsh 直接用安卓版 Node 執行，啟動更快、更省電。兩種模式的對話清單分開保存，切回來就會看到原本的對話，什麼都不會刪除。切換時 dsh 會重新啟動。</string>
     <string name="set_native_on">目前：原生模式（實驗）</string>
     <string name="set_native_off">目前：一般模式（模擬 Linux）</string>
+    <string name="set_native_no_approval">原生模式：指令不用每次問我</string>
+    <string name="set_native_no_approval_note">原生模式沒有 dsh 的沙盒，所以幾乎每個指令都要你按允許。打開後就直接執行，AI 一樣只碰得到 DSH 自己的資料，碰不到手機其他東西；但刪檔這類動作也不會再問你。預設關閉，切換時 dsh 會重新啟動。</string>
     <string name="set_native_unavailable">這個版本沒有附原生執行環境</string>
     <string name="set_export_workspace">匯出整個工作區（zip）</string>
 

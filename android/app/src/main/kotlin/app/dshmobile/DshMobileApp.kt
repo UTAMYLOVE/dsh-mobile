@@ -231,7 +231,11 @@ class DshMobileApp : Application(), Configuration.Provider {
             filesDir = filesDir,
             isRootfsInstalled = rootfsInstaller::isInstalled,
             launcher = DshLauncher { env, args ->
-                if (DshLayout.active.native) nativeRunner.command(args, env, appPaths.workspace).start() else proot.command(args, env).start()
+                if (DshLayout.active.native) {
+                    // The owner's opt-in (Settings): dsh runs commands without asking (RuntimeModeStore.noApproval).
+                    val extra = if (runtimeMode.noApproval.value) mapOf("DSH_PERMISSION_MODE" to "danger-full-access") else emptyMap()
+                    nativeRunner.command(args, env + extra, appPaths.workspace).start()
+                } else proot.command(args, env).start()
             },
             layout = ::layoutForStart,
             vault = keyVault,

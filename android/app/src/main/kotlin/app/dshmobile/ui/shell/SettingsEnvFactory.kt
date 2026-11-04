@@ -61,14 +61,18 @@ fun buildSettingsEnv(
         exportErrorLog = { app.exporter.share(app.exporter.errorLogZip()) },
         exportMemory = { app.exporter.share(app.exporter.memoryBackupZip()) },
         // The native switch restarts dsh in the chosen mode on the app's settings jobs (it outlives the screen).
-        nativeMode = NativeModeControl(app.nativeRunner.available, app.runtimeMode.native) { on ->
-            app.runtimeMode.set(on)
-            app.settingsJobs.launch {
+        nativeMode = run {
+            fun restart() = app.settingsJobs.launch {
                 runCatching {
                     app.controller.stop()
                     app.controller.ensureRunning()
                 }.onFailure { app.errorLog.append("native", "restart after the mode switch failed: ${it.javaClass.simpleName}") }
             }
+            NativeModeControl(
+                app.nativeRunner.available, app.runtimeMode.native, set = { on -> app.runtimeMode.set(on); restart() },
+                noApproval = app.runtimeMode.noApproval,
+                setNoApproval = { on -> app.runtimeMode.setNoApproval(on); if (app.runtimeMode.native.value) restart() },
+            )
         },
         exportWorkspace = { app.exporter.share(app.exporter.workspaceZip()) },
         jobs = app.settingsJobs,
