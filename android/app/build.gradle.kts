@@ -211,4 +211,15 @@ if (rootfsSource != null) {
     }
 }
 
+// -Pdshm.nativeDir=<dir> (native/build-runtime.py's OUT): the experimental Android-native dsh runtime — node, bash, ripgrep,
+// git and the file-lock addon as jniLibs/<abi>/libdshn_*.so, plus assets/native/manifest.json and cert.pem. Optional: without
+// it the app has the proot runtime only and the native mode reports itself unavailable.
+providers.gradleProperty("dshm.nativeDir").orNull?.let { dir ->
+    val native = file(dir).also { check(File(it, "assets/native/manifest.json").isFile) { "dshm.nativeDir has no assets/native/manifest.json: $dir" } }
+    android.sourceSets.getByName("main") {
+        jniLibs.srcDir(File(native, "jniLibs"))
+        assets.srcDir(File(native, "assets"))
+    }
+}
+
 apply(from = "proot.gradle.kts")

@@ -40,7 +40,7 @@ jobs:
           source rootfs/versions.env
           S=$GITHUB_WORKSPACE/stage/n
           mkdir -p "$S"
-          python3 spike/native/fetch-termux.py x86_64 "$S" nodejs-lts bash ripgrep ca-certificates
+          python3 native/fetch-termux.py x86_64 "$S" nodejs-lts bash ripgrep ca-certificates
           cat "$S/packages.txt"
           npm install --prefix "$S/dsh" "@deepseek-ai/dsh@${DSH_PINNED_VERSION}" --no-audit --no-fund --loglevel=error
           GOT="$(node -p "require('$S/dsh/package-lock.json').packages['node_modules/@deepseek-ai/dsh'].integrity")"

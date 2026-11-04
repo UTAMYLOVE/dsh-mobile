@@ -1,0 +1,6 @@
+# The Termux packages of the native runtime (exact list, no dependency resolution; build-runtime.py fails if one is missing).
+nodejs-lts libc++ openssl c-ares libicu libsqlite zlib
+bash libandroid-support libiconv readline ncurses
+ripgrep pcre2
+git libcurl libnghttp2 libnghttp3 libngtcp2 libssh2
+ca-certificates
