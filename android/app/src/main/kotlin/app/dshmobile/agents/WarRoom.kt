@@ -60,7 +60,22 @@ data class AgentStatus(
 )
 
 /** One row of the `tail -f` style log. */
-data class WarLogRow(val atMs: Long, val badge: String, val text: String)
+data class WarLogRow(val atMs: Long, val badge: String, val text: String, val why: String = "")
+
+/**
+ * One point of the war room's time series (sampled every [WarRoomRecorder.SAMPLE_MS]): all sessions' totals for the core's data
+ * strips, and each session's own speed for the speed curves.
+ */
+data class WarSample(
+    val atMs: Long,
+    val tokensPerSecond: Float,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val cacheHit: Float,
+    val steps: Long,
+    val queued: Int,
+    val perAgent: Map<String, Float>,
+)
 
 /** Stage, prop and the 「搜尋「…」」 line for a tool name and its summary. */
 internal fun stageOf(tool: String, summary: String?): Triple<Stage, Prop, String> {
@@ -250,13 +265,13 @@ class WarRoomRecorder(private val clock: () -> Long = System::currentTimeMillis)
         if (primed) {
             for ((id, a) in kids) {
                 val before = lastKids[id]
-                if (before == null) add(now, "派出", a.label)
-                else if (before.mood == Mood.RUNNING && a.mood != Mood.RUNNING) add(now, "完成", a.label)
+                if (before == null) add(now, "派出", a.label, "第 ${a.depth} 層 · " + (a.model ?: "預設模型"))
+                else if (before.mood == Mood.RUNNING && a.mood != Mood.RUNNING) add(now, "完成", a.label, doneWhy(a))
             }
         }
         for ((id, before) in lastKids) {
             if (id !in kids) {
-                if (primed && before.mood == Mood.RUNNING) add(now, "完成", before.label)
+                if (primed && before.mood == Mood.RUNNING) add(now, "完成", before.label, doneWhy(before))
                 _history.update { h -> (listOf(before.copy(mood = Mood.DONE, stage = Stage.DONE, action = "完成", finishedAtMs = now)) + h.filter { it.id != id }).take(MAX_HISTORY) }
             }
         }
@@ -280,14 +295,41 @@ class WarRoomRecorder(private val clock: () -> Long = System::currentTimeMillis)
                 ToolStatus.DONE -> "完成"
                 ToolStatus.FAILED -> "錯誤"
             }
-            add(now, badge, line)
+            add(now, badge, line, toolWhy(t))
         }
+    }
+
+    private val _samples = MutableStateFlow<List<WarSample>>(emptyList())
+    /** The last [MAX_SAMPLES] samples, oldest first. */
+    val samples: StateFlow<List<WarSample>> = _samples.asStateFlow()
+    private var lastSampleAt = Long.MIN_VALUE
+
+    /** Takes one sample of [tree] when [SAMPLE_MS] have passed since the last one. */
+    @Synchronized fun sample(tree: SessionTreeState) {
+        val now = clock()
+        if (lastSampleAt != Long.MIN_VALUE && now - lastSampleAt < SAMPLE_MS) return
+        lastSampleAt = now
+        val all = app.dshmobile.chat.allUsage(tree)
+        val per = tree.projections.mapNotNull { (id, p) -> SessionUsage.of(p).tokensPerSecond?.let { id to it.toFloat() } }.toMap()
+        val queued = tree.projections.values.sumOf { p -> (p["inbox"] as? JsonObject)?.values?.sumOf { (it as? JsonArray)?.size ?: 0 } ?: 0 }
+        val s = WarSample(now, all.tokensPerSecond?.toFloat() ?: 0f, all.inputTokens + all.cacheReadTokens, all.outputTokens, all.cacheHit?.toFloat() ?: 0f, all.steps, queued, per)
+        _samples.update { (it + s).takeLast(MAX_SAMPLES) }
+    }
+
+    private fun doneWhy(a: AgentStatus): String =
+        "交回 " + app.dshmobile.chat.shortTokens(a.usage.outputTokens) + " tok" + (a.activeMs?.let { " · " + app.dshmobile.chat.shortDuration(it) } ?: "")
+
+    private fun toolWhy(t: ChatItem.Tool): String = when (t.status) {
+        ToolStatus.RUNNING -> if (stageOf(t.name, null).first == Stage.SEARCH) "唯讀 · 自動放行" else "已放行 · 執行中"
+        ToolStatus.WAITING_APPROVAL -> "要你允許才會做"
+        ToolStatus.DONE -> "完成"
+        ToolStatus.FAILED -> t.error?.lineSequence()?.firstOrNull()?.take(60) ?: "失敗"
     }
 
     @Synchronized fun note(badge: String, text: String) = add(clock(), badge, text)
 
-    private fun add(at: Long, badge: String, text: String) {
-        _log.update { (listOf(WarLogRow(at, badge, text)) + it).take(MAX_LOG) }
+    private fun add(at: Long, badge: String, text: String, why: String = "") {
+        _log.update { (listOf(WarLogRow(at, badge, text, why)) + it).take(MAX_LOG) }
     }
 
     /** Starts feeding from [agents] on [scope]. */
@@ -298,5 +340,7 @@ class WarRoomRecorder(private val clock: () -> Long = System::currentTimeMillis)
     companion object {
         const val MAX_HISTORY = 20
         const val MAX_LOG = 60
+        const val MAX_SAMPLES = 60
+        const val SAMPLE_MS = 5_000L
     }
 }

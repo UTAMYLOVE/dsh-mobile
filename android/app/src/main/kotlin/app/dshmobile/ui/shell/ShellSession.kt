@@ -1,6 +1,6 @@
 package app.dshmobile.ui.shell
 
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import app.dshmobile.agents.AgentsRemote
 import app.dshmobile.agents.RunningAgents
 import app.dshmobile.chat.ChatRemote
@@ -74,8 +74,14 @@ class ShellSession(
 
     /** The war room's history of finished children and its live log (stage 2 §E/F/H). */
     val warRoom = app.dshmobile.agents.WarRoomRecorder().also { rec ->
-        rec.follow(scope, tree.state.map { app.dshmobile.agents.WarRoomBuilder.children(it) })
+        scope.launch {
+            tree.state.collect { t ->
+                rec.observeAgents(app.dshmobile.agents.WarRoomBuilder.children(t))
+                rec.sample(t)
+            }
+        }
     }
+
 
     @Volatile private var closed = false
 
