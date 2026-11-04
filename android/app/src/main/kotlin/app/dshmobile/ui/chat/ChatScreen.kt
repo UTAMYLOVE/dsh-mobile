@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -240,13 +241,16 @@ internal sealed interface ChatRow {
     val gap: Int
 
     data class Older(val error: String?) : ChatRow { override val key = "older"; override val type = "older"; override val gap = 12 }
-    data class Whole(override val key: String, val kind: BubbleKind, val blocks: List<MdBlock>, val cites: List<Int>, override val gap: Int) : ChatRow {
+    /** [copy] is the whole message, for 「複製」 (owner, 2026-11-04). */
+    data class Whole(
+        override val key: String, val kind: BubbleKind, val blocks: List<MdBlock>, val cites: List<Int>, override val gap: Int, val copy: String = "",
+    ) : ChatRow {
         override val type get() = "whole-" + kind.name
     }
     /** [shade] places this piece on its bubble's 135° gradient (user bubbles only). */
     data class Segment(
         override val key: String, val kind: BubbleKind, val block: MdBlock, val pos: SegPos, val inner: Int, val cites: List<Int>, override val gap: Int,
-        val shade: Shade = Shade.NONE,
+        val shade: Shade = Shade.NONE, val copy: String = "",
     ) : ChatRow { override val type get() = "segment-" + kind.name }
     data class Raw(override val key: String, val text: String) : ChatRow { override val type = "raw"; override val gap = 12 }
     data class Placeholder(override val key: String, val kind: BubbleKind) : ChatRow { override val type = "placeholder"; override val gap = 12 }
@@ -260,7 +264,8 @@ internal sealed interface ChatRow {
     data class Search(val item: ChatItem.Tool) : ChatRow { override val key = "search:" + item.key; override val type = "search"; override val gap = 12 }
     data class Notice(val item: ChatItem.Notice) : ChatRow { override val key = "notice:" + item.key; override val type = "notice"; override val gap = 12 }
     data class Pending(val p: PendingSend) : ChatRow { override val key = "pending:" + p.requestId; override val type = "pending"; override val gap = 12 }
-    data class Stats(override val key: String, val text: String) : ChatRow { override val type = "stats"; override val gap = 4 }
+    /** The stats line (may be blank) and the 「複製」 button of a finished reply; [copy] is the reply's text. */
+    data class Stats(override val key: String, val text: String, val copy: String = "") : ChatRow { override val type = "stats"; override val gap = 4 }
 }
 
 /**
@@ -398,7 +403,7 @@ private class RowBuilder(private val cache: BlockCache, private val expanded: Se
     fun emit(kind: BubbleKind, key: String, e: BlockCache.Entry, cites: List<Int>, gap: Int) {
         val ps = e.pieces
         if (ps.size <= 1 || (e.text.length <= SINGLE_MAX_CHARS && ps.size <= SINGLE_MAX_PIECES)) {
-            add(ChatRow.Whole(key, kind, e.blocks, cites, gap))
+            add(ChatRow.Whole(key, kind, e.blocks, cites, gap, e.text))
             return
         }
         val shades = if (kind.user) shades(ps) else null
@@ -407,7 +412,7 @@ private class RowBuilder(private val cache: BlockCache, private val expanded: Se
             add(
                 ChatRow.Segment(
                     "$key#$i", kind, p.block, pos, p.gap, if (i == ps.lastIndex) cites else emptyList(), if (i == 0) gap else 0,
-                    shades?.get(i) ?: Shade.NONE,
+                    shades?.get(i) ?: Shade.NONE, e.text,
                 ),
             )
         }
@@ -441,7 +446,8 @@ private fun durableRows(
                     val cites = lastSearch?.let { citedSources(item.text, it.sources) }.orEmpty()
                     b.message(BubbleKind.AI, key, item.text, cites, if (reasoning != null) 4 else 12)
                 }
-                replyLines[item.key]?.let { b.add(ChatRow.Stats("stats:" + item.key, it)) }
+                val line = replyLines[item.key]
+                if (line != null || item.text.isNotBlank()) b.add(ChatRow.Stats("stats:" + item.key, line.orEmpty(), item.text))
             }
             is ChatItem.Tool -> if (item.name == WEB_SEARCH) {
                 b.add(ChatRow.Search(item))
@@ -641,11 +647,14 @@ fun ChatScreen(
     val older by rememberUpdatedState(onLoadOlder)
     val resend by rememberUpdatedState(onRetrySend)
     val dismiss by rememberUpdatedState(onDismissSend)
+    val context = LocalContext.current
+    val copied = stringResource(R.string.chat_copied)
+    fun copy(text: String) = copyText(context, text, copied)
     // One instance for the screen's life: rows that did not change skip recomposition while a reply streams.
     val actions = remember {
-        RowActions({ link(it) }, { share(it) }, { older() }, { resend(it) }, { dismiss(it) }) { key ->
+        RowActions({ link(it) }, { share(it) }, { older() }, { resend(it) }, { dismiss(it) }, { key ->
             expanded = if (key in expanded) expanded - key else expanded + key
-        }
+        }, { copy(it) })
     }
 
     Column(modifier.fillMaxSize()) {
@@ -751,6 +760,7 @@ private class RowActions(
     val onRetrySend: (String) -> Unit,
     val onDismissSend: (String) -> Unit,
     val onToggle: (String) -> Unit,
+    val onCopy: (String) -> Unit = {},
 )
 
 private fun LazyListScope.rows(rows: List<ChatRow>, a: RowActions) {
@@ -764,8 +774,8 @@ private fun LazyListScope.rows(rows: List<ChatRow>, a: RowActions) {
 private fun RowContent(row: ChatRow, a: RowActions) {
     when (row) {
         is ChatRow.Older -> OlderRow(row.error, a.onLoadOlder)
-        is ChatRow.Whole -> Bubble(row.kind, row.blocks, row.cites, a.onLink)
-        is ChatRow.Segment -> BubbleSegment(row.kind, row.block, row.pos, row.inner.dp, row.cites, row.shade, a.onLink)
+        is ChatRow.Whole -> Bubble(row.kind, row.blocks, row.cites, a.onLink) { a.onCopy(row.copy) }
+        is ChatRow.Segment -> BubbleSegment(row.kind, row.block, row.pos, row.inner.dp, row.cites, row.shade, a.onLink) { a.onCopy(row.copy) }
         is ChatRow.Raw -> RawBubble(BubbleKind.LIVE, row.text)
         is ChatRow.Placeholder -> PlaceholderBubble(row.kind)
         is ChatRow.Typing -> TypingBubble(row.tools)
@@ -775,7 +785,7 @@ private fun RowContent(row: ChatRow, a: RowActions) {
         is ChatRow.Search -> SearchCard(row.item, a.onLink)
         is ChatRow.Notice -> NoticeLine(row.item)
         is ChatRow.Pending -> PendingBubble(row.p, a.onRetrySend, a.onDismissSend)
-        is ChatRow.Stats -> ReplyStatsLine(row.text)
+        is ChatRow.Stats -> ReplyStatsLine(row.text, row.key) { a.onCopy(row.copy) }
     }
 }
 

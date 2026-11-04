@@ -1,6 +1,12 @@
 package app.dshmobile.ui.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,10 +42,12 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -159,13 +167,14 @@ private fun BubbleBox(user: Boolean, fixedWidth: Boolean, content: @Composable (
 
 /** A whole short message in one item: glass for the assistant, pink for the user. [cites] closes an answer. */
 @Composable
-internal fun Bubble(kind: BubbleKind, blocks: List<MdBlock>, cites: List<Int>, onLink: (String) -> Unit) {
+internal fun Bubble(kind: BubbleKind, blocks: List<MdBlock>, cites: List<Int>, onLink: (String) -> Unit, onCopy: () -> Unit = {}) {
     BubbleBox(kind.user, fixedWidth = false) {
         Column(
             Modifier
                 .then(if (kind.user) Modifier.userFill() else Modifier.glass(bubbleShape(false)))
                 .testTag(kind.tag)
                 .semantics(mergeDescendants = true) {}
+                .longPressCopy(onCopy)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             MarkdownView(blocks, onLink)
@@ -190,7 +199,9 @@ internal fun RawBubble(kind: BubbleKind, text: String) {
  * above this piece inside the bubble (0 when it continues the paragraph before it).
  */
 @Composable
-internal fun BubbleSegment(kind: BubbleKind, block: MdBlock, pos: SegPos, gapTop: Dp, cites: List<Int>, shade: Shade, onLink: (String) -> Unit) {
+internal fun BubbleSegment(
+    kind: BubbleKind, block: MdBlock, pos: SegPos, gapTop: Dp, cites: List<Int>, shade: Shade, onLink: (String) -> Unit, onCopy: () -> Unit = {},
+) {
     BubbleBox(kind.user, fixedWidth = true) {
         Column(
             Modifier
@@ -198,6 +209,7 @@ internal fun BubbleSegment(kind: BubbleKind, block: MdBlock, pos: SegPos, gapTop
                 .segmentBackground(kind.user, pos, shade)
                 .testTag(kind.tag)
                 .semantics(mergeDescendants = true) {}
+                .longPressCopy(onCopy)
                 .padding(start = 16.dp, end = 16.dp, top = if (pos == SegPos.FIRST) 12.dp else gapTop, bottom = if (pos == SegPos.LAST) 12.dp else 0.dp),
         ) {
             MarkdownBlock(block, onLink)
@@ -499,16 +511,34 @@ internal fun PendingBubble(p: PendingSend, onRetry: (String) -> Unit, onDismiss:
 
 /** The small stats line under a finished reply: speed, first token, tokens, estimated cost, duration (stage 2 §C.1). */
 @Composable
-internal fun ReplyStatsLine(text: String) {
-    Text(
-        text,
-        color = Sakura.TextSecondary,
-        fontSize = 11.sp,
-        letterSpacing = 0.04.em,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp).testTag(Tags.REPLY_STATS),
-    )
+internal fun ReplyStatsLine(text: String, key: String = "", onCopy: () -> Unit = {}) {
+    Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text,
+            color = Sakura.TextSecondary,
+            fontSize = 11.sp,
+            letterSpacing = 0.04.em,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).testTag(Tags.REPLY_STATS),
+        )
+        Box(
+            Modifier.heightIn(min = 36.dp).clip(Round).clickable(role = Role.Button, onClick = onCopy).testTag(Tags.COPY_REPLY + key)
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text(stringResource(R.string.chat_copy), color = Sakura.RoseBrown, fontSize = 12.sp) }
+    }
+}
+
+/** Long-press a message to copy it (owner, 2026-11-04: 「對話可以複製」); links inside still open on a tap. */
+private fun Modifier.longPressCopy(onCopy: () -> Unit): Modifier =
+    semantics { onLongClick("複製") { onCopy(); true } }.pointerInput(onCopy) { detectTapGestures(onLongPress = { onCopy() }) }
+
+/** Puts [text] on the clipboard; Android 13 and later show their own notice, older ones get [toast]. */
+internal fun copyText(context: Context, text: String, toast: String) {
+    if (text.isBlank()) return
+    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("dsh", text))
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
 }
 
 /** How full the model's context is (a thin bar, rose past 80 %) and the conversation's totals beside it (stage 2 §C.2). */

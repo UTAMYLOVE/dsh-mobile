@@ -211,6 +211,8 @@
     <string name="chat_cites">來源 %1$s</string>
     <string name="chat_queued">排隊中</string>
     <string name="chat_sending">傳送中…</string>
+    <string name="chat_copy">⧉ 複製</string>
+    <string name="chat_copied">已複製</string>
     <string name="chat_send_failed">dsh 沒有收到這則訊息</string>
     <string name="chat_resend">重送</string>
     <string name="chat_remove">移除</string>

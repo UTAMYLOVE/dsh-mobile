@@ -32,6 +32,7 @@ object Tags {
     const val CHAT_FILE = "chat-file-"
     const val MODAL_SCRIM = "modal-scrim"
     const val REPLY_STATS = "reply-stats"
+    const val COPY_REPLY = "copy-reply-"
     const val CHAT_STATS = "chat-stats"
     const val OVERVIEW_STATS = "overview-stats"
     const val WAR_FLOW = "war-flow"
