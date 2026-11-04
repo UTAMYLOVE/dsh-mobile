@@ -16,4 +16,10 @@ class ToolSummaryTest {
         assertEquals("", ConversationReducer.summary("x", o("""{"n":3}"""), null))
         assertEquals("0050", ConversationReducer.summary("grep", o("""{"pattern":"0050"}"""), null))
     }
+
+    /** Owner screenshot, 2026-11-05: the war room's decisions read 「新任務：**可轉債…」. Commands keep every character. */
+    @Test fun proseLosesMarkdownMarksButCommandsDoNot() {
+        assertEquals("新任務：可轉債反稀釋調整 第二行", ConversationReducer.summary("send_message", o("""{"message":"新任務：**可轉債反稀釋調整**\n- 第二行"}"""), null))
+        assertEquals("rg '**/*.kt'", ConversationReducer.summary("bash", o("""{"command":"rg '**/*.kt'"}"""), null))
+    }
 }

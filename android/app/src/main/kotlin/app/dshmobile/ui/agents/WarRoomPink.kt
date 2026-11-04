@@ -483,7 +483,12 @@ private fun SpeedChart(samples: List<WarSample>, agents: List<AgentStatus>) {
                     val max = (lines.flatMap { it.values.filterNotNull() }.maxOrNull() ?: 1f).coerceAtLeast(10f) * 1.15f
                     var b = 0
                     while (b < n) {
-                        if ((b / 12) % 2 == 1) drawRect(War.aqua.copy(alpha = .22f), Offset(left + (right - left) * b / (n - 1).coerceAtLeast(1), 0f), Size((right - left) * 12f / (n - 1).coerceAtLeast(1), bottom))
+                        if ((b / 12) % 2 == 1) {
+                            // Kept inside the plot: the last band ran past the right edge as a grey block (owner, 2026-11-05).
+                            val x0 = left + (right - left) * b / (n - 1).coerceAtLeast(1)
+                            val w = ((right - left) * 12f / (n - 1).coerceAtLeast(1)).coerceAtMost(right - x0)
+                            if (w > 0f) drawRect(War.aqua.copy(alpha = .22f), Offset(x0, top), Size(w, bottom - top))
+                        }
                         b += 12
                     }
                     for (g in 0..3) {
@@ -495,6 +500,15 @@ private fun SpeedChart(samples: List<WarSample>, agents: List<AgentStatus>) {
                     listOf(samples.first(), samples.last()).forEachIndexed { i, s ->
                         val lab = measurer.measure(HM.format(Instant.ofEpochMilli(s.atMs)), TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.sp, color = War.ink2), density = DESIGN_UNITS)
                         drawText(lab, topLeft = Offset(if (i == 0) left else right - lab.size.width, bottom + 6f))
+                    }
+                    // The value tags at the lines' ends, pushed apart so two close lines never print on top of each other.
+                    val tagY = HashMap<Int, Float>()
+                    lines.mapIndexedNotNull { i, l ->
+                        val j = l.values.indexOfLast { it != null }
+                        if (j < 0) null else i to (bottom - (l.values[j]!! / max) * (bottom - top) - 5.5f).coerceIn(0f, bottom - 11f)
+                    }.sortedBy { it.second }.forEach { (i, y) ->
+                        val prev = tagY.values.maxOrNull()
+                        tagY[i] = if (prev != null && y < prev + 12f) prev + 12f else y
                     }
                     lines.asReversed().forEachIndexed { ri, l ->
                         val i = lines.size - 1 - ri
@@ -516,7 +530,7 @@ private fun SpeedChart(samples: List<WarSample>, agents: List<AgentStatus>) {
                             if (i == 0) { drawCircle(Color.White, 4f, e); drawCircle(War.pink, 4f, e, style = Stroke(2f)) }
                             val v = l.values.lastOrNull { it != null } ?: 0f
                             val tag = measurer.measure(String.format(Locale.US, "%.0f", v), TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.5.sp, fontWeight = FontWeight.Bold, color = War.ink), density = DESIGN_UNITS)
-                            val y = (e.y - 5.5f + i * 2f).coerceIn(0f, bottom)
+                            val y = tagY[i] ?: (e.y - 5.5f).coerceIn(0f, bottom)
                             drawRoundRect(LINE_COLORS[i], Offset(322f, y), Size(36f, 11f), CornerRadius(2f))
                             drawText(tag, topLeft = Offset(325f, y + .5f))
                         }

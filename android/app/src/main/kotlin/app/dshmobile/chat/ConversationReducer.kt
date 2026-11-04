@@ -358,7 +358,26 @@ object ConversationReducer {
         else -> null
     }
 
+    /**
+     * The one-line summary of a tool call. Prose arguments (a subagent's prompt, a message) lose their Markdown marks and line
+     * breaks (owner, 2026-11-05: the war room showed 「**可轉債…」); commands, patterns and paths stay exactly as written.
+     */
     internal fun summary(name: String, args: JsonObject?, raw: JsonElement?): String {
+        val text = summaryRaw(name, args, raw)
+        return if (name in LITERAL_TOOLS) text else plainLine(text).take(SUMMARY_MAX)
+    }
+
+    private val LITERAL_TOOLS = setOf("bash", "grep", "glob", "read", "write", "edit", "read_image", "web_fetch", "job_output", "job_kill")
+
+    /** Markdown marks and line breaks out of a line of prose: `**bold**`, `` `code` ``, headings, quotes, bullets. */
+    internal fun plainLine(s: String): String = s
+        .replace(Regex("(\\*\\*|__|~~|`)"), "")
+        .lineSequence().map { it.trim().replace(Regex("^(#{1,6}\\s+|>\\s*|[-*+]\\s+)"), "") }.filter { it.isNotEmpty() }
+        .joinToString(" ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
+    private fun summaryRaw(name: String, args: JsonObject?, raw: JsonElement?): String {
         if (args != null) {
             if (name == "web_search") {
                 val queries = (args["queries"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
