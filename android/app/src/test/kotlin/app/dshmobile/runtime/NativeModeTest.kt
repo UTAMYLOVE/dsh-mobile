@@ -58,8 +58,8 @@ class NativeModeTest {
 
     @Test fun prepareLinksEveryProgramByNameAndCopiesTheShim() {
         val libDir = tmp.newFolder("lib")
-        for (f in listOf("libdshn_bin_node.so", "libdshn_bin_bash.so", "libdshn_flock.so")) File(libDir, f).writeText("elf")
-        val manifest = """{"bins":{"node":"libdshn_bin_node.so","bash":"libdshn_bin_bash.so"},"flock":"libdshn_flock.so"}"""
+        for (f in listOf("libdshn_bin_node.so", "libdshn_bin_bash.so", "libdshn_flock.so", "libdshn_libz_so_1.so")) File(libDir, f).writeText("elf")
+        val manifest = """{"bins":{"node":"libdshn_bin_node.so","bash":"libdshn_bin_bash.so"},"libs":{"libz.so.1":"libdshn_libz_so_1.so"},"flock":"libdshn_flock.so"}"""
         val assets = mapOf("native/manifest.json" to manifest, "dshn/shim.mjs" to "// shim", "dshn/require-builtin.cjs" to "//", "native/cert.pem" to "CERT")
         val base = File(tmp.root, "native")
         val runner = NativeRunner(libDir, base, File(tmp.root, "home"), File(tmp.root, "tmp"), assets = { assets[it]?.byteInputStream() }, niceBinary = null)
@@ -72,7 +72,8 @@ class NativeModeTest {
         assertEquals(File(libDir, "libdshn_bin_node.so").path, node[0])
         assertEquals(listOf("--import", File(base, "shim.mjs").toURI().toString(), "--expose-internals"), node.drop(1))
         val env = runner.command(node, mapOf("DSH_HOME" to "/h"), File(tmp.root, "ws")).environment()
-        assertEquals(libDir.path, env["LD_LIBRARY_PATH"])
+        assertEquals(File(libDir, "libdshn_libz_so_1.so").toPath(), Files.readSymbolicLink(File(base, "lib/libz.so.1").toPath()))
+        assertEquals("${File(base, "lib").path}:${libDir.path}", env["LD_LIBRARY_PATH"])
         assertEquals(File(libDir, "libdshn_flock.so").path, env["DSHN_FLOCK"])
         assertEquals(File(base, "bin/rg").path, env["DSHN_RG"])
         assertEquals("/h", env["DSH_HOME"])

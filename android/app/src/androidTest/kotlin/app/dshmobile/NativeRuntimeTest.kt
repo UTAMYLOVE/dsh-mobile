@@ -15,8 +15,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * The experimental Android-native runtime (native/build-runtime.py), run inside the real app process: the same SELinux
- * domain and W^X rules dsh would meet. Each program is a libdshn_*.so in nativeLibraryDir, found through LD_LIBRARY_PATH;
- * the agent reaches them by name through symlinks in a bin directory under filesDir. Skipped when the APK has no native
+ * domain and W^X rules dsh would meet. Each program and library is an unchanged libdshn_*.so in nativeLibraryDir; symlinks
+ * under filesDir give them back their names (bin/ for programs on PATH, lib/ for sonames on LD_LIBRARY_PATH). Skipped when the APK has no native
  * runtime (built without -Pdshm.nativeDir).
  */
 @RunWith(AndroidJUnit4::class)
@@ -26,6 +26,7 @@ class NativeRuntimeTest {
     private lateinit var bins: JSONObject
     private lateinit var home: File
     private lateinit var binDir: File
+    private lateinit var libLinks: File
 
     @Before fun setUp() {
         val manifest = try { app.assets.open("native/manifest.json").use { it.readBytes().toString(Charsets.UTF_8) } } catch (_: Exception) { null }
@@ -33,13 +34,16 @@ class NativeRuntimeTest {
         bins = JSONObject(manifest!!).getJSONObject("bins")
         home = File(app.filesDir, "native-test").apply { deleteRecursively(); mkdirs() }
         binDir = File(home, "bin").apply { mkdirs() }
+        libLinks = File(home, "lib").apply { mkdirs() }
         for (name in bins.keys()) Files.createSymbolicLink(File(binDir, name).toPath(), File(libDir, bins.getString(name)).toPath())
+        val libs = JSONObject(manifest).getJSONObject("libs")
+        for (soname in libs.keys()) Files.createSymbolicLink(File(libLinks, soname).toPath(), File(libDir, libs.getString(soname)).toPath())
     }
 
     private fun run(vararg cmd: String, env: Map<String, String> = emptyMap()): Pair<Int, String> {
         val pb = ProcessBuilder(*cmd).directory(home).redirectErrorStream(true)
         pb.environment().apply {
-            put("LD_LIBRARY_PATH", libDir.path)
+            put("LD_LIBRARY_PATH", "${libLinks.path}:${libDir.path}")
             put("HOME", home.path)
             put("TMPDIR", app.cacheDir.path)
             put("PATH", "${binDir.path}:/system/bin")

@@ -25,6 +25,8 @@ class NativeRunner(
     private val niceBinary: File? = ProotRunner.niceIfUsable(File(ProotRunner.SYSTEM_NICE)),
 ) {
     private val binDir = File(baseDir, "bin")
+    /** The libraries under their own sonames (symlinks to nativeLibraryDir), for LD_LIBRARY_PATH. */
+    private val libLinks = File(baseDir, "lib")
     private val shim = File(baseDir, "shim.mjs")
     private val cert = File(baseDir, "cert.pem")
 
@@ -41,18 +43,20 @@ class NativeRunner(
     /** Creates the bin symlinks and refreshes the shim and certificates; idempotent and cheap enough for every start. */
     fun prepare() {
         val m = requireNotNull(manifest) { "this build has no native runtime" }
-        binDir.mkdirs(); home.mkdirs(); tmpDir.mkdirs()
-        for ((name, lib) in m.bins) {
-            val link = File(binDir, name).toPath()
-            val target = File(nativeLibDir, lib).toPath()
-            // nativeLibraryDir changes when the app is updated: a link to the old directory is replaced.
-            if (Files.isSymbolicLink(link) && Files.readSymbolicLink(link) == target) continue
-            Files.deleteIfExists(link)
-            Files.createSymbolicLink(link, target)
-        }
+        binDir.mkdirs(); libLinks.mkdirs(); home.mkdirs(); tmpDir.mkdirs()
+        for ((name, lib) in m.bins) link(File(binDir, name), File(nativeLibDir, lib))
+        for ((soname, lib) in m.libs) link(File(libLinks, soname), File(nativeLibDir, lib))
         copyAsset("dshn/shim.mjs", shim)
         copyAsset("dshn/require-builtin.cjs", File(baseDir, "require-builtin.cjs"))
         copyAsset("native/cert.pem", cert)
+    }
+
+    /** nativeLibraryDir changes when the app is updated: a link to the old directory is replaced. */
+    private fun link(at: File, target: File) {
+        val link = at.toPath()
+        if (Files.isSymbolicLink(link) && Files.readSymbolicLink(link) == target.toPath()) return
+        Files.deleteIfExists(link)
+        Files.createSymbolicLink(link, target.toPath())
     }
 
     private fun copyAsset(name: String, dst: File) {
@@ -77,7 +81,7 @@ class NativeRunner(
         val pb = ProcessBuilder(args).directory(workDir)
         pb.environment().apply {
             clear()
-            put("LD_LIBRARY_PATH", nativeLibDir.path)
+            put("LD_LIBRARY_PATH", "${libLinks.path}:${nativeLibDir.path}")
             put("PATH", "${binDir.path}:/system/bin")
             put("HOME", home.path)
             put("TMPDIR", tmpDir.path)
@@ -96,14 +100,14 @@ class NativeRunner(
         return pb
     }
 
-    data class Manifest(val bins: Map<String, String>, val packages: Map<String, String>) {
+    data class Manifest(val bins: Map<String, String>, val libs: Map<String, String>, val packages: Map<String, String>) {
         companion object {
             fun parse(json: String): Manifest {
                 val o = Json.parseToJsonElement(json).jsonObject
                 fun strings(key: String) = (o[key] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content }.orEmpty()
                 val bins = strings("bins") + ("flock-addon" to o.getValue("flock").jsonPrimitive.content)
                 val packages = strings("packages")
-                return Manifest(bins, packages)
+                return Manifest(bins, strings("libs"), packages)
             }
         }
     }

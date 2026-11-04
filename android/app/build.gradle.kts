@@ -120,6 +120,8 @@ android {
     packaging {
         // Android only execs files from nativeLibraryDir; proot ships as lib*.so and must be extracted to disk.
         jniLibs.useLegacyPackaging = true
+        // The native runtime's programs and libraries ship exactly as Termux built them (native/build-runtime.py): no strip.
+        jniLibs.keepDebugSymbols += "**/libdshn_*.so"
     }
 
     buildFeatures {

@@ -127,8 +127,6 @@ jobs:
         with:
           node-version: "24"
       - uses: android-actions/setup-android@v4
-      - name: Install patchelf
-        run: sudo apt-get install -y --no-install-recommends patchelf
       # Termux keeps only the newest build of each package in its pool; the pinned .debs are kept here once downloaded.
       - name: Restore the pinned Termux packages
         uses: actions/cache@v4

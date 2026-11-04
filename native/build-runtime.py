@@ -9,8 +9,8 @@ Usage: build-runtime.py ABI USR FLOCK OUT
 
 Android only runs code an app ships in its native library directory (W^X: files under the app's data are never executable),
 and only files named lib*.so are installed there. So every executable and every shared library it needs becomes one
-libdshn_*.so; each NEEDED entry is rewritten to the new name and RUNPATH is dropped, so the app runs them with
-LD_LIBRARY_PATH set to the native library directory. manifest.json maps the program names to their files.
+libdshn_*.so, unchanged. manifest.json maps the program names and the libraries' sonames to their files; the app links
+them back under their own names (NativeRunner).
 """
 import json
 import os
@@ -67,27 +67,23 @@ def main() -> None:
             else:
                 sys.exit(f"{name} is neither in the Termux prefix nor part of Android: add its package to native/packages.txt")
 
-    def place(src: str, dst_name: str, soname: str | None) -> None:
+    # The files are copied byte for byte: rewriting ELF headers (patchelf) corrupted node's libraries for bionic's linker
+    # (SIGSEGV in prelink_image, run 41826201637). The app gives each library its own name back through a symlink
+    # (native/lib/<soname> -> nativeLibraryDir/libdshn_*.so) and runs with LD_LIBRARY_PATH on that directory.
+    def place(src: str, dst_name: str) -> None:
         dst = os.path.join(jni, dst_name)
         shutil.copyfile(src, dst)
         os.chmod(dst, 0o755)
-        args = ["patchelf", "--remove-rpath"]
-        for n in needed(src):
-            if n in libs:
-                args += ["--replace-needed", n, packaged_name(n)]
-        if soname:
-            args += ["--set-soname", soname]
-        subprocess.run(args + [dst], check=True)
 
     for name, path in libs.items():
-        place(path, packaged_name(name), packaged_name(name))
+        place(path, packaged_name(name))
     bins = {}
     for name, rel in BINS.items():
         bins[name] = f"libdshn_bin_{re.sub(r'[^A-Za-z0-9]', '_', name)}.so"
-        place(os.path.join(usr, rel), bins[name], None)
+        place(os.path.join(usr, rel), bins[name])
     for alias, target in ALIASES.items():
         bins[alias] = bins[target]
-    place(flock, "libdshn_flock.so", "libdshn_flock.so")
+    place(flock, "libdshn_flock.so")
 
     shutil.copyfile(os.path.join(usr, "etc", "tls", "cert.pem"), os.path.join(assets, "cert.pem"))
     versions = {}
@@ -101,7 +97,7 @@ def main() -> None:
         "abi": abi,
         "bins": bins,
         "flock": "libdshn_flock.so",
-        "libs": sorted(packaged_name(n) for n in libs),
+        "libs": {n: packaged_name(n) for n in sorted(libs)},
         "systemLibs": sorted(system),
         "packages": versions,
     }
