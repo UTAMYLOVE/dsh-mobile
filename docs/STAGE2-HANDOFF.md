@@ -12,6 +12,12 @@
 - CI GREEN: run 41731946451 attempt 2 at 562802e (attempt 1 had a one-off t23 flake: send stayed disabled, dsh healthy; passed in 3 other runs). Tag command given to the owner: `gh api repos/UTAMYLOVE/dsh-mobile/git/refs -f ref='refs/tags/v0.3.0+5' -f sha=562802e0170ac5443f85e312816628a5f25069bc`.
 - Not done / later: native dsh without proot (research); workflow sandbox under proot (needs dsh support); MCP with secrets (would break the keys rule).
 
+## 0.3.1 (after the 0.3.0 release)
+- 0.3.0+5 released from 562802e.
+- Owner rejected the first war room ("太簡陋"); approved mockup https://claude.ai/artifact/79MXTjKEKyKtPPcXhKR5ci (pink A+B+C, Combo board).
+- Built at 83485a4: ui/agents/WarRoomPink.kt, CoreOrb.kt, WarKit.kt, agents/WarDerive.kt; recorder samples every 5 s and gives every log row a reason; spirit pile-up fixed (flyers + PER_STAGE).
+- CI green: run 41801466939, 29/29 e2e. Tag when the owner says: `gh api repos/UTAMYLOVE/dsh-mobile/git/refs -f ref='refs/tags/v0.3.1+6' -f sha=83485a402bf6973875d870bc4a44accc879f0624`.
+
 ## State on 2026-11-04 03:05 (Taipei)
 - 0.2.0 is released: v0.2.0+4 at commit 0d06ebf. CI is green and it is published to UTAMYLOVE/dsh-mobile-releases.
 - Stage-2 requirements are in docs/superpowers/specs/2026-11-04-stage2-requirements.md (sections A–H.2).
