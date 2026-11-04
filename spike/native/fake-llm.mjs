@@ -10,8 +10,11 @@ function textOf(content) {
   return (content || []).map(b => b.type === 'text' ? b.text : b.type === 'tool_result' ? '[tool_result]' + JSON.stringify(b.content).slice(0, 300) : '').join('\n')
 }
 http.createServer(async (req, res) => {
+  fs.appendFileSync(LOG + '.conn', JSON.stringify({ t: Date.now(), method: req.method, url: req.url, len: req.headers['content-length'], te: req.headers['transfer-encoding'], enc: req.headers['content-encoding'] }) + '\n')
+  req.on('error', (e) => fs.appendFileSync(LOG + '.conn', JSON.stringify({ t: Date.now(), reqError: e.message }) + '\n'))
   let body = ''
   for await (const c of req) body += c
+  fs.appendFileSync(LOG + '.conn', JSON.stringify({ t: Date.now(), gotBytes: body.length }) + '\n')
   if (!req.url.includes('/messages')) { res.writeHead(404); res.end(); return }
   let j; try { j = JSON.parse(body) } catch { res.writeHead(400); res.end(); return }
   const id = ++n

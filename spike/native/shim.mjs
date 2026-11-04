@@ -37,3 +37,19 @@ fs.linkSync = function linkSync(existing, target) {
   }
 }
 syncBuiltinESMExports()
+
+// 4. Spike diagnostics (SPIKE_FETCH_LOG=path): every fetch's method, url, body size, status, and the full error chain.
+if (process.env.SPIKE_FETCH_LOG) {
+  const logPath = process.env.SPIKE_FETCH_LOG
+  const realFetch = globalThis.fetch
+  const sizeOf = (b) => b == null ? 0 : typeof b === 'string' ? Buffer.byteLength(b) : b.byteLength ?? b.size ?? -1
+  const chain = (e) => { const out = []; for (let x = e, i = 0; x && i < 6; x = x.cause, i++) out.push({ name: x.name, message: String(x.message).slice(0, 300), code: x.code, errno: x.errno, syscall: x.syscall }); return out }
+  const note = (o) => { try { fs.appendFileSync(logPath, JSON.stringify({ t: Date.now(), pid: process.pid, ...o }) + '\n') } catch {} }
+  globalThis.fetch = async function fetch(input, init) {
+    const url = String(input?.url ?? input)
+    const meta = { url: url.slice(0, 120), method: init?.method ?? input?.method ?? 'GET', bytes: sizeOf(init?.body), enc: init?.headers?.['content-encoding'] ?? init?.headers?.get?.('content-encoding') }
+    note({ ev: 'start', ...meta })
+    try { const r = await realFetch(input, init); note({ ev: 'status', status: r.status, ...meta }); return r } catch (e) { note({ ev: 'error', ...meta, chain: chain(e) }); throw e }
+  }
+  process.on('uncaughtExceptionMonitor', (e) => note({ ev: 'uncaught', chain: chain(e) }))
+}

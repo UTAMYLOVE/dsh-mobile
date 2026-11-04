@@ -7,7 +7,7 @@ export LD_LIBRARY_PATH=$P/lib
 export PATH=$P/bin:/system/bin
 export HOME=$N/home DSH_HOME=$N/dsh-home TMPDIR=$N/tmp
 export SSL_CERT_FILE=$P/etc/tls/cert.pem
-export DEEPSEEK_BASE_URL=http://10.0.2.2:3999 DEEPSEEK_API_KEY=fake-key DSH_TELEMETRY_MODE=DISABLED
+export SPIKE_FETCH_LOG=$N/r/fetch.log DEEPSEEK_BASE_URL=http://10.0.2.2:3999 DEEPSEEK_API_KEY=fake-key DSH_TELEMETRY_MODE=DISABLED
 mkdir -p $HOME $DSH_HOME $TMPDIR $N/ws $N/r
 NODE="$P/bin/node --import file://$N/shim.mjs --expose-internals"
 BIN=$N/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js

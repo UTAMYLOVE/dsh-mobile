@@ -96,4 +96,6 @@ jobs:
             dsh-final.txt
             results-*.json
             fake-llm.log
+            fake-llm.log.conn
+            fetch.log
           retention-days: 7

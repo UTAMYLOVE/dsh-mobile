@@ -18,4 +18,5 @@ adb shell sh /data/local/tmp/n/device-run.sh start
 for i in $(seq 1 90); do adb shell cat /data/local/tmp/n/r/dsh.out > dsh2.out 2>/dev/null; grep -q "dsh web:" dsh2.out && break; sleep 2; done
 node spike/native/client.mjs dsh2.out "$S/dsh/node_modules" second || true
 adb shell cat /data/local/tmp/n/r/dsh.out | grep -vE "token=" | tail -60 > dsh-final.txt
+adb shell cat /data/local/tmp/n/r/fetch.log > fetch.log 2>/dev/null
 true
