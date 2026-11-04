@@ -60,6 +60,23 @@ data class DshLayout(
         @Volatile
         var active: DshLayout = PROOT
 
+        /**
+         * Whether a conversation that runs in [cwd] belongs to the other mode: true = it was made in native mode (the host path)
+         * and proot runs now, false = made under proot (/root/...) and native runs now, null = it belongs here (or is unknown).
+         * dsh keeps a conversation's folder and cannot run it where that folder does not exist: it accepted the message and then
+         * never answered, so the app stood at 「傳送中」 (owner, 2026-11-05). Both are the same folder on the phone, under two names.
+         */
+        fun otherModeOf(cwd: String?, layout: DshLayout = active): Boolean? {
+            if (cwd.isNullOrEmpty()) return null
+            val ws = layout.workspace.trimEnd('/')
+            if (cwd == ws || cwd.startsWith("$ws/")) return null
+            return when {
+                layout.native && (cwd == AppPaths.GUEST_WORKSPACE || cwd.startsWith("/root/")) -> false
+                !layout.native && cwd.startsWith("/data/") -> true
+                else -> null
+            }
+        }
+
         /** Every workspace prefix a tool path may start with, to show paths relative to the workspace in either mode. */
         fun workspacePrefixes(): List<String> = listOf(active.workspace.trimEnd('/') + "/", AppPaths.GUEST_WORKSPACE + "/").distinct()
     }

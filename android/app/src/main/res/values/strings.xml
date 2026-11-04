@@ -168,6 +168,13 @@
 
     <string name="set_section_export">匯出</string>
     <string name="set_export_memory">匯出記憶備份</string>
+    <string name="list_mode_proot">一般模式</string>
+    <string name="list_mode_native">原生模式</string>
+    <string name="other_mode_title_proot">這個對話是在一般模式建立的</string>
+    <string name="other_mode_title_native">這個對話是在原生模式建立的</string>
+    <string name="other_mode_body">要在這裡繼續聊，dsh 得切換模式並重新啟動（大約 10 秒）。你打的字會留著，啟動好再按一次送出就好。</string>
+    <string name="other_mode_to_proot">切回一般模式</string>
+    <string name="other_mode_to_native">切到原生模式</string>
     <string name="set_section_native">實驗：原生模式</string>
     <string name="set_en_native">NATIVE</string>
     <string name="set_native_switch">用安卓原生方式跑 dsh（不用模擬 Linux）</string>

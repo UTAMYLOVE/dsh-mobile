@@ -352,6 +352,8 @@ sealed interface DockSend {
     data class AttachmentFailed(val name: String, val reason: String) : DockSend
     /** dsh refused the prompt; [code] is its [app.dshmobile.chat.ConversationStore.sendError] (the conversation shows it too). */
     data class Refused(val code: String) : DockSend
+    /** The open conversation belongs to the other mode ([madeNative]: it was made in native mode); nothing was sent. */
+    data class OtherMode(val madeNative: Boolean) : DockSend
 }
 
 /**
@@ -373,6 +375,7 @@ suspend fun sendFromDock(
     } catch (e: Exception) {
         return DockSend.NotCreated(failureCode(e))
     }
+    app.dshmobile.runtime.DshLayout.otherModeOf(session.index.cwdOf(id))?.let { return DockSend.OtherMode(it) }
     if (nav.openSessionId != id || nav.listOpen) nav.openSession(id)
     val store = session.conversation(id)
     return when (val out = sendWithAttachments(store, AttachmentSender(session.remote, loader), text, attachments)) {

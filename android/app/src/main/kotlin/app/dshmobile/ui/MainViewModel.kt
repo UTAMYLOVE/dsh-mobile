@@ -144,6 +144,25 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
      * attachments the text and the tiles stay until dsh took the message (reading and uploading come first and may fail); send
      * is off meanwhile.
      */
+    /**
+     * Set when a send was stopped because the open conversation belongs to the other mode (true: made in native mode): the
+     * activity asks whether to switch ([switchModeForConversation]). The text stays in the field.
+     */
+    var otherMode by mutableStateOf<Boolean?>(null)
+
+    /** The answer to [otherMode]: switch to the conversation's mode and restart dsh; the user sends again once it is up. */
+    fun switchModeForConversation() {
+        val native = otherMode ?: return
+        otherMode = null
+        app.runtimeMode.set(native)
+        app.settingsJobs.launch {
+            runCatching {
+                app.controller.stop()
+                app.controller.ensureRunning()
+            }.onFailure { app.errorLog.append("native", "restart for a conversation's mode failed: ${it.javaClass.simpleName}") }
+        }
+    }
+
     fun onDockSend() {
         val text = composerText
         val picked = attachments
@@ -174,6 +193,7 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
     private fun describe(outcome: DockSend, held: Boolean): String? = with(app) {
         when (outcome) {
             DockSend.Sent -> null
+            is DockSend.OtherMode -> { otherMode = outcome.madeNative; null }
             is DockSend.NotCreated -> getString(R.string.chat_create_failed, outcome.code)
             is DockSend.Refused ->
                 if (outcome.code == ConversationStore.OUT_OF_MEMORY) getString(R.string.attach_out_of_memory)

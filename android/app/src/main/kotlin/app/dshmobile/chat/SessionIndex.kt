@@ -27,6 +27,8 @@ data class SessionRow(
     val nextModel: String?,
     val updatedAt: Long,
     val running: Boolean,
+    /** The conversation's folder; see [app.dshmobile.runtime.DshLayout.otherModeOf]. */
+    val cwd: String? = null,
 )
 
 object SessionRows {
@@ -57,6 +59,7 @@ object SessionRows {
             nextModel = selection?.obj("next")?.string("model") ?: m.nextModel,
             updatedAt = m.updatedAt ?: 0L,
             running = m.running ?: false,
+            cwd = m.cwd,
         )
     }
 
@@ -85,6 +88,9 @@ class SessionIndex(private val tree: SessionTree, private val remote: IndexRemot
         .stateIn(scope, SharingStarted.Eagerly, SessionRows.rows(tree.state.value))
 
     fun titleOf(id: String): String? = SessionRows.titleOf(tree.state.value, id)
+
+    /** The folder dsh runs conversation [id] in, when the list knows it. */
+    fun cwdOf(id: String): String? = tree.state.value.summaries[id]?.cwd
 
     /** dsh's hits in dsh's order, as rows of top-level, unarchived conversations; [SessionRow.lastLine] is the snippet. */
     suspend fun search(query: String): List<SessionRow> {

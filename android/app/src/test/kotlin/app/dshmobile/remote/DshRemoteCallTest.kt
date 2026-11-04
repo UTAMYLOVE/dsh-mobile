@@ -188,7 +188,7 @@ class DshRemoteCallTest {
             listOf(
                 SessionSummary(
                     id = "session-a", parentId = "session-p", origin = "subagent", updatedAt = 1793684831517, running = true, blank = false,
-                    title = "Fake Session Title", lastLine = "All good", model = "deepseek-flash", nextModel = "deepseek-pro", label = "Alpha worker",
+                    title = "Fake Session Title", lastLine = "All good", model = "deepseek-flash", nextModel = "deepseek-pro", label = "Alpha worker", cwd = "/root/workspace",
                 ),
                 SessionSummary("session-b", null, null, null, null, null, null, null, null, null, null),
             ),

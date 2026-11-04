@@ -13,6 +13,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -298,6 +299,7 @@ class MainActivity : ComponentActivity() {
             if (s == null || openId == null) flowOf(false) else s.conversation(openId).state.map { it.running }.distinctUntilChanged()
         }
         val running by runningFlow.collectAsState(false)
+        vm.otherMode?.let { madeNative -> OtherModeDialog(madeNative, onSwitch = vm::switchModeForConversation, onCancel = { vm.otherMode = null }) }
         FogShell(
             status = state,
             connection = connection,
@@ -677,3 +679,20 @@ private fun EmptyPage(tab: ShellTab) {
         FogPanel(title = tab.zh, en = tab.en) {}
     }
 }
+
+/** 「這個對話是在一般模式建立的」: sending there would never get an answer; switching restarts dsh in that mode (owner, 2026-11-05). */
+@androidx.compose.runtime.Composable
+private fun OtherModeDialog(madeNative: Boolean, onSwitch: () -> Unit, onCancel: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onCancel,
+        title = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(if (madeNative) R.string.other_mode_title_native else R.string.other_mode_title_proot)) },
+        text = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(R.string.other_mode_body)) },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onSwitch, modifier = OTHER_MODE_SWITCH) {
+                androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(if (madeNative) R.string.other_mode_to_native else R.string.other_mode_to_proot))
+            }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(R.string.main_cancel)) } },
+    )
+}
+private val OTHER_MODE_SWITCH = androidx.compose.ui.Modifier.testTag("other-mode-switch")

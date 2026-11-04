@@ -189,7 +189,18 @@ private fun ConversationRow(
                 val round = RoundedCornerShape(50)
                 Box(Modifier.size(8.dp).glow(dot, 8.dp, round).background(dot, round).then(if (row.running) Modifier.semantics { contentDescription = running } else Modifier))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(title, color = Sakura.Text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(title, color = Sakura.Text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        // A conversation of the other mode: opening it is fine, sending asks to switch (DshLayout.otherModeOf).
+                        app.dshmobile.runtime.DshLayout.otherModeOf(row.cwd)?.let { madeNative ->
+                            Text(
+                                stringResource(if (madeNative) R.string.list_mode_native else R.string.list_mode_proot),
+                                color = Sakura.Text, fontSize = 10.sp,
+                                modifier = Modifier.background(Sakura.MilkTea.copy(alpha = .55f), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp)
+                                    .testTag(Tags.SESSION_ROW + row.id + "-mode"),
+                            )
+                        }
+                    }
                     if (sub.isNotEmpty()) Text(sub, color = Sakura.TextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }

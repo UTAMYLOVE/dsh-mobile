@@ -27,6 +27,8 @@ data class SessionSummary(
     val nextModel: String?,
     /** A subagent's label (`subagent.label`). */
     val label: String?,
+    /** The folder dsh runs this conversation in (`cwd`): proot's /root/workspace or the native mode's host path. */
+    val cwd: String? = null,
 ) {
     companion object {
         /** Null when the row has no `sessionId`. */
@@ -47,6 +49,7 @@ data class SessionSummary(
                 model = selection?.obj("lastUsed")?.string("model"),
                 nextModel = selection?.obj("next")?.string("model"),
                 label = values?.obj("subagent")?.string("label"),
+                cwd = json.string("cwd") ?: values?.string("workingDirectory"),
             )
         }
     }
