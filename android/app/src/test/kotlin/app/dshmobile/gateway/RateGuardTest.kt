@@ -36,4 +36,10 @@ class RateGuardTest {
         assertFalse(guard.tryAcquire(Provider.DEEPSEEK))
         assertTrue(guard.tryAcquire(Provider.ANTHROPIC))
     }
+
+    /** Owner, 2026-11-05: many agents at once tripped the fixed 120 a minute. */
+    @Test fun theLimitGrowsWithTheConcurrency() {
+        org.junit.Assert.assertEquals(120, RateGuard.forAgents(0))
+        org.junit.Assert.assertEquals(760, RateGuard.forAgents(32))
+    }
 }

@@ -2,6 +2,7 @@ package app.dshmobile.service
 
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.LocalGateway
+import app.dshmobile.gateway.RateGuard
 import app.dshmobile.gateway.NotifyRequest
 import app.dshmobile.gateway.Provider
 import app.dshmobile.log.ErrorLog
@@ -115,6 +116,8 @@ class DshController(
     private val killer: ProcessTreeKiller,
     /** proot's pid from its [Process] (production: [ProcessTreeKiller.pidOf]). */
     private val pidOf: (Process) -> Int? = ProcessTreeKiller::pidOf,
+    /** Requests per minute per provider the gateway allows for this start (production: [RateGuard.forAgents] of the concurrency). */
+    private val rateLimitPerMinute: () -> Int = { RateGuard.DEFAULT_PER_MINUTE },
     /** The layout of the next start (proot or the experimental native mode); read once per start and published as [DshLayout.active]. */
     private val layout: () -> DshLayout = { DshLayout.PROOT },
     private val clock: () -> Long = ::monotonicMs,
@@ -275,6 +278,7 @@ class DshController(
         val gateway = LocalGateway(
             token = token, vault = vault, meter = meter, upstreams = upstreams,
             onNotify = onNotify, onCostAlert = onCostAlert, onRateGuard = onRateGuard,
+            rateGuard = RateGuard(rateLimitPerMinute(), java.time.Clock.systemUTC()),
         )
         val gatewayPort = gateway.start()
         var run: Run? = null

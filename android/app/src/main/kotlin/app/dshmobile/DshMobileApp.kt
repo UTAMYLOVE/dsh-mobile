@@ -7,6 +7,7 @@ import android.net.ConnectivityManager
 import androidx.annotation.VisibleForTesting
 import androidx.work.Configuration
 import app.dshmobile.config.AgentConfigWriter
+import app.dshmobile.gateway.RateGuard
 import app.dshmobile.config.AppSkills
 import app.dshmobile.config.AgentPatchProvider
 import app.dshmobile.config.AgentSettingsStore
@@ -238,6 +239,11 @@ class DshMobileApp : Application(), Configuration.Provider {
                 } else proot.command(args, env).start()
             },
             layout = ::layoutForStart,
+            // Many agents at once make many requests: the runaway guard scales with the concurrency setting.
+            rateLimitPerMinute = {
+                val hasClaude = keyVault.get(Provider.ANTHROPIC) != null
+                RateGuard.forAgents(agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).maxConcurrent)
+            },
             vault = keyVault,
             meter = costMeter,
             errorLog = errorLog,
