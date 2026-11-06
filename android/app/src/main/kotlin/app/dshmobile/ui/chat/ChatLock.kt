@@ -69,7 +69,18 @@ fun LockedPage(onUnlock: () -> Unit, modifier: Modifier = Modifier) {
             Box(
                 Modifier.size(84.dp).background(Brush.linearGradient(listOf(Sakura.Background, Sakura.Primary)), RoundedCornerShape(28.dp)),
                 contentAlignment = Alignment.Center,
-            ) { Text("🔒", fontSize = 34.sp) }
+            ) {
+                // the lock drawn in the palette (an emoji would bring its own colors)
+                androidx.compose.foundation.Canvas(Modifier.size(40.dp)) {
+                    val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx() * size.width / 40.dp.toPx() * 1.4f)
+                    val u = size.width / 24f
+                    drawRoundRect(Sakura.Text, topLeft = androidx.compose.ui.geometry.Offset(5 * u, 11 * u), size = androidx.compose.ui.geometry.Size(14 * u, 9 * u), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2 * u), style = stroke)
+                    drawArc(Sakura.Text, 180f, 180f, false, topLeft = androidx.compose.ui.geometry.Offset(8 * u, 4 * u), size = androidx.compose.ui.geometry.Size(8 * u, 8 * u), style = stroke)
+                    drawLine(Sakura.Text, androidx.compose.ui.geometry.Offset(8 * u, 8 * u), androidx.compose.ui.geometry.Offset(8 * u, 11 * u), stroke.width)
+                    drawLine(Sakura.Text, androidx.compose.ui.geometry.Offset(16 * u, 8 * u), androidx.compose.ui.geometry.Offset(16 * u, 11 * u), stroke.width)
+                    drawCircle(Sakura.Text, 1.2f * u, androidx.compose.ui.geometry.Offset(12 * u, 15.5f * u))
+                }
+            }
             Text(stringResource(R.string.lock_title), color = Sakura.Text, fontSize = 18.sp, fontWeight = FontWeight.Black)
             Text(stringResource(R.string.lock_body), color = Sakura.TextSecondary, fontSize = 13.sp, lineHeight = 21.sp, textAlign = TextAlign.Center)
             FogButton(stringResource(R.string.lock_unlock), FogButtonKind.PINK, onUnlock, Modifier.testTag(LockTags.UNLOCK))

@@ -64,13 +64,27 @@ class WarRoomPinkTest {
                 }
             }
         }
-        for (tag in listOf(Tags.WAR_TICKER, Tags.WAR_TILES, Tags.WAR_CORE, Tags.WAR_FLOW, Tags.WAR_CHART, Tags.WAR_STACK, Tags.WAR_LOG)) {
+        // 0.5.0: four parts — summary strip, agent board, hero (core + switchable chart), timeline.
+        for (tag in listOf(Tags.WAR_TILES, Tags.WAR_FLOW, Tags.WAR_CORE, Tags.WAR_CHART, Tags.WAR_STACK, Tags.WAR_LOG)) {
             rule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
         }
-        rule.onNodeWithText("1.85").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("$1.85").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag(WarOpsTags.FILTER + "BLOCKED").performScrollTo().performClick()
+        rule.onNodeWithTag(WarOpsTags.ROW + "0").assertExists()
+        rule.onNodeWithTag(WarOpsTags.HERO_MODE + "COST").performScrollTo().performClick()
+        rule.onNodeWithTag(Tags.WAR_CHART).assertExists()
         rule.onNodeWithTag(Tags.WAR_CARD + "k1").performScrollTo().performClick()
         rule.onNodeWithTag(Tags.WAR_DETAIL + "k1", useUnmergedTree = true).assertExists()
         rule.onNodeWithTag(Tags.AGENT_STOP + "k1", useUnmergedTree = true).performScrollTo().performClick()
         assertEquals("k1", stopped)
+    }
+
+    @Test fun timelineMergesDecisionsAndLogAndFilters() {
+        val d = listOf(app.dshmobile.agents.Decision(app.dshmobile.agents.Decision.Kind.BLOCKED, "rm -rf", "拒絕", .9f))
+        val log = listOf(WarLogRow(1, "派出", "a"), WarLogRow(2, "錯誤", "b"))
+        val rows = timelineRows(d, log)
+        assertEquals(listOf("rm -rf", "b", "a"), rows.map { it.text })
+        assertEquals(listOf("b"), filtered(rows, TimelineFilter.FAILED).map { it.text })
+        assertEquals(3, filtered(rows, TimelineFilter.ALL).size)
     }
 }

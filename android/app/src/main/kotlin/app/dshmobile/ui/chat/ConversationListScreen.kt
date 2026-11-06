@@ -231,7 +231,7 @@ private fun ConversationRow(row: SessionRow, flags: RowFlags, onOpen: () -> Unit
                 Box(Modifier.size(8.dp).glow(dot, 8.dp, round).background(dot, round).then(if (row.running) Modifier.semantics { contentDescription = running } else Modifier))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (flags.pinned) Text("📌", fontSize = 12.sp, modifier = Modifier.semantics { contentDescription = "釘選" })
+                        if (flags.pinned) Badge(stringResource(R.string.list_pinned), Sakura.Primary, Color.White, Tags.SESSION_ROW + row.id + "-pinned")
                         Text(title, color = Sakura.Text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         if (flags.locked) Badge(stringResource(R.string.list_badge_locked), Sakura.Text, Color.White, Tags.SESSION_ROW + row.id + "-locked")
                         if (flags.temporary) Badge(stringResource(R.string.list_badge_temporary), Sakura.Aqua.copy(alpha = .7f), Sakura.Text, Tags.SESSION_ROW + row.id + "-temp")
