@@ -471,4 +471,8 @@
     <string name="share_shelf_note">照片、檔案、網址都可以</string>
     <string name="share_saved">已存到書架（%1$d 個）</string>
     <string name="share_save_failed">存不進書架（讀不到分享的內容）</string>
+    <string name="chat_more">更多：加入書架、數據</string>
+    <string name="set_section_status">聊天框狀態列</string>
+    <string name="set_en_status">STATUS LINE</string>
+    <string name="set_status_hint">勾選要顯示的項目，用 ↑ ↓ 排順序。在聊天框裡點「思考」「審查」可以直接換，點「上下文」打開數據。</string>
 </resources>

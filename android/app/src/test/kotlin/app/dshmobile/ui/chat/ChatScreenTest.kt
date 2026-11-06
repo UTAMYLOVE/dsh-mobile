@@ -231,7 +231,8 @@ class ChatScreenTest {
         assertEquals(listOf(2), h.reviews)
         h.state = h.state.copy(effort = "max", reviewRounds = 2)
         rule.waitForIdle()
-        rule.onNodeWithTag(Tags.CHAT_TUNING).assertTextEquals("思考 最高 · 審查 2 輪")
+        // 0.5.0: the tuning moved from under the header to the dock's status line (statusSegments).
+        rule.onNodeWithTag(Tags.CHAT_TUNING).assertDoesNotExist()
     }
 
     @Test fun withAClaudeKeyTheClaudeModelsAreChoicesToo() {

@@ -512,6 +512,34 @@ private fun ConversationPage(
         .collectAsState(null).value
     var todoOpen by androidx.compose.runtime.saveable.rememberSaveable(id) { mutableStateOf(false) }
 
+    // The dock's status line (0.5.0): model ▶ 思考 ▶ 審查 ▶ 上下文 ▶ tok/s ▶ 花費, in the owner's order; values only change when
+    // a reply ends, so the shell is not recomposed while one streams.
+    val statusConfig = appCtx?.statusLineConfig?.collectAsState()?.value ?: app.dshmobile.ui.shell.StatusLineConfig()
+    val segs = remember(statusConfig, activity, current, ui.effort, ui.reviewRounds, conversation.context, speeds, usage, loadedCost) {
+        statusConfig.apply(statusSegments(activity, AgentModels.displayName(current), ui.effort, ui.reviewRounds, conversation.context, speeds.lastOrNull(), usage.totalTokens.takeIf { !usage.isEmpty }, loadedCost))
+    }
+    LaunchedEffect(segs) { if (nav.statusLine != segs) nav.statusLine = segs }
+    val latestCurrent by androidx.compose.runtime.rememberUpdatedState(current)
+    androidx.compose.runtime.DisposableEffect(nav, id) {
+        nav.onStatus = { seg ->
+            when (seg) {
+                "model" -> ui.modelMenu = !ui.modelMenu
+                "effort" -> {
+                    val next = nextEffort(ui.effort)
+                    ui.effort = next
+                    AgentModels.find(latestCurrent)?.let { m -> session.scope.launch { store.selectModel(m, next ?: "high") } }
+                }
+                "review" -> ui.reviewRounds = (ui.reviewRounds + 1) % (app.dshmobile.chat.ReviewRounds.MAX + 1)
+                "work" -> nav.select(app.dshmobile.ui.shell.ShellTab.AGENTS)
+                else -> ui.dataOpen = !ui.dataOpen
+            }
+        }
+        onDispose {
+            nav.statusLine = emptyList()
+            nav.onStatus = {}
+        }
+    }
+
     val library = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.libraryStore
     val shelf = library?.state?.collectAsState()
     // Presented files (reports, deliverables, drawings) go on the bookshelf by themselves, once per path.
@@ -700,4 +728,27 @@ private fun exportConversation(session: ShellSession, dshApp: app.dshmobile.DshM
             onMessage(dshApp.getString(R.string.list_export_failed, failureCode(e)))
         }
     }
+}
+
+/** 思考 on the status line cycles 預設 → 低 → 高 → 最高 → 關 → 預設. */
+internal fun nextEffort(e: String?): String? = when (e) {
+    null -> "low"; "low" -> "high"; "high" -> "max"; "max" -> "off"; else -> null
+}
+
+/** Every status segment the conversation can show (the owner's config picks and orders them). */
+internal fun statusSegments(
+    activity: String?, model: String?, effort: String?, review: Int, context: ContextFill?, speed: Double?, tokens: Long?, costUsd: Double?,
+): List<app.dshmobile.ui.shell.StatusSeg> = buildList {
+    activity?.let { add(app.dshmobile.ui.shell.StatusSeg("work", if (it.length > 14) it.take(13) + "…" else it, description = it)) }
+    add(app.dshmobile.ui.shell.StatusSeg("model", (model ?: "模型").uppercase(), description = "模型 ${model.orEmpty()}，點一下換"))
+    val e = when (effort) { "off" -> "關"; "low" -> "低"; "high" -> "高"; "max" -> "最高"; else -> "預設" }
+    add(app.dshmobile.ui.shell.StatusSeg("effort", "思考 $e", description = "思考強度 $e，點一下換"))
+    add(app.dshmobile.ui.shell.StatusSeg("review", if (review > 0) "審查 $review" else "審查 關", description = "審查 $review 輪，點一下換"))
+    context?.let { c ->
+        val pct = c.fraction?.let { "${(it * 100).roundToInt()}%" } ?: shortTokens(c.tokens)
+        add(app.dshmobile.ui.shell.StatusSeg("context", "上下文 $pct", c.fraction, description = "上下文 $pct，點一下看數據"))
+    }
+    speed?.let { add(app.dshmobile.ui.shell.StatusSeg("speed", String.format(Locale.US, "%.0f tok/s", it))) }
+    tokens?.let { add(app.dshmobile.ui.shell.StatusSeg("tokens", "${shortTokens(it)} tok", description = "本對話 ${shortTokens(it)} tokens")) }
+    costUsd?.let { add(app.dshmobile.ui.shell.StatusSeg("cost", if (it < 0.01) String.format(Locale.US, "$%.4f", it) else String.format(Locale.US, "$%.2f", it), description = "本對話花費 ${String.format(Locale.US, "%.4f", it)} 美元")) }
 }

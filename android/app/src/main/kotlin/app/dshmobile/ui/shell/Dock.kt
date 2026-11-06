@@ -95,6 +95,9 @@ data class ComposerUi(
     /** A one-line state above the field (編輯中…), with ✕ to cancel it; null shows nothing. */
     val notice: String? = null,
     val onCancelNotice: () -> Unit = {},
+    /** The status line above the input row (0.5.0); empty hides it. */
+    val status: List<StatusSeg> = emptyList(),
+    val onStatus: (String) -> Unit = {},
 )
 
 /** A project shown as an assistant in the ＋ sheet (0.5.0 task 10): its id and name. */
@@ -134,6 +137,10 @@ internal fun Dock(
             .glass(DockShape)
             .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
     ) {
+        if (composer.status.isNotEmpty()) {
+            StatusLine(composer.status, composer.onStatus)
+            Spacer(Modifier.height(8.dp))
+        }
         if (composer.chips.isNotEmpty()) {
             ChipRow(composer.chips, composer.onRemoveChip)
             Spacer(Modifier.height(10.dp))

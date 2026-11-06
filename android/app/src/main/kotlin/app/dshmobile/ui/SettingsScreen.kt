@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
@@ -597,6 +598,9 @@ fun SettingsScreen(
                 }
                 Text(stringResource(R.string.set_effect_hint), style = MaterialTheme.typography.bodySmall)
             }
+            (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.let { dshApp ->
+                Section(R.string.set_section_status, R.string.set_en_status, 3) { StatusLineSettings(dshApp) }
+            }
 
             Section(R.string.set_section_budget, R.string.set_en_budget, 4) {
                 Text(stringResource(R.string.set_budget_today, String.format(Locale.US, "%.4f", todayUsd)))
@@ -807,3 +811,24 @@ internal fun formatUsd(v: Double): String = BigDecimal.valueOf(v).stripTrailingZ
 
 /** A positive, finite number; anything else (empty, text, zero, negative, NaN, Infinity) is null. */
 internal fun parseUsd(text: String): Double? = text.trim().toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 }
+
+/** 聊天框狀態列: which segments show (switch) and their order (↑ ↓); applies at once. */
+@Composable
+private fun StatusLineSettings(dshApp: app.dshmobile.DshMobileApp) {
+    val config by dshApp.statusLineConfig.collectAsStateWithLifecycle()
+    val all = config.order + app.dshmobile.ui.shell.StatusLineConfig.ALL.filter { it !in config.order }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        all.forEach { id ->
+            val on = id in config.order
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Checkbox(on, { dshApp.setStatusLine(config.toggled(id)) }, modifier = Modifier.testTag("status-cfg-$id"))
+                Text(app.dshmobile.ui.shell.StatusLineConfig.NAMES[id] ?: id, modifier = Modifier.weight(1f))
+                if (on) {
+                    androidx.compose.material3.TextButton(onClick = { dshApp.setStatusLine(config.moved(id, -1)) }) { Text("↑") }
+                    androidx.compose.material3.TextButton(onClick = { dshApp.setStatusLine(config.moved(id, 1)) }) { Text("↓") }
+                }
+            }
+        }
+        Text(stringResource(R.string.set_status_hint), style = MaterialTheme.typography.bodySmall)
+    }
+}

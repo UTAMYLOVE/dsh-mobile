@@ -16,6 +16,9 @@ class ShellNav {
     /** The list's tab (ListTab name) and the project page open in it, if any (0.5.0). */
     var listTab: String by mutableStateOf("ALL")
     var projectSlug: String? by mutableStateOf(null)
+    /** The open conversation's status line for the dock, and what a tap on a segment does (set by the chat page). */
+    var statusLine: List<StatusSeg> by mutableStateOf(emptyList())
+    var onStatus: (String) -> Unit = {}
 
     /**
      * Asked before [select] leaves the current tab (e.g. settings while a save runs: leaving would cancel it); false keeps

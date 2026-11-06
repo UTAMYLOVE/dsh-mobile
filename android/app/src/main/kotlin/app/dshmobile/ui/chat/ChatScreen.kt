@@ -561,6 +561,8 @@ class ChatUiCache {
     var reviewRounds by mutableIntStateOf(0)
     /** Whether the pull-out data panel is open. */
     var dataOpen by mutableStateOf(false)
+    /** Whether the model menu under the header is open (the status line's 模型 segment opens it too). */
+    var modelMenu by mutableStateOf(false)
     internal val blocks = BlockCache()
     internal var expanded by mutableStateOf(emptySet<String>())
     internal var scrollIndex = 0
@@ -631,11 +633,12 @@ fun ChatScreen(
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
-    var menuOpen by remember { mutableStateOf(false) }
+    var menuOpen by ui::modelMenu
+    var moreOpen by remember { mutableStateOf(false) }
     var tocOpen by remember { mutableStateOf(false) }
     // A contents entry to jump to: its message key; older pages load until it is in the list (or there are no more).
     var jumpTo by remember { mutableStateOf<String?>(null) }
-    BackHandler(enabled = menuOpen) { menuOpen = false }
+    BackHandler(enabled = menuOpen || moreOpen) { menuOpen = false; moreOpen = false }
 
     carryOpenThinking(ui, state.live?.attemptId, state.items)
     val cache = ui.blocks
@@ -749,29 +752,21 @@ fun ChatScreen(
             ChatHeader(
                 state.title.ifBlank { stringResource(R.string.chat_untitled) }, chip, onOpenList,
                 onToc = if (toc.isNotEmpty()) ({ tocOpen = true }) else null,
-            ) { menuOpen = !menuOpen }
+                onMore = if (dataPanel != null || onAddToShelf != null) ({ moreOpen = !moreOpen; menuOpen = false }) else null,
+            ) { menuOpen = !menuOpen; moreOpen = false }
             if (menuOpen) ModelMenu(state.models, state.effort, state.reviewRounds, onPickEffort, onPickReview) { id -> menuOpen = false; onPickModel(id) }
-            if (state.effort != null || state.reviewRounds > 0) {
-                Text(
-                    tuningSummary(state.effort, state.reviewRounds), color = Sakura.TextSecondary, fontSize = 12.sp,
-                    modifier = Modifier.padding(start = 12.dp).testTag(Tags.CHAT_TUNING),
-                )
-            }
-            if (state.statsLine != null) ContextBar(state.contextFill, state.statsLine)
-            if (state.activity != null || dataPanel != null || onAddToShelf != null) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        state.activity.orEmpty(), color = Sakura.RoseBrown, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).testTag(Tags.CHAT_ACTIVITY),
-                    )
+            // 0.5.0 (the owner: the header took ~40 % of the screen): thinking, review, context, totals and the working line moved
+            // into the dock's status line; 加入書架 and 數據 live behind ⋮.
+            if (moreOpen) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                     if (onAddToShelf != null) {
-                        TextButton(onClick = onAddToShelf, enabled = !onShelf, modifier = Modifier.testTag(Tags.CHAT_ADD_SHELF)) {
-                            Text(if (onShelf) "已在書架" else "加入書架", fontSize = 12.sp)
+                        TextButton(onClick = { moreOpen = false; onAddToShelf() }, enabled = !onShelf, modifier = Modifier.testTag(Tags.CHAT_ADD_SHELF)) {
+                            Text(if (onShelf) "已在書架" else "加入書架", fontSize = 13.sp)
                         }
                     }
                     if (dataPanel != null) {
-                        TextButton(onClick = { ui.dataOpen = !ui.dataOpen }, modifier = Modifier.testTag(Tags.CHAT_DATA)) {
-                            Text(if (ui.dataOpen) "收起數據" else "數據 ›", fontSize = 12.sp)
+                        TextButton(onClick = { moreOpen = false; ui.dataOpen = !ui.dataOpen }, modifier = Modifier.testTag(Tags.CHAT_DATA)) {
+                            Text(if (ui.dataOpen) "收起數據" else "數據", fontSize = 13.sp)
                         }
                     }
                 }
@@ -897,7 +892,7 @@ private val Pill = RoundedCornerShape(50)
 
 /** 「☰ 對話」, the title (one line, ellipsized) and the model chip, on a glass panel. */
 @Composable
-private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onToc: (() -> Unit)? = null, onChip: () -> Unit) {
+private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onToc: (() -> Unit)? = null, onMore: (() -> Unit)? = null, onChip: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().glass(RoundedCornerShape(FogDimens.Panel)).testTag(Tags.CHAT_HEADER).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -945,6 +940,14 @@ private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onTo
                 chip, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = TextStyle(fontFamily = FogFonts.ChakraPetch, fontSize = 11.sp, letterSpacing = 0.14.em, color = Sakura.Text),
             )
+        }
+        if (onMore != null) {
+            val moreLabel = stringResource(R.string.chat_more)
+            Box(
+                Modifier.minimumInteractiveComponentSize().size(36.dp).clip(Pill).clickable(role = Role.Button, onClick = onMore)
+                    .testTag(Tags.CHAT_MORE).semantics { contentDescription = moreLabel },
+                contentAlignment = Alignment.Center,
+            ) { Text("⋮", color = Sakura.Text, fontSize = 18.sp) }
         }
     }
 }

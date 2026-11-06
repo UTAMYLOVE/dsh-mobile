@@ -225,4 +225,6 @@ object Tags {
     const val SHEET_SHELF = "sheet-shelf"
     const val SHEET_EXPORT = "sheet-export"
     const val LIST_TAB = "list-tab-"
+    /** The chat header's ⋮ (加入書架・數據). */
+    const val CHAT_MORE = "chat-more"
 }

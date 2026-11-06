@@ -415,6 +415,8 @@ class MainActivity : ComponentActivity() {
                 onCancelNotice = vm::cancelEdit,
                 assistants = assistants,
                 onAssistant = { slug -> openAssistant(session, slug) },
+                status = if (nav.tab == ShellTab.CHAT && !nav.listOpen) nav.statusLine else emptyList(),
+                onStatus = { nav.onStatus(it) },
             ),
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,

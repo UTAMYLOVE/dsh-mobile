@@ -47,6 +47,7 @@ import app.dshmobile.ui.fog.EffectLevel
 import app.dshmobile.ui.fog.FogSemantics
 import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.ui.shell.Tags
+import app.dshmobile.ui.shell.StatusTags
 import app.dshmobile.ui.shell.buildSettingsEnv
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -637,9 +638,12 @@ class E2eTest {
         ui.send(FakeModel.HELLO)
         awaitBubble("reply")
         ui.await("the reply's stats line", 60_000, { chatState(id) }) { ui.textsOf(Tags.REPLY_STATS).any { it.contains("出 ") } }
-        ui.await("the conversation's totals", 60_000, { chatState(id) }) { ui.textsOf(Tags.CHAT_STATS).any { it.contains("tok") } }
+        // 0.5.0: the totals are the dock's status line; 數據 is behind the header's ⋮, and the 上下文/速度 segments open it too.
+        ui.awaitTag(StatusTags.SEG + "model", 60_000)
+        ui.tap(Tags.CHAT_MORE)
         ui.tap(Tags.CHAT_DATA)
         ui.awaitTag(Tags.CHAT_DATA_PANEL, 30_000)
+        ui.tap(Tags.CHAT_MORE)
         ui.tap(Tags.CHAT_DATA)
         ui.awaitNoTag(Tags.CHAT_DATA_PANEL, 30_000)
     }

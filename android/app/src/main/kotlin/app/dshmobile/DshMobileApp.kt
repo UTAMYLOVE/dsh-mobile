@@ -323,6 +323,16 @@ class DshMobileApp : Application(), Configuration.Provider {
     /** Small per-install UI choices (effect level, last conversation). */
     val uiPrefs: UiPrefs by lazy { UiPrefs(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)) }
 
+    /** Which segments the chat box's status line shows, in order (Settings). */
+    val statusLineConfig: kotlinx.coroutines.flow.MutableStateFlow<app.dshmobile.ui.shell.StatusLineConfig> by lazy {
+        kotlinx.coroutines.flow.MutableStateFlow(app.dshmobile.ui.shell.StatusLineConfig.load(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)))
+    }
+
+    fun setStatusLine(c: app.dshmobile.ui.shell.StatusLineConfig) {
+        statusLineConfig.value = c
+        app.dshmobile.ui.shell.StatusLineConfig.save(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE), c)
+    }
+
     /** The effect level the screen draws with: the user's choice held down by the jank governor. One per process. */
     val effectsController: EffectsController by lazy { EffectsController(uiPrefs) }
 
