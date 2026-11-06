@@ -175,6 +175,14 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     /** 朗讀 (0.5.0): one TextToSpeech for the app, created on first use. */
     val speaker: app.dshmobile.chat.Speaker by lazy { app.dshmobile.chat.Speaker(this) }
+    /** Always-on helpers (0.5.0): their specs; the schedules themselves live in dsh. */
+    val helperStore: app.dshmobile.chat.HelperStore by lazy { app.dshmobile.chat.HelperStore(java.io.File(filesDir, app.dshmobile.chat.HelperStore.FILE_NAME)) }
+
+    /** Wakes dsh for the soonest helper (WorkManager); call after helpers change and after every heartbeat. */
+    fun scheduleHelperWake() {
+        runCatching { app.dshmobile.heartbeat.HeartbeatScheduler.wakeForHelper(this, helperStore.nextRun()) }
+    }
+
     /** Projects (= custom assistants): `projects/<slug>/` in the workspace (0.5.0). */
     val projectStore: app.dshmobile.chat.ProjectStore by lazy { app.dshmobile.chat.ProjectStore(appPaths.workspace) }
     /** Pins, locks, temporary chats and projects of conversations (0.5.0); app-private, never in the workspace. */
@@ -409,6 +417,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             errorLog = errorLog,
             updateCheck = dailyUpdateCheck,
             serviceGaveUp = { serviceGaveUp.value },
+            afterRun = ::scheduleHelperWake,
         )
     }
 

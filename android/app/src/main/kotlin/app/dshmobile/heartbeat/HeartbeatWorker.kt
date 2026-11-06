@@ -40,6 +40,8 @@ class HeartbeatDeps(
     val updateCheck: DailyUpdateCheck? = null,
     /** `DshMobileApp.serviceGaveUp`: after a give-up only the user restarts dsh, so the heartbeat leaves it alone. */
     val serviceGaveUp: () -> Boolean = { false },
+    /** After every run: schedules the wake for the next always-on helper (0.5.0). */
+    val afterRun: () -> Unit = {},
 )
 
 /** Hands [deps] to [HeartbeatWorker]; any other worker class falls through to WorkManager's default factory. */
@@ -76,6 +78,9 @@ class HeartbeatWorker(
         deps.runtime.retain(HOLDER)
         try {
             withTimeout(deps.timeoutMs) { heartbeat() }
+            // A helper wake: keep dsh up while the helper's schedule comes due and runs.
+            val hold = inputData.getLong(HeartbeatScheduler.HOLD_MS_KEY, 0L).coerceIn(0L, 15 * 60_000L)
+            if (hold > 0) kotlinx.coroutines.delay(hold)
         } catch (e: TimeoutCancellationException) {
             deps.errorLog.append(TAG, "skipped: timed out after ${deps.timeoutMs} ms")
         } catch (e: CancellationException) {
@@ -88,6 +93,7 @@ class HeartbeatWorker(
                 deps.runtime.release(HOLDER)
                 deps.runtime.stopIfUnretained()
             }
+            runCatching { deps.afterRun() }
         }
         return Result.success()
     }

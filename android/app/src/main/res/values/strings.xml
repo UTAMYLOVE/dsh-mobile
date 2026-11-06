@@ -447,4 +447,16 @@
     <string name="toc_find">在這個對話裡找…</string>
     <string name="toc_empty">找不到</string>
     <string name="toc_note">點一句就跳到那裡；AI 的回覆有標題的也會列出來</string>
+    <string name="helpers_intro">小幫手會照時間自己做事，做完用通知告訴你。每個小幫手有自己的對話，點一下可以看它做過的結果。</string>
+    <string name="helpers_last">最近：%1$s</string>
+    <string name="helpers_lost">排程不見了</string>
+    <string name="helpers_recreate">重新建立</string>
+    <string name="helpers_delete">刪除小幫手</string>
+    <string name="helpers_new">＋ 新增小幫手</string>
+    <string name="helpers_examples">範例（點一下帶入，可以改）</string>
+    <string name="helpers_name">名字</string>
+    <string name="helpers_task">要做什麼</string>
+    <string name="helpers_time">時間（24 小時制，例如 08:00）</string>
+    <string name="helpers_create">建立</string>
+    <string name="helpers_note">手機要開著網路；App 會在時間快到時叫醒 dsh。也可以在任何對話裡直接說「每天早上 8 點給我晨報」。</string>
 </resources>

@@ -249,10 +249,11 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
         nav.openSession(id)
     }
     val tab = runCatching { ListTab.valueOf(nav.listTab) }.getOrDefault(ListTab.ALL)
+    val helperCount = dshApp?.helperStore?.helpers?.collectAsState()?.value?.size ?: 0
     val openProject = nav.projectSlug?.let { s -> projects.firstOrNull { it.slug == s } }
     Box(Modifier.fillMaxSize().padding(LocalPagePadding.current)) {
         ConversationListScreen(
-            tabs = { if (openProject == null) ListTabs(tab, { nav.listTab = it.name; nav.projectSlug = null }) },
+            tabs = { if (openProject == null) ListTabs(tab, { nav.listTab = it.name; nav.projectSlug = null }, helpers = helperCount) },
             tabPage = when {
                 openProject != null -> ({
                     ProjectPage(
@@ -292,7 +293,7 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
                         },
                     )
                 })
-                tab == ListTab.HELPERS -> helpersPage(session, nav, onMessage)
+                tab == ListTab.HELPERS -> ({ HelpersTab(session, nav, rows, onMessage) })
                 else -> null
             },
             pinned = split.first,
@@ -362,9 +363,55 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
     }
 }
 
-/** The 小幫手 tab's page (Task 12 fills it); null until then. */
-@Suppress("UNUSED_PARAMETER")
-private fun helpersPage(session: ShellSession, nav: ShellNav, onMessage: (String) -> Unit): (@Composable () -> Unit)? = null
+/**
+ * The 小幫手 tab: each helper is a conversation 「小幫手：名字」 whose dsh schedule runs its task; the page reads dsh's schedule
+ * catalog for their state, pauses by deleting the schedule (the spec stays), resumes or repairs by asking the helper again.
+ */
+@Composable
+private fun HelpersTab(session: ShellSession, nav: ShellNav, rows: List<app.dshmobile.chat.SessionRow>, onMessage: (String) -> Unit) {
+    val context = LocalContext.current
+    val dshApp = context.applicationContext as? app.dshmobile.DshMobileApp ?: return
+    val store = dshApp.helperStore
+    val helpers by store.helpers.collectAsState()
+    var refresh by remember { mutableStateOf(0) }
+    val catalog by androidx.compose.runtime.produceState(emptyList<app.dshmobile.remote.Reminder>(), session, refresh, helpers) {
+        value = try { session.remote.scheduleCatalog() } catch (e: CancellationException) { throw e } catch (_: Exception) { value }
+    }
+    val failedText = { e: Exception -> context.getString(R.string.chat_list_failed, failureCode(e)) }
+    fun run(block: suspend () -> Unit) = session.scope.launch(Dispatchers.Main.immediate) {
+        try { block() } catch (e: CancellationException) { throw e } catch (e: Exception) { onMessage(failedText(e)) }
+        refresh++
+        dshApp.scheduleHelperWake()
+    }
+    suspend fun ask(h: app.dshmobile.chat.Helper) {
+        val text = app.dshmobile.chat.Helpers.createPrompt(h)
+        session.conversation(h.sessionId).send(listOf(app.dshmobile.remote.PromptPart.Text(text)), text, emptyList())
+    }
+    suspend fun dropSchedules(h: app.dshmobile.chat.Helper) {
+        catalog.filter { it.sessionId == h.sessionId }.forEach { session.remote.scheduleDelete(h.sessionId, it.taskId) }
+    }
+    HelpersPage(
+        helpers,
+        stateOf = { h -> app.dshmobile.chat.Helpers.stateOf(h, catalog) },
+        lastLineOf = { h -> rows.firstOrNull { it.id == h.sessionId }?.lastLine },
+        now = System.currentTimeMillis(),
+        onOpen = { h -> nav.openSession(h.sessionId) },
+        onToggle = { h, on ->
+            run {
+                if (on) { store.setPaused(h.id, false); ask(h.copy(paused = false)) } else { dropSchedules(h); store.setPaused(h.id, true) }
+            }
+        },
+        onRecreate = { h -> run { ask(h) } },
+        onDelete = { h -> run { dropSchedules(h); store.remove(h.id) } },
+        onCreate = { name, task, timing ->
+            run {
+                val id = session.index.create()
+                runCatching { session.index.rename(id, app.dshmobile.chat.Helpers.TITLE_PREFIX + name.trim()) }
+                ask(store.add(id, name, task, timing))
+            }
+        },
+    )
+}
 
 @Composable
 private fun ConversationPage(
