@@ -234,10 +234,73 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
     val shelved = context.getString(R.string.list_shelved)
     val noScreenLock = context.getString(R.string.lock_no_screen_lock)
     val unlocker = LocalUnlocker.current
+    // Projects (= custom assistants): a conversation belongs to one by its folder, or by 移到專案.
+    val projectStore = dshApp?.projectStore
+    val projects = projectStore?.projects?.collectAsState()?.value.orEmpty()
+    LaunchedEffect(projectStore) { kotlinx.coroutines.withContext(Dispatchers.IO) { projectStore?.refresh() } }
+    fun slugOf(row: app.dshmobile.chat.SessionRow) = app.dshmobile.chat.ProjectStore.slugOfCwd(row.cwd) ?: convPrefs.projectOf[row.id]
+    val pickFiles = LocalPickFiles.current
+    val fileFailed = context.getString(R.string.project_file_failed)
+    var picker by remember { mutableStateOf<String?>(null) } // a row id for 移到專案, "" for 在專案裡開…
+    fun openInProject(slug: String) = act {
+        val id = session.index.createAt(app.dshmobile.chat.ProjectStore.cwdOf(app.dshmobile.runtime.DshLayout.active.workspace, slug))
+        prefs?.setProject(id, slug)
+        nav.projectSlug = null
+        nav.openSession(id)
+    }
+    val tab = runCatching { ListTab.valueOf(nav.listTab) }.getOrDefault(ListTab.ALL)
+    val openProject = nav.projectSlug?.let { s -> projects.firstOrNull { it.slug == s } }
     Box(Modifier.fillMaxSize().padding(LocalPagePadding.current)) {
         ConversationListScreen(
+            tabs = { if (openProject == null) ListTabs(tab, { nav.listTab = it.name; nav.projectSlug = null }) },
+            tabPage = when {
+                openProject != null -> ({
+                    ProjectPage(
+                        openProject, rows.filter { slugOf(it) == openProject.slug },
+                        onBack = { nav.projectSlug = null },
+                        onSave = { text -> projectStore?.update(openProject.slug, instructions = text) },
+                        onAssistant = { on -> projectStore?.update(openProject.slug, assistant = on) },
+                        onAddFile = {
+                            pickFiles { uris ->
+                                session.scope.launch(Dispatchers.IO) {
+                                    for (u in uris) {
+                                        val ok = runCatching {
+                                            val name = context.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                                                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "檔案"
+                                            val bytes = context.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: error("unreadable")
+                                            projectStore?.addFile(openProject.slug, name, bytes)
+                                        }.isSuccess
+                                        if (!ok) kotlinx.coroutines.withContext(Dispatchers.Main) { onMessage(fileFailed) }
+                                    }
+                                }
+                            }
+                        },
+                        onRemoveFile = { f -> projectStore?.removeFile(openProject.slug, f) },
+                        onOpenChat = { id -> nav.openSession(id) },
+                        onNewChat = { openInProject(openProject.slug) },
+                    )
+                })
+                tab == ListTab.PROJECTS || tab == ListTab.ASSISTANTS -> ({
+                    ProjectsTab(
+                        projects, tab == ListTab.ASSISTANTS, chatsOf = { s -> rows.count { slugOf(it) == s } },
+                        onOpen = { s -> nav.projectSlug = s },
+                        onCreate = { name, template ->
+                            session.scope.launch(Dispatchers.IO) {
+                                val p = projectStore?.create(name, template)
+                                if (p != null) kotlinx.coroutines.withContext(Dispatchers.Main) { nav.projectSlug = p.slug }
+                            }
+                        },
+                    )
+                })
+                tab == ListTab.HELPERS -> helpersPage(session, nav, onMessage)
+                else -> null
+            },
             pinned = split.first,
-            flags = { id -> app.dshmobile.ui.chat.RowFlags(id in convPrefs.pinned, id in convPrefs.locked, id in convPrefs.temporary, convPrefs.projectOf[id]) },
+            flags = { id ->
+                val row = rows.firstOrNull { it.id == id }
+                val slug = row?.let(::slugOf) ?: convPrefs.projectOf[id]
+                app.dshmobile.ui.chat.RowFlags(id in convPrefs.pinned, id in convPrefs.locked, id in convPrefs.temporary, slug?.let { s -> projects.firstOrNull { it.slug == s }?.name })
+            },
             actions = app.dshmobile.ui.chat.ListActions(
                 onPin = prefs?.let { p -> { id: String, on: Boolean -> p.setPinned(id, on) } },
                 onLock = prefs?.let { p ->
@@ -260,6 +323,8 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
                 },
                 onExport = dshApp?.let { a -> { id: String -> exportConversation(session, a, rows.firstOrNull { it.id == id }?.title.orEmpty(), id, onMessage) } },
                 onNewTemporary = prefs?.let { p -> { act { val id = session.index.create(); p.setTemporary(id, true); nav.openSession(id) } } },
+                onMove = prefs?.let { { id: String -> picker = id } },
+                onNewInProject = { picker = "" },
             ),
             groups = split.second,
             query = query,
@@ -279,8 +344,27 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
                 if (nav.openSessionId == null) nav.select(ShellTab.OVERVIEW)
             },
         )
+        picker?.let { target ->
+            ProjectPicker(
+                projects,
+                context.getString(if (target.isEmpty()) R.string.project_new_in_title else R.string.project_move_title),
+                allowNone = target.isNotEmpty() && convPrefs.projectOf[target] != null,
+                onPick = { slug ->
+                    picker = null
+                    when {
+                        slug == null -> Unit
+                        target.isEmpty() -> openInProject(slug)
+                        else -> prefs?.setProject(target, slug.ifEmpty { null })
+                    }
+                },
+            )
+        }
     }
 }
+
+/** The 小幫手 tab's page (Task 12 fills it); null until then. */
+@Suppress("UNUSED_PARAMETER")
+private fun helpersPage(session: ShellSession, nav: ShellNav, onMessage: (String) -> Unit): (@Composable () -> Unit)? = null
 
 @Composable
 private fun ConversationPage(

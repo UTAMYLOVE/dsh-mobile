@@ -1,6 +1,11 @@
 package app.dshmobile.ui
 
 import app.dshmobile.ui.chat.LocalUnlocker
+import app.dshmobile.ui.chat.failureCode
+import app.dshmobile.runtime.DshLayout
+import app.dshmobile.chat.ProjectStore
+import app.dshmobile.ui.shell.AssistantChip
+import app.dshmobile.ui.chat.LocalPickFiles
 import app.dshmobile.ui.chat.UnlockedChats
 import app.dshmobile.ui.chat.Unlocker
 import android.app.AlertDialog
@@ -154,6 +159,17 @@ class MainActivity : ComponentActivity() {
         if (r.resultCode == RESULT_OK) then?.invoke()
     }
     private var stoppedAt = 0L
+    // Reference files for a project (0.5.0).
+    private var onPicked: ((List<Uri>) -> Unit)? = null
+    private val projectFilePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val then = onPicked
+        onPicked = null
+        then?.invoke(uris)
+    }
+    private fun pickFiles(then: (List<Uri>) -> Unit) {
+        onPicked = then
+        projectFilePicker.launch(arrayOf("*/*"))
+    }
     private val unlocker = object : Unlocker {
         private val keyguard get() = getSystemService(android.app.KeyguardManager::class.java)
         override fun canLock(): Boolean = keyguard?.isDeviceSecure == true
@@ -211,7 +227,7 @@ class MainActivity : ComponentActivity() {
             val level by app.effectsController.effective.collectAsState()
             val effects = remember(level, reducedMotion) { effectsFor(level, reducedMotion) }
             FogTheme(effects) {
-                androidx.compose.runtime.CompositionLocalProvider(LocalUnlocker provides unlocker) { Shell() }
+                androidx.compose.runtime.CompositionLocalProvider(LocalUnlocker provides unlocker, LocalPickFiles provides ::pickFiles) { Shell() }
             }
         }
         trackJank()
@@ -351,6 +367,8 @@ class MainActivity : ComponentActivity() {
             if (s == null || openId == null) flowOf(false) else s.conversation(openId).state.map { it.running }.distinctUntilChanged()
         }
         val running by runningFlow.collectAsState(false)
+        val projects by app.projectStore.projects.collectAsState()
+        val assistants = remember(projects) { projects.filter { it.assistant }.map { AssistantChip(it.slug, it.name) } }
         vm.otherMode?.let { madeNative -> OtherModeDialog(madeNative, onSwitch = vm::switchModeForConversation, onCancel = { vm.otherMode = null }) }
         FogShell(
             status = state,
@@ -375,6 +393,8 @@ class MainActivity : ComponentActivity() {
                 onVoice = ::listen,
                 onCamera = ::takePicture,
                 onCancelNotice = vm::cancelEdit,
+                assistants = assistants,
+                onAssistant = { slug -> openAssistant(session, slug) },
             ),
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,
@@ -478,6 +498,28 @@ class MainActivity : ComponentActivity() {
             LinkOpen.OPENED -> Unit
             LinkOpen.REFUSED -> toast(getString(R.string.chat_link_refused))
             LinkOpen.NO_BROWSER -> toast(getString(R.string.chat_no_browser))
+        }
+    }
+
+    /** A 小助理 from the ＋ sheet: a new conversation in its project folder; "" (新增小助理) opens the list's 小助理 tab. */
+    private fun openAssistant(session: ShellSession?, slug: String) {
+        if (slug.isEmpty() || session == null) {
+            nav.listTab = "ASSISTANTS"
+            nav.projectSlug = null
+            nav.select(ShellTab.CHAT)
+            nav.listOpen = true
+            return
+        }
+        lifecycleScope.launch {
+            try {
+                val id = session.index.createAt(ProjectStore.cwdOf(DshLayout.active.workspace, slug))
+                app.conversationPrefs.setProject(id, slug)
+                nav.openSession(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                toast(getString(R.string.chat_list_failed, failureCode(e)))
+            }
         }
     }
 

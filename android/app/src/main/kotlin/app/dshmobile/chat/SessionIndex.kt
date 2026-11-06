@@ -116,6 +116,13 @@ class SessionIndex(private val tree: SessionTree, private val remote: IndexRemot
         return job.await()
     }
 
+    /** A new conversation whose folder is [cwd] (a project's: dsh then reads that folder's AGENTS.md); returns its id. */
+    suspend fun createAt(cwd: String): String {
+        val id = remote.createSessionAt(cwd)
+        tree.refreshNow()
+        return id
+    }
+
     suspend fun rename(id: String, title: String) {
         val stored = remote.rename(id, title)
         tree.setTitle(id, stored)

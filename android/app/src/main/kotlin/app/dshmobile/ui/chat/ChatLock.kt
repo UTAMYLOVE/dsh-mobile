@@ -38,6 +38,9 @@ interface Unlocker {
 
 val LocalUnlocker = staticCompositionLocalOf<Unlocker?> { null }
 
+/** Opens the system file picker; the callback gets what was picked (nothing when cancelled). */
+val LocalPickFiles = staticCompositionLocalOf<((List<android.net.Uri>) -> Unit) -> Unit> { { } }
+
 /** Locked conversations opened since the app came to the front; [relock] forgets them (the app stayed in the background). */
 object UnlockedChats {
     private val _ids = MutableStateFlow<Set<String>>(emptySet())

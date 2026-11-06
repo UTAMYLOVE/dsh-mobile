@@ -175,6 +175,8 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     /** 朗讀 (0.5.0): one TextToSpeech for the app, created on first use. */
     val speaker: app.dshmobile.chat.Speaker by lazy { app.dshmobile.chat.Speaker(this) }
+    /** Projects (= custom assistants): `projects/<slug>/` in the workspace (0.5.0). */
+    val projectStore: app.dshmobile.chat.ProjectStore by lazy { app.dshmobile.chat.ProjectStore(appPaths.workspace) }
     /** Pins, locks, temporary chats and projects of conversations (0.5.0); app-private, never in the workspace. */
     val conversationPrefs: app.dshmobile.chat.ConversationPrefs by lazy {
         app.dshmobile.chat.ConversationPrefs(java.io.File(filesDir, app.dshmobile.chat.ConversationPrefs.FILE_NAME))

@@ -13,6 +13,9 @@ class ShellNav {
     var tab: ShellTab by mutableStateOf(ShellTab.OVERVIEW)
     var openSessionId: String? by mutableStateOf(null)
     var listOpen: Boolean by mutableStateOf(false)
+    /** The list's tab (ListTab name) and the project page open in it, if any (0.5.0). */
+    var listTab: String by mutableStateOf("ALL")
+    var projectSlug: String? by mutableStateOf(null)
 
     /**
      * Asked before [select] leaves the current tab (e.g. settings while a save runs: leaving would cancel it); false keeps
