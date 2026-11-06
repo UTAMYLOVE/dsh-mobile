@@ -44,6 +44,9 @@ interface ChatRemote {
 
     /** Runs a dsh slash command in [sessionId] (e.g. `/permission auto`). The default does nothing (test fakes). */
     suspend fun runCommand(sessionId: String, line: String) {}
+
+    /** `session/fork` at [atSeq] (inclusive); returns the new conversation's id. Fakes that never branch need not implement it. */
+    suspend fun fork(sessionId: String, atSeq: Long?): String = throw UnsupportedOperationException("fork")
 }
 
 /** A prompt shown as a bubble until dsh records it as a user message. [queued]: a turn was running when it was sent. */

@@ -122,6 +122,29 @@ class DshRemote(
         return field(CREATE, value, "sessionId")
     }
 
+    /** A new session whose folder is [cwd] (a project's folder under the workspace). Returns its id. */
+    override suspend fun createSessionAt(cwd: String): String {
+        val value = call(CREATE, request { put("cwd", cwd) })
+        return field(CREATE, value, "sessionId")
+    }
+
+    /** `session/fork`: a new conversation holding [sessionId]'s events up to and including [atSeq] (null: the last finished turn). */
+    override suspend fun fork(sessionId: String, atSeq: Long?): String {
+        val value = call(FORK, request { put("sessionId", sessionId); if (atSeq != null) put("atSeq", atSeq) })
+        return field(FORK, value, "sessionId")
+    }
+
+    /** Every reminder dsh holds, in every conversation (`schedule/catalog`). */
+    override suspend fun scheduleCatalog(): List<Reminder> {
+        val value = call(CATALOG, buildJsonObject {})
+        return withContext(codec) { (value as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.let(Reminder::from) } }
+    }
+
+    /** Removes reminder [taskId] of conversation [sessionId] (`schedule/delete`). */
+    override suspend fun scheduleDelete(sessionId: String, taskId: String) {
+        call(SCHEDULE_DELETE, request { put("id", taskId); put("sessionId", sessionId) })
+    }
+
     /** Always `mode:"queue"`: stage 1 never steers a running turn. The content (inline pictures) is built on [codec]. */
     override suspend fun prompt(sessionId: String, requestId: String, parts: List<PromptPart>) {
         val args = withContext(codec) {
@@ -250,6 +273,9 @@ class DshRemote(
         const val LIST = "session/list"
         const val SEARCH = "session/search"
         const val CREATE = "session/create"
+        const val FORK = "session/fork"
+        const val CATALOG = "schedule/catalog"
+        const val SCHEDULE_DELETE = "schedule/delete"
         const val RENAME = "session/rename"
         const val UPLOAD = "fileUploads/upload"
         /** `namespace/method`, including dsh's `$events/result`; keeps the request path on `/api/`. */

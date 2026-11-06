@@ -277,4 +277,35 @@ class DshRemoteCallTest {
             caller.shutdown()
         }
     }
+
+    // ---- 0.5.0 Task 1: fork, create-at, schedules (shapes recorded from dsh 0.2.1-rc.5, 2026-11-06) ----
+
+    @Test fun forkPostsTheBoundaryAndReturnsTheNewId() = runBlocking {
+        answer = { ok("""{"sessionId":"session-new"}""") }
+        assertEquals("session-new", remote.fork("session-a", 41L))
+        val args = Json.parseToJsonElement(rpcBodies.last()).jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject["request"]!!.jsonObject
+        assertEquals("session-a", args["sessionId"]!!.jsonPrimitive.content)
+        assertEquals(41L, args["atSeq"]!!.jsonPrimitive.content.toLong())
+    }
+
+    @Test fun createAtPostsCwd() = runBlocking {
+        answer = { ok("""{"sessionId":"session-p"}""") }
+        assertEquals("session-p", remote.createSessionAt("/w/projects/p-1"))
+        val args = Json.parseToJsonElement(rpcBodies.last()).jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject["request"]!!.jsonObject
+        assertEquals("/w/projects/p-1", args["cwd"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun catalogParsesReminders() = runBlocking {
+        answer = { ok("""[{"id":"schedule-1","kind":"daily","title":"台股晨報","prompt":"請給我今天的台股晨報","time":"08:00:00.000","timeZone":"Asia/Taipei","scheduledAt":"2026-11-07T00:00:00.000Z","sessionId":"session-h","status":"active"}]""") }
+        val r = remote.scheduleCatalog().single()
+        assertEquals(Reminder("schedule-1", "session-h", "台股晨報", "請給我今天的台股晨報", "daily", "08:00:00.000", "Asia/Taipei", 1794009600000L, true), r)
+    }
+
+    @Test fun deleteSendsTheTaskAndItsSession() = runBlocking {
+        answer = { ok("""{"id":"schedule-1","deleted":true}""") }
+        remote.scheduleDelete("session-h", "schedule-1")
+        val args = Json.parseToJsonElement(rpcBodies.last()).jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject["request"]!!.jsonObject
+        assertEquals("schedule-1", args["id"]!!.jsonPrimitive.content)
+        assertEquals("session-h", args["sessionId"]!!.jsonPrimitive.content)
+    }
 }

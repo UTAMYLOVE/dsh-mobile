@@ -74,3 +74,29 @@ private fun JsonObject.long(key: String): Long? =
     (this[key] as? JsonPrimitive)?.takeUnless { it.isString }?.let { it.longOrNull ?: it.doubleOrNull?.toLong() }
 
 private fun JsonObject.boolean(key: String): Boolean? = (this[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+
+/** One dsh reminder (`schedule/catalog`): a task bound to the conversation [sessionId]. [scheduledAt] is its next run (epoch ms). */
+data class Reminder(
+    val taskId: String,
+    val sessionId: String,
+    val title: String,
+    val prompt: String,
+    /** `daily`, `weekly`, `every` or `once`, as dsh names it. */
+    val kind: String,
+    val time: String?,
+    val timeZone: String?,
+    val scheduledAt: Long?,
+    val active: Boolean,
+) {
+    companion object {
+        fun from(o: JsonObject): Reminder? {
+            val id = o.string("id") ?: return null
+            val session = o.string("sessionId") ?: return null
+            val at = o.string("scheduledAt")?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+            return Reminder(
+                id, session, o.string("title").orEmpty(), o.string("prompt").orEmpty(), o.string("kind").orEmpty(),
+                o.string("time"), o.string("timeZone"), at, (o.string("status") ?: "active") == "active",
+            )
+        }
+    }
+}

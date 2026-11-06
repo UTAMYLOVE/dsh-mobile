@@ -32,6 +32,8 @@ interface IndexRemote {
     suspend fun listSessions(): List<SessionSummary>
     suspend fun searchSessions(query: String): List<SearchHit>
     suspend fun createSession(workspaceId: String?): String
+    /** A new conversation in folder [cwd] (a project). */
+    suspend fun createSessionAt(cwd: String): String = throw UnsupportedOperationException("createSessionAt")
     suspend fun rename(sessionId: String, title: String): String
     suspend fun archive(sessionId: String)
     fun control(): Flow<StreamSignal>
@@ -55,6 +57,7 @@ data class SessionTreeState(
 object SessionTreeReducer {
     private val KEPT = setOf(
         "title", "turnOutline", "modelSelection", "subagent", "tokenUsage", "sessionStats", "contextPressure", "subagentTiming", "inbox",
+        "todos", "plan", "workingDirectory",
     )
 
     /** The list is the new baseline (children included). */

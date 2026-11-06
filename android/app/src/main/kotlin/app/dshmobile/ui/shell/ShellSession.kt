@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** What the shell needs from one running dsh; `DshRemote` implements it (later tasks widen it with chat, index and agents). */
-interface ShellRemote : ChatRemote, IndexRemote, AgentsRemote {
+interface ShellRemote : ChatRemote, IndexRemote, AgentsRemote, app.dshmobile.chat.ScheduleRemote {
     override val muxState: StateFlow<MuxState>
     fun close()
 }
