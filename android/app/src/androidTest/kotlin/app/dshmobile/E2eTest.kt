@@ -48,6 +48,11 @@ import app.dshmobile.ui.fog.FogSemantics
 import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.shell.StatusTags
+import app.dshmobile.ui.chat.HelperTags
+import app.dshmobile.ui.chat.ProjectTags
+import app.dshmobile.chat.ComposeMode
+import app.dshmobile.ui.chat.ResultTags
+import app.dshmobile.ui.chat.WorkTags
 import app.dshmobile.ui.shell.buildSettingsEnv
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -688,7 +693,7 @@ class E2eTest {
 
     /** Stage 2 batch 2: the app's skills are in dsh's skill root after a start. */
     @Test fun t28_theAppSkillsAreInstalled() = shell {
-        for (name in listOf("dshm-novel", "dshm-daily-brief", "dshm-bookkeeping", "dshm-phone", "dshm-pages")) {
+        for (name in listOf("dshm-novel", "dshm-daily-brief", "dshm-bookkeeping", "dshm-phone", "dshm-pages", "dshm-followups", "dshm-contemplate", "dshm-research", "dshm-deliverable", "dshm-draw", "dshm-weather")) {
             val f = java.io.File(app.appPaths.dshHome, "skills/$name/SKILL.md")
             assertTrue("$name is installed", f.isFile && f.readText().startsWith("---\nname: $name"))
         }
@@ -696,6 +701,58 @@ class E2eTest {
         val sp = java.io.File(app.appPaths.dshHome, "skills/dshm-sp-using-superpowers")
         assertTrue("superpowers is installed", java.io.File(sp, "SKILL.md").readText().startsWith("---\nname: dshm-sp-using-superpowers"))
         assertTrue(java.io.File(sp, "references/dsh-tools.md").isFile && java.io.File(sp, "LICENSE-superpowers").isFile)
+    }
+
+    /** 0.5.0: a reply's hidden follow-up block becomes chips, and the block itself is not in the bubble. */
+    @Test fun t29_followUpSuggestionsBecomeChips() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.FOLLOWUPS)
+        awaitBubble("E2E answer with suggestions")
+        ui.awaitTag(Tags.FOLLOWUP_CHIP + "0", 60_000)
+        assertTrue("the marker block is hidden", bubbleTexts().none { it.contains("dshm-followups") })
+    }
+
+    /** 0.5.0: dsh's todo_write list shows as the progress bar under the header. */
+    @Test fun t30_todosShowAsTheProgressBar() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.TODOS)
+        awaitBubble(FakeModel.TODOS_REPLY)
+        ui.awaitTag(WorkTags.TODO_BAR, 60_000)
+        ui.await("the bar counts 1 of 3") { ui.nodes(hasText("1 / 3", substring = true), unmerged = true).isNotEmpty() }
+    }
+
+    /** 0.5.0: a presented file is a card in the chat and lands on the bookshelf once. */
+    @Test fun t31_aPresentedFileIsACardAndOnTheShelf() = shell {
+        ui.newConversation()
+        ui.send(FakeModel.PRESENT)
+        awaitBubble(FakeModel.PRESENT_REPLY, 180_000)
+        ui.await("a present card", 60_000) { ui.nodes(hasTagPrefix(ResultTags.PRESENT), unmerged = true).isNotEmpty() }
+        ui.await("the file on the shelf", 30_000) { app.libraryStore.state.value.files.count { it.path == FakeModel.PRESENT_PATH } == 1 }
+    }
+
+    /** 0.5.0: 計畫 runs dsh's /plan; the plan review is the plan card, and 同意 lets it go on. */
+    @Test fun t32_planModeShowsThePlanCardAndApprovalGoesOn() = shell {
+        ui.newConversation()
+        ui.tap(Tags.ATTACH)
+        ui.tap(Tags.MODE + ComposeMode.PLAN.name)
+        ui.send(FakeModel.PLAN)
+        ui.awaitTag(WorkTags.PLAN_CARD, 180_000)
+        ui.tap(WorkTags.PLAN_APPROVE)
+        awaitBubble(FakeModel.PLAN_REPLY, 120_000)
+    }
+
+    /** 0.5.0: a helper made from the 小幫手 tab gets its dsh schedule and shows as active. */
+    @Test fun t33_aHelperGetsItsSchedule() = shell {
+        ui.tap(Tags.TAB + ShellTab.CHAT.name)
+        ui.await("the chat tab") { ui.has(Tags.NEW_SESSION) || ui.has(Tags.CHAT_LIST_BUTTON) }
+        if (!ui.has(Tags.NEW_SESSION)) ui.tap(Tags.CHAT_LIST_BUTTON)
+        ui.tap(ProjectTags.TAB + "HELPERS")
+        ui.tap(HelperTags.EXAMPLE + "2")
+        ui.tap(HelperTags.CREATE)
+        ui.await("the helper's schedule in dsh", 180_000) {
+            val h = app.helperStore.helpers.value.firstOrNull() ?: return@await false
+            runCatching { runBlocking { app.shellSessions.current.value!!.remote.scheduleCatalog() } }.getOrNull().orEmpty().any { it.sessionId == h.sessionId }
+        }
     }
 
     private fun awaitBubble(text: String, timeoutMs: Long = 120_000) =

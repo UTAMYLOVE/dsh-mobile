@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * listens on 127.0.0.1 inside the test process. Request bodies are kept for assertions but never logged.
  */
 class FakeModel {
-    enum class Kind { DREAM, SEARCH_BACKEND, TOOL_USE, FOLLOW_UP, HELLO, SLOW, LONG, SEARCH, APPROVE, ASK, SUB, CHILD, FILE, OTHER }
+    enum class Kind { DREAM, SEARCH_BACKEND, TOOL_USE, FOLLOW_UP, HELLO, SLOW, LONG, SEARCH, APPROVE, ASK, SUB, CHILD, FILE, FOLLOWUPS, TODOS, PRESENT, PLAN, SCHEDULE, OTHER }
 
     /** One request the model got. [body] is for assertions only: [toString] leaves it out, so failure logs never carry it. */
     data class Seen(
@@ -78,7 +78,7 @@ class FakeModel {
             Kind.DREAM -> sse(listOf(Block.Text(DREAM_REPLY)), "end_turn")
             Kind.SEARCH_BACKEND -> searchBackend()
             Kind.TOOL_USE -> sse(listOf(toolUse("e2e", "memory_write", JSONObject().put("target", "daily").put("text", MEMORY_MARK))), "tool_use")
-            Kind.FOLLOW_UP -> sse(listOf(Block.Text(followUpText(parsed))), "end_turn")
+            Kind.FOLLOW_UP -> followUp(parsed)
             Kind.HELLO -> sse(
                 listOf(Block.Thinking("E2E thinking"), Block.Text("**E2E** reply\n\n", "- one\n- two\n\n", "| a | b |\n|---|---|\n| 1 | 2 |")),
                 "end_turn",
@@ -118,6 +118,28 @@ class FakeModel {
                 "tool_use",
             )
             Kind.FILE -> sse(listOf(Block.Text(FILE_REPLY)), "end_turn")
+            // 0.5.0 scenarios
+            Kind.FOLLOWUPS -> sse(listOf(Block.Text("E2E answer with suggestions\n\n", "<!--dshm-followups\n$FOLLOWUP_ONE\nE2E next two\n-->")), "end_turn")
+            Kind.TODOS -> sse(
+                listOf(
+                    toolUse(
+                        "todos", "todo_write",
+                        JSONObject().put(
+                            "todos",
+                            JSONArray().put(JSONObject().put("content", "E2E step one").put("status", "completed"))
+                                .put(JSONObject().put("content", "E2E step two").put("status", "in_progress"))
+                                .put(JSONObject().put("content", "E2E step three").put("status", "pending")),
+                        ),
+                    ),
+                ),
+                "tool_use",
+            )
+            Kind.PRESENT -> sse(listOf(toolUse("presentw", "write", JSONObject().put("file_path", PRESENT_PATH).put("content", "# E2E report\n\nok\n"))), "tool_use")
+            Kind.PLAN -> sse(listOf(toolUse("plan", "exit_plan_mode", JSONObject().put("plan", "# E2E plan\n\n1. look\n2. write"))), "tool_use")
+            Kind.SCHEDULE -> sse(
+                listOf(toolUse("sched", "schedule_create", JSONObject().put("title", "E2E helper").put("prompt", "E2E helper task").put("every_seconds", 7200))),
+                "tool_use",
+            )
             Kind.OTHER -> sse(listOf(Block.Text("E2E title")), "end_turn")
         }
     }
@@ -137,6 +159,14 @@ class FakeModel {
             "```kotlin\nval section$i = listOf($i, ${i + 1}, ${i + 2})\n```\n\n"
     }.toTypedArray()
 
+    /** A follow-up: the written file is presented next (E2E_PRESENT); everything else gets its text. */
+    private fun followUp(request: JSONObject?): MockResponse {
+        val id = request?.let(::lastToolResult)?.optString("tool_use_id").orEmpty()
+        return if (id.startsWith("toolu_presentw_")) {
+            sse(listOf(toolUse("present", "present", JSONObject().put("files", JSONArray().put(JSONObject().put("path", PRESENT_PATH).put("description", "E2E deliverable"))))), "tool_use")
+        } else sse(listOf(Block.Text(followUpText(request))), "end_turn")
+    }
+
     /** The answer to a tool's result, chosen by the prefix of the tool_use id it answers. */
     private fun followUpText(request: JSONObject?): String {
         val result = request?.let(::lastToolResult) ?: return "ok"
@@ -146,6 +176,10 @@ class FakeModel {
             id.startsWith("toolu_approve_") -> APPROVED_REPLY
             id.startsWith("toolu_ask_") -> if (result.toString().contains("Pink")) PICKED_REPLY else "E2E picked nothing"
             id.startsWith("toolu_sub_") -> "E2E sub done"
+            id.startsWith("toolu_todos_") -> TODOS_REPLY
+            id.startsWith("toolu_present_") -> PRESENT_REPLY
+            id.startsWith("toolu_plan_") -> PLAN_REPLY
+            id.startsWith("toolu_sched_") -> "E2E helper scheduled"
             else -> "ok"
         }
     }
@@ -245,6 +279,15 @@ class FakeModel {
         const val SUB = "E2E_SUB"
         const val CHILD = "E2E_CHILD"
         const val FILE = "E2E_FILE"
+        const val FOLLOWUPS = "E2E_FOLLOWUPS"
+        const val FOLLOWUP_ONE = "E2E next one"
+        const val TODOS = "E2E_TODOS"
+        const val TODOS_REPLY = "E2E todos set"
+        const val PRESENT = "E2E_PRESENT"
+        const val PRESENT_PATH = "deliverables/e2e-report.md"
+        const val PRESENT_REPLY = "E2E presented"
+        const val PLAN = "E2E_PLAN"
+        const val PLAN_REPLY = "E2E plan done"
         const val MEMORY_PROMPT = "remember the E2E mark"
 
         // What the tests wait for.
@@ -278,6 +321,11 @@ class FakeModel {
                 text.contains(ASK) -> Kind.ASK
                 text.contains(SUB) -> Kind.SUB
                 text.contains(FILE) -> Kind.FILE
+                text.contains(FOLLOWUPS) -> Kind.FOLLOWUPS
+                text.contains(TODOS) -> Kind.TODOS
+                text.contains(PRESENT) -> Kind.PRESENT
+                text.contains(PLAN) -> Kind.PLAN
+                text.contains("schedule_create") -> Kind.SCHEDULE
                 else -> Kind.OTHER
             }
         }
