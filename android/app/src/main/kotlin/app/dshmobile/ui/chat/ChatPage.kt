@@ -145,12 +145,14 @@ fun ChatPage(
     onRestartDsh: () -> Unit = {},
     /** 編輯並重新送出: the dock takes the text; its next send forks the conversation at the boundary (MainViewModel.startEdit). */
     onEditMessage: (sessionId: String, boundary: Long, text: String) -> Unit = { _, _, _ -> },
+    /** 打開 on a presented file (workspace-relative). */
+    onOpenFile: (String) -> Unit = {},
 ) {
     val openId = nav.openSessionId
     if (nav.listOpen || openId == null) {
         ListPage(session, nav, onMessage)
     } else {
-        key(session, openId) { ConversationPage(session, openId, nav, hasClaudeKey, leadModel, onLink, onShare, onRestartDsh, onMessage, onEditMessage) }
+        key(session, openId) { ConversationPage(session, openId, nav, hasClaudeKey, leadModel, onLink, onShare, onRestartDsh, onMessage, onEditMessage, onOpenFile) }
     }
 }
 
@@ -220,6 +222,7 @@ private fun ConversationPage(
     onRestartDsh: () -> Unit,
     onMessage: (String) -> Unit = {},
     onEditMessage: (sessionId: String, boundary: Long, text: String) -> Unit = { _, _, _ -> },
+    onOpenFile: (String) -> Unit = {},
 ) {
     val store = remember(session, id) { session.conversation(id) }
     val ui = remember(session, id) { session.chatUi(id) }
@@ -305,6 +308,14 @@ private fun ConversationPage(
 
     val library = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.libraryStore
     val shelf = library?.state?.collectAsState()
+    // Presented files (reports, deliverables, drawings) go on the bookshelf by themselves, once per path.
+    LaunchedEffect(library, conversation.items) {
+        conversation.items.forEach { item ->
+            (item as? app.dshmobile.chat.ChatItem.Tool)?.presented?.forEach { f ->
+                if (!f.path.startsWith("/")) library?.addFile(f.path, f.description ?: f.name, f.kind.name, id)
+            }
+        }
+    }
     val onShelf = shelf?.value?.books?.any { it.sessionId == id } == true
 
     ChatScreen(
@@ -336,6 +347,7 @@ private fun ConversationPage(
         },
         speakingKey = speaking,
         onFollowUp = { q -> branchScope.launch { store.send(listOf(app.dshmobile.remote.PromptPart.Text(q)), q, emptyList()) } },
+        onOpenFile = onOpenFile,
         workBar = {
             val todos = todos
             val stances = remember(team) { stanceAgents(team) }

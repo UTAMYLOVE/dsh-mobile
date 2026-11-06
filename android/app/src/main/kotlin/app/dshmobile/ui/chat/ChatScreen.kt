@@ -262,6 +262,7 @@ internal sealed interface ChatRow {
     }
     data class Tool(val item: ChatItem.Tool) : ChatRow { override val key = "tool:" + item.key; override val type = "tool"; override val gap = 12 }
     data class Search(val item: ChatItem.Tool) : ChatRow { override val key = "search:" + item.key; override val type = "search"; override val gap = 12 }
+    data class Present(val item: ChatItem.Tool, val research: ResearchCounts?) : ChatRow { override val key = "present:" + item.key; override val type = "present"; override val gap = 12 }
     data class Notice(val item: ChatItem.Notice) : ChatRow { override val key = "notice:" + item.key; override val type = "notice"; override val gap = 12 }
     data class Pending(val p: PendingSend) : ChatRow { override val key = "pending:" + p.requestId; override val type = "pending"; override val gap = 12 }
     /** The stats line (may be blank) and the 「複製」 button of a finished reply; [copy] is the reply's text. */
@@ -372,7 +373,7 @@ internal suspend fun parseMissing(
     cache.published()
 }
 
-private class Built(val rows: List<ChatRow>, val missing: List<Pair<String, String>>)
+internal class Built(val rows: List<ChatRow>, val missing: List<Pair<String, String>>)
 
 private class RowBuilder(private val cache: BlockCache, private val expanded: Set<String>, private val eager: Set<String>? = null) {
     val rows = ArrayList<ChatRow>()
@@ -422,7 +423,7 @@ private class RowBuilder(private val cache: BlockCache, private val expanded: Se
 }
 
 /** The durable part of the list, oldest first: what only changes when dsh records something. */
-private fun durableRows(
+internal fun durableRows(
     items: List<ChatItem>, hasMore: Boolean, olderError: String?, cache: BlockCache, expanded: Set<String>, attachments: String,
     replyLines: Map<String, String> = emptyMap(),
 ): Built {
@@ -430,9 +431,14 @@ private fun durableRows(
     if (hasMore) b.add(ChatRow.Older(olderError))
     var lastSearch: ChatItem.Tool? = null
     val used = HashSet<String>()
+    // this turn's searches and their sources, for the deep-research card
+    var turnSearches = 0
+    val turnSources = HashSet<String>()
     for (item in items) {
         when (item) {
             is ChatItem.User -> {
+                turnSearches = 0
+                turnSources.clear()
                 val key = "u:" + item.key
                 val text = if (item.attachments.isEmpty()) item.text
                 else listOf(item.text, item.attachments.joinToString("、", prefix = attachments)).filter { it.isNotBlank() }.joinToString("\n\n")
@@ -457,6 +463,11 @@ private fun durableRows(
             is ChatItem.Tool -> if (item.name == WEB_SEARCH) {
                 b.add(ChatRow.Search(item))
                 lastSearch = item
+                turnSearches++
+                item.sources.forEach { turnSources += it.url }
+            } else if (item.presented.isNotEmpty()) {
+                val report = item.presented.any { it.path.startsWith("reports/") && it.kind == app.dshmobile.chat.FileKind.MD }
+                b.add(ChatRow.Present(item, if (report && turnSearches > 0) ResearchCounts(turnSearches, turnSources.size) else null))
             } else b.add(ChatRow.Tool(item))
             is ChatItem.Notice -> b.add(ChatRow.Notice(item))
         }
@@ -610,6 +621,8 @@ fun ChatScreen(
     speakingKey: String? = null,
     /** A tapped 建議下一步 chip: sent as the owner's next message. */
     onFollowUp: (String) -> Unit = {},
+    /** 打開 on a presented file (workspace-relative path): another app opens it. */
+    onOpenFile: (String) -> Unit = {},
     /** Pinned under the header (0.5.0): the todo progress bar and the contemplate card; null shows nothing. */
     workBar: (@Composable () -> Unit)? = null,
 ) {
@@ -668,11 +681,13 @@ fun ChatScreen(
     fun copy(text: String) = copyText(context, text, copied)
     var menuTarget by remember { mutableStateOf<MenuTarget?>(null) }
     val followUp by rememberUpdatedState(onFollowUp)
+    val openFile by rememberUpdatedState(onOpenFile)
+    val workspace = rememberWorkspace()
     // One instance for the screen's life: rows that did not change skip recomposition while a reply streams.
-    val actions = remember {
+    val actions = remember(workspace) {
         RowActions({ link(it) }, { share(it) }, { older() }, { resend(it) }, { dismiss(it) }, { key ->
             expanded = if (key in expanded) expanded - key else expanded + key
-        }, { copy(it) }, { menuTarget = it }, { followUp(it) })
+        }, { copy(it) }, { menuTarget = it }, { followUp(it) }, { openFile(it) }, workspace)
     }
     menuTarget?.let { t ->
         androidx.compose.ui.window.Dialog(
@@ -799,6 +814,8 @@ private class RowActions(
     /** A long press on a message bubble opens [MessageMenu] for it. */
     val onLongPress: (MenuTarget) -> Unit = {},
     val onFollowUp: (String) -> Unit = {},
+    val onOpenFile: (String) -> Unit = {},
+    val workspace: java.io.File? = null,
 )
 
 private fun LazyListScope.rows(rows: List<ChatRow>, a: RowActions) {
@@ -823,6 +840,7 @@ private fun RowContent(row: ChatRow, a: RowActions) {
         is ChatRow.Reasoning -> ReasoningPiece(row.text, row.first, row.last)
         is ChatRow.Tool -> ToolCard(row.item, a.onShare)
         is ChatRow.Search -> SearchCard(row.item, a.onLink)
+        is ChatRow.Present -> PresentCard(row.item.key, row.item.presented, row.research, a.workspace, a.onOpenFile, a.onShare)
         is ChatRow.Notice -> NoticeLine(row.item)
         is ChatRow.Pending -> PendingBubble(row.p, a.onRetrySend, a.onDismissSend)
         is ChatRow.Stats -> ReplyStatsLine(row.text, row.key) { a.onCopy(row.copy) }

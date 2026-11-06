@@ -42,7 +42,16 @@ data class Book(
     val readCount: Int = 0,
 )
 
-data class LibraryData(val books: List<Book> = emptyList(), val cards: List<CharacterCard> = emptyList(), val fontSp: Int = 18, val night: Boolean = false)
+/** A file on the shelf (0.5.0): a presented report, deliverable or drawing; [path] is workspace-relative. */
+data class LibraryFile(val id: String, val path: String, val title: String, val kind: String, val sessionId: String?, val addedAt: Long)
+
+data class LibraryData(
+    val books: List<Book> = emptyList(),
+    val cards: List<CharacterCard> = emptyList(),
+    val fontSp: Int = 18,
+    val night: Boolean = false,
+    val files: List<LibraryFile> = emptyList(),
+)
 
 object Chapters {
     /** A reply this long or longer counts as prose (a chapter) unless excluded. */
@@ -131,6 +140,14 @@ class LibraryStore(private val file: File, private val clock: () -> Long = Syste
     fun setReading(fontSp: Int? = null, night: Boolean? = null) =
         update { it.copy(fontSp = (fontSp ?: it.fontSp).coerceIn(12, 32), night = night ?: it.night) }
 
+    /** Puts a file on the shelf, newest first; a path already there is left as it is. */
+    fun addFile(path: String, title: String, kind: String, sessionId: String?) = update { d ->
+        if (d.files.any { it.path == path }) d
+        else d.copy(files = listOf(LibraryFile(UUID.randomUUID().toString(), path, title.ifBlank { path.substringAfterLast('/') }, kind, sessionId, clock())) + d.files)
+    }
+
+    fun removeFile(id: String) = update { d -> d.copy(files = d.files.filter { it.id != id }) }
+
     fun bookFor(sessionId: String): Book? = _state.value.books.firstOrNull { it.sessionId == sessionId }
 
     private fun edit(id: String, f: (Book) -> Book) = update { d -> d.copy(books = d.books.map { if (it.id == id) f(it) else it }) }
@@ -161,6 +178,15 @@ object LibraryJson {
                 })
             }
         })
+        put("files", buildJsonArray {
+            d.files.forEach { f ->
+                add(buildJsonObject {
+                    put("id", f.id); put("path", f.path); put("title", f.title); put("kind", f.kind)
+                    f.sessionId?.let { put("sessionId", it) }
+                    put("addedAt", f.addedAt)
+                })
+            }
+        })
     }
 
     fun decode(e: JsonElement): LibraryData {
@@ -170,6 +196,14 @@ object LibraryJson {
             cards = o.arr("cards").mapNotNull { (it as? JsonObject)?.let { c -> CharacterCard(c.s("id") ?: return@mapNotNull null, c.s("name").orEmpty(), c.s("body").orEmpty()) } },
             fontSp = o.p("fontSp")?.intOrNull ?: 18,
             night = o.p("night")?.booleanOrNull ?: false,
+            files = o.arr("files").mapNotNull { f ->
+                (f as? JsonObject)?.let {
+                    LibraryFile(
+                        it.s("id") ?: return@mapNotNull null, it.s("path") ?: return@mapNotNull null, it.s("title").orEmpty(),
+                        it.s("kind").orEmpty(), it.s("sessionId"), it.p("addedAt")?.longOrNull ?: 0,
+                    )
+                }
+            },
         )
     }
 

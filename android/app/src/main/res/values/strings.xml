@@ -386,4 +386,12 @@
     <string name="plan_send">送出修改</string>
     <string name="plan_back">返回</string>
     <string name="plan_feedback_hint">想改哪裡？（可以不填，AI 會再想一次）</string>
+    <string name="svg_broken">這張圖打不開</string>
+    <string name="result_files_title">做好的檔案</string>
+    <string name="result_research_title">深度研究報告</string>
+    <string name="result_research_counts">%1$d 次搜尋・%2$d 個來源</string>
+    <string name="result_on_shelf">已存書架</string>
+    <string name="result_open">打開</string>
+    <string name="result_close">關閉</string>
+    <string name="result_open_failed">打不開這個檔案（手機上可能沒有能開它的 App）</string>
 </resources>

@@ -208,4 +208,8 @@ object Tags {
     const val REVIEW_OPTION = "review-option-"
     /** The line under the chat header summarising thinking strength and reviewer rounds. */
     const val CHAT_TUNING = "chat-tuning"
+    /** The bookshelf's 檔案 panel, a file row in it and its 移除. */
+    const val LIB_FILES = "lib-files"
+    const val LIB_FILE = "lib-file-"
+    const val LIB_FILE_REMOVE = "lib-unshelve-"
 }

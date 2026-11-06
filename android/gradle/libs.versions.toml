@@ -24,6 +24,7 @@ androidxTestExtJunit = "1.3.0"
 kotlinComposeCompiler = "2.2.10"
 
 [libraries]
+androidsvg = { module = "com.caverock:androidsvg-aar", version = "1.4" }
 androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "workRuntime" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workRuntime" }
 commons-compress = { module = "org.apache.commons:commons-compress", version.ref = "commonsCompress" }

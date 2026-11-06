@@ -89,7 +89,10 @@ private sealed interface Page {
  * night mode, %, remembered position, 下一章) and the setting cards. Everything lives in the workspace file of [store].
  */
 @Composable
-fun LibraryScreen(store: LibraryStore, dsh: LibraryDsh?, models: List<Pair<String, String>>, defaultModel: String?) {
+fun LibraryScreen(
+    store: LibraryStore, dsh: LibraryDsh?, models: List<Pair<String, String>>, defaultModel: String?,
+    onOpenFile: (String) -> Unit = {}, onShareFile: (String) -> Unit = {},
+) {
     val data by store.state.collectAsState()
     var pageKey by rememberSaveable { mutableStateOf("shelf") }
     val page: Page = when {
@@ -102,7 +105,7 @@ fun LibraryScreen(store: LibraryStore, dsh: LibraryDsh?, models: List<Pair<Strin
         pageKey = when (page) { is Page.Reader -> "book:${page.id}"; else -> "shelf" }
     }
     when (page) {
-        Page.Shelf -> Shelf(data, dsh, models, defaultModel, store, onOpen = { pageKey = "book:$it" }, onCards = { pageKey = "cards" })
+        Page.Shelf -> Shelf(data, dsh, models, defaultModel, store, onOpen = { pageKey = "book:$it" }, onCards = { pageKey = "cards" }, onOpenFile, onShareFile)
         Page.Cards -> Cards(data.cards, store) { pageKey = "shelf" }
         is Page.BookPage -> data.books.firstOrNull { it.id == page.id }?.let { b ->
             BookView(b, store, dsh, onRead = { key -> pageKey = "read:${b.id}|$key" }) { pageKey = "shelf" }
@@ -118,6 +121,7 @@ fun LibraryScreen(store: LibraryStore, dsh: LibraryDsh?, models: List<Pair<Strin
 private fun Shelf(
     data: LibraryData, dsh: LibraryDsh?, models: List<Pair<String, String>>, defaultModel: String?, store: LibraryStore,
     onOpen: (String) -> Unit, onCards: () -> Unit,
+    onOpenFile: (String) -> Unit = {}, onShareFile: (String) -> Unit = {},
 ) {
     var creating by rememberSaveable { mutableStateOf(false) }
     Column(
@@ -138,6 +142,38 @@ private fun Shelf(
                 data.books.forEach { b -> Cover(b) { onOpen(b.id) } }
             }
         }
+        if (data.files.isNotEmpty()) {
+            FogPanel(title = "檔案", en = "FILES", meta = "${data.files.size} 個", index = 1, modifier = Modifier.testTag(Tags.LIB_FILES)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    data.files.forEach { f -> ShelfFile(f, { onOpenFile(f.path) }, { onShareFile(f.path) }) { store.removeFile(f.id) } }
+                }
+            }
+        }
+    }
+}
+
+/** A report, deliverable or drawing on the shelf: badge, title, path; 打開・分享・移除 (移除 only takes it off the shelf). */
+@Composable
+private fun ShelfFile(f: app.dshmobile.library.LibraryFile, onOpen: () -> Unit, onShare: () -> Unit, onRemove: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    val kind = app.dshmobile.chat.FileKind.of(f.path)
+    val (bg, fg) = app.dshmobile.ui.chat.badgeColors(kind)
+    Row(
+        Modifier.fillMaxWidth().background(Sakura.White.copy(alpha = .6f), shape).border(1.dp, Sakura.Primary.copy(alpha = .3f), shape)
+            .heightIn(min = 52.dp).testTag(Tags.LIB_FILE + f.id).padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            kind.badge, color = fg, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, fontFamily = app.dshmobile.ui.fog.FogFonts.ChakraPetch,
+            modifier = Modifier.background(bg, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(f.title, color = Sakura.Text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(f.path, color = Sakura.TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        androidx.compose.material3.TextButton(onClick = onOpen) { Text("打開", fontSize = 12.sp, color = Sakura.Text) }
+        androidx.compose.material3.TextButton(onClick = onShare) { Text("分享", fontSize = 12.sp, color = Sakura.Text) }
+        androidx.compose.material3.TextButton(onClick = onRemove, modifier = Modifier.testTag(Tags.LIB_FILE_REMOVE + f.id)) { Text("移除", fontSize = 12.sp, color = Sakura.RoseBrown) }
     }
 }
 

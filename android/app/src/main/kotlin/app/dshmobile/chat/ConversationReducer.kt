@@ -226,11 +226,11 @@ object ConversationReducer {
     private fun ensureTool(state: ConversationState, id: String, name: String, arguments: JsonElement?): ConversationState {
         val existing = state.items.indexOfLast { it is ChatItem.Tool && it.key == id }
         val args = argsOf(arguments)
-        val card = ChatItem.Tool(id, name, summary(name, args, arguments), ToolStatus.RUNNING, sharePath = sharePath(name, args))
+        val card = ChatItem.Tool(id, name, summary(name, args, arguments), ToolStatus.RUNNING, sharePath = sharePath(name, args), presented = presented(name, args))
         if (existing < 0) return state.copy(items = state.items + card)
         val old = state.items[existing] as ChatItem.Tool
         if (old.name.isNotEmpty() && old.summary.isNotEmpty()) return state
-        return replace(state, existing, old.copy(name = card.name.ifEmpty { old.name }, summary = card.summary.ifEmpty { old.summary }, sharePath = card.sharePath ?: old.sharePath))
+        return replace(state, existing, old.copy(name = card.name.ifEmpty { old.name }, summary = card.summary.ifEmpty { old.summary }, sharePath = card.sharePath ?: old.sharePath, presented = card.presented.ifEmpty { old.presented }))
     }
 
     private fun toolResult(state: ConversationState, data: JsonObject): ConversationState {
@@ -398,6 +398,35 @@ object ConversationReducer {
             return args.values.firstNotNullOfOrNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString && p.content.isNotBlank() }?.content }?.take(SUMMARY_MAX) ?: ""
         }
         return ((raw as? JsonPrimitive)?.takeIf { it.isString }?.content ?: "").take(SUMMARY_MAX)
+    }
+
+    /** `present {files:[{path, description}]}`: each file, workspace-relative when it is inside the workspace. */
+    internal fun presented(name: String, args: JsonObject?): List<PresentedFile> {
+        if (name != "present") return emptyList()
+        val files = args?.get("files") as? kotlinx.serialization.json.JsonArray ?: return emptyList()
+        return files.mapNotNull { f ->
+            val o = f as? JsonObject ?: return@mapNotNull null
+            val raw = o.str("path")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val rel = if (raw.startsWith("/")) workspaceRelative(raw) ?: raw else normalized(raw) ?: raw
+            PresentedFile(rel, o.str("description")?.takeIf { it.isNotBlank() })
+        }
+    }
+
+    private fun workspaceRelative(path: String): String? {
+        val root = DshLayout.workspacePrefixes().firstOrNull { path.startsWith(it) } ?: return null
+        return normalized(path.removePrefix(root))
+    }
+
+    private fun normalized(rel: String): String? {
+        val stack = ArrayList<String>()
+        for (segment in rel.split('/')) {
+            when (segment) {
+                "", "." -> {}
+                ".." -> if (stack.isEmpty()) return null else stack.removeAt(stack.lastIndex)
+                else -> stack += segment
+            }
+        }
+        return stack.takeIf { it.isNotEmpty() }?.joinToString("/")
     }
 
     internal fun sharePath(name: String, args: JsonObject?): String? {

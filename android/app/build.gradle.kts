@@ -151,6 +151,7 @@ android {
 dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.commons.compress)
+    implementation(libs.androidsvg)
     implementation(libs.xz)
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.cio)

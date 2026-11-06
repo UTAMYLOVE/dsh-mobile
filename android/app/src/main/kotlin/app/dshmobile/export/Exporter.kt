@@ -47,8 +47,26 @@ class Exporter(
         share(file)
     }
 
+    /** Opens the workspace file at [rel] in another app (Word, a browser, a PDF reader…) through the system chooser. */
+    fun openWorkspaceFile(rel: String) {
+        val file = WorkspacePaths.resolveInside(workspace, rel)
+            ?: throw IllegalArgumentException("not a file inside the workspace")
+        val mime = guessMime(file)
+        val view = Intent(Intent.ACTION_VIEW).setDataAndType(exportUri(file), mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(view, null).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
     /** The chooser [share] starts; split out so tests can inspect it. */
     internal fun buildChooser(file: File, mime: String = guessMime(file)): Intent {
+        val send = Intent(Intent.ACTION_SEND)
+            .setType(mime)
+            .putExtra(Intent.EXTRA_STREAM, exportUri(file))
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        return Intent.createChooser(send, null).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    /** A content URI for [file], copied into `cacheDir/export` first unless it is there already. */
+    private fun exportUri(file: File): android.net.Uri {
         val source = checkShareable(file)
         val dir = exportDir
         dir.mkdirs()
@@ -60,12 +78,7 @@ class Exporter(
         if (!inExport) {
             Files.copy(source, copy.toPath(), StandardCopyOption.REPLACE_EXISTING)
         }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.export", if (inExport) source.toFile() else copy)
-        val send = Intent(Intent.ACTION_SEND)
-            .setType(mime)
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        return Intent.createChooser(send, null).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        return FileProvider.getUriForFile(context, "${context.packageName}.export", if (inExport) source.toFile() else copy)
     }
 
     /** `cacheDir/export/dsh-memory-<yyyyMMdd-HHmm>.zip` with MEMORY.md, USER.md and every `.md` below `memory/`. */

@@ -412,7 +412,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
-                    LibraryScreen(app.libraryStore, dsh, bookModels(hasClaude), remember { app.agentSettingsStore.novelModel })
+                    LibraryScreen(app.libraryStore, dsh, bookModels(hasClaude), remember { app.agentSettingsStore.novelModel }, ::openWorkspaceFile, ::shareWorkspaceFile)
                 }
                 else -> EmptyPage(tab)
             }
@@ -428,7 +428,7 @@ class MainActivity : ComponentActivity() {
             app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).leadModel
         }
         ChatPage(
-            session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast, onRestartDsh = ::restartDsh,
+            session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast, onRestartDsh = ::restartDsh, onOpenFile = ::openWorkspaceFile,
             onEditMessage = vm::startEdit,
         )
     }
@@ -451,6 +451,19 @@ class MainActivity : ComponentActivity() {
             LinkOpen.OPENED -> Unit
             LinkOpen.REFUSED -> toast(getString(R.string.chat_link_refused))
             LinkOpen.NO_BROWSER -> toast(getString(R.string.chat_no_browser))
+        }
+    }
+
+    private fun openWorkspaceFile(rel: String) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { app.exporter.openWorkspaceFile(rel) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                app.errorLog.append("export", "opening a workspace file failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.result_open_failed))
+            }
         }
     }
 

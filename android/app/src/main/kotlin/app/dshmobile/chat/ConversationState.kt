@@ -87,8 +87,36 @@ sealed interface ChatItem {
         /** Path relative to the workspace root for a `write`/`edit` under it; the chat offers it for sharing. */
         val sharePath: String? = null,
         val error: String? = null,
+        /** The files a `present` call handed to the owner (workspace-relative when inside it). */
+        val presented: List<PresentedFile> = emptyList(),
     ) : ChatItem
     data class Notice(override val key: String, val kind: NoticeKind, val text: String) : ChatItem
+}
+
+/** A file dsh's `present` delivered: [path] is workspace-relative when it lies inside the workspace (else as dsh gave it). */
+data class PresentedFile(val path: String, val description: String?) {
+    val name: String get() = path.substringAfterLast('/')
+    val kind: FileKind get() = FileKind.of(path)
+}
+
+/** The badge a file gets, from its extension. */
+enum class FileKind(val badge: String) {
+    MD("MD"), DOC("DOC"), XLS("XLS"), PPT("PPT"), WEB("WEB"), SVG("SVG"), PDF("PDF"), CSV("CSV"), IMG("IMG"), OTHER("FILE");
+
+    companion object {
+        fun of(path: String): FileKind = when (path.substringAfterLast('.', "").lowercase()) {
+            "md", "markdown", "txt" -> MD
+            "doc", "docx" -> DOC
+            "xls", "xlsx" -> XLS
+            "ppt", "pptx" -> PPT
+            "html", "htm" -> WEB
+            "svg" -> SVG
+            "pdf" -> PDF
+            "csv", "tsv" -> CSV
+            "png", "jpg", "jpeg", "webp", "gif" -> IMG
+            else -> OTHER
+        }
+    }
 }
 
 enum class ToolStatus { RUNNING, WAITING_APPROVAL, DONE, FAILED }
