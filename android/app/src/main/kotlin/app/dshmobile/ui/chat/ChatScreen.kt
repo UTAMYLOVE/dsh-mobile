@@ -266,6 +266,8 @@ internal sealed interface ChatRow {
     data class Pending(val p: PendingSend) : ChatRow { override val key = "pending:" + p.requestId; override val type = "pending"; override val gap = 12 }
     /** The stats line (may be blank) and the 「複製」 button of a finished reply; [copy] is the reply's text. */
     data class Stats(override val key: String, val text: String, val copy: String = "") : ChatRow { override val type = "stats"; override val gap = 4 }
+    /** 建議下一步 under the last finished reply. */
+    data class FollowUps(override val key: String, val items: List<String>) : ChatRow { override val type = "followups"; override val gap = 6 }
 }
 
 /**
@@ -448,6 +450,9 @@ private fun durableRows(
                 }
                 val line = replyLines[item.key]
                 if (line != null || item.text.isNotBlank()) b.add(ChatRow.Stats("stats:" + item.key, line.orEmpty(), item.text))
+                if (item.followUps.isNotEmpty() && item === items.lastOrNull { it is ChatItem.Assistant } && items.lastOrNull() !is ChatItem.User) {
+                    b.add(ChatRow.FollowUps("followups:" + item.key, item.followUps))
+                }
             }
             is ChatItem.Tool -> if (item.name == WEB_SEARCH) {
                 b.add(ChatRow.Search(item))
@@ -603,6 +608,8 @@ fun ChatScreen(
     onSpeak: (key: String, text: String) -> Unit = { _, _ -> },
     /** The message being read aloud, if any (its menu item says 停止朗讀). */
     speakingKey: String? = null,
+    /** A tapped 建議下一步 chip: sent as the owner's next message. */
+    onFollowUp: (String) -> Unit = {},
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
@@ -658,11 +665,12 @@ fun ChatScreen(
     val copied = stringResource(R.string.chat_copied)
     fun copy(text: String) = copyText(context, text, copied)
     var menuTarget by remember { mutableStateOf<MenuTarget?>(null) }
+    val followUp by rememberUpdatedState(onFollowUp)
     // One instance for the screen's life: rows that did not change skip recomposition while a reply streams.
     val actions = remember {
         RowActions({ link(it) }, { share(it) }, { older() }, { resend(it) }, { dismiss(it) }, { key ->
             expanded = if (key in expanded) expanded - key else expanded + key
-        }, { copy(it) }, { menuTarget = it })
+        }, { copy(it) }, { menuTarget = it }, { followUp(it) })
     }
     menuTarget?.let { t ->
         androidx.compose.ui.window.Dialog(
@@ -787,6 +795,7 @@ private class RowActions(
     val onCopy: (String) -> Unit = {},
     /** A long press on a message bubble opens [MessageMenu] for it. */
     val onLongPress: (MenuTarget) -> Unit = {},
+    val onFollowUp: (String) -> Unit = {},
 )
 
 private fun LazyListScope.rows(rows: List<ChatRow>, a: RowActions) {
@@ -814,6 +823,7 @@ private fun RowContent(row: ChatRow, a: RowActions) {
         is ChatRow.Notice -> NoticeLine(row.item)
         is ChatRow.Pending -> PendingBubble(row.p, a.onRetrySend, a.onDismissSend)
         is ChatRow.Stats -> ReplyStatsLine(row.text, row.key) { a.onCopy(row.copy) }
+        is ChatRow.FollowUps -> FollowUpChips(row.items, a.onFollowUp)
     }
 }
 

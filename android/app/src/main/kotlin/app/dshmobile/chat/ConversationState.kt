@@ -73,7 +73,11 @@ sealed interface ChatItem {
     val key: String
 
     data class User(override val key: String, val text: String, val attachments: List<String>) : ChatItem
-    data class Assistant(override val key: String, val seq: Long, val reasoning: String?, val text: String) : ChatItem
+    data class Assistant(
+        override val key: String, val seq: Long, val reasoning: String?, val text: String,
+        /** 建議下一步 from the reply's hidden block (FollowUps). */
+        val followUps: List<String> = emptyList(),
+    ) : ChatItem
     data class Tool(
         override val key: String,
         val name: String,

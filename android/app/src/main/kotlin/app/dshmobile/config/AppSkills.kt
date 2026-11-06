@@ -11,6 +11,25 @@ object AppSkills {
     const val PREFIX = "dshm-"
 
     val all: Map<String, String> = linkedMapOf(
+        "dshm-followups" to skill(
+            "dshm-followups",
+            "After an ordinary answer, offer the owner two or three short follow-up questions he can tap (hidden marker block).",
+            """
+            # 建議下一步
+            一般的問答回覆（查資料、解釋、建議、比較）結束時，在最後加上這個區塊，App 會把它變成可以點的按鈕，主人看不到區塊本身：
+
+            <!--dshm-followups
+            外資買了哪些股票？
+            下週要注意什麼？
+            做成一頁報告
+            -->
+
+            - 2～3 行，每行一個主人可能接著想問的問題，繁體中文，15 字以內，不加編號。
+            - 要具體、接著這次的內容，不要「還有其他問題嗎」這種空話。
+            - 不要加在：小說章節、記帳記錄、每日簡報、只是確認收到的短回覆、正在等主人回答的問題、工具還在進行的中途。
+            - 區塊一定放在回覆最後，前面不要提到它。
+            """,
+        ),
         "dshm-novel" to skill(
             "dshm-novel",
             "Write fiction chapter by chapter for the app's bookshelf: consistent characters from the setting card, one chapter per reply.",

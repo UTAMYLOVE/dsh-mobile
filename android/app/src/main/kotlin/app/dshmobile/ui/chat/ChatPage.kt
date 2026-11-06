@@ -328,6 +328,7 @@ private fun ConversationPage(
             if (sp != null) { if (speaking == key) sp.stop() else if (!sp.speak(key, text)) onMessage(noTts) }
         },
         speakingKey = speaking,
+        onFollowUp = { q -> branchScope.launch { store.send(listOf(app.dshmobile.remote.PromptPart.Text(q)), q, emptyList()) } },
         dataPanel = {
             val root = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.appPaths?.workspace
             val files by androidx.compose.runtime.produceState(emptyList<app.dshmobile.chat.WorkspaceFile>(), root, conversation.items.size) {

@@ -562,3 +562,21 @@ internal fun ContextBar(fill: Float?, text: String) {
         }
     }
 }
+
+/** 建議下一步 (0.5.0, mockup 1): up to three questions under the last reply; a tap sends one. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun FollowUpChips(items: List<String>, onPick: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(stringResource(R.string.followups_title), color = Sakura.TextSecondary, fontSize = 11.sp, letterSpacing = 0.08.em)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items.forEachIndexed { i, q ->
+                Box(
+                    Modifier.heightIn(min = 40.dp).clip(Round).background(Color.White.copy(alpha = .7f), Round).border(1.dp, Sakura.Aqua, Round)
+                        .clickable(role = Role.Button) { onPick(q) }.testTag(Tags.FOLLOWUP_CHIP + i).padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(q, color = Sakura.Text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            }
+        }
+    }
+}

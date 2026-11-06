@@ -126,7 +126,7 @@ object ConversationReducer {
                     }
                 }
             }
-            LiveReply(id, reasoning.toString(), text.toString(), tools.toList())
+            LiveReply(id, reasoning.toString(), FollowUps.split(text.toString()).first, tools.toList())
         }
     } catch (_: RuntimeException) {
         null
@@ -208,7 +208,8 @@ object ConversationReducer {
             }
             else -> {}
         }
-        var s = withItem(state, ChatItem.Assistant("e$seq", seq, reasoning.takeIf { it.isNotEmpty() }?.toString(), text.toString()))
+        val (body, followUps) = FollowUps.split(text.toString())
+        var s = withItem(state, ChatItem.Assistant("e$seq", seq, reasoning.takeIf { it.isNotEmpty() }?.toString(), body, followUps))
         for (c in calls) {
             val id = c.str("id") ?: continue
             s = ensureTool(s, id, c.str("name").orEmpty(), c["arguments"])

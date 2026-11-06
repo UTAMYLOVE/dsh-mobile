@@ -227,6 +227,7 @@
     <string name="chat_cites">來源 %1$s</string>
     <string name="chat_queued">排隊中</string>
     <string name="chat_sending">傳送中…</string>
+    <string name="followups_title">接著可以問</string>
     <string name="msg_copy">複製</string>
     <string name="msg_speak">朗讀</string>
     <string name="msg_speak_stop">停止朗讀</string>

@@ -34,6 +34,7 @@ object Tags {
     const val REPLY_STATS = "reply-stats"
     const val COPY_REPLY = "copy-reply-"
     const val MSG_MENU = "msg-menu"
+    const val FOLLOWUP_CHIP = "followup-"
     const val MSG_COPY = "msg-copy"
     const val MSG_SPEAK = "msg-speak"
     const val MSG_EDIT = "msg-edit"

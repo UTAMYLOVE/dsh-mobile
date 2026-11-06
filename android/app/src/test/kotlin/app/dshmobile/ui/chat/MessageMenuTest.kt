@@ -60,4 +60,16 @@ class MessageMenuTest {
         rule.onNodeWithTag(Tags.MSG_SPEAK).performClick()
         assertEquals(listOf("reanswer e9", "branch e9", "speak e9"), calls)
     }
+
+    @Test fun chipTapSendsIt() {
+        val sent = mutableListOf<String>()
+        val items = listOf(ChatItem.User("e3", "台股呢？", emptyList()), ChatItem.Assistant("e9", 9, null, "加權指數上漲", listOf("外資呢？", "下週呢？")))
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) {
+                ChatScreen(state = ChatHarness.chatState(items), onOpenList = {}, onPickModel = {}, onLink = {}, onShare = {}, onLoadOlder = {}, onFollowUp = { sent += it })
+            }
+        }
+        rule.onNodeWithTag(Tags.FOLLOWUP_CHIP + 1).performClick()
+        assertEquals(listOf("下週呢？"), sent)
+    }
 }

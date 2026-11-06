@@ -267,7 +267,7 @@ class ConversationStore(
 
     private fun publishLive() {
         val id = liveAttempt ?: return
-        val reply = LiveReply(id, liveReasoning.toString(), liveText.toString(), liveTools)
+        val reply = LiveReply(id, liveReasoning.toString(), FollowUps.split(liveText.toString()).first, liveTools)
         _state.update { it.copy(live = reply) }
     }
 
