@@ -751,14 +751,19 @@ fun ChatScreen(
             val chip = (state.models.firstOrNull { it.selected }?.label ?: state.modelLabel ?: stringResource(R.string.chat_model_unknown)).uppercase()
             ChatHeader(
                 state.title.ifBlank { stringResource(R.string.chat_untitled) }, chip, onOpenList,
-                onToc = if (toc.isNotEmpty()) ({ tocOpen = true }) else null,
-                onMore = if (dataPanel != null || onAddToShelf != null) ({ moreOpen = !moreOpen; menuOpen = false }) else null,
+                // 目錄, 加入書架 and 數據 share the ⋮: a fifth control in the title row was pushed off a narrow (or large-font) screen.
+                onMore = if (dataPanel != null || onAddToShelf != null || toc.isNotEmpty()) ({ moreOpen = !moreOpen; menuOpen = false }) else null,
             ) { menuOpen = !menuOpen; moreOpen = false }
             if (menuOpen) ModelMenu(state.models, state.effort, state.reviewRounds, onPickEffort, onPickReview) { id -> menuOpen = false; onPickModel(id) }
             // 0.5.0 (the owner: the header took ~40 % of the screen): thinking, review, context, totals and the working line moved
             // into the dock's status line; 加入書架 and 數據 live behind ⋮.
             if (moreOpen) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    if (toc.isNotEmpty()) {
+                        TextButton(onClick = { moreOpen = false; tocOpen = true }, modifier = Modifier.testTag(TocTags.OPEN)) {
+                            Text(stringResource(R.string.toc_title), fontSize = 13.sp)
+                        }
+                    }
                     if (onAddToShelf != null) {
                         TextButton(onClick = { moreOpen = false; onAddToShelf() }, enabled = !onShelf, modifier = Modifier.testTag(Tags.CHAT_ADD_SHELF)) {
                             Text(if (onShelf) "已在書架" else "加入書架", fontSize = 13.sp)

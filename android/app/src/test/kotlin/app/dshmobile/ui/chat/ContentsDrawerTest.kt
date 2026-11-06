@@ -60,6 +60,7 @@ class ContentsDrawerTest {
                 )
             }
         }
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.CHAT_MORE).performClick()
         rule.onNodeWithTag(TocTags.OPEN).performClick()
         rule.onNodeWithTag(TocTags.DRAWER).assertExists()
         rule.onNodeWithTag(TocTags.ENTRY + "e1").performClick()
