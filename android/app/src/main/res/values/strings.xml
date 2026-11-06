@@ -227,6 +227,17 @@
     <string name="chat_cites">來源 %1$s</string>
     <string name="chat_queued">排隊中</string>
     <string name="chat_sending">傳送中…</string>
+    <string name="msg_copy">複製</string>
+    <string name="msg_speak">朗讀</string>
+    <string name="msg_speak_stop">停止朗讀</string>
+    <string name="msg_edit">編輯並重新送出</string>
+    <string name="msg_reanswer">重新回答</string>
+    <string name="msg_branch">從這裡開分支</string>
+    <string name="msg_branch_note">改了會開一個新的對話，原本的保留不動</string>
+    <string name="msg_no_tts">這支手機沒有朗讀引擎</string>
+    <string name="msg_branched">已開新的分支對話</string>
+    <string name="msg_branch_failed">開分支失敗：%1$s</string>
+    <string name="edit_banner">編輯中：送出後會開一個新的對話，原本的保留</string>
     <string name="chat_copy">⧉ 複製</string>
     <string name="chat_copied">已複製</string>
     <string name="chat_send_failed">dsh 沒有收到這則訊息</string>

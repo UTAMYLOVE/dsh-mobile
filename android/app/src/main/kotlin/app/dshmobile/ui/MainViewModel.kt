@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import app.dshmobile.ui.chat.failureCode
 import app.dshmobile.DshMobileApp
 import app.dshmobile.R
 import app.dshmobile.chat.AttachmentLoader
@@ -150,6 +151,21 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
      */
     var otherMode by mutableStateOf<Boolean?>(null)
 
+    /** 編輯並重新送出 (0.5.0): the next send forks [EditTarget.sessionId] at [EditTarget.boundary] and goes to the new conversation. */
+    data class EditTarget(val sessionId: String, val boundary: Long)
+    var editTarget by mutableStateOf<EditTarget?>(null)
+
+    fun startEdit(sessionId: String, boundary: Long, text: String) {
+        editTarget = EditTarget(sessionId, boundary)
+        composerText = text
+        dockError = null
+    }
+
+    fun cancelEdit() {
+        editTarget = null
+        composerText = ""
+    }
+
     /** The answer to [otherMode]: switch to the conversation's mode and restart dsh; the user sends again once it is up. */
     fun switchModeForConversation() {
         val native = otherMode ?: return
@@ -176,6 +192,19 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
         session.scope.launch(Dispatchers.Main.immediate) {
             var outcome: DockSend? = null
             try {
+                editTarget?.let { t ->
+                    val forked = try {
+                        session.remote.fork(t.sessionId, t.boundary)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        dockError = app.getString(R.string.msg_branch_failed, failureCode(e))
+                        return@launch
+                    }
+                    editTarget = null
+                    session.tree.refreshNow()
+                    nav.openSession(forked)
+                }
                 outcome = sendFromDock(session, nav, text, picked, attachmentLoader)
             } finally {
                 if (held) sending = false

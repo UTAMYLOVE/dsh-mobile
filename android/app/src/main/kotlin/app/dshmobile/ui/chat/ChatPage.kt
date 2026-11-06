@@ -141,12 +141,14 @@ fun ChatPage(
     onShare: (String) -> Unit,
     onMessage: (String) -> Unit,
     onRestartDsh: () -> Unit = {},
+    /** 編輯並重新送出: the dock takes the text; its next send forks the conversation at the boundary (MainViewModel.startEdit). */
+    onEditMessage: (sessionId: String, boundary: Long, text: String) -> Unit = { _, _, _ -> },
 ) {
     val openId = nav.openSessionId
     if (nav.listOpen || openId == null) {
         ListPage(session, nav, onMessage)
     } else {
-        key(session, openId) { ConversationPage(session, openId, nav, hasClaudeKey, leadModel, onLink, onShare, onRestartDsh) }
+        key(session, openId) { ConversationPage(session, openId, nav, hasClaudeKey, leadModel, onLink, onShare, onRestartDsh, onMessage, onEditMessage) }
     }
 }
 
@@ -214,6 +216,8 @@ private fun ConversationPage(
     onLink: (String) -> Unit,
     onShare: (String) -> Unit,
     onRestartDsh: () -> Unit,
+    onMessage: (String) -> Unit = {},
+    onEditMessage: (sessionId: String, boundary: Long, text: String) -> Unit = { _, _, _ -> },
 ) {
     val store = remember(session, id) { session.conversation(id) }
     val ui = remember(session, id) { session.chatUi(id) }
@@ -272,6 +276,26 @@ private fun ConversationPage(
         conversation.replyStats.values.mapNotNull { replyCostUsd(prices, it, now) }.takeIf { it.isNotEmpty() }?.sum()
     }
 
+    // The long-press menu (0.5.0): branches go through dsh's session/fork; 朗讀 through the app's Speaker.
+    val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp
+    val speaker = appCtx?.speaker
+    val speaking = speaker?.speaking?.collectAsState()?.value
+    val branchScope = rememberCoroutineScope()
+    val branched = stringResource(R.string.msg_branched)
+    val noTts = stringResource(R.string.msg_no_tts)
+    val outline = remember(session, id) { session.tree.state.map { turnSeqs(it.projections[id]) }.distinctUntilChanged() }.collectAsState(emptyList()).value
+    fun branchBoundary(key: String, beforeQuestion: Boolean): Long? =
+        if (beforeQuestion) app.dshmobile.chat.Branching.boundaryBefore(conversation.items, key, outline)
+        else app.dshmobile.chat.Branching.branchPoint(conversation.items, key)
+    suspend fun runBranch(fork: suspend () -> String): String? = try {
+        fork().also { session.tree.refreshNow() }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        onMessage(appCtx?.getString(R.string.msg_branch_failed, failureCode(e)) ?: failureCode(e))
+        null
+    }
+
     val library = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.libraryStore
     val shelf = library?.state?.collectAsState()
     val onShelf = shelf?.value?.books?.any { it.sessionId == id } == true
@@ -285,6 +309,25 @@ private fun ConversationPage(
         ),
         onAddToShelf = library?.let { lib -> { lib.addBook(title, id, null, current) } },
         onShelf = onShelf,
+        onEdit = { key, text -> branchBoundary(key, true)?.let { b -> onEditMessage(id, b, text) } },
+        onReanswer = { key ->
+            val b = branchBoundary(key, true)
+            val question = app.dshmobile.chat.Branching.questionOf(conversation.items, key)
+            if (b != null && question != null) branchScope.launch {
+                runBranch { session.remote.fork(id, b) }?.let { newId ->
+                    nav.openSession(newId)
+                    session.conversation(newId).send(listOf(app.dshmobile.remote.PromptPart.Text(question)), question, emptyList())
+                }
+            }
+        },
+        onBranch = { key ->
+            branchBoundary(key, false)?.let { b -> branchScope.launch { runBranch { session.remote.fork(id, b) }?.let { nav.openSession(it); onMessage(branched) } } }
+        },
+        onSpeak = { key, text ->
+            val sp = speaker
+            if (sp != null) { if (speaking == key) sp.stop() else if (!sp.speak(key, text)) onMessage(noTts) }
+        },
+        speakingKey = speaking,
         dataPanel = {
             val root = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.appPaths?.workspace
             val files by androidx.compose.runtime.produceState(emptyList<app.dshmobile.chat.WorkspaceFile>(), root, conversation.items.size) {
@@ -384,3 +427,9 @@ suspend fun sendFromDock(
         is SendOutcome.Refused -> DockSend.Refused(out.code)
     }
 }
+
+/** Every turn's prompt seq from dsh's `turnOutline` projection (also for turns paged out of the chat). */
+internal fun turnSeqs(p: Map<String, kotlinx.serialization.json.JsonElement>?): List<Long> =
+    (p?.get("turnOutline") as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { e ->
+        ((e as? kotlinx.serialization.json.JsonObject)?.get("seq") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+    }

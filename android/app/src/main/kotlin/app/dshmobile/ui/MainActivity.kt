@@ -317,6 +317,8 @@ class MainActivity : ComponentActivity() {
                 chips = vm.chips,
                 onRemoveChip = vm::removeChip,
                 error = vm.dockError,
+                notice = if (vm.editTarget != null) getString(R.string.edit_banner) else null,
+                onCancelNotice = vm::cancelEdit,
             ),
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,
@@ -396,7 +398,10 @@ class MainActivity : ComponentActivity() {
         val lead = remember(tab, hasClaude) {
             app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).leadModel
         }
-        ChatPage(session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast, onRestartDsh = ::restartDsh)
+        ChatPage(
+            session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast, onRestartDsh = ::restartDsh,
+            onEditMessage = vm::startEdit,
+        )
     }
 
     internal fun attachForTest(uris: List<Uri>) = vm.addPicked(uris)

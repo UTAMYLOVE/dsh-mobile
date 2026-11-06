@@ -53,12 +53,14 @@ class CopyMessageTest {
     @Test fun aLongPressCopiesTheUserMessage() {
         show(listOf(ChatItem.User("u1", "幫我整理台股", emptyList()), ChatItem.Assistant("a1", 1, null, reply)))
         rule.onNodeWithTag(Tags.USER_BUBBLE).performSemanticsAction(SemanticsActions.OnLongClick)
+        rule.onNodeWithTag(Tags.MSG_COPY).performClick()
         assertEquals("幫我整理台股", clip())
     }
 
     @Test fun aLongPressOnAnyPieceOfALongReplyCopiesAllOfIt() {
         show(listOf(ChatItem.User("u1", "寫長一點", emptyList()), ChatItem.Assistant("a1", 1, null, long)))
         rule.onAllNodesWithTag(Tags.ASSISTANT_BUBBLE).onFirst().performSemanticsAction(SemanticsActions.OnLongClick)
+        rule.onNodeWithTag(Tags.MSG_COPY).performClick()
         assertEquals(long, clip())
     }
 }

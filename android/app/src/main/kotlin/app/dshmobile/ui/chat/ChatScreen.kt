@@ -596,6 +596,13 @@ fun ChatScreen(
     /** 「加入書架」 (stage 2 §D); null hides it, [onShelf] says it is already there. */
     onAddToShelf: (() -> Unit)? = null,
     onShelf: Boolean = false,
+    /** The long-press menu's actions (0.5.0): message key `e<seq>` (and its text for 編輯 and 朗讀). */
+    onEdit: (key: String, text: String) -> Unit = { _, _ -> },
+    onReanswer: (key: String) -> Unit = {},
+    onBranch: (key: String) -> Unit = {},
+    onSpeak: (key: String, text: String) -> Unit = { _, _ -> },
+    /** The message being read aloud, if any (its menu item says 停止朗讀). */
+    speakingKey: String? = null,
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
@@ -650,11 +657,28 @@ fun ChatScreen(
     val context = LocalContext.current
     val copied = stringResource(R.string.chat_copied)
     fun copy(text: String) = copyText(context, text, copied)
+    var menuTarget by remember { mutableStateOf<MenuTarget?>(null) }
     // One instance for the screen's life: rows that did not change skip recomposition while a reply streams.
     val actions = remember {
         RowActions({ link(it) }, { share(it) }, { older() }, { resend(it) }, { dismiss(it) }, { key ->
             expanded = if (key in expanded) expanded - key else expanded + key
-        }, { copy(it) })
+        }, { copy(it) }, { menuTarget = it })
+    }
+    menuTarget?.let { t ->
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { menuTarget = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            MessageMenu(
+                t, speaking = speakingKey == t.key,
+                onCopy = { copy(t.text) },
+                onSpeak = { onSpeak(t.key, t.text) },
+                onEdit = { onEdit(t.key, t.text) },
+                onReanswer = { onReanswer(t.key) },
+                onBranch = { onBranch(t.key) },
+                onDismiss = { menuTarget = null },
+            )
+        }
     }
 
     Column(modifier.fillMaxSize()) {
@@ -761,6 +785,8 @@ private class RowActions(
     val onDismissSend: (String) -> Unit,
     val onToggle: (String) -> Unit,
     val onCopy: (String) -> Unit = {},
+    /** A long press on a message bubble opens [MessageMenu] for it. */
+    val onLongPress: (MenuTarget) -> Unit = {},
 )
 
 private fun LazyListScope.rows(rows: List<ChatRow>, a: RowActions) {
@@ -774,8 +800,10 @@ private fun LazyListScope.rows(rows: List<ChatRow>, a: RowActions) {
 private fun RowContent(row: ChatRow, a: RowActions) {
     when (row) {
         is ChatRow.Older -> OlderRow(row.error, a.onLoadOlder)
-        is ChatRow.Whole -> Bubble(row.kind, row.blocks, row.cites, a.onLink) { a.onCopy(row.copy) }
-        is ChatRow.Segment -> BubbleSegment(row.kind, row.block, row.pos, row.inner.dp, row.cites, row.shade, a.onLink) { a.onCopy(row.copy) }
+        is ChatRow.Whole -> Bubble(row.kind, row.blocks, row.cites, a.onLink) { a.onLongPress(MenuTarget(messageKeyOf(row.key), row.kind.user, row.copy)) }
+        is ChatRow.Segment -> BubbleSegment(row.kind, row.block, row.pos, row.inner.dp, row.cites, row.shade, a.onLink) {
+            a.onLongPress(MenuTarget(messageKeyOf(row.key), row.kind.user, row.copy))
+        }
         is ChatRow.Raw -> RawBubble(BubbleKind.LIVE, row.text)
         is ChatRow.Placeholder -> PlaceholderBubble(row.kind)
         is ChatRow.Typing -> TypingBubble(row.tools)
@@ -960,3 +988,6 @@ private fun ErrorLine(text: String, tag: String) {
             .padding(horizontal = 12.dp, vertical = 8.dp),
     )
 }
+
+/** `u:e5`, `a:e7#3` (a row or a piece of one) → the message key `e5` / `e7`. */
+internal fun messageKeyOf(rowKey: String): String = rowKey.substringAfter(':').substringBefore('#')

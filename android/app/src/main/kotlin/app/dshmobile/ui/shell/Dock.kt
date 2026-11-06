@@ -85,6 +85,9 @@ data class ComposerUi(
     val chips: List<AttachmentChip> = emptyList(),
     val onRemoveChip: (String) -> Unit = {},
     val error: String? = null,
+    /** A one-line state above the field (編輯中…), with ✕ to cancel it; null shows nothing. */
+    val notice: String? = null,
+    val onCancelNotice: () -> Unit = {},
 )
 
 /** One picked attachment, shown above the input row until it is sent or removed. */
@@ -124,6 +127,19 @@ internal fun Dock(
         if (composer.chips.isNotEmpty()) {
             ChipRow(composer.chips, composer.onRemoveChip)
             Spacer(Modifier.height(10.dp))
+        }
+        composer.notice?.let { n ->
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 8.dp).background(Sakura.Aqua.copy(alpha = .35f), RoundedCornerShape(12.dp))
+                    .padding(start = 10.dp).testTag(Tags.EDIT_BANNER),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(n, color = Sakura.Text, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Box(
+                    Modifier.size(40.dp).clickable(role = Role.Button, onClick = composer.onCancelNotice).semantics { contentDescription = "取消" },
+                    contentAlignment = Alignment.Center,
+                ) { Text("✕", color = Sakura.Text, fontSize = 14.sp) }
+            }
         }
         composer.error?.let {
             Text(

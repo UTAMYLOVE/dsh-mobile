@@ -173,6 +173,9 @@ class DshMobileApp : Application(), Configuration.Provider {
         )
     }
 
+    /** 朗讀 (0.5.0): one TextToSpeech for the app, created on first use. */
+    val speaker: app.dshmobile.chat.Speaker by lazy { app.dshmobile.chat.Speaker(this) }
+
     val runtimeMode: RuntimeModeStore by lazy { RuntimeModeStore(getSharedPreferences(RuntimeModeStore.PREFS, Context.MODE_PRIVATE)) }
 
     /**
