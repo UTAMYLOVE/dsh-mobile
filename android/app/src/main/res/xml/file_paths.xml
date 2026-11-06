@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Only cache/export/ (shared files) and cache/update/ (the verified shell-app APK handed to the installer) are reachable through the FileProvider. -->
+<!-- Only cache/export/ (shared files), cache/update/ (the verified shell-app APK handed to the installer) and cache/camera/ (a photo being taken) are reachable through the FileProvider. -->
 <paths>
     <cache-path name="export" path="export/" />
     <cache-path name="update" path="update/" />
+    <!-- 拍照問 (0.5.0): the camera app writes the picture here; the app reads it back as an attachment. -->
+    <cache-path name="camera" path="camera/" />
 </paths>

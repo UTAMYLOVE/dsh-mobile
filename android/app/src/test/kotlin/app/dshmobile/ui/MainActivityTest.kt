@@ -926,7 +926,7 @@ class MainActivityTest {
         activity.navForTest.openSession("s1")
         compose.waitForIdle()
         waitUntil { muxes[0].opened("session/follow").isNotEmpty() }
-        compose.onNodeWithTag(Tags.SEND).assertExists()
+        compose.onNodeWithTag(Tags.VOICE).assertExists() // idle and empty: the microphone (0.5.0)
         val follow = muxes[0].opened("session/follow").last()
         muxes[0].sendItem(follow, """{"type":"snapshot","header":{"version":4},"cursor":2,"records":[{"type":"event","event":{"type":"turn/start","seq":2,"time":1,"data":{}}}],"hasMore":false}""")
         waitUntil { compose.onAllNodesWithTag(Tags.STOP).fetchSemanticsNodes().isNotEmpty() }
@@ -949,7 +949,8 @@ class MainActivityTest {
         assertEquals(MainUiState.Loading, activity.uiStateForTest.value)
         runCatching { compose.onNodeWithTag(Tags.COMPOSER_INPUT).performTextInput("hi") }
         compose.waitForIdle()
-        compose.onNodeWithTag(Tags.SEND).assertIsNotEnabled()
+        // The field takes no text while dsh is not ready, so its button is the (disabled) microphone (0.5.0).
+        compose.onNodeWithTag(if (compose.onAllNodesWithTag(Tags.SEND).fetchSemanticsNodes().isEmpty()) Tags.VOICE else Tags.SEND).assertIsNotEnabled()
         compose.onNodeWithTag(Tags.COMPOSER_HINT, useUnmergedTree = true).assertIsDisplayed()
         runCatching { compose.onNodeWithTag(Tags.SEND).performClick() }
         idleFor(300)
@@ -996,7 +997,9 @@ class MainActivityTest {
         answerChatRpc()
         val activity = build().create().start().resume().visible().get()
         waitForShellOn(0, activity)
-        compose.onNodeWithTag(Tags.SEND).assertIsNotEnabled()
+        // An empty field shows the microphone instead of send (0.5.0); an attachment brings send back.
+        compose.onNodeWithTag(Tags.VOICE).assertIsEnabled()
+        assertTrue(compose.onAllNodesWithTag(Tags.SEND).fetchSemanticsNodes().isEmpty())
         activity.attachForTest(listOf(pick("a.png")))
         waitUntil { hasChips() == 1 }
         compose.onNodeWithTag(Tags.SEND).assertIsEnabled()

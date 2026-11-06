@@ -411,6 +411,8 @@ suspend fun sendFromDock(
     text: String,
     attachments: List<PendingAttachment> = emptyList(),
     loader: AttachmentLoader,
+    /** The one-shot mode from the ＋ sheet: 計畫 runs dsh's `/plan` first, the others lead the text with their skill. */
+    mode: app.dshmobile.chat.ComposeMode = app.dshmobile.chat.ComposeMode.NORMAL,
 ): DockSend {
     val id = nav.openSessionId ?: try {
         session.index.create()
@@ -422,7 +424,16 @@ suspend fun sendFromDock(
     app.dshmobile.runtime.DshLayout.otherModeOf(session.index.cwdOf(id))?.let { return DockSend.OtherMode(it) }
     if (nav.openSessionId != id || nav.listOpen) nav.openSession(id)
     val store = session.conversation(id)
-    return when (val out = sendWithAttachments(store, AttachmentSender(session.remote, loader), text, attachments)) {
+    if (mode.plan) {
+        try {
+            session.remote.runCommand(id, "/plan")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return DockSend.Refused(failureCode(e))
+        }
+    }
+    return when (val out = sendWithAttachments(store, AttachmentSender(session.remote, loader), mode.apply(text), attachments)) {
         SendOutcome.Sent -> DockSend.Sent
         is SendOutcome.AttachmentFailed -> DockSend.AttachmentFailed(out.name, out.reason)
         is SendOutcome.Refused -> DockSend.Refused(out.code)

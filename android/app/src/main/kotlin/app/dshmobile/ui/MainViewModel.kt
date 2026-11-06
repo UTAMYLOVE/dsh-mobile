@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import app.dshmobile.chat.ComposeMode
 import app.dshmobile.ui.chat.failureCode
 import app.dshmobile.DshMobileApp
 import app.dshmobile.R
@@ -155,6 +156,9 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
     data class EditTarget(val sessionId: String, val boundary: Long)
     var editTarget by mutableStateOf<EditTarget?>(null)
 
+    /** The ＋ sheet's mode for the next message (0.5.0); back to 一般 after a send. */
+    var mode by mutableStateOf(ComposeMode.NORMAL)
+
     fun startEdit(sessionId: String, boundary: Long, text: String) {
         editTarget = EditTarget(sessionId, boundary)
         composerText = text
@@ -205,7 +209,8 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
                     session.tree.refreshNow()
                     nav.openSession(forked)
                 }
-                outcome = sendFromDock(session, nav, text, picked, attachmentLoader)
+                outcome = sendFromDock(session, nav, text, picked, attachmentLoader, mode)
+                if (outcome == DockSend.Sent) mode = ComposeMode.NORMAL
             } finally {
                 if (held) sending = false
                 if (outcome != DockSend.Sent && !held && composerText.isEmpty()) composerText = text // nothing typed meanwhile: put it back

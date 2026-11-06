@@ -130,6 +130,31 @@ class MainActivity : ComponentActivity() {
     // The system pickers need no permission; both are registered here, before the activity starts.
     private val imagePicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK)) { vm.addPicked(it) }
     private val filePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.addPicked(it) }
+
+    /** 拍照問 (0.5.0): the camera app writes into cache/camera/ through the FileProvider; no CAMERA permission is declared. */
+    private var cameraUri: Uri? = null
+    private val camera = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok -> cameraUri?.let { if (ok) vm.addPicked(listOf(it)) }; cameraUri = null }
+
+    private fun takePicture() {
+        val dir = java.io.File(cacheDir, "camera").apply { mkdirs() }
+        val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.export", java.io.File(dir, "photo-${System.currentTimeMillis()}.jpg"))
+        cameraUri = uri
+        try { camera.launch(uri) } catch (_: android.content.ActivityNotFoundException) { cameraUri = null; toast(getString(R.string.camera_unavailable)) }
+    }
+
+    /** 語音輸入 (0.5.0): the system recognizer (zh-TW) types into the field; no RECORD_AUDIO permission in this app. */
+    private val voice = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val said = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim().orEmpty()
+        if (said.isNotEmpty()) vm.onText(if (vm.composerText.isBlank()) said else vm.composerText.trimEnd() + " " + said)
+    }
+
+    private fun listen() {
+        val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "zh-TW")
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, getString(R.string.shell_voice))
+        try { voice.launch(intent) } catch (_: android.content.ActivityNotFoundException) { toast(getString(R.string.voice_unavailable)) }
+    }
     /** The system "remove animations" setting; read again at every resume, since it is changed in the system settings. */
     private var reducedMotion by mutableStateOf(false)
     private var jankStats: JankStats? = null
@@ -318,6 +343,10 @@ class MainActivity : ComponentActivity() {
                 onRemoveChip = vm::removeChip,
                 error = vm.dockError,
                 notice = if (vm.editTarget != null) getString(R.string.edit_banner) else null,
+                mode = vm.mode,
+                onMode = { vm.mode = it },
+                onVoice = ::listen,
+                onCamera = ::takePicture,
                 onCancelNotice = vm::cancelEdit,
             ),
             onRetry = ::retry,

@@ -260,9 +260,14 @@ fun FogShell(
         ) {
             if (showReconnecting) ReconnectingChip(Modifier.align(Alignment.CenterHorizontally))
             if (attachMenu) {
-                AttachMenu(
+                PlusSheet(
+                    mode = composer.mode, assistants = composer.assistants,
                     onImage = { attachMenu = false; composer.onAttachImage() },
+                    onCamera = { attachMenu = false; composer.onCamera() },
                     onFile = { attachMenu = false; composer.onAttachFile() },
+                    onMode = { attachMenu = false; composer.onMode(it) },
+                    onAssistant = { attachMenu = false; composer.onAssistant(it) },
+                    onNewAssistant = { attachMenu = false; composer.onAssistant("") },
                 )
             }
             Dock(

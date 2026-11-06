@@ -85,10 +85,20 @@ data class ComposerUi(
     val chips: List<AttachmentChip> = emptyList(),
     val onRemoveChip: (String) -> Unit = {},
     val error: String? = null,
+    /** The ＋ sheet (0.5.0): the one-shot mode, voice input (null: none on this phone), the camera, the assistants. */
+    val mode: app.dshmobile.chat.ComposeMode = app.dshmobile.chat.ComposeMode.NORMAL,
+    val onMode: (app.dshmobile.chat.ComposeMode) -> Unit = {},
+    val onVoice: (() -> Unit)? = null,
+    val onCamera: () -> Unit = {},
+    val assistants: List<AssistantChip> = emptyList(),
+    val onAssistant: (String) -> Unit = {},
     /** A one-line state above the field (編輯中…), with ✕ to cancel it; null shows nothing. */
     val notice: String? = null,
     val onCancelNotice: () -> Unit = {},
 )
+
+/** A project shown as an assistant in the ＋ sheet (0.5.0 task 10): its id and name. */
+data class AssistantChip(val id: String, val name: String)
 
 /** One picked attachment, shown above the input row until it is sent or removed. */
 data class AttachmentChip(
@@ -141,6 +151,17 @@ internal fun Dock(
                 ) { Text("✕", color = Sakura.Text, fontSize = 14.sp) }
             }
         }
+        if (composer.mode != app.dshmobile.chat.ComposeMode.NORMAL) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    Modifier.heightIn(min = 36.dp).clip(Round).background(Sakura.Aqua.copy(alpha = .55f), Round)
+                        .clickable(role = Role.Button) { composer.onMode(app.dshmobile.chat.ComposeMode.NORMAL) }.testTag(Tags.MODE_CHIP)
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(composer.mode.zh + " ✕", color = Sakura.Text, fontSize = 12.sp) }
+                Text(composer.mode.hint, color = Sakura.TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            }
+        }
         composer.error?.let {
             Text(
                 it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
@@ -169,6 +190,9 @@ internal fun Dock(
             }
             if (composer.running && composer.text.isBlank()) {
                 RoundButton(stringResource(R.string.shell_stop), enabled, Tags.STOP, composer.onStop, pink) { tint -> StopIcon(tint) }
+            } else if (composer.onVoice != null && composer.text.isBlank() && composer.chips.isEmpty() && !composer.running) {
+                // An empty field: the send button is the microphone (mockup 2).
+                RoundButton(stringResource(R.string.shell_voice), enabled, Tags.VOICE, composer.onVoice, pink) { tint -> MicIcon(tint) }
             } else {
                 RoundButton(stringResource(R.string.shell_send), enabled && composer.canSend, Tags.SEND, composer.onSend, pink) { tint -> SendIcon(tint) }
             }
@@ -279,6 +303,15 @@ private fun SendIcon(tint: Color) = Canvas(Modifier.size(20.dp)) {
     drawLine(tint, Offset(cx, size.height - 2f), Offset(cx, 2f), w, StrokeCap.Round)
     drawLine(tint, Offset(cx, 2f), Offset(cx - size.width * .32f, size.height * .36f), w, StrokeCap.Round)
     drawLine(tint, Offset(cx, 2f), Offset(cx + size.width * .32f, size.height * .36f), w, StrokeCap.Round)
+}
+
+@Composable
+private fun MicIcon(tint: Color) = Canvas(Modifier.size(20.dp)) {
+    val w = IconStroke.toPx()
+    val cx = size.width / 2
+    drawRoundRect(tint, Offset(cx - size.width * .17f, 1f), androidx.compose.ui.geometry.Size(size.width * .34f, size.height * .56f), CornerRadius(size.width * .17f), style = androidx.compose.ui.graphics.drawscope.Stroke(w))
+    drawArc(tint, 0f, 180f, false, Offset(size.width * .2f, size.height * .25f), androidx.compose.ui.geometry.Size(size.width * .6f, size.height * .5f), style = androidx.compose.ui.graphics.drawscope.Stroke(w, cap = StrokeCap.Round))
+    drawLine(tint, Offset(cx, size.height * .76f), Offset(cx, size.height - 1f), w, StrokeCap.Round)
 }
 
 @Composable

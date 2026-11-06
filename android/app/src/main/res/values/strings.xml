@@ -227,6 +227,14 @@
     <string name="chat_cites">來源 %1$s</string>
     <string name="chat_queued">排隊中</string>
     <string name="chat_sending">傳送中…</string>
+    <string name="shell_voice">語音輸入</string>
+    <string name="shell_camera">拍照問</string>
+    <string name="plus_attach">附件</string>
+    <string name="plus_mode">這次要怎麼做</string>
+    <string name="plus_assistants">找小助理</string>
+    <string name="plus_new_assistant">＋ 新增</string>
+    <string name="voice_unavailable">這支手機沒有語音輸入</string>
+    <string name="camera_unavailable">這支手機沒有相機 App</string>
     <string name="followups_title">接著可以問</string>
     <string name="msg_copy">複製</string>
     <string name="msg_speak">朗讀</string>

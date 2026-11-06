@@ -186,7 +186,7 @@ object ConversationReducer {
             }
             else -> {}
         }
-        val item = ChatItem.User("e$seq", ReviewRounds.strip(text.toString()), attachments)
+        val item = ChatItem.User("e$seq", ComposeMode.strip(ReviewRounds.strip(text.toString())), attachments)
         return withItem(state.copy(acceptedRequestIds = accepted), item)
     }
 
