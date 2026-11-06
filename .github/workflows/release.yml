@@ -177,17 +177,6 @@ jobs:
       - name: Smoke test rootfs
         run: bash rootfs/smoke-test.sh out/dshm-rootfs-arm64.tar.xz
 
-      # ---- native runtime for 「實驗：原生模式」 (same steps as ci.yml's native job, arm64) ----
-      - name: Restore the pinned Termux packages
-        uses: actions/cache@v4
-        with:
-          path: native-debs
-          key: native-debs-${{ hashFiles('native/termux.lock') }}
-      - name: Build the native runtime
-        run: |
-          bash native/build.sh arm64 out/dshm-rootfs-arm64.package-lock.json out/native-arm64 "$GITHUB_WORKSPACE/native-debs" | tee native-build.txt
-          echo "native runtime: $(tail -1 native-build.txt)" >> "$GITHUB_STEP_SUMMARY"
-
       # ---- unsigned release APK (no signing environment is present in this step) ----
       - name: Build unsigned release APK
         working-directory: android
@@ -197,7 +186,7 @@ jobs:
           VERSION_CODE: ${{ steps.ver.outputs.version_code }}
         run: |
           ./gradlew :app:assembleRelease --no-daemon \
-            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" -Pdshm.nativeDir="$GITHUB_WORKSPACE/out/native-arm64" \
+            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" \
             -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
       - name: Inspect unsigned APK
         run: |
@@ -205,8 +194,6 @@ jobs:
           apk=android/app/build/outputs/apk/release/app-release-unsigned.apk
           test -f "$apk"
           unzip -v "$apk" | grep -E 'Stored .* assets/rootfs\.tar\.xz$'
-          unzip -Z1 "$apk" | grep -x 'lib/arm64-v8a/libdshn_bin_node.so'
-          unzip -Z1 "$apk" | grep -x 'assets/native/manifest.json'
           if unzip -Z1 "$apk" | grep '^lib/' | grep -v '^lib/arm64-v8a/'; then
             echo "::error::APK contains native libraries for another ABI"
             exit 1
@@ -253,7 +240,7 @@ jobs:
         run: |
           rm -rf app/build/outputs/apk/release
           ./gradlew :app:assembleRelease --no-daemon --no-build-cache \
-            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" -Pdshm.nativeDir="$GITHUB_WORKSPACE/out/native-arm64" \
+            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" \
             -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
 
       - name: Verify signature and compute SHA-256

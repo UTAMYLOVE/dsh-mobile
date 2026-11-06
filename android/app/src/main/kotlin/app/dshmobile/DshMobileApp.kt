@@ -162,7 +162,12 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     private val proot: ProotRunner by lazy {
-        ProotRunner(File(applicationInfo.nativeLibraryDir), appPaths.rootfs, File(cacheDir, "proot"), appPaths.binds)
+        // The workspace is also bound at its own host path: conversations made in the removed native mode have that path as
+        // their folder, and dsh never runs a turn whose folder is missing.
+        ProotRunner(
+            File(applicationInfo.nativeLibraryDir), appPaths.rootfs, File(cacheDir, "proot"),
+            appPaths.binds + (appPaths.workspace to appPaths.workspace.absolutePath),
+        )
     }
 
     /** The experimental native mode's launcher (Android's own node; no proot), see [layoutForStart]. */
@@ -207,14 +212,13 @@ class DshMobileApp : Application(), Configuration.Provider {
      * Native runs the same dsh version (rootfs/opt/dsh/<current>) and plugins as proot would.
      */
     private fun layoutForStart(): DshLayout {
-        if (!runtimeMode.native.value) return DshLayout.PROOT
-        if (!nativeRunner.available) {
-            errorLog.append("native", "native mode is on but this build has no native runtime: using proot")
-            return DshLayout.PROOT
+        // 0.5.0: the owner removed 「原生模式」 (2026-11-07: 「我覺得原生模式拿掉好了」). Everything runs in proot; a switch left on
+        // by an earlier build is turned off here once.
+        if (runtimeMode.native.value) {
+            runtimeMode.set(false)
+            errorLog.append("native", "native mode was removed: back to proot")
         }
-        nativeRunner.prepare()
-        val dshDir = File(appPaths.rootfs, "opt/dsh/" + dshVersions.current())
-        return DshLayout.native(appPaths, dshDir, nativeRunner.node(), nativeRunner.shellPath)
+        return DshLayout.PROOT
     }
 
     val agentSettingsStore: AgentSettingsStore by lazy {
@@ -259,11 +263,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             filesDir = filesDir,
             isRootfsInstalled = rootfsInstaller::isInstalled,
             launcher = DshLauncher { env, args ->
-                if (DshLayout.active.native) {
-                    // The owner's opt-in (Settings): dsh runs commands without asking (RuntimeModeStore.noApproval).
-                    val extra = if (runtimeMode.noApproval.value) mapOf("DSH_PERMISSION_MODE" to "danger-full-access") else emptyMap()
-                    nativeRunner.command(args, env + extra, appPaths.workspace).start()
-                } else proot.command(args, env).start()
+                proot.command(args, env).start()
             },
             layout = ::layoutForStart,
             // Many agents at once make many requests: the runaway guard scales with the concurrency setting.

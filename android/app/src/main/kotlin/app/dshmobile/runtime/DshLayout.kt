@@ -72,7 +72,8 @@ data class DshLayout(
             if (cwd == ws || cwd.startsWith("$ws/")) return null
             return when {
                 layout.native && (cwd == AppPaths.GUEST_WORKSPACE || cwd.startsWith("/root/")) -> false
-                !layout.native && cwd.startsWith("/data/") -> true
+                // proot binds the workspace at its host path too (native mode is gone), so those conversations run here
+                !layout.native && cwd.startsWith("/data/") -> null
                 else -> null
             }
         }

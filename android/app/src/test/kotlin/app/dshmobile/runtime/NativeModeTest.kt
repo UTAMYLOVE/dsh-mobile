@@ -62,7 +62,7 @@ class NativeModeTest {
         assertEquals(false, DshLayout.otherModeOf("/root/workspace", native))
         assertEquals(null, DshLayout.otherModeOf("/data/user/0/app.dshmobile/files/userdata/workspace", native))
         assertEquals(null, DshLayout.otherModeOf("/data/user/0/app.dshmobile/files/userdata/workspace/notes", native))
-        assertEquals(true, DshLayout.otherModeOf("/data/user/0/app.dshmobile/files/userdata/workspace", DshLayout.PROOT))
+        assertEquals(null, DshLayout.otherModeOf("/data/user/0/app.dshmobile/files/userdata/workspace", DshLayout.PROOT))
         assertEquals(null, DshLayout.otherModeOf("/root/workspace", DshLayout.PROOT))
         assertEquals(null, DshLayout.otherModeOf(null, native))
     }
