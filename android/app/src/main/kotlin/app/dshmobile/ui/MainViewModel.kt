@@ -246,8 +246,8 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
     }
 
     /** What the pickers returned (an empty list: the picker was cancelled and nothing changes). Reads each file once to count it, off the main thread. */
-    fun addPicked(uris: List<Uri>) {
-        if (uris.isEmpty()) return
+    fun addPicked(uris: List<Uri>, then: (() -> Unit)? = null) {
+        if (uris.isEmpty()) { then?.invoke(); return }
         viewModelScope.launch {
             val results = withContext(Dispatchers.IO) { uris.distinct().map(attachmentLoader::inspect) }
             var error: String? = null
@@ -261,6 +261,28 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
             }
             attachments = attachments + added
             dockError = error
+            then?.invoke()
+        }
+    }
+
+    /**
+     * Something shared from another app (0.5.0): its text (with the owner's question) goes into the dock and its files become
+     * attachments. [toNew]: a new conversation, sent at once; else the draft waits and the list opens to pick a conversation.
+     */
+    fun takeShared(message: String, uris: List<Uri>, toNew: Boolean) {
+        cancelEdit()
+        composerText = message
+        if (toNew) {
+            nav.openSessionId = null
+            nav.listOpen = false
+            nav.select(ShellTab.CHAT)
+            addPicked(uris) { onDockSend() }
+        } else {
+            addPicked(uris)
+            nav.select(ShellTab.CHAT)
+            nav.listTab = "ALL"
+            nav.projectSlug = null
+            nav.listOpen = true
         }
     }
 

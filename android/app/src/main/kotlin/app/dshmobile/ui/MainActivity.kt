@@ -1,6 +1,10 @@
 package app.dshmobile.ui
 
 import app.dshmobile.ui.chat.LocalUnlocker
+import app.dshmobile.chat.FileKind
+import app.dshmobile.ui.shell.SharedSaver
+import app.dshmobile.ui.shell.ShareSheet
+import app.dshmobile.ui.shell.SharedContent
 import app.dshmobile.ui.chat.failureCode
 import app.dshmobile.runtime.DshLayout
 import app.dshmobile.chat.ProjectStore
@@ -159,6 +163,8 @@ class MainActivity : ComponentActivity() {
         if (r.resultCode == RESULT_OK) then?.invoke()
     }
     private var stoppedAt = 0L
+    /** Something another app shared, waiting for the owner's choice in the [ShareSheet]. */
+    private var shared by mutableStateOf<SharedContent?>(null)
     // Reference files for a project (0.5.0).
     private var onPicked: ((List<Uri>) -> Unit)? = null
     private val projectFilePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -369,6 +375,20 @@ class MainActivity : ComponentActivity() {
         val running by runningFlow.collectAsState(false)
         val projects by app.projectStore.projects.collectAsState()
         val assistants = remember(projects) { projects.filter { it.assistant }.map { AssistantChip(it.slug, it.name) } }
+        shared?.let { content ->
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { shared = null },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+            ) {
+                ShareSheet(
+                    content,
+                    onAsk = { q -> shared = null; vm.takeShared(content.message(q), content.uris, toNew = true) },
+                    onAddToExisting = { q -> shared = null; vm.takeShared(content.message(q), content.uris, toNew = false) },
+                    onSaveToShelf = { shared = null; saveSharedToShelf(content) },
+                    onDismiss = { shared = null },
+                )
+            }
+        }
         vm.otherMode?.let { madeNative -> OtherModeDialog(madeNative, onSwitch = vm::switchModeForConversation, onCancel = { vm.otherMode = null }) }
         FogShell(
             status = state,
@@ -523,6 +543,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** 存到書架: shared text becomes `shared/<time>-<start>.md`, shared files are copied into `shared/`; each lands on the shelf. */
+    private fun saveSharedToShelf(content: SharedContent) {
+        lifecycleScope.launch {
+            val saved = withContext(Dispatchers.IO) { SharedSaver(app.appPaths.workspace, contentResolver).save(content) }
+            saved.forEach { (rel, title) -> app.libraryStore.addFile(rel, title, FileKind.of(rel).name, null) }
+            toast(getString(if (saved.isEmpty()) R.string.share_save_failed else R.string.share_saved, saved.size))
+        }
+    }
+
     private fun openWorkspaceFile(rel: String) {
         lifecycleScope.launch {
             try {
@@ -621,6 +650,11 @@ class MainActivity : ComponentActivity() {
     // ---------- intents ----------
 
     private fun handle(intent: Intent?) {
+        SharedContent.from(intent)?.let { content ->
+            shared = content
+            intent?.action = Intent.ACTION_MAIN // consumed: a recreation must not offer it again
+            return
+        }
         when (val request = LaunchRequest.from(intent)) {
             LaunchRequest.None -> Unit
             LaunchRequest.Rollback -> confirmRollback()

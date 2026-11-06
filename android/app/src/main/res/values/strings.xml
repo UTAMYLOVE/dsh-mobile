@@ -459,4 +459,16 @@
     <string name="helpers_time">時間（24 小時制，例如 08:00）</string>
     <string name="helpers_create">建立</string>
     <string name="helpers_note">手機要開著網路；App 會在時間快到時叫醒 dsh。也可以在任何對話裡直接說「每天早上 8 點給我晨報」。</string>
+    <string name="share_title_text">分享了一段文字</string>
+    <string name="share_title_files">分享了 %1$d 個檔案</string>
+    <string name="share_title_both">分享了文字和 %1$d 個檔案</string>
+    <string name="share_question_hint">想問什麼？（可以不填）</string>
+    <string name="share_ask">開新對話問</string>
+    <string name="share_ask_note">直接送出，AI 開始回答</string>
+    <string name="share_add">加到現有對話</string>
+    <string name="share_add_note">選一個對話，貼進輸入框</string>
+    <string name="share_shelf">存到書架</string>
+    <string name="share_shelf_note">照片、檔案、網址都可以</string>
+    <string name="share_saved">已存到書架（%1$d 個）</string>
+    <string name="share_save_failed">存不進書架（讀不到分享的內容）</string>
 </resources>
