@@ -1,5 +1,6 @@
 package app.dshmobile.ui.agents
 
+import app.dshmobile.ui.fog.flowLight
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -82,7 +83,7 @@ internal fun SummaryStrip(input: WarRoomInput, costOf: (AgentStatus) -> Double?)
     val speed = input.samples.lastOrNull()?.tokensPerSecond
     val tokens = a.sumOf { it.usage.totalTokens }
     val spent = a.mapNotNull(costOf).takeIf { it.isNotEmpty() }?.sum()
-    WarPanel(modifier = Modifier.testTag(Tags.WAR_TILES)) {
+    WarPanel(modifier = Modifier.flowLight(War.shape, width = 2.dp, fast = running > 0).testTag(Tags.WAR_TILES)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("AGENT OPS · 戰情室", style = War.ttl.copy(fontSize = 10.sp), modifier = Modifier.weight(1f))
             Text("● ${HHMMSS.format(Instant.ofEpochMilli(input.nowMs))}", style = War.num(11.sp, War.rose))

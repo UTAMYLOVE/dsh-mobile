@@ -1,5 +1,6 @@
 package app.dshmobile.ui.shell
 
+import app.dshmobile.ui.fog.flowLight
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -135,6 +136,7 @@ internal fun Dock(
             // A layer of its own: the pill's slide and the composer's caret re-record the dock, not the shell around it.
             .graphicsLayer { }
             .glass(DockShape)
+            .flowLight(DockShape, fast = composer.running)
             .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
     ) {
         if (composer.status.isNotEmpty()) {

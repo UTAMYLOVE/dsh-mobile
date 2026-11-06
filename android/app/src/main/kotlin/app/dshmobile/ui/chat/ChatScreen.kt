@@ -1,5 +1,6 @@
 package app.dshmobile.ui.chat
 
+import app.dshmobile.ui.fog.flowLight
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.activity.compose.BackHandler
@@ -753,6 +754,7 @@ fun ChatScreen(
                 state.title.ifBlank { stringResource(R.string.chat_untitled) }, chip, onOpenList,
                 // 目錄, 加入書架 and 數據 share the ⋮: a fifth control in the title row was pushed off a narrow (or large-font) screen.
                 onMore = if (dataPanel != null || onAddToShelf != null || toc.isNotEmpty()) ({ moreOpen = !moreOpen; menuOpen = false }) else null,
+                running = state.running,
             ) { menuOpen = !menuOpen; moreOpen = false }
             if (menuOpen) ModelMenu(state.models, state.effort, state.reviewRounds, onPickEffort, onPickReview) { id -> menuOpen = false; onPickModel(id) }
             // 0.5.0 (the owner: the header took ~40 % of the screen): thinking, review, context, totals and the working line moved
@@ -897,9 +899,9 @@ private val Pill = RoundedCornerShape(50)
 
 /** 「☰ 對話」, the title (one line, ellipsized) and the model chip, on a glass panel. */
 @Composable
-private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onToc: (() -> Unit)? = null, onMore: (() -> Unit)? = null, onChip: () -> Unit) {
+private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onToc: (() -> Unit)? = null, onMore: (() -> Unit)? = null, running: Boolean = false, onChip: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().glass(RoundedCornerShape(FogDimens.Panel)).testTag(Tags.CHAT_HEADER).padding(horizontal = 10.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().glass(RoundedCornerShape(FogDimens.Panel)).flowLight(RoundedCornerShape(FogDimens.Panel), fast = running).testTag(Tags.CHAT_HEADER).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
