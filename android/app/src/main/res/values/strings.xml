@@ -482,4 +482,6 @@
     <string name="set_claude_lead_fable">Fable 5.1（最強）</string>
     <string name="set_worker_pro">做事：DeepSeek Pro</string>
     <string name="set_worker_flash">做事：DeepSeek Flash</string>
+    <string name="set_key_cwa">氣象署開放資料金鑰</string>
+    <string name="set_key_cwa_note">天氣分析用來拿附近測站的實測值做校正（到 opendata.cwa.gov.tw 免費申請）。只有 App 自己查天氣時用，不會交給 dsh。沒有也能用，只是不校正。</string>
 </resources>

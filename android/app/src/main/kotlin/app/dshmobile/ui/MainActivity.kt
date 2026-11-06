@@ -1,6 +1,7 @@
 package app.dshmobile.ui
 
 import app.dshmobile.ui.chat.LocalUnlocker
+import app.dshmobile.ui.overview.WeatherCard
 import app.dshmobile.chat.FileKind
 import app.dshmobile.ui.shell.SharedSaver
 import app.dshmobile.ui.shell.ShareSheet
@@ -452,7 +453,7 @@ class MainActivity : ComponentActivity() {
                     // app keeps the last state, so coming back shows it at once instead of an empty page (final review B2-M12).
                     val overview by app.overviewState.collectAsStateWithLifecycle()
                     overview?.let {
-                        OverviewScreen(it, nav::openSession, { nav.select(ShellTab.AGENTS) }) {
+                        OverviewScreen(it, nav::openSession, { nav.select(ShellTab.AGENTS) }, weather = { WeatherCard(app.weather) }) {
                             session?.let { sess ->
                                 val lead = remember(sess, nav.openSessionId) { sess.existing(nav.openSessionId)?.state ?: kotlinx.coroutines.flow.flowOf(null) }
                                 val war = rememberWarAgents(sess.tree, sess.warRoom, nav.openSessionId, lead)

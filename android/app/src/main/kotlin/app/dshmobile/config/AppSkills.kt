@@ -94,6 +94,18 @@ object AppSkills {
             - 資料要保存時用 localStorage。完成後告訴主人檔名，並說明可以在「工作區檔案」分享或用瀏覽器打開。
             """,
         ),
+        "dshm-weather" to skill(
+            "dshm-weather",
+            "Weather questions and the daily brief: read the app's own multi-model weather analysis in .dshm/weather.md first.",
+            """
+            # 天氣
+            主人問天氣、要不要帶傘、出門穿什麼，或做每日簡報時使用。
+            - 先讀工作區的 `.dshm/weather.md`：那是 App 自己做的分析（六個全球模式加權、氣象署測站校正、約 50 個系集成員算降雨機率），比網路上的單一預報準。
+            - 回答要說地點、時間、溫度範圍、降雨機率，最後一句說「信心：高／中／低」和原因（檔案裡有）。
+            - 檔案的地點不是主人問的地方、或更新時間超過 3 小時：照樣說檔案裡的內容並註明時間，再建議主人到 App 總覽的「天氣分析」換地點或按「重新分析」；需要的話再用 web_search 補充，並說明那是單一來源。
+            - 不要自己編數字。
+            """,
+        ),
         "dshm-contemplate" to skill(
             "dshm-contemplate",
             "Contemplate mode: three subagents argue a question from the optimist, cautious and data stances, then one merged answer.",

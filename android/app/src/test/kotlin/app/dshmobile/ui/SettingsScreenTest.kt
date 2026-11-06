@@ -324,7 +324,8 @@ class SettingsScreenTest {
     @Test fun keyStatusShowsConfiguredOrNot() {
         show()
         rule.onAllNodesWithText(str(R.string.set_key_set)).assertCountEquals(1)
-        rule.onAllNodesWithText(str(R.string.set_key_unset)).assertCountEquals(1)
+        rule.onAllNodesWithText(str(R.string.set_key_unset)).assertCountEquals(2) // Claude and the CWA weather key (0.5.0)
+        rule.onNodeWithTag("clear-cwa").assertIsNotEnabled()
         rule.onNodeWithTag("clear-claude").assertIsNotEnabled()
         rule.onNodeWithTag("clear-deepseek").assertIsEnabled()
     }

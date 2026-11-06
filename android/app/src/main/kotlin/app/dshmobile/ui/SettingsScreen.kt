@@ -493,6 +493,28 @@ fun SettingsScreen(
                     }
                 }
                 if (keyError) Text(stringResource(R.string.set_key_error), color = MaterialTheme.colorScheme.error)
+                // 0.5.0: the CWA open-data key for the weather analysis; only the app's own weather request uses it, never dsh.
+                var hasCwa by remember { mutableStateOf(env.vault.hasNamed(app.dshmobile.security.KeyVault.CWA)) }
+                var cwaEditing by remember { mutableStateOf(false) }
+                var cwaInput by remember { mutableStateOf("") }
+                KeyRow(R.string.set_key_cwa, "cwa", hasCwa, !busy, { cwaEditing = true; cwaInput = "" }, {
+                    env.vault.clearNamed(app.dshmobile.security.KeyVault.CWA); hasCwa = false
+                })
+                if (cwaEditing) {
+                    OutlinedTextField(
+                        value = cwaInput, onValueChange = { cwaInput = it }, singleLine = true,
+                        label = { Text(stringResource(R.string.set_key_cwa) + " · " + stringResource(R.string.set_key_field)) },
+                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth().testTag("cwa-field"),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            env.vault.putNamed(app.dshmobile.security.KeyVault.CWA, cwaInput.trim()); hasCwa = true; cwaEditing = false; cwaInput = ""
+                        }, enabled = cwaInput.trim().length in 10..200) { Text(stringResource(R.string.set_key_save)) }
+                        TextButton(onClick = { cwaEditing = false; cwaInput = "" }) { Text(stringResource(R.string.set_key_cancel)) }
+                    }
+                }
+                Text(stringResource(R.string.set_key_cwa_note), style = MaterialTheme.typography.bodySmall)
             }
 
             Section(R.string.set_section_agent, R.string.set_en_agents, 1) {

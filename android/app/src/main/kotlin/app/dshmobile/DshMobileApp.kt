@@ -175,6 +175,16 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     /** 朗讀 (0.5.0): one TextToSpeech for the app, created on first use. */
     val speaker: app.dshmobile.chat.Speaker by lazy { app.dshmobile.chat.Speaker(this) }
+    /** The app's own weather analysis (0.5.0); the CWA key stays in the vault and in the app's own requests. */
+    val weather: app.dshmobile.weather.WeatherService by lazy {
+        app.dshmobile.weather.WeatherService(
+            app.dshmobile.weather.OkHttpWeatherFetch(OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()),
+            getSharedPreferences(app.dshmobile.weather.WeatherService.PREFS, Context.MODE_PRIVATE),
+            appPaths.workspace,
+            cwaKey = { keyVault.getNamed(app.dshmobile.security.KeyVault.CWA) },
+        )
+    }
+
     /** Always-on helpers (0.5.0): their specs; the schedules themselves live in dsh. */
     val helperStore: app.dshmobile.chat.HelperStore by lazy { app.dshmobile.chat.HelperStore(java.io.File(filesDir, app.dshmobile.chat.HelperStore.FILE_NAME)) }
 
@@ -427,7 +437,11 @@ class DshMobileApp : Application(), Configuration.Provider {
             errorLog = errorLog,
             updateCheck = dailyUpdateCheck,
             serviceGaveUp = { serviceGaveUp.value },
-            afterRun = ::scheduleHelperWake,
+            afterRun = {
+                scheduleHelperWake()
+                // dsh reads .dshm/weather.md for weather questions and the daily brief: keep it fresh.
+                applicationScope.launch { runCatching { weather.refreshIfStale() } }
+            },
         )
     }
 

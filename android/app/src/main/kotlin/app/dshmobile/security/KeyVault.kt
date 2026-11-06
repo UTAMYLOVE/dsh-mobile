@@ -24,6 +24,17 @@ interface KeyVault {
     fun has(p: Provider): Boolean = get(p) != null
     fun put(p: Provider, key: String)
     fun clear(p: Provider)
+
+    /** Keys the app uses itself and never routes for dsh (0.5.0: the CWA open-data key, [CWA]); same encryption. */
+    fun getNamed(name: String): String? = null
+    fun hasNamed(name: String): Boolean = getNamed(name) != null
+    fun putNamed(name: String, key: String) {}
+    fun clearNamed(name: String) {}
+
+    companion object {
+        /** The Central Weather Administration open-data key (weather analysis; the app's own requests only). */
+        const val CWA = "CWA"
+    }
 }
 
 /**
@@ -34,30 +45,35 @@ interface KeyVault {
 class AndroidKeyVault(context: Context) : KeyVault {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    @Synchronized override fun get(p: Provider): String? {
-        val stored = prefs.getString(p.name, null) ?: return null
+    override fun get(p: Provider): String? = getNamed(p.name)
+    override fun has(p: Provider): Boolean = hasNamed(p.name)
+    override fun put(p: Provider, key: String) = putNamed(p.name, key)
+    override fun clear(p: Provider) = clearNamed(p.name)
+
+    @Synchronized override fun getNamed(name: String): String? {
+        val stored = prefs.getString(name, null) ?: return null
         return decryptOrNull {
             val (iv, ciphertext) = stored.split(':', limit = 2).map { Base64.decode(it, Base64.NO_WRAP) }
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(TAG_BITS, iv))
-            cipher.updateAAD(p.name.toByteArray())
+            cipher.updateAAD(name.toByteArray())
             String(cipher.doFinal(ciphertext), Charsets.UTF_8)
         }
     }
 
-    override fun has(p: Provider): Boolean = prefs.contains(p.name)
+    override fun hasNamed(name: String): Boolean = prefs.contains(name)
 
-    @Synchronized override fun put(p: Provider, key: String) {
+    @Synchronized override fun putNamed(name: String, key: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
-        cipher.updateAAD(p.name.toByteArray())
+        cipher.updateAAD(name.toByteArray())
         val ciphertext = cipher.doFinal(key.toByteArray(Charsets.UTF_8))
         val stored = Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(ciphertext, Base64.NO_WRAP)
-        prefs.edit().putString(p.name, stored).apply()
+        prefs.edit().putString(name, stored).apply()
     }
 
-    @Synchronized override fun clear(p: Provider) {
-        prefs.edit().remove(p.name).apply()
+    @Synchronized override fun clearNamed(name: String) {
+        prefs.edit().remove(name).apply()
     }
 
     private fun secretKey(): SecretKey {

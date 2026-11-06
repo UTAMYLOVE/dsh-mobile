@@ -71,7 +71,9 @@ private fun usd2(v: Double) = String.format(Locale.US, "%.2f", v)
  */
 @Composable
 fun OverviewScreen(
-    state: OverviewState, onOpenSession: (String) -> Unit, onOpenAgents: () -> Unit, warRoom: @Composable () -> Unit = {},
+    state: OverviewState, onOpenSession: (String) -> Unit, onOpenAgents: () -> Unit,
+    weather: @Composable () -> Unit = {},
+    warRoom: @Composable () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(LocalPagePadding.current),
@@ -79,6 +81,7 @@ fun OverviewScreen(
     ) {
         state.unverifiedDsh?.let { Banner(it) }
         SpendPanel(state)
+        weather()
         warRoom()
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             AgentsPanel(state, onOpenAgents, Modifier.weight(1f).fillMaxHeight())
