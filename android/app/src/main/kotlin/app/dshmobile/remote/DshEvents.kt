@@ -44,7 +44,21 @@ sealed interface PendingPrompt {
     data class Question(override val eventId: String, override val agentId: String, val questions: List<AskQuestion>) : PendingPrompt
 }
 
-data class AskQuestion(val id: String, val header: String?, val question: String, val options: List<String>, val multiSelect: Boolean)
+data class AskQuestion(
+    val id: String,
+    val header: String?,
+    val question: String,
+    val options: List<String>,
+    val multiSelect: Boolean,
+    /** Longer text under the question (dsh's plan review puts the whole Markdown plan here). */
+    val detail: String? = null,
+    /** dsh's plan review (`intent.kind` "plan-review"): [approveLabel] approves, anything else keeps planning. */
+    val planReview: Boolean = false,
+    val approveLabel: String? = null,
+) {
+    /** The keep-planning option of a plan review. */
+    val keepPlanningLabel: String? get() = options.firstOrNull { it != approveLabel }
+}
 
 /** dsh's session lifecycle notifications (`api-session/added|status|removed`). */
 sealed interface HostEvent {
@@ -106,12 +120,16 @@ class DshEvents(
 
     suspend fun reject(p: PendingPrompt.Approval) = respond(p, result(JsonPrimitive("rejected")))
 
-    /** [selected]: question id → chosen option labels; a question missing from it is answered with nothing selected. */
-    suspend fun answer(p: PendingPrompt.Question, selected: Map<String, List<String>>) = respond(p, result(buildJsonObject {
+    /**
+     * [selected]: question id → chosen option labels; a question missing from it is answered with nothing selected. [custom]:
+     * question id → free text (dsh's 「其他」; a plan review reads it as the feedback).
+     */
+    suspend fun answer(p: PendingPrompt.Question, selected: Map<String, List<String>>, custom: Map<String, String> = emptyMap()) = respond(p, result(buildJsonObject {
         put("answers", buildJsonArray {
             for (q in p.questions) add(buildJsonObject {
                 put("id", q.id)
                 put("selected", buildJsonArray { selected[q.id].orEmpty().forEach { add(JsonPrimitive(it)) } })
+                custom[q.id]?.takeIf { it.isNotBlank() }?.let { put("custom", it) }
             })
         })
     }))
@@ -249,6 +267,9 @@ class DshEvents(
                     (option as? JsonObject)?.string("label") ?: (option as? JsonPrimitive)?.takeIf { it.isString }?.content
                 },
                 multiSelect = (q["multiSelect"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: false,
+                detail = q.string("detail")?.takeIf { it.isNotBlank() },
+                planReview = (q["intent"] as? JsonObject)?.string("kind") == "plan-review",
+                approveLabel = (q["intent"] as? JsonObject)?.string("approve"),
             )
         }
 

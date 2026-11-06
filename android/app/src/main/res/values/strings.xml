@@ -371,4 +371,19 @@
     <string name="set_mcp">MCP 伺服器（每行：名稱 網址）</string>
     <string name="set_mcp_note">例：github https://example.com/mcp。只支援 https 網址（或本機 127.0.0.1），不能填金鑰或標頭。改完按「套用並重啟」。</string>
     <string name="set_mcp_bad">這幾行格式不對，會被略過：%1$s</string>
+    <string name="work_progress">進度</string>
+    <string name="work_all_done">全部完成</string>
+    <string name="work_contemplate_title">沉思中・三方意見</string>
+    <string name="work_stance_thinking">思考中</string>
+    <string name="work_stance_done">想好了</string>
+    <string name="work_stance_failed">沒回來</string>
+    <string name="work_contemplate_waiting">三方都想好後，AI 會合成一個答案</string>
+    <string name="work_contemplate_merging">三方都想好了，正在合成答案</string>
+    <string name="plan_label">計畫</string>
+    <string name="plan_title">計畫好了，要開始做嗎？</string>
+    <string name="plan_approve">同意，開始做</string>
+    <string name="plan_revise">修改計畫</string>
+    <string name="plan_send">送出修改</string>
+    <string name="plan_back">返回</string>
+    <string name="plan_feedback_hint">想改哪裡？（可以不填，AI 會再想一次）</string>
 </resources>

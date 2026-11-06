@@ -610,6 +610,8 @@ fun ChatScreen(
     speakingKey: String? = null,
     /** A tapped 建議下一步 chip: sent as the owner's next message. */
     onFollowUp: (String) -> Unit = {},
+    /** Pinned under the header (0.5.0): the todo progress bar and the contemplate card; null shows nothing. */
+    workBar: (@Composable () -> Unit)? = null,
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
@@ -728,6 +730,7 @@ fun ChatScreen(
                 val maxPanel = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.45f).dp
                 Box(Modifier.fillMaxWidth().heightIn(max = maxPanel).verticalScroll(rememberScrollState()).testTag(Tags.CHAT_DATA_SCROLL)) { dataPanel() }
             }
+            workBar?.invoke()
             state.followError?.let { FollowBanner(it, onRetryFollow) }
             state.sendError?.let { code ->
                 if (code == WRITER_HELD) {

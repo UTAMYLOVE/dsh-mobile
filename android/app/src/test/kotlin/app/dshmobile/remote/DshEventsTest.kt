@@ -167,6 +167,23 @@ class DshEventsTest {
         assertEquals(emptyList<PendingPrompt>(), events.prompts.value)
     }
 
+    @Test fun planReviewParsesThePlanAndSendsFeedbackAsCustom() = runBlocking {
+        val events = newEvents()
+        ev(ready("c1"))
+        ev("""{"type":"waterfall","event":"user-questions/request","eventId":"e1","agentId":"session-a","request":{"questions":[{"id":"plan-review","header":"Plan review","question":"Approve this plan and leave plan mode?","detail":"# 計畫\n1. 查資料","options":[{"label":"Approve"},{"label":"Keep planning"}],"intent":{"kind":"plan-review","approve":"Approve","callId":"c9"}}]}}""")
+        eventually("plan") { events.prompts.value.size == 1 }
+        val q = (events.prompts.value.single() as PendingPrompt.Question).questions.single()
+        assertTrue(q.planReview)
+        assertEquals("Approve", q.approveLabel)
+        assertEquals("Keep planning", q.keepPlanningLabel)
+        assertEquals("# 計畫\n1. 查資料", q.detail)
+        events.answer(events.prompts.value.single() as PendingPrompt.Question, mapOf("plan-review" to listOf("Keep planning")), mapOf("plan-review" to "多查一家"))
+        assertEquals(
+            Json.parseToJsonElement("""{"clientId":"c1","eventId":"e1","outcome":{"kind":"result","value":{"answers":[{"id":"plan-review","selected":["Keep planning"],"custom":"多查一家"}]}}}"""),
+            lastArgs(),
+        )
+    }
+
     @Test fun cancelRemovesThePrompt() = runBlocking {
         val events = newEvents()
         ev(ready("c1"))

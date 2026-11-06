@@ -16,6 +16,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -296,6 +298,11 @@ private fun ConversationPage(
         null
     }
 
+    // dsh's todo_write list (the progress bar under the header); null or empty shows nothing.
+    val todos = remember(session, id) { session.tree.state.map { t -> t.projections[id]?.let(app.dshmobile.chat.WorkProjections::todos) }.distinctUntilChanged() }
+        .collectAsState(null).value
+    var todoOpen by androidx.compose.runtime.saveable.rememberSaveable(id) { mutableStateOf(false) }
+
     val library = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.libraryStore
     val shelf = library?.state?.collectAsState()
     val onShelf = shelf?.value?.books?.any { it.sessionId == id } == true
@@ -329,6 +336,16 @@ private fun ConversationPage(
         },
         speakingKey = speaking,
         onFollowUp = { q -> branchScope.launch { store.send(listOf(app.dshmobile.remote.PromptPart.Text(q)), q, emptyList()) } },
+        workBar = {
+            val todos = todos
+            val stances = remember(team) { stanceAgents(team) }
+            if (!todos.isNullOrEmpty() || (stances.isNotEmpty() && conversation.running)) {
+                Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    if (!todos.isNullOrEmpty()) TodoBar(todos, todoOpen, { todoOpen = !todoOpen })
+                    if (stances.isNotEmpty() && conversation.running) ContemplateCard(stances)
+                }
+            }
+        },
         dataPanel = {
             val root = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.appPaths?.workspace
             val files by androidx.compose.runtime.produceState(emptyList<app.dshmobile.chat.WorkspaceFile>(), root, conversation.items.size) {

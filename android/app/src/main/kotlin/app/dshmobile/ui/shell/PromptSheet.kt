@@ -113,6 +113,8 @@ fun PromptSheet(
     onAnswer: (Map<String, List<String>>) -> Unit,
     onDecline: () -> Unit,
     connecting: Boolean = false,
+    /** dsh's plan review (0.5.0 plan card): approve, or keep planning with the owner's feedback (may be blank). */
+    onPlan: (approve: Boolean, feedback: String) -> Unit = { _, _ -> },
 ) {
     val animate = LocalEffects.current.pageMs > 0
     val rise = remember { Animatable(if (animate) 1f else 0f) }
@@ -129,7 +131,14 @@ fun PromptSheet(
     }
     // a new prompt (even in the same sheet) starts with nothing picked
     val selection = remember(prompt.eventId) { mutableStateMapOf<String, List<String>>() }
-    val cardTitle = if (prompt is PendingPrompt.Approval) stringResource(R.string.prompt_approval_title, prompt.toolName) else stringResource(R.string.prompt_question_title)
+    val plan = (prompt as? PendingPrompt.Question)?.questions?.singleOrNull()?.takeIf { it.planReview && it.approveLabel != null }
+    var revising by remember(prompt.eventId) { mutableStateOf(false) }
+    var feedback by remember(prompt.eventId) { mutableStateOf("") }
+    val cardTitle = when {
+        prompt is PendingPrompt.Approval -> stringResource(R.string.prompt_approval_title, prompt.toolName)
+        plan != null -> stringResource(R.string.plan_title)
+        else -> stringResource(R.string.prompt_question_title)
+    }
     Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
         // The scrim swallows every touch: the pages below are out of reach while dsh waits. It is nothing to a screen reader
         // (no unlabelled "button"; the shell hides the pages from it meanwhile), and its fade is read while drawing, so the
@@ -173,7 +182,7 @@ fun PromptSheet(
         ) {
             val isApproval = prompt is PendingPrompt.Approval
             Text(
-                stringResource(if (isApproval) R.string.prompt_approval_label else R.string.prompt_question_label),
+                stringResource(if (isApproval) R.string.prompt_approval_label else if (plan != null) R.string.plan_label else R.string.prompt_question_label),
                 style = FogText.Label.copy(letterSpacing = 0.24.em),
             )
             Text(
@@ -194,7 +203,19 @@ fun PromptSheet(
                         if (prompt.reason.isNotBlank()) Text(prompt.reason, color = Sakura.Text, fontSize = 15.sp, lineHeight = 24.sp)
                         Text(stringResource(R.string.prompt_origin, origin), style = FogText.Label)
                     }
-                    is PendingPrompt.Question -> {
+                    is PendingPrompt.Question -> if (plan != null) {
+                        Text(stringResource(R.string.prompt_origin, origin), style = FogText.Label)
+                        val blocks = app.dshmobile.ui.markdown.rememberMarkdown(plan.detail.orEmpty(), false)
+                        app.dshmobile.ui.markdown.MarkdownView(blocks, onLink = {}, modifier = Modifier.testTag(app.dshmobile.ui.chat.WorkTags.PLAN_CARD))
+                        if (revising) {
+                            androidx.compose.material3.OutlinedTextField(
+                                feedback, { feedback = it },
+                                modifier = Modifier.fillMaxWidth().testTag(app.dshmobile.ui.chat.WorkTags.PLAN_FEEDBACK),
+                                placeholder = { Text(stringResource(R.string.plan_feedback_hint), fontSize = 14.sp) },
+                                minLines = 2,
+                            )
+                        }
+                    } else {
                         Text(stringResource(R.string.prompt_origin, origin), style = FogText.Label)
                         prompt.questions.forEach { q ->
                             QuestionBlock(q, selection[q.id].orEmpty(), busy) { label -> selection[q.id] = toggled(q, selection[q.id].orEmpty(), label) }
@@ -215,6 +236,16 @@ fun PromptSheet(
                 Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FogButton(stringResource(R.string.prompt_allow_once), FogButtonKind.PINK, onAllowOnce, Modifier.weight(1f).testTag(Tags.APPROVE_ONCE), enabled = !busy)
                     FogButton(stringResource(R.string.prompt_reject), FogButtonKind.GHOST, onReject, Modifier.weight(1f).testTag(Tags.REJECT), enabled = !busy)
+                }
+            } else if (plan != null) {
+                Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (revising) {
+                        FogButton(stringResource(R.string.plan_send), FogButtonKind.PINK, { onPlan(false, feedback) }, Modifier.weight(1f).testTag(app.dshmobile.ui.chat.WorkTags.PLAN_SEND), enabled = !busy)
+                        FogButton(stringResource(R.string.plan_back), FogButtonKind.GHOST, { revising = false }, Modifier.weight(1f), enabled = !busy)
+                    } else {
+                        FogButton(stringResource(R.string.plan_approve), FogButtonKind.PINK, { onPlan(true, "") }, Modifier.weight(1f).testTag(app.dshmobile.ui.chat.WorkTags.PLAN_APPROVE), enabled = !busy)
+                        FogButton(stringResource(R.string.plan_revise), FogButtonKind.GHOST, { revising = true }, Modifier.weight(1f).testTag(app.dshmobile.ui.chat.WorkTags.PLAN_REVISE), enabled = !busy)
+                    }
                 }
             } else if (prompt is PendingPrompt.Question) {
                 val complete = prompt.questions.all { it.options.isEmpty() || selection[it.id].orEmpty().isNotEmpty() }
@@ -319,6 +350,13 @@ fun PromptHost(events: DshEvents?, tree: app.dshmobile.chat.SessionTree?, origin
         onReject = { (prompt as? PendingPrompt.Approval)?.let { p -> send { events?.reject(p) } } },
         onAnswer = { picked -> (prompt as? PendingPrompt.Question)?.let { p -> send { events?.answer(p, picked) } } },
         onDecline = { (prompt as? PendingPrompt.Question)?.let { p -> send { events?.decline(p) } } },
+        onPlan = { approve, feedback ->
+            (prompt as? PendingPrompt.Question)?.let { p ->
+                val q = p.questions.single()
+                val label = if (approve) q.approveLabel else q.keepPlanningLabel
+                if (label != null) send { events?.answer(p, mapOf(q.id to listOf(label)), if (approve) emptyMap() else mapOf(q.id to feedback.trim())) }
+            }
+        },
         connecting = busyId == prompt.eventId && clientId == null,
     )
 }
