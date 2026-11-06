@@ -94,6 +94,65 @@ object AppSkills {
             - 資料要保存時用 localStorage。完成後告訴主人檔名，並說明可以在「工作區檔案」分享或用瀏覽器打開。
             """,
         ),
+        "dshm-contemplate" to skill(
+            "dshm-contemplate",
+            "Contemplate mode: three subagents argue a question from the optimist, cautious and data stances, then one merged answer.",
+            """
+            # 沉思（三方意見再合成）
+            主人用「沉思」問問題時使用。
+            1. 同時開三個 subagent，各給一個立場，任務內容一樣，只有立場不同：
+               - 樂觀派：找機會、好處、最好的情況會怎樣。
+               - 保守派：找風險、缺點、最壞的情況和要防的事。
+               - 數據派：只看事實和數字，需要就用 web_search 查，附來源和日期。
+               subagent 的名字就寫「樂觀派」「保守派」「數據派」，App 會用這三個名字顯示卡片。
+            2. 三個都回來後，你自己寫合成答案：先一句話結論，再列三方的重點（各 2～3 點），最後寫「我的判斷」和理由、信心（高／中／低）。
+            3. 三方說法衝突的地方要明講，不要硬湊成一致。不要給股票的買賣指示，只給資訊和判斷依據。
+            """,
+        ),
+        "dshm-research" to skill(
+            "dshm-research",
+            "Deep research: many web searches and page reads, then a cited Markdown report saved in reports/ and presented to the owner.",
+            """
+            # 深度研究
+            主人用「深度研究」問問題時使用。
+            1. 先列 5～10 個不同角度的搜尋關鍵字（中文、英文都可以），逐一用 web_search 查。
+            2. 挑最有用的 5～12 個網頁用 web_fetch 讀內容；官方資料、原始公告、財報優先，農場文不要用。
+            3. 寫成 Markdown 報告，存到工作區 `reports/日期-主題.md`（日期用 2026-11-06 這種格式，主題 10 字以內）：
+               - 開頭「重點摘要」5 行以內。
+               - 分段標題（##），每個事實後面用 [1] 這種編號標來源。
+               - 最後「資料來源」列出編號、標題、網址、日期。
+               - 資料互相矛盾或查不到的地方直接寫出來。
+            4. 用 present 把報告檔交給主人，App 會顯示研究卡片並存到書架。
+            5. 回覆本身只寫 5 行以內的摘要，加上「完整報告已存到書架」。
+            """,
+        ),
+        "dshm-deliverable" to skill(
+            "dshm-deliverable",
+            "Deliverables mode: make finished files (docx, xlsx, pptx, html, md, csv) in deliverables/ and present every file to the owner.",
+            """
+            # 成品
+            主人用「成品」要東西時使用：報告、表格、簡報、網頁、清單。
+            - 檔案放在工作區 `deliverables/`，檔名用中文、看得懂是什麼（例如 `deliverables/11月支出整理.xlsx`）。
+            - Word、Excel、PowerPoint、PDF 用 office-docx、office-xlsx、office-pptx、office-export-pdf 技能做；網頁做成單一 HTML 檔，配色用 #FEDFE1、#DC9FB4、#A5DEE4、#D7C4BB、#5E4445。
+            - 每個做好的檔案都要用 present 交給主人，App 會列成成品卡片，可以打開和分享。
+            - 回覆只說做了哪些檔案、每個一句話說明內容；不要把檔案內容整份貼在對話裡。
+            - 主人沒指定格式時：表格類用 xlsx，文件類用 docx，要在手機上看的用 html。
+            """,
+        ),
+        "dshm-draw" to skill(
+            "dshm-draw",
+            "Draw diagrams, flowcharts, charts and simple illustrations as an SVG file in drawings/ using only the app palette, then present it.",
+            """
+            # 畫圖（向量圖）
+            主人要流程圖、架構圖、圖表、時間軸、心智圖或簡單插圖時使用。
+            - 寫一個 SVG 檔到工作區 `drawings/名稱.svg`，然後用 present 交給主人，App 會直接顯示，可以放大和存到書架。
+            - viewBox 最大 800×600（例如 `viewBox="0 0 800 600"`），手機直式看得清楚：字至少 14，線至少 2。
+            - 顏色只能用這幾個：#FEDFE1、#DC9FB4、#A5DEE4、#D7C4BB、#9E7A7A、#5E4445、#7D5F60、#A98F90、#FFFFFF，可以加 opacity。不要用其他顏色。
+            - 不要外部連結、圖片、字型、script；文字用 `font-family="sans-serif"`，中文直接寫。
+            - 圖表的數字要正確，標題和單位寫清楚。
+            - 回覆只用一兩句說明這張圖。
+            """,
+        ),
     )
 
     private fun skill(name: String, description: String, body: String): String =

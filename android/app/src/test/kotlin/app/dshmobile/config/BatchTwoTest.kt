@@ -37,4 +37,20 @@ class BatchTwoTest {
         assertTrue(section, section.contains("- id: dshm-mcp-github\n      name: \"@deepseek-ai/dsh-mcp-client\""))
         assertTrue(section, section.contains("url: \"https://example.com/mcp\""))
     }
+
+    @Test fun modeSkillsShipWithShortDescriptionsAndTheDrawingSkillNamesOnlyPaletteColors() {
+        for (name in listOf("dshm-contemplate", "dshm-research", "dshm-deliverable", "dshm-draw")) {
+            val text = AppSkills.all.getValue(name)
+            val description = text.lines().first { it.startsWith("description: ") }.removePrefix("description: ")
+            assertTrue(name, description.length < 500)
+        }
+        for (mode in app.dshmobile.chat.ComposeMode.values()) mode.skill?.let { assertTrue(it, it in AppSkills.all) }
+        val palette = setOf("#FEDFE1", "#DC9FB4", "#A5DEE4", "#D7C4BB", "#9E7A7A", "#5E4445", "#7D5F60", "#A98F90", "#FFFFFF")
+        for (name in listOf("dshm-draw", "dshm-deliverable", "dshm-pages")) {
+            val colors = Regex("#[0-9A-Fa-f]{6}").findAll(AppSkills.all.getValue(name)).map { it.value.uppercase() }.toSet()
+            assertTrue("$name $colors", colors.isNotEmpty() && palette.containsAll(colors))
+        }
+        assertTrue(AppSkills.all.getValue("dshm-contemplate").contains("樂觀派"))
+        assertTrue(AppSkills.all.getValue("dshm-research").contains("reports/"))
+    }
 }
