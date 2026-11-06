@@ -37,11 +37,15 @@ class Notifier(private val context: Context) {
         )
     }
 
+    /** Whether a conversation is locked (0.5.0): its notices then say nothing of its title or text. */
+    @Volatile var isLocked: (String?) -> Boolean = { false }
+
     fun show(req: NotifyRequest) {
         val id = nextId.getAndIncrement()
+        val locked = isLocked(req.sessionId)
         post(
             id,
-            builder(CHANNEL_MESSAGES, req.title, req.body)
+            builder(CHANNEL_MESSAGES, if (locked) LOCKED_TITLE else req.title, if (locked) LOCKED_BODY else req.body)
                 .setContentIntent(openMainActivity(id, EXTRA_SESSION_ID to req.sessionId))
                 .setAutoCancel(true),
         )
@@ -126,7 +130,7 @@ class Notifier(private val context: Context) {
     /** Dsh finished everything while the app was away; the tap opens that conversation. */
     fun showWorkDone(sessionId: String?, title: String?) {
         val id = nextId.getAndIncrement()
-        val name = title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
+        val name = if (isLocked(sessionId)) LOCKED_TITLE else title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
         post(
             id,
             builder(CHANNEL_MESSAGES, "DSH 完成了", name)
@@ -140,7 +144,7 @@ class Notifier(private val context: Context) {
      * tap opens [sessionId], the top-level conversation that asks. [cancelWaitingForAnswer] withdraws it once nothing waits.
      */
     fun showWaitingForAnswer(sessionId: String?, title: String?) {
-        val name = title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: context.getString(R.string.notify_untitled)
+        val name = if (isLocked(sessionId)) LOCKED_TITLE else title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: context.getString(R.string.notify_untitled)
         post(
             ID_WAITING,
             builder(CHANNEL_ALERTS, context.getString(R.string.notify_waiting_title), name)
@@ -193,6 +197,8 @@ class Notifier(private val context: Context) {
         const val CHANNEL_ALERTS = "dshm_alerts"
         const val CHANNEL_SERVICE = "dshm_service"
         const val EXTRA_SESSION_ID = "sessionId"
+        const val LOCKED_TITLE = "已鎖定的對話"
+        const val LOCKED_BODY = "有新訊息，解鎖後才看得到"
         const val EXTRA_ACTION = "action"
         const val ACTION_ROLLBACK = "rollback"
         const val ACTION_EXPORT_ERROR_LOG = "export_error_log"

@@ -161,8 +161,13 @@ fun ChatPage(
         if (prefs != null && prev != null && prev != openId && prefs.isTemporary(prev)) discardTemporary(session, prefs, prev)
         lastOpen.value = openId
     }
+    val unlocked by UnlockedChats.ids.collectAsState()
+    val lockedIds = prefs?.state?.collectAsState()?.value?.locked.orEmpty()
+    val unlocker = LocalUnlocker.current
     if (nav.listOpen || openId == null) {
         ListPage(session, nav, onMessage)
+    } else if (openId in lockedIds && openId !in unlocked) {
+        LockedPage(onUnlock = { unlocker?.unlock { UnlockedChats.add(openId) } })
     } else {
         key(session, openId) { ConversationPage(session, openId, nav, hasClaudeKey, leadModel, onLink, onShare, onRestartDsh, onMessage, onEditMessage, onOpenFile) }
     }
@@ -227,12 +232,25 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
         }
     }
     val shelved = context.getString(R.string.list_shelved)
+    val noScreenLock = context.getString(R.string.lock_no_screen_lock)
+    val unlocker = LocalUnlocker.current
     Box(Modifier.fillMaxSize().padding(LocalPagePadding.current)) {
         ConversationListScreen(
             pinned = split.first,
             flags = { id -> app.dshmobile.ui.chat.RowFlags(id in convPrefs.pinned, id in convPrefs.locked, id in convPrefs.temporary, convPrefs.projectOf[id]) },
             actions = app.dshmobile.ui.chat.ListActions(
                 onPin = prefs?.let { p -> { id: String, on: Boolean -> p.setPinned(id, on) } },
+                onLock = prefs?.let { p ->
+                    { id: String, on: Boolean ->
+                        val u = unlocker
+                        when {
+                            u == null -> Unit
+                            !u.canLock() -> onMessage(noScreenLock)
+                            on -> p.setLocked(id, true)
+                            else -> u.unlock { p.setLocked(id, false) } // taking a lock off asks first
+                        }
+                    }
+                },
                 onShelf = dshApp?.libraryStore?.let { lib ->
                     { id: String ->
                         val row = rows.firstOrNull { it.id == id }

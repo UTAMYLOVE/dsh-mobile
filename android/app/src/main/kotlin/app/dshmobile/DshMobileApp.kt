@@ -84,7 +84,7 @@ import java.util.concurrent.TimeUnit
 /** Holds the app-wide singletons (service and heartbeat worker share them). Everything is lazy: nothing runs at process start. */
 class DshMobileApp : Application(), Configuration.Provider {
     val errorLog: ErrorLog by lazy { ErrorLog(filesDir) }
-    val notifier: Notifier by lazy { Notifier(this) }
+    val notifier: Notifier by lazy { Notifier(this).also { n -> n.isLocked = { id -> id != null && conversationPrefs.isLocked(id) } } }
     val keyVault: KeyVault by lazy { AndroidKeyVault(this) }
     val costMeter: CostMeter by lazy {
         CostMeter(getSharedPreferences("dshm_cost", Context.MODE_PRIVATE), PriceTable(), clock = Clock.systemUTC())

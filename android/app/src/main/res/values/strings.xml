@@ -412,4 +412,9 @@
     <string name="list_locked_hint">內容要解鎖才看得到</string>
     <string name="list_shelved">已加入書架</string>
     <string name="list_export_failed">匯出失敗（%1$s）</string>
+    <string name="lock_title">這個對話已鎖定</string>
+    <string name="lock_body">用指紋、臉或手機密碼打開。\n對話清單也只顯示標題，不顯示內容。</string>
+    <string name="lock_unlock">解鎖</string>
+    <string name="lock_prompt">解鎖對話</string>
+    <string name="lock_no_screen_lock">手機沒有設定螢幕鎖，無法鎖定</string>
 </resources>

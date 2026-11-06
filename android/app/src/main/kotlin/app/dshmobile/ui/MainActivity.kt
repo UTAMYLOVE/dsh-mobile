@@ -1,5 +1,8 @@
 package app.dshmobile.ui
 
+import app.dshmobile.ui.chat.LocalUnlocker
+import app.dshmobile.ui.chat.UnlockedChats
+import app.dshmobile.ui.chat.Unlocker
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -143,6 +146,25 @@ class MainActivity : ComponentActivity() {
     }
 
     /** 語音輸入 (0.5.0): the system recognizer (zh-TW) types into the field; no RECORD_AUDIO permission in this app. */
+    // Locked conversations (0.5.0): the system's own credential screen; the app only learns whether it was passed.
+    private var onUnlocked: (() -> Unit)? = null
+    private val confirmCredential = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val then = onUnlocked
+        onUnlocked = null
+        if (r.resultCode == RESULT_OK) then?.invoke()
+    }
+    private var stoppedAt = 0L
+    private val unlocker = object : Unlocker {
+        private val keyguard get() = getSystemService(android.app.KeyguardManager::class.java)
+        override fun canLock(): Boolean = keyguard?.isDeviceSecure == true
+        override fun unlock(onOk: () -> Unit) {
+            @Suppress("DEPRECATION")
+            val intent = keyguard?.createConfirmDeviceCredentialIntent(getString(R.string.lock_prompt), null)
+            if (intent == null) { toast(getString(R.string.lock_no_screen_lock)); return }
+            onUnlocked = onOk
+            confirmCredential.launch(intent)
+        }
+    }
     private val voice = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val said = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim().orEmpty()
         if (said.isNotEmpty()) vm.onText(if (vm.composerText.isBlank()) said else vm.composerText.trimEnd() + " " + said)
@@ -188,7 +210,9 @@ class MainActivity : ComponentActivity() {
             // Live: the user's level held down by the jank governor, and the system's animation setting.
             val level by app.effectsController.effective.collectAsState()
             val effects = remember(level, reducedMotion) { effectsFor(level, reducedMotion) }
-            FogTheme(effects) { Shell() }
+            FogTheme(effects) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalUnlocker provides unlocker) { Shell() }
+            }
         }
         trackJank()
         lifecycleScope.launch {
@@ -233,6 +257,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Away long enough: locked conversations ask again (a share sheet or picker does not count).
+        if (stoppedAt > 0 && SystemClock.elapsedRealtime() - stoppedAt >= UnlockedChats.RELOCK_AFTER_MS) UnlockedChats.relock()
         if (!ready) return
         startJankTracking()
         // The hold comes before anything that can start dsh (Task 10 review note).
@@ -296,6 +322,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        stoppedAt = SystemClock.elapsedRealtime()
         if (ready) {
             app.uiPrefs.lastSessionId = nav.openSessionId
             stopJankTracking()
