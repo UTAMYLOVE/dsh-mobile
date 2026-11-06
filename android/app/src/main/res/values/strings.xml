@@ -441,4 +441,10 @@
     <string name="project_new_in_title">在哪個專案開新對話？</string>
     <string name="project_take_out">移出專案</string>
     <string name="project_file_failed">加入檔案失敗</string>
+    <string name="toc_title">目錄</string>
+    <string name="toc_count">你問過的 %1$d 句</string>
+    <string name="toc_close">關閉目錄</string>
+    <string name="toc_find">在這個對話裡找…</string>
+    <string name="toc_empty">找不到</string>
+    <string name="toc_note">點一句就跳到那裡；AI 的回覆有標題的也會列出來</string>
 </resources>

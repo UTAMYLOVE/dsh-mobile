@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -625,10 +626,15 @@ fun ChatScreen(
     onOpenFile: (String) -> Unit = {},
     /** Pinned under the header (0.5.0): the todo progress bar and the contemplate card; null shows nothing. */
     workBar: (@Composable () -> Unit)? = null,
+    /** The contents drawer's entries (0.5.0); empty hides its button. */
+    toc: List<TocEntry> = emptyList(),
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
     var menuOpen by remember { mutableStateOf(false) }
+    var tocOpen by remember { mutableStateOf(false) }
+    // A contents entry to jump to: its message key; older pages load until it is in the list (or there are no more).
+    var jumpTo by remember { mutableStateOf<String?>(null) }
     BackHandler(enabled = menuOpen) { menuOpen = false }
 
     carryOpenThinking(ui, state.live?.attemptId, state.items)
@@ -663,6 +669,25 @@ fun ChatScreen(
         snapshotFlow { listState.firstVisibleItemIndex > 0 }.collect { up -> keyWhenLeft = if (up) latestNewestKey else null }
     }
     val showPill = keyWhenLeft != null && newestKey != keyWhenLeft
+    val loadOlder by rememberUpdatedState(onLoadOlder)
+    LaunchedEffect(jumpTo, oldest, state.hasMore) {
+        val key = jumpTo ?: return@LaunchedEffect
+        val at = jumpIndex(oldest, key)
+        when {
+            at >= 0 -> {
+                val index = newest.size + at
+                listState.scrollToItem(index)
+                // reverseLayout: put the message's top at the top of the screen, not its bottom at the bottom
+                listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }?.let { item ->
+                    val room = listState.layoutInfo.viewportEndOffset - (item.offset + item.size)
+                    if (room > 0) listState.scrollBy(-room.toFloat())
+                }
+                jumpTo = null
+            }
+            state.hasMore -> loadOlder()
+            else -> jumpTo = null
+        }
+    }
     // A message the user just sent: go down to it, wherever the list was.
     val pendingIds = remember(state.pending) { state.pending.mapTo(HashSet()) { it.requestId } }
     var knownPending by remember { mutableStateOf(pendingIds) }
@@ -689,6 +714,15 @@ fun ChatScreen(
             expanded = if (key in expanded) expanded - key else expanded + key
         }, { copy(it) }, { menuTarget = it }, { followUp(it) }, { openFile(it) }, workspace)
     }
+    if (tocOpen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { tocOpen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            val current = remember(listState.firstVisibleItemIndex, oldest, newest) { currentTurnKey(oldest, listState.firstVisibleItemIndex - newest.size) }
+            ContentsDrawer(toc, current, onPick = { e -> tocOpen = false; jumpTo = e.key }, onClose = { tocOpen = false })
+        }
+    }
     menuTarget?.let { t ->
         androidx.compose.ui.window.Dialog(
             onDismissRequest = { menuTarget = null },
@@ -712,7 +746,10 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val chip = (state.models.firstOrNull { it.selected }?.label ?: state.modelLabel ?: stringResource(R.string.chat_model_unknown)).uppercase()
-            ChatHeader(state.title.ifBlank { stringResource(R.string.chat_untitled) }, chip, onOpenList) { menuOpen = !menuOpen }
+            ChatHeader(
+                state.title.ifBlank { stringResource(R.string.chat_untitled) }, chip, onOpenList,
+                onToc = if (toc.isNotEmpty()) ({ tocOpen = true }) else null,
+            ) { menuOpen = !menuOpen }
             if (menuOpen) ModelMenu(state.models, state.effort, state.reviewRounds, onPickEffort, onPickReview) { id -> menuOpen = false; onPickModel(id) }
             if (state.effort != null || state.reviewRounds > 0) {
                 Text(
@@ -860,7 +897,7 @@ private val Pill = RoundedCornerShape(50)
 
 /** 「☰ 對話」, the title (one line, ellipsized) and the model chip, on a glass panel. */
 @Composable
-private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onChip: () -> Unit) {
+private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onToc: (() -> Unit)? = null, onChip: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().glass(RoundedCornerShape(FogDimens.Panel)).testTag(Tags.CHAT_HEADER).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -882,6 +919,15 @@ private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onCh
             title, color = Sakura.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.06.em,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).testTag(Tags.CHAT_TITLE),
         )
+        if (onToc != null) {
+            val tocLabel = stringResource(R.string.toc_title)
+            Box(
+                Modifier.minimumInteractiveComponentSize().size(36.dp).clip(Pill).background(Color.White.copy(alpha = .6f))
+                    .border(1.dp, Sakura.Primary.copy(alpha = .6f), Pill).clickable(role = Role.Button, onClick = onToc)
+                    .testTag(TocTags.OPEN).semantics { contentDescription = tocLabel },
+                contentAlignment = Alignment.Center,
+            ) { Text("≡", color = Sakura.Text, fontSize = 18.sp) }
+        }
         val menuLabel = stringResource(R.string.chat_model_menu_title)
         Box(
             Modifier
@@ -1022,3 +1068,18 @@ private fun ErrorLine(text: String, tag: String) {
 
 /** `u:e5`, `a:e7#3` (a row or a piece of one) → the message key `e5` / `e7`. */
 internal fun messageKeyOf(rowKey: String): String = rowKey.substringAfter(':').substringBefore('#')
+
+/** The (reversed) row index where message [key] (`e<seq>`) starts: its topmost row, user bubble or reply. -1 when absent. */
+internal fun jumpIndex(oldest: List<ChatRow>, key: String): Int {
+    val ids = setOf("u:$key", "a:$key")
+    return oldest.indexOfLast { r -> val k = r.key.substringBefore('#'); k in ids }
+}
+
+/** The key of the owner's message at or above reversed index [from] (the turn being read). */
+internal fun currentTurnKey(oldest: List<ChatRow>, from: Int): String? {
+    for (i in from.coerceAtLeast(0) until oldest.size) {
+        val k = oldest[i].key
+        if (k.startsWith("u:")) return k.removePrefix("u:").substringBefore('#')
+    }
+    return null
+}

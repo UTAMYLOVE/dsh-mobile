@@ -457,6 +457,9 @@ private fun ConversationPage(
         null
     }
 
+    // The contents drawer: every turn from dsh's turnOutline (also paged-out ones) and the loaded replies' headings.
+    val outlineJson = remember(session, id) { session.tree.state.map { it.projections[id]?.get("turnOutline") }.distinctUntilChanged() }.collectAsState(null).value
+    val toc = remember(outlineJson, conversation.items) { Toc.entries(outlineJson, conversation.items) }
     // dsh's todo_write list (the progress bar under the header); null or empty shows nothing.
     val todos = remember(session, id) { session.tree.state.map { t -> t.projections[id]?.let(app.dshmobile.chat.WorkProjections::todos) }.distinctUntilChanged() }
         .collectAsState(null).value
@@ -504,6 +507,7 @@ private fun ConversationPage(
         speakingKey = speaking,
         onFollowUp = { q -> branchScope.launch { store.send(listOf(app.dshmobile.remote.PromptPart.Text(q)), q, emptyList()) } },
         onOpenFile = onOpenFile,
+        toc = toc,
         workBar = {
             val todos = todos
             val stances = remember(team) { stanceAgents(team) }
