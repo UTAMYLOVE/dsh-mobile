@@ -63,7 +63,23 @@ import app.dshmobile.ui.theme.Sakura
 private sealed interface Dialog {
     data class Rename(val row: SessionRow) : Dialog
     data class Delete(val row: SessionRow) : Dialog
+    data class Sheet(val row: SessionRow) : Dialog
+    data object NewMenu : Dialog
 }
+
+/** What the app knows about a row beyond dsh's summary (0.5.0): pin, lock, temporary, project. */
+data class RowFlags(val pinned: Boolean = false, val locked: Boolean = false, val temporary: Boolean = false, val project: String? = null)
+
+/** The conversation sheet's extra actions; a null one is left out of the sheet. */
+class ListActions(
+    val onPin: ((String, Boolean) -> Unit)? = null,
+    val onLock: ((String, Boolean) -> Unit)? = null,
+    val onMove: ((String) -> Unit)? = null,
+    val onShelf: ((String) -> Unit)? = null,
+    val onExport: ((String) -> Unit)? = null,
+    val onNewTemporary: (() -> Unit)? = null,
+    val onNewInProject: (() -> Unit)? = null,
+)
 
 /**
  * All conversations, grouped by day, with search, 「新對話」, and per-row rename and delete. Stateless apart from which row's
@@ -81,13 +97,17 @@ fun ConversationListScreen(
     onRename: (String, String) -> Unit,
     onDelete: (String) -> Unit,
     onClose: () -> Unit,
+    /** Pinned conversations, shown first under 釘選 (they are left out of [groups]). */
+    pinned: List<SessionRow> = emptyList(),
+    flags: (String) -> RowFlags = { RowFlags() },
+    actions: ListActions = ListActions(),
+    /** The tab row (全部・專案・小助理・小幫手) and, for any tab but 全部, its page instead of the list. */
+    tabs: (@Composable () -> Unit)? = null,
+    tabPage: (@Composable () -> Unit)? = null,
 ) {
-    var menuFor by remember { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<Dialog?>(null) }
-    // Back closes a card, then an open row menu, before the shell's back leaves the list (final review B2-M6).
-    BackHandler(enabled = dialog != null || menuFor != null) {
-        if (dialog != null) dialog = null else menuFor = null
-    }
+    // Back closes a card or sheet before the shell's back leaves the list (final review B2-M6).
+    BackHandler(enabled = dialog != null) { dialog = null }
     val closeLabel = stringResource(R.string.list_close)
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -97,6 +117,16 @@ fun ConversationListScreen(
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
                 FogButton(stringResource(R.string.list_new), FogButtonKind.PINK, onNew, Modifier.testTag(Tags.NEW_SESSION))
+                if (actions.onNewTemporary != null || actions.onNewInProject != null) {
+                    val moreLabel = stringResource(R.string.list_new_more)
+                    Box(
+                        Modifier.size(48.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .5f))
+                            .border(1.dp, Sakura.Primary.copy(alpha = .6f), RoundedCornerShape(50))
+                            .clickable(role = Role.Button) { dialog = Dialog.NewMenu }.testTag(Tags.NEW_MENU)
+                            .semantics { contentDescription = moreLabel },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("▾", color = Sakura.Text, fontSize = 16.sp) }
+                }
                 // A round 48 dp button: FogButton's 20 dp side padding would leave the ✕ no room (it showed as "…").
                 Box(
                     Modifier.size(48.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .5f))
@@ -105,14 +135,30 @@ fun ConversationListScreen(
                     contentAlignment = Alignment.Center,
                 ) { Text("✕", color = Sakura.Text, fontSize = 16.sp) }
             }
+            tabs?.invoke()
+            if (tabPage != null) {
+                Box(Modifier.fillMaxWidth().weight(1f, fill = true)) { tabPage() }
+                return@Column
+            }
             SearchField(query, onQuery)
-            if (groups.isEmpty()) {
+            if (groups.isEmpty() && pinned.isEmpty()) {
                 Text(
                     stringResource(if (query.isBlank()) R.string.list_empty else R.string.list_no_match),
                     color = Sakura.TextSecondary, fontSize = 14.sp, modifier = Modifier.padding(vertical = 24.dp),
                 )
             }
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = true).testTag(Tags.SESSION_LIST)) {
+                if (pinned.isNotEmpty()) {
+                    item(key = "g-pinned") {
+                        Text(
+                            stringResource(R.string.list_pinned), style = FogText.Label.copy(letterSpacing = 0.2.em), maxLines = 1,
+                            modifier = Modifier.padding(top = 14.dp, bottom = 4.dp).testTag(Tags.SESSION_GROUP + "PINNED"),
+                        )
+                    }
+                    items(pinned, key = { "p-" + it.id }) { row ->
+                        ConversationRow(row, flags(row.id), onOpen = { onOpen(row.id) }, onMenu = { dialog = Dialog.Sheet(row) })
+                    }
+                }
                 for ((group, rows) in groups) {
                     item(key = "g-" + group.name) {
                         Text(
@@ -121,14 +167,7 @@ fun ConversationListScreen(
                         )
                     }
                     items(rows, key = { it.id }) { row ->
-                        ConversationRow(
-                            row,
-                            expanded = menuFor == row.id,
-                            onOpen = { onOpen(row.id) },
-                            onMenu = { menuFor = if (menuFor == row.id) null else row.id },
-                            onRename = { menuFor = null; dialog = Dialog.Rename(row) },
-                            onDelete = { menuFor = null; dialog = Dialog.Delete(row) },
-                        )
+                        ConversationRow(row, flags(row.id), onOpen = { onOpen(row.id) }, onMenu = { dialog = Dialog.Sheet(row) })
                     }
                 }
             }
@@ -136,6 +175,8 @@ fun ConversationListScreen(
         when (val d = dialog) {
             is Dialog.Rename -> RenameCard(d.row, { dialog = null }) { name -> dialog = null; onRename(d.row.id, name) }
             is Dialog.Delete -> DeleteCard({ dialog = null }) { dialog = null; onDelete(d.row.id) }
+            is Dialog.Sheet -> RowSheet(d.row, flags(d.row.id), actions, onClose = { dialog = null }, onRename = { dialog = Dialog.Rename(d.row) }, onDelete = { dialog = Dialog.Delete(d.row) })
+            Dialog.NewMenu -> NewMenu(actions, onNew) { dialog = null }
             null -> Unit
         }
     }
@@ -165,13 +206,13 @@ private fun SearchField(query: String, onQuery: (String) -> Unit) {
 }
 
 @Composable
-private fun ConversationRow(
-    row: SessionRow, expanded: Boolean, onOpen: () -> Unit, onMenu: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit,
-) {
+private fun ConversationRow(row: SessionRow, flags: RowFlags, onOpen: () -> Unit, onMenu: () -> Unit) {
     val dash = Sakura.RoseBrown.copy(alpha = .25f)
     val title = row.title.ifBlank { stringResource(R.string.list_untitled) }
     val model = AgentModels.displayName(row.nextModel ?: row.model)
-    val sub = listOfNotNull(row.lastLine?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() }, model).joinToString(" · ")
+    // A locked conversation shows only its title (mockup 9): never its last line.
+    val last = if (flags.locked) stringResource(R.string.list_locked_hint) else row.lastLine?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() }
+    val sub = listOfNotNull(last, model.takeUnless { flags.locked }).joinToString(" · ")
     val running = stringResource(R.string.list_running)
     val menuLabel = stringResource(R.string.list_menu)
     Column(
@@ -190,7 +231,11 @@ private fun ConversationRow(
                 Box(Modifier.size(8.dp).glow(dot, 8.dp, round).background(dot, round).then(if (row.running) Modifier.semantics { contentDescription = running } else Modifier))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (flags.pinned) Text("📌", fontSize = 12.sp, modifier = Modifier.semantics { contentDescription = "釘選" })
                         Text(title, color = Sakura.Text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (flags.locked) Badge(stringResource(R.string.list_badge_locked), Sakura.Text, Color.White, Tags.SESSION_ROW + row.id + "-locked")
+                        if (flags.temporary) Badge(stringResource(R.string.list_badge_temporary), Sakura.Aqua.copy(alpha = .7f), Sakura.Text, Tags.SESSION_ROW + row.id + "-temp")
+                        flags.project?.let { Badge(it, Sakura.Primary.copy(alpha = .35f), Sakura.Text, Tags.SESSION_ROW + row.id + "-project") }
                         // A conversation of the other mode: opening it is fine, sending asks to switch (DshLayout.otherModeOf).
                         app.dshmobile.runtime.DshLayout.otherModeOf(row.cwd)?.let { madeNative ->
                             Text(
@@ -210,12 +255,70 @@ private fun ConversationRow(
                 contentAlignment = Alignment.Center,
             ) { Text("⋮", color = Sakura.Text, fontSize = 20.sp) }
         }
-        if (expanded) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FogButton(stringResource(R.string.list_rename), FogButtonKind.GHOST, onRename, Modifier.weight(1f).testTag(Tags.RENAME))
-                FogButton(stringResource(R.string.list_delete), FogButtonKind.GHOST, onDelete, Modifier.weight(1f).testTag(Tags.DELETE))
-            }
-        }
+    }
+}
+
+@Composable
+private fun Badge(text: String, bg: Color, fg: Color, tag: String) {
+    Text(
+        text, color = fg, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.background(bg, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp).testTag(tag),
+    )
+}
+
+/** A bottom sheet over a scrim; back or a tap on the scrim closes it. */
+@Composable
+private fun BottomSheet(onDismiss: () -> Unit, tag: String, content: @Composable () -> Unit) {
+    BackHandler(onBack = onDismiss)
+    Box(
+        Modifier.fillMaxSize().background(Sakura.Text.copy(alpha = .28f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Color.White)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                .verticalScroll(rememberScrollState()).testTag(tag).padding(horizontal = 12.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) { content() }
+    }
+}
+
+@Composable
+private fun SheetItem(label: String, tag: String, danger: Boolean = false, onClick: () -> Unit) {
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(14.dp)).clickable(role = Role.Button, onClick = onClick)
+            .testTag(tag).padding(horizontal = 14.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) { Text(label, color = if (danger) Sakura.RoseBrown else Sakura.Text, fontSize = 16.sp) }
+}
+
+/** The conversation sheet (mockup 5): 釘選・鎖定・移到專案・改名・加入書架・匯出・刪除. */
+@Composable
+private fun RowSheet(row: SessionRow, flags: RowFlags, a: ListActions, onClose: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
+    BottomSheet(onClose, Tags.ROW_SHEET) {
+        Text(
+            row.title.ifBlank { stringResource(R.string.list_untitled) }, color = Sakura.TextSecondary, fontSize = 13.sp, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+        )
+        a.onPin?.let { f -> SheetItem(stringResource(if (flags.pinned) R.string.list_unpin else R.string.list_pin), Tags.SHEET_PIN) { onClose(); f(row.id, !flags.pinned) } }
+        a.onLock?.let { f -> SheetItem(stringResource(if (flags.locked) R.string.list_unlock else R.string.list_lock), Tags.SHEET_LOCK) { onClose(); f(row.id, !flags.locked) } }
+        a.onMove?.let { f -> SheetItem(stringResource(R.string.list_move), Tags.SHEET_MOVE) { onClose(); f(row.id) } }
+        SheetItem(stringResource(R.string.list_rename), Tags.RENAME, onClick = onRename)
+        a.onShelf?.let { f -> SheetItem(stringResource(R.string.list_shelf), Tags.SHEET_SHELF) { onClose(); f(row.id) } }
+        a.onExport?.let { f -> SheetItem(stringResource(R.string.list_export), Tags.SHEET_EXPORT) { onClose(); f(row.id) } }
+        SheetItem(stringResource(R.string.list_delete), Tags.DELETE, danger = true, onClick = onDelete)
+    }
+}
+
+/** 新對話 ▾: 一般對話・臨時對話・在專案裡開… */
+@Composable
+private fun NewMenu(a: ListActions, onNew: () -> Unit, onClose: () -> Unit) {
+    BottomSheet(onClose, Tags.NEW_MENU_SHEET) {
+        SheetItem(stringResource(R.string.list_new_normal), Tags.NEW_NORMAL) { onClose(); onNew() }
+        a.onNewTemporary?.let { f -> SheetItem(stringResource(R.string.list_new_temporary), Tags.NEW_TEMPORARY) { onClose(); f() } }
+        a.onNewInProject?.let { f -> SheetItem(stringResource(R.string.list_new_in_project), Tags.NEW_IN_PROJECT) { onClose(); f() } }
+        Text(stringResource(R.string.list_temporary_note), color = Sakura.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
     }
 }
 

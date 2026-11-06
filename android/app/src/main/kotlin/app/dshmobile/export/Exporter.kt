@@ -47,6 +47,16 @@ class Exporter(
         share(file)
     }
 
+    /** Writes [text] to `cacheDir/export/[name]` and shares it (a conversation exported as Markdown). */
+    fun shareText(name: String, text: String) {
+        val dir = exportDir
+        dir.mkdirs()
+        val safe = name.replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").take(60).ifBlank { "conversation" }
+        val file = File(dir, if (safe.endsWith(".md")) safe else "$safe.md")
+        file.writeText(text)
+        share(file, "text/markdown")
+    }
+
     /** Opens the workspace file at [rel] in another app (Word, a browser, a PDF reader…) through the system chooser. */
     fun openWorkspaceFile(rel: String) {
         val file = WorkspacePaths.resolveInside(workspace, rel)

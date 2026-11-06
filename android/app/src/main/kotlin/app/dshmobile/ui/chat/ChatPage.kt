@@ -57,6 +57,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -149,10 +150,35 @@ fun ChatPage(
     onOpenFile: (String) -> Unit = {},
 ) {
     val openId = nav.openSessionId
+    val prefs = (LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.conversationPrefs
+    // Temporary chats go away when the owner leaves them (another conversation, or none), and leftovers on the next start.
+    val lastOpen = remember(session) { mutableStateOf<String?>(null) }
+    LaunchedEffect(session, prefs) {
+        prefs?.state?.value?.temporary?.filter { it != nav.openSessionId }?.forEach { t -> discardTemporary(session, prefs, t) }
+    }
+    LaunchedEffect(openId) {
+        val prev = lastOpen.value
+        if (prefs != null && prev != null && prev != openId && prefs.isTemporary(prev)) discardTemporary(session, prefs, prev)
+        lastOpen.value = openId
+    }
     if (nav.listOpen || openId == null) {
         ListPage(session, nav, onMessage)
     } else {
         key(session, openId) { ConversationPage(session, openId, nav, hasClaudeKey, leadModel, onLink, onShare, onRestartDsh, onMessage, onEditMessage, onOpenFile) }
+    }
+}
+
+/** Deletes temporary conversation [id] in dsh (in the background) and forgets it. */
+private fun discardTemporary(session: ShellSession, prefs: app.dshmobile.chat.ConversationPrefs, id: String) {
+    session.scope.launch {
+        try {
+            session.index.delete(id)
+            prefs.forget(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // kept in the list of temporaries: the next start tries again
+        }
     }
 }
 
@@ -188,9 +214,36 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
             }
         }
     }
+    val dshApp = context.applicationContext as? app.dshmobile.DshMobileApp
+    val prefs = dshApp?.conversationPrefs
+    val convPrefs = prefs?.state?.collectAsState()?.value ?: app.dshmobile.chat.ConvPrefs()
+    val split = remember(groups, convPrefs.pinned, query) {
+        if (query.isNotBlank()) emptyList<app.dshmobile.chat.SessionRow>() to groups
+        else {
+            val all = groups.flatMap { it.second }
+            val (top, _) = app.dshmobile.chat.ConversationPrefs.pinnedFirst(all, convPrefs.pinned)
+            val ids = top.mapTo(HashSet()) { it.id }
+            top to groups.map { (g, r) -> g to r.filter { it.id !in ids } }.filter { it.second.isNotEmpty() }
+        }
+    }
+    val shelved = context.getString(R.string.list_shelved)
     Box(Modifier.fillMaxSize().padding(LocalPagePadding.current)) {
         ConversationListScreen(
-            groups = groups,
+            pinned = split.first,
+            flags = { id -> app.dshmobile.ui.chat.RowFlags(id in convPrefs.pinned, id in convPrefs.locked, id in convPrefs.temporary, convPrefs.projectOf[id]) },
+            actions = app.dshmobile.ui.chat.ListActions(
+                onPin = prefs?.let { p -> { id: String, on: Boolean -> p.setPinned(id, on) } },
+                onShelf = dshApp?.libraryStore?.let { lib ->
+                    { id: String ->
+                        val row = rows.firstOrNull { it.id == id }
+                        lib.addBook(row?.title.orEmpty(), id, null, row?.model)
+                        onMessage(shelved)
+                    }
+                },
+                onExport = dshApp?.let { a -> { id: String -> exportConversation(session, a, rows.firstOrNull { it.id == id }?.title.orEmpty(), id, onMessage) } },
+                onNewTemporary = prefs?.let { p -> { act { val id = session.index.create(); p.setTemporary(id, true); nav.openSession(id) } } },
+            ),
+            groups = split.second,
             query = query,
             onQuery = { query = it; search.query(it) },
             onOpen = { nav.openSession(it) },
@@ -199,6 +252,7 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
             onDelete = { id ->
                 act {
                     session.index.delete(id)
+                    prefs?.forget(id)
                     if (nav.openSessionId == id) nav.openSessionId = null
                 }
             },
@@ -442,6 +496,8 @@ suspend fun sendFromDock(
     loader: AttachmentLoader,
     /** The one-shot mode from the ＋ sheet: 計畫 runs dsh's `/plan` first, the others lead the text with their skill. */
     mode: app.dshmobile.chat.ComposeMode = app.dshmobile.chat.ComposeMode.NORMAL,
+    /** A temporary chat's first message carries the no-memory instruction. */
+    prefs: app.dshmobile.chat.ConversationPrefs? = null,
 ): DockSend {
     val id = nav.openSessionId ?: try {
         session.index.create()
@@ -462,7 +518,9 @@ suspend fun sendFromDock(
             return DockSend.Refused(failureCode(e))
         }
     }
-    return when (val out = sendWithAttachments(store, AttachmentSender(session.remote, loader), mode.apply(text), attachments)) {
+    val first = store.state.value.items.none { it is app.dshmobile.chat.ChatItem.User } && !store.state.value.hasMore
+    val lead = if (prefs?.isTemporary(id) == true && first) app.dshmobile.chat.ConversationPrefs.TEMPORARY_LEAD else ""
+    return when (val out = sendWithAttachments(store, AttachmentSender(session.remote, loader), lead + mode.apply(text), attachments)) {
         SendOutcome.Sent -> DockSend.Sent
         is SendOutcome.AttachmentFailed -> DockSend.AttachmentFailed(out.name, out.reason)
         is SendOutcome.Refused -> DockSend.Refused(out.code)
@@ -474,3 +532,19 @@ internal fun turnSeqs(p: Map<String, kotlinx.serialization.json.JsonElement>?): 
     (p?.get("turnOutline") as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { e ->
         ((e as? kotlinx.serialization.json.JsonObject)?.get("seq") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
     }
+
+/** Loads conversation [id] (waits up to 15 s for its messages) and shares it as a Markdown file. */
+private fun exportConversation(session: ShellSession, dshApp: app.dshmobile.DshMobileApp, title: String, id: String, onMessage: (String) -> Unit) {
+    session.scope.launch {
+        try {
+            val store = session.conversation(id)
+            kotlinx.coroutines.withTimeoutOrNull(15_000) { store.state.first { it.items.isNotEmpty() } }
+            val text = app.dshmobile.chat.ConversationMarkdown.of(title, store.state.value.items)
+            kotlinx.coroutines.withContext(Dispatchers.IO) { dshApp.exporter.shareText(title.ifBlank { "對話" }, text) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onMessage(dshApp.getString(R.string.list_export_failed, failureCode(e)))
+        }
+    }
+}

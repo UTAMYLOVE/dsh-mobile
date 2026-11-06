@@ -165,4 +165,33 @@ class ConversationListScreenTest {
         rule.onNodeWithTag(Tags.RENAME).assertDoesNotExist()
         assertEquals("the list itself did not close", 0, closes)
     }
+
+    @Test fun sheetHasSevenActions() {
+        val calls = mutableListOf<String>()
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) {
+                ConversationListScreen(
+                    groups, "", {}, {}, {}, { _, _ -> }, {}, {},
+                    pinned = listOf(row("p", "釘住的")),
+                    flags = { id -> RowFlags(pinned = id == "p", locked = id == "b", temporary = id == "a", project = "台股".takeIf { id == "a" }) },
+                    actions = ListActions(
+                        onPin = { id, on -> calls += "pin $id $on" }, onLock = { id, on -> calls += "lock $id $on" }, onMove = { calls += "move $it" },
+                        onShelf = { calls += "shelf $it" }, onExport = { calls += "export $it" }, onNewTemporary = { calls += "temp" },
+                    ),
+                )
+            }
+        }
+        rule.onNodeWithTag(Tags.SESSION_GROUP + "PINNED").assertExists()
+        rule.onNodeWithTag(Tags.SESSION_ROW + "a-temp", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag(Tags.SESSION_ROW + "a-project", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag(Tags.SESSION_ROW + "b-locked", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("內容要解鎖才看得到", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag(Tags.SESSION_MENU + "b").performClick()
+        for (t in listOf(Tags.SHEET_PIN, Tags.SHEET_LOCK, Tags.SHEET_MOVE, Tags.RENAME, Tags.SHEET_SHELF, Tags.SHEET_EXPORT, Tags.DELETE)) rule.onNodeWithTag(t).assertExists()
+        rule.onNodeWithText("解除鎖定").performClick()
+        rule.onNodeWithTag(Tags.ROW_SHEET).assertDoesNotExist()
+        rule.onNodeWithTag(Tags.NEW_MENU).performClick()
+        rule.onNodeWithTag(Tags.NEW_TEMPORARY).performClick()
+        assertEquals(listOf("lock b false", "temp"), calls)
+    }
 }

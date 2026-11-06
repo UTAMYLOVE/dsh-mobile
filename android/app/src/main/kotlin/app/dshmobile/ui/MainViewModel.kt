@@ -209,7 +209,7 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
                     session.tree.refreshNow()
                     nav.openSession(forked)
                 }
-                outcome = sendFromDock(session, nav, text, picked, attachmentLoader, mode)
+                outcome = sendFromDock(session, nav, text, picked, attachmentLoader, mode, app.conversationPrefs)
                 if (outcome == DockSend.Sent) mode = ComposeMode.NORMAL
             } finally {
                 if (held) sending = false

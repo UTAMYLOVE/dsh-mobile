@@ -394,4 +394,22 @@
     <string name="result_open">打開</string>
     <string name="result_close">關閉</string>
     <string name="result_open_failed">打不開這個檔案（手機上可能沒有能開它的 App）</string>
+    <string name="list_new_more">更多開新對話的方式</string>
+    <string name="list_new_normal">一般對話</string>
+    <string name="list_new_temporary">臨時對話</string>
+    <string name="list_new_in_project">在專案裡開…</string>
+    <string name="list_temporary_note">臨時對話不會寫進記憶，離開後就刪掉。</string>
+    <string name="list_pinned">釘選</string>
+    <string name="list_pin">釘選</string>
+    <string name="list_unpin">取消釘選</string>
+    <string name="list_lock">鎖定</string>
+    <string name="list_unlock">解除鎖定</string>
+    <string name="list_move">移到專案</string>
+    <string name="list_shelf">加入書架</string>
+    <string name="list_export">匯出</string>
+    <string name="list_badge_locked">鎖</string>
+    <string name="list_badge_temporary">臨時</string>
+    <string name="list_locked_hint">內容要解鎖才看得到</string>
+    <string name="list_shelved">已加入書架</string>
+    <string name="list_export_failed">匯出失敗（%1$s）</string>
 </resources>

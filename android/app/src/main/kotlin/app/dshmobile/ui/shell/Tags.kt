@@ -212,4 +212,17 @@ object Tags {
     const val LIB_FILES = "lib-files"
     const val LIB_FILE = "lib-file-"
     const val LIB_FILE_REMOVE = "lib-unshelve-"
+    /** The conversation list (0.5.0): 新對話 ▾ and its sheet, the conversation sheet and its items, the tabs. */
+    const val NEW_MENU = "new-menu"
+    const val NEW_MENU_SHEET = "new-sheet"
+    const val NEW_NORMAL = "new-normal"
+    const val NEW_TEMPORARY = "new-temporary"
+    const val NEW_IN_PROJECT = "new-in-project"
+    const val ROW_SHEET = "row-sheet"
+    const val SHEET_PIN = "sheet-pin"
+    const val SHEET_LOCK = "sheet-lock"
+    const val SHEET_MOVE = "sheet-move"
+    const val SHEET_SHELF = "sheet-shelf"
+    const val SHEET_EXPORT = "sheet-export"
+    const val LIST_TAB = "list-tab-"
 }

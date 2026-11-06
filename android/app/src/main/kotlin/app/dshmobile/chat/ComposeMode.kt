@@ -22,6 +22,6 @@ enum class ComposeMode(val zh: String, val hint: String, val skill: String?) {
         private val LEAD = Regex("^請用 dshm-[a-z-]+ 技能：")
 
         /** The owner's own words, for the bubble: the skill lead [apply] added is not shown. */
-        fun strip(text: String): String = text.replaceFirst(LEAD, "")
+        fun strip(text: String): String = text.removePrefix(ConversationPrefs.TEMPORARY_LEAD).replaceFirst(LEAD, "")
     }
 }
