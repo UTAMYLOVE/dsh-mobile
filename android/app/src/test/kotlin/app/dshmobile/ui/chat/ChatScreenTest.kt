@@ -237,7 +237,7 @@ class ChatScreenTest {
 
     @Test fun withAClaudeKeyTheClaudeModelsAreChoicesToo() {
         val choices = modelChoices(hasClaudeKey = true, current = "claude-sonnet-5-5")
-        assertEquals(listOf("deepseek-flash", "deepseek-v4-pro", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"), choices.map { it.id })
+        assertEquals(listOf("deepseek-flash", "deepseek-v4-pro", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-fable-5-1"), choices.map { it.id })
         assertEquals("claude-sonnet-5-5", choices.single { it.selected }.id)
         show { state = state.copy(models = choices) }
         rule.onNodeWithTag(Tags.MODEL_CHIP).assertTextEquals("CLAUDE SONNET")

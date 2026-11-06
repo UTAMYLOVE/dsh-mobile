@@ -32,11 +32,18 @@ class AgentConfigWriter(
      * the default DeepSeek model, so a patch without a Claude key never names anthropic.
      */
     fun patchSection(s: AgentSettings, hasClaudeKey: Boolean): String {
-        val model = AgentModels.resolve(s.leadModel, hasClaudeKey)
+        val claudeLeads = s.claudeLeadsWith(hasClaudeKey)
+        val model = AgentModels.resolve(if (claudeLeads) s.leadClaude else s.leadModel, hasClaudeKey)
         return buildString {
             append("- id: agent-default-model\n  config:\n    provider: ${model.provider}\n    model: ${model.id}\n")
             append("- id: subagent\n  config:\n    maxActiveSubagents: ${s.maxConcurrent}\n    maxDepth: ${s.maxDepth}\n")
-            if (s.agentTeams) {
+            if (claudeLeads) {
+                // Claude leads, DeepSeek works: dsh's subagent tool pins every child to the worker model (its agentOptions).
+                val worker = AgentModels.find(s.workerModel)?.takeIf { !it.isClaude } ?: AgentModels.find("deepseek-v4-pro")!!
+                append("- id: tool-subagent\n  config:\n    provider: spawn\n    toolName: subagent\n")
+                append("    agentOptions:\n      provider: ${worker.provider}\n      model: ${worker.id}\n")
+            }
+            if (s.agentTeams && !claudeLeads) {
                 append("- id: agent-team\n  config:\n    maxMembers: ${minOf(s.teamSize, s.maxConcurrent)}\n")
                 append("    maxTasks: 256\n    maxMessageBytes: 65536\n    disposalTimeoutMs: 5000\n")
             }
@@ -132,7 +139,7 @@ class AgentPatchProvider(
         val hasClaudeKey = vault.get(Provider.ANTHROPIC) != null // asked once: the section and the provider row must agree
         val settings = store.load(phantom(), hasClaudeKey)
         // dsh warns "entry not found" for an agent-team row whose bundle is not loaded: write the row only when the bundle is in place.
-        val teamsActive = writer.ensureAgentTeamsBundle(settings.agentTeams)
+        val teamsActive = writer.ensureAgentTeamsBundle(settings.agentTeams && !settings.claudeLeadsWith(hasClaudeKey))
         writer.ensureAutoReviewBundle(settings.autoReview)
         writer.installSkills(settings.superpowers)
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)

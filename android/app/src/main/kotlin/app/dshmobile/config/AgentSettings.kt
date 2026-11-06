@@ -21,7 +21,18 @@ data class AgentSettings(
     val mcpServers: String = "",
     /** The superpowers working methods (brainstorm, plan, test first, debug systematically) as dsh skills; on by default. */
     val superpowers: Boolean = true,
+    /**
+     * 「Claude 帶隊，DeepSeek 做事」 (0.5.0): new conversations lead with [leadClaude] and every subagent runs on [workerModel]
+     * (dsh's subagent tool pins the child model). Needs a Claude key; Agent Teams is off meanwhile (teammates can only use the
+     * lead's model in dsh 0.2.1).
+     */
+    val claudeLeads: Boolean = false,
+    val leadClaude: String = AgentModels.CLAUDE_LEAD_DEFAULT,
+    val workerModel: String = "deepseek-v4-pro",
 ) {
+    /** Whether the Claude-leads mode applies (it is on and a Claude key is stored). */
+    fun claudeLeadsWith(hasClaudeKey: Boolean): Boolean = claudeLeads && hasClaudeKey
+
     init {
         require(maxConcurrent in MAX_CONCURRENT_RANGE) { "maxConcurrent $maxConcurrent not in $MAX_CONCURRENT_RANGE" }
         require(maxDepth in MAX_DEPTH_RANGE) { "maxDepth $maxDepth not in $MAX_DEPTH_RANGE" }
@@ -50,6 +61,9 @@ object AgentModels {
     const val DEEPSEEK_PROVIDER = "deepseek-official"
     const val ANTHROPIC_PROVIDER = "anthropic"
     const val DEFAULT_MODEL = "deepseek-flash"
+    const val CLAUDE_LEAD_DEFAULT = "claude-opus-5-5"
+    /** The leads the Claude-leads mode offers: Opus by default, Fable for the hardest work. */
+    val CLAUDE_LEADS = listOf("claude-opus-5-5", "claude-fable-5-1")
 
     data class Model(val id: String, val provider: String) {
         val isClaude: Boolean get() = provider == ANTHROPIC_PROVIDER
@@ -60,6 +74,7 @@ object AgentModels {
         Model("claude-sonnet-5-5", ANTHROPIC_PROVIDER),
         Model("claude-opus-5-5", ANTHROPIC_PROVIDER),
         Model("claude-haiku-5-5", ANTHROPIC_PROVIDER),
+        Model("claude-fable-5-1", ANTHROPIC_PROVIDER),
     )
 
     /** DeepSeek models always; Claude models only when a Claude key is stored. */
@@ -80,5 +95,6 @@ fun AgentModels.displayName(id: String?): String? = when (id) {
     "claude-sonnet-5-5" -> "Claude Sonnet"
     "claude-opus-5-5" -> "Claude Opus"
     "claude-haiku-5-5" -> "Claude Haiku"
+    "claude-fable-5-1" -> "Claude Fable"
     else -> id
 }

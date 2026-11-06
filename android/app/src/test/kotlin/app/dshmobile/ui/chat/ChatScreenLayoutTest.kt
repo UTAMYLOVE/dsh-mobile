@@ -144,7 +144,7 @@ class ChatScreenLayoutTest {
         val options = rule.onAllNodes(SemanticsMatcher("model option") {
             it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(Tags.MODEL_OPTION) == true
         }, useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot }
-        assertTrue("five models with a Claude key: ${options.size}", options.size == 5)
+        assertTrue("six models with a Claude key: ${options.size}", options.size == 6)
         options.forEachIndexed { i, r ->
             assertOnScreen("option $i", r)
             assertTrue("option $i is a 48 dp target", r.height >= 47.5f * dp)

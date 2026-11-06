@@ -47,7 +47,7 @@ class AgentSettingsTest {
     @Test fun modelListWithClaudeKeyAddsClaudeModels() {
         val models = AgentModels.available(hasClaudeKey = true)
         assertEquals(
-            listOf("deepseek-flash", "deepseek-v4-pro", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"),
+            listOf("deepseek-flash", "deepseek-v4-pro", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-fable-5-1"),
             models.map { it.id },
         )
         assertTrue(models.filter { it.id.startsWith("claude-") }.all { it.provider == "anthropic" })

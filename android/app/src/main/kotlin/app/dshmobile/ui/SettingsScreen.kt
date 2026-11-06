@@ -506,6 +506,28 @@ fun SettingsScreen(
                     Text(stringResource(R.string.set_agent_team_clamped, settings.maxConcurrent), style = MaterialTheme.typography.bodySmall)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.set_claude_leads), Modifier.weight(1f))
+                    Switch(
+                        checked = settings.claudeLeads && hasClaude, onCheckedChange = { settings = settings.copy(claudeLeads = it) },
+                        enabled = !busy && hasClaude, modifier = Modifier.testTag("switch-claude-leads"),
+                    )
+                }
+                Text(stringResource(if (hasClaude) R.string.set_claude_leads_note else R.string.set_claude_leads_need_key), style = MaterialTheme.typography.bodySmall)
+                if (settings.claudeLeads && hasClaude) {
+                    Segmented(
+                        options = listOf(stringResource(R.string.set_claude_lead_opus), stringResource(R.string.set_claude_lead_fable)),
+                        selected = app.dshmobile.config.AgentModels.CLAUDE_LEADS.indexOf(settings.leadClaude).coerceAtLeast(0),
+                        onSelect = { settings = settings.copy(leadClaude = app.dshmobile.config.AgentModels.CLAUDE_LEADS[it]) },
+                        tagPrefix = "claude-lead-",
+                    )
+                    Segmented(
+                        options = listOf(stringResource(R.string.set_worker_pro), stringResource(R.string.set_worker_flash)),
+                        selected = if (settings.workerModel == "deepseek-flash") 1 else 0,
+                        onSelect = { settings = settings.copy(workerModel = if (it == 1) "deepseek-flash" else "deepseek-v4-pro") },
+                        tagPrefix = "worker-",
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.set_agent_teams), Modifier.weight(1f))
                     Switch(checked = settings.agentTeams, onCheckedChange = { settings = settings.copy(agentTeams = it) }, enabled = !busy, modifier = Modifier.testTag("switch-teams"))
                 }
