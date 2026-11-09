@@ -173,8 +173,10 @@ class SettingsScreenTest {
             onEffectLevel = { effectCalls += it; effects.set(it) },
             effectiveLevel = effects.effective,
             workRunning = { working },
+            onClaudeKeyChanged = { claudeRestarts++; !working },
         )
     }
+    private var claudeRestarts = 0
 
     private fun show(onClose: (() -> Unit)? = { closed++ }) = rule.setContent {
         SakuraTheme { SettingsScreen(env, onClose = onClose) }
@@ -240,6 +242,8 @@ class SettingsScreenTest {
         clickAndWait("clear-claude")
         waitFor { vault.keys[Provider.ANTHROPIC] == null }
         rule.onNodeWithTag("model-claude-opus-5-5").assertDoesNotExist()
+        // dsh offers Claude only when it starts with the key: storing and removing it both restart dsh
+        assertEquals(2, claudeRestarts)
     }
 
     @Test fun aSelectedClaudeModelFallsBackWhenTheKeyIsCleared() {

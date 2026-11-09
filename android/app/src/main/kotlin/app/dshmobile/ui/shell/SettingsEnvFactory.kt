@@ -61,6 +61,20 @@ fun buildSettingsEnv(
         exportMemory = { app.exporter.share(app.exporter.memoryBackupZip()) },
         // 0.5.0: 「原生模式」 was removed (the owner, 2026-11-07); Settings no longer offers it.
         nativeMode = null,
+        // dsh lists Claude models only when it starts with the key (the anthropic row and its env var): restart it now,
+        // unless work is running (then the key takes effect at dsh's next start).
+        onClaudeKeyChanged = {
+            if (app.shellSessions.current.value?.tree?.state?.value?.summaries?.values?.any { it.running == true } == true) false
+            else {
+                app.settingsJobs.launch {
+                    runCatching {
+                        app.controller.stop()
+                        app.controller.ensureRunning()
+                    }.onFailure { app.errorLog.append("settings", "restart after the Claude key changed failed: ${it.javaClass.simpleName}") }
+                }
+                true
+            }
+        },
         exportWorkspace = { app.exporter.share(app.exporter.workspaceZip()) },
         jobs = app.settingsJobs,
         effectLevel = app.effectsController.level,

@@ -127,6 +127,11 @@ class SettingsEnv(
     val openAppSettings: () -> Unit = {},
     /** 「實驗：原生模式」; null hides the section. */
     val nativeMode: app.dshmobile.runtime.NativeModeControl? = null,
+    /**
+     * The Claude key was stored or removed: dsh only offers Claude models when it starts with the key, so it restarts now.
+     * Returns false when work is running (nothing is cut off; Claude arrives with dsh's next start).
+     */
+    val onClaudeKeyChanged: () -> Boolean = { true },
 )
 
 private const val BUDGET_DEFAULT_CAP = 10.0
@@ -199,6 +204,8 @@ fun SettingsScreen(
     // Presence checks only (no decrypt); everything that can block runs on IO.
     var hasDeepseek by remember { mutableStateOf(env.vault.has(Provider.DEEPSEEK)) }
     var hasClaude by remember { mutableStateOf(env.vault.has(Provider.ANTHROPIC)) }
+    // The Claude key changed while work was running: dsh restarts with it later (shown under the key rows).
+    var claudePending by remember { mutableStateOf(false) }
     var editing by draft::editing
     var keyInput by draft::keyInput
     var keyError by draft::keyError
@@ -269,6 +276,7 @@ fun SettingsScreen(
             keyError = false
             editing = null
             if (provider == Provider.DEEPSEEK) hasDeepseek = true else hasClaude = true
+            if (provider == Provider.ANTHROPIC) claudePending = !env.onClaudeKeyChanged()
         } else {
             keyError = true
         }
@@ -285,6 +293,7 @@ fun SettingsScreen(
         }
         if (editing == provider) { editing = null; keyInput = "" }
         if (provider == Provider.DEEPSEEK) hasDeepseek = false else hasClaude = false
+        if (provider == Provider.ANTHROPIC) claudePending = !env.onClaudeKeyChanged()
     }
 
     /** After an update or rollback: dsh that is up again goes back under DshService (clears a give-up); a dsh that is down stays as it is. */
@@ -493,6 +502,7 @@ fun SettingsScreen(
                     }
                 }
                 if (keyError) Text(stringResource(R.string.set_key_error), color = MaterialTheme.colorScheme.error)
+                if (claudePending) Text(stringResource(R.string.set_key_claude_pending), style = MaterialTheme.typography.bodySmall)
                 // 0.5.0: the CWA open-data key for the weather analysis; only the app's own weather request uses it, never dsh.
                 var hasCwa by remember { mutableStateOf(env.vault.hasNamed(app.dshmobile.security.KeyVault.CWA)) }
                 var cwaEditing by remember { mutableStateOf(false) }
