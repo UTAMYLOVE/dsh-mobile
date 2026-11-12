@@ -4,9 +4,13 @@ import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** The 「實驗：原生模式」 switch (owner, 2026-11-04): off = proot + Debian (the default), on = Android's own node. */
+/**
+ * How dsh runs. Since 0.7.0 Android's own node is the default (the owner, 2026-11-10: proot 「讓手機又卡又耗電」); off is the
+ * older proot + Debian, kept as 「相容模式」 for a phone where the native runtime does not work. The key is new on purpose:
+ * 0.5.1 switched everybody's old `native` flag off.
+ */
 class RuntimeModeStore(private val prefs: SharedPreferences) {
-    private val _native = MutableStateFlow(prefs.getBoolean(KEY, false))
+    private val _native = MutableStateFlow(prefs.getBoolean(KEY, true))
     val native: StateFlow<Boolean> = _native
 
     fun set(native: Boolean) {
@@ -29,7 +33,7 @@ class RuntimeModeStore(private val prefs: SharedPreferences) {
 
     companion object {
         const val PREFS = "dshm_runtime"
-        private const val KEY = "native"
+        private const val KEY = "native_v2"
         private const val KEY_NO_APPROVAL = "native_no_approval"
     }
 }

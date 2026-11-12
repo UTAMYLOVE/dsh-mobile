@@ -162,19 +162,20 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     private val proot: ProotRunner by lazy {
-        // The workspace is also bound at its own host path: conversations made in the removed native mode have that path as
-        // their folder, and dsh never runs a turn whose folder is missing.
+        // The workspace is also bound at its own host path: conversations made natively have that path as their folder, and
+        // dsh never runs a turn whose folder is missing.
         ProotRunner(
             File(applicationInfo.nativeLibraryDir), appPaths.rootfs, File(cacheDir, "proot"),
             appPaths.binds + (appPaths.workspace to appPaths.workspace.absolutePath),
         )
     }
 
-    /** The experimental native mode's launcher (Android's own node; no proot), see [layoutForStart]. */
+    /** The native launcher (Android's own node; no proot), the default since 0.7.0, see [layoutForStart]. */
     val nativeRunner: NativeRunner by lazy {
         NativeRunner(
             File(applicationInfo.nativeLibraryDir ?: File(filesDir, "no-native-libs").path), File(filesDir, "native"), File(appPaths.userData, "home"), File(cacheDir, "native-tmp"),
             assets = { name -> try { assets.open(name) } catch (_: java.io.IOException) { null } },
+            remap = appPaths.binds.map { (host, guest) -> guest to host },
         )
     }
 
@@ -208,17 +209,19 @@ class DshMobileApp : Application(), Configuration.Provider {
     val runtimeMode: RuntimeModeStore by lazy { RuntimeModeStore(getSharedPreferences(RuntimeModeStore.PREFS, Context.MODE_PRIVATE)) }
 
     /**
-     * The layout of the next dsh start: native when the switch is on and this APK carries the native runtime, proot otherwise.
+     * The layout of the next dsh start: native (the default) when this APK carries the native runtime, proot otherwise or when
+     * the owner chose 「相容模式」.
      * Native runs the same dsh version (rootfs/opt/dsh/<current>) and plugins as proot would.
      */
     private fun layoutForStart(): DshLayout {
-        // 0.5.0: the owner removed 「原生模式」 (2026-11-07: 「我覺得原生模式拿掉好了」). Everything runs in proot; a switch left on
-        // by an earlier build is turned off here once.
-        if (runtimeMode.native.value) {
-            runtimeMode.set(false)
-            errorLog.append("native", "native mode was removed: back to proot")
+        if (!runtimeMode.native.value) return DshLayout.PROOT
+        if (!nativeRunner.available) {
+            errorLog.append("native", "native mode is on but this build has no native runtime: using proot")
+            return DshLayout.PROOT
         }
-        return DshLayout.PROOT
+        nativeRunner.prepare()
+        val dshDir = File(appPaths.rootfs, "opt/dsh/" + dshVersions.current())
+        return DshLayout.native(appPaths, dshDir, nativeRunner.node(), nativeRunner.shellPath)
     }
 
     val agentSettingsStore: AgentSettingsStore by lazy {
@@ -244,7 +247,11 @@ class DshMobileApp : Application(), Configuration.Provider {
             filesDir = filesDir,
             isRootfsInstalled = rootfsInstaller::isInstalled,
             launcher = DshLauncher { env, args ->
-                proot.command(args, env).start()
+                if (DshLayout.active.native) {
+                    // The owner's opt-in (Settings): dsh runs commands without asking (RuntimeModeStore.noApproval).
+                    val extra = if (runtimeMode.noApproval.value) mapOf("DSH_PERMISSION_MODE" to "danger-full-access") else emptyMap()
+                    nativeRunner.command(args, env + extra, appPaths.workspace).start()
+                } else proot.command(args, env).start()
             },
             layout = ::layoutForStart,
             // Many agents at once make many requests: the runaway guard scales with the concurrency setting.

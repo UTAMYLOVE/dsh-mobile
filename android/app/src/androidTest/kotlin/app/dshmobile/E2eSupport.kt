@@ -91,6 +91,8 @@ object E2e {
         usePlainBackground()
         // 0.6.0: the dock is the chat and the war room; these tests also cover what 「顯示更多功能」 brings back.
         app.setMoreFeatures(true)
+        // Native is the default since 0.7.0; these suites keep covering proot (相容模式), NativeModeE2eTest covers native.
+        app.runtimeMode.set(false)
     }
 
     /**

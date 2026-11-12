@@ -59,10 +59,10 @@ class NativeModeTest {
     /** Owner, 2026-11-05: a proot conversation opened in native mode stood at 「傳送中」 forever (dsh cannot run it there). */
     @Test fun aConversationOfTheOtherModeIsRecognised() {
         val native = DshLayout.PROOT.copy(native = true, workspace = "/data/user/0/app.dshmobile/files/userdata/workspace")
-        assertEquals(false, DshLayout.otherModeOf("/root/workspace", native))
+        assertEquals("native maps the proot names", null, DshLayout.otherModeOf("/root/workspace", native))
         assertEquals(null, DshLayout.otherModeOf("/data/user/0/app.dshmobile/files/userdata/workspace", native))
         assertEquals(null, DshLayout.otherModeOf("/data/user/0/app.dshmobile/files/userdata/workspace/notes", native))
-        assertEquals(null, DshLayout.otherModeOf("/data/user/0/app.dshmobile/files/userdata/workspace", DshLayout.PROOT))
+        assertEquals("proot binds the host path", null, DshLayout.otherModeOf("/data/user/0/app.dshmobile/files/userdata/workspace", DshLayout.PROOT))
         assertEquals(null, DshLayout.otherModeOf("/root/workspace", DshLayout.PROOT))
         assertEquals(null, DshLayout.otherModeOf(null, native))
     }

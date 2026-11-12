@@ -55,4 +55,43 @@ for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
   const real = childProcess[name]
   childProcess[name] = function (file, ...rest) { return real.call(this, swap(file), ...rest) }
 }
+// 6. Conversations made under proot have /root/workspace (and dsh's home /root/.dsh) as their folder, and dsh never runs a turn
+//    whose folder is missing. Those are the same folders on the phone under their host names, so paths below them are mapped
+//    (DSHN_REMAP = "from=to;from=to") in fs, in a child's working directory and in chdir. Nothing else is rewritten.
+const remaps = (process.env.DSHN_REMAP || '').split(';').map((s) => s.split('=')).filter((p) => p.length === 2 && p[0].startsWith('/') && p[1].startsWith('/'))
+if (remaps.length > 0) {
+  const map = (p) => {
+    if (typeof p !== 'string') return p
+    for (const [from, to] of remaps) if (p === from || p.startsWith(from + '/')) return to + p.slice(from.length)
+    return p
+  }
+  const wrap = (owner, name, paths) => {
+    const real = owner?.[name]
+    if (typeof real !== 'function') return
+    const wrapped = function (...args) {
+      for (let i = 0; i < paths && i < args.length; i++) args[i] = map(args[i])
+      return real.apply(this, args)
+    }
+    for (const key of Object.keys(real)) wrapped[key] = real[key] // e.g. realpath.native
+    owner[name] = wrapped
+  }
+  const one = ['access', 'appendFile', 'chmod', 'chown', 'exists', 'lchown', 'lstat', 'lutimes', 'mkdir', 'open', 'openAsBlob', 'opendir', 'readdir', 'readFile',
+    'readlink', 'realpath', 'rm', 'rmdir', 'stat', 'statfs', 'truncate', 'unlink', 'utimes', 'watch', 'watchFile', 'unwatchFile', 'writeFile',
+    'createReadStream', 'createWriteStream', 'glob']
+  const two = ['copyFile', 'cp', 'link', 'rename', 'symlink']
+  for (const owner of [fs, fs.promises]) {
+    for (const name of one) { wrap(owner, name, 1); wrap(owner, name + 'Sync', 1) }
+    for (const name of two) { wrap(owner, name, 2); wrap(owner, name + 'Sync', 2) }
+  }
+  if (typeof fs.realpath.native === 'function') wrap(fs.realpath, 'native', 1)
+  if (typeof fs.realpathSync.native === 'function') wrap(fs.realpathSync, 'native', 1)
+  const withCwd = (args) => args.map((a) => (a && typeof a === 'object' && !Array.isArray(a) && typeof a.cwd === 'string' ? { ...a, cwd: map(a.cwd) } : a))
+  for (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
+    const real = childProcess[name]
+    childProcess[name] = function (...args) { return real.apply(this, withCwd(args)) }
+    for (const key of Object.getOwnPropertySymbols(real)) childProcess[name][key] = real[key] // util.promisify.custom
+  }
+  const realChdir = process.chdir
+  process.chdir = function chdir(dir) { return realChdir.call(this, map(dir)) }
+}
 syncBuiltinESMExports()

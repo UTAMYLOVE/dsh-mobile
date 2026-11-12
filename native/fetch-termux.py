@@ -5,7 +5,8 @@ Usage: fetch-termux.py ARCH OUT [--exact] [--lock FILE [--update-lock]] [--cache
   ARCH          x86_64 | aarch64
   --exact       only the named packages (no dependency resolution): the caller lists every package it needs
   --lock FILE   pinned "<arch> <package> <version> <filename> <sha256>" lines: download exactly those files and verify them;
-                fails if a package is not pinned for ARCH or its file is gone from the pool
+                fails if a package is not pinned for ARCH; a file that is gone from the pool (and the cache) is replaced
+                by the repository's current build, with a warning
   --update-lock rewrite FILE's lines for ARCH from the current repository instead of reading them
   --cache DIR   keep the verified .deb files here (CI caches it: Termux keeps only the newest build in its pool)
 The Termux prefix /data/data/com.termux/files/usr becomes OUT/usr. Only the main repository is used.
@@ -15,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 
 REPO = "https://packages.termux.dev/apt/termux-main"
@@ -99,10 +101,29 @@ def main() -> None:
     root = os.path.join(out, ".root")
     shutil.rmtree(root, ignore_errors=True)
     os.makedirs(root)
-    for name, (version, filename, sha) in sorted(chosen.items()):
+    current, replaced = None, []
+    for name, (version, filename, sha) in sorted(dict(chosen).items()):
         deb = os.path.join(work, os.path.basename(filename))
         if not (os.path.exists(deb) and hashlib.sha256(open(deb, "rb").read()).hexdigest() == sha):
-            data = fetch(f"{REPO}/{filename}")
+            try:
+                data = fetch(f"{REPO}/{filename}")
+            except urllib.error.HTTPError as e:
+                if e.code != 404 or not lock or update:
+                    raise
+                # Termux keeps only the newest build of a package: a pin that left the pool (and the cache) must not stop a
+                # release. The repository's current build is taken instead, checked against the repository index, and said
+                # loudly; the emulator suite then runs on it before anything ships. Re-pin with --update-lock.
+                if current is None:
+                    current = parse(fetch(f"{REPO}/dists/stable/main/binary-{arch}/Packages").decode())
+                if name not in current:
+                    sys.exit(f"{name} {version}: gone from the pool and not in the repository index")
+                was = version
+                version, filename, sha = current[name]["Version"], current[name]["Filename"], current[name]["SHA256"]
+                chosen[name] = (version, filename, sha)
+                replaced.append(f"{name} {was} -> {version}")
+                print(f"WARNING: pinned {name} {was} is gone from the Termux pool; using {version}", file=sys.stderr)
+                deb = os.path.join(work, os.path.basename(filename))
+                data = fetch(f"{REPO}/{filename}")
             got = hashlib.sha256(data).hexdigest()
             if got != sha:
                 sys.exit(f"{name} {version}: sha256 {got} != pinned {sha}")
@@ -118,6 +139,8 @@ def main() -> None:
         shutil.rmtree(work)
     with open(os.path.join(out, "packages.txt"), "w") as fh:
         fh.write("\n".join(f"{n} {chosen[n][0]}" for n in sorted(chosen)) + "\n")
+    if replaced:
+        print("WARNING: pins replaced by the repository's current builds: " + "; ".join(replaced), file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -115,10 +115,43 @@ jobs:
             out/dshm-rootfs-${{ matrix.arch }}.npm-ls.txt
           retention-days: 7
 
+  # The experimental Android-native dsh runtime (native/): Termux's node, bash, ripgrep and git (pinned in native/termux.lock) plus
+  # dsh's file-lock addon built with the NDK, as jniLibs. Only x86_64 for now: the emulator suite checks it runs inside the app.
+  native:
+    needs: rootfs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: android-actions/setup-android@v4
+      # Termux keeps only the newest build of each package in its pool; the pinned .debs are kept here once downloaded.
+      - name: Restore the pinned Termux packages
+        uses: actions/cache@v4
+        with:
+          path: native-debs
+          key: native-debs-${{ hashFiles('native/termux.lock') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dshm-rootfs-x86_64
+          path: rootfs-artifact
+      - name: Build the native runtime
+        run: |
+          echo "NDK: ${ANDROID_NDK_LATEST_HOME:-none}"
+          bash native/build.sh x86_64 rootfs-artifact/dshm-rootfs-x86_64.package-lock.json out/native-x86_64 "$GITHUB_WORKSPACE/native-debs" | tee native-build.txt
+          echo "### native runtime x86_64: $(tail -1 native-build.txt)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dshm-native-x86_64
+          path: out/native-x86_64
+          retention-days: 7
+
   # Spec §9 end to end on a real Android (x86_64 emulator): proot + Debian + Node 24 + the official dsh + our plugins + the app.
   # The model is an in-process fake (src/androidTest/.../FakeModel.kt) with a fake key: no real key, no cost.
   e2e:
-    needs: [rootfs]
+    needs: [rootfs, native]
     runs-on: ubuntu-latest
     # The stage-1 suite drives the native shell (t01-t24), which gates the release, and measures jank (PerfGateTest) on a
     # software GPU. The jank numbers are ADVISORY here (they go to the step summary and never fail the job on their threshold;
@@ -126,6 +159,7 @@ jobs:
     timeout-minutes: 90
     env:
       ROOTFS_FILE: ${{ github.workspace }}/rootfs-artifact/dshm-rootfs-x86_64.tar.xz
+      NATIVE_DIR: ${{ github.workspace }}/native-artifact
     steps:
       # The emulator's userdata image needs 1.2 x disk-size free on the runner; the stock image leaves ~5 GB.
       - name: Free runner disk space
@@ -153,9 +187,13 @@ jobs:
         with:
           name: dshm-rootfs-x86_64
           path: rootfs-artifact
+      - uses: actions/download-artifact@v4
+        with:
+          name: dshm-native-x86_64
+          path: native-artifact
       - name: Build the app and test APKs (x86_64 rootfs bundled)
         working-directory: android
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE"
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pdshm.nativeDir=$NATIVE_DIR"
       - name: Run the instrumentation tests on the emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -179,7 +217,7 @@ jobs:
           script: |
             adb logcat -c
             adb logcat -v threadtime > "$GITHUB_WORKSPACE/logcat.txt" 2>&1 < /dev/null &
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pandroid.testInstrumentationRunnerArguments.plainBackground=$PLAIN_BACKGROUND"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pdshm.nativeDir=$NATIVE_DIR" "-Pandroid.testInstrumentationRunnerArguments.plainBackground=$PLAIN_BACKGROUND"
       # Names, times and pass/fail only (failure messages stay in the uploaded report), so a green job shows what ran.
       - name: List the instrumentation test results
         if: always()

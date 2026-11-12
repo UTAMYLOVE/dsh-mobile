@@ -28,6 +28,13 @@ ln -sfn "/opt/dsh/${DSH_PINNED_VERSION}" /opt/dsh/current
 # integrity check against pinned dist.integrity (from the generated lockfile)
 GOT="$(node -p "require('/opt/dsh/${DSH_PINNED_VERSION}/package-lock.json').packages['node_modules/@deepseek-ai/dsh'].integrity")"
 [ "$GOT" = "$DSH_INTEGRITY" ] || { echo "dsh integrity mismatch: $GOT" >&2; exit 1; }
+# sharp's WebAssembly build, next to the glibc one: on Android's own node (no proot) the glibc build cannot load and sharp falls
+# back to it, so pictures can be attached there too. Same version as the sharp dsh installed.
+SHARP_V="$(node -p "JSON.parse(require('fs').readFileSync('/opt/dsh/${DSH_PINNED_VERSION}/node_modules/sharp/package.json','utf8')).version")"
+npm install --prefix "/opt/dsh/${DSH_PINNED_VERSION}" --no-save --force --cpu=wasm32 "@img/sharp-wasm32@${SHARP_V}" \
+  --no-audit --no-fund --loglevel=error
+test -f "/opt/dsh/${DSH_PINNED_VERSION}/node_modules/@img/sharp-wasm32/package.json"
+test -f "/opt/dsh/${DSH_PINNED_VERSION}/node_modules/@deepseek-ai/dsh/lib/bin.js"
 (cd "/opt/dsh/${DSH_PINNED_VERSION}" && npm ls --all > npm-ls.txt 2>&1 || true)
 
 # --- app layout ---

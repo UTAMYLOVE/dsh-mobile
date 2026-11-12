@@ -70,12 +70,9 @@ data class DshLayout(
             if (cwd.isNullOrEmpty()) return null
             val ws = layout.workspace.trimEnd('/')
             if (cwd == ws || cwd.startsWith("$ws/")) return null
-            return when {
-                layout.native && (cwd == AppPaths.GUEST_WORKSPACE || cwd.startsWith("/root/")) -> false
-                // proot binds the workspace at its host path too (native mode is gone), so those conversations run here
-                !layout.native && cwd.startsWith("/data/") -> null
-                else -> null
-            }
+            // 0.7.0: either mode runs the other's conversations (the same folder under two names): native maps the proot
+            // names (NativeRunner's remap), proot binds the workspace at its host path too. Nothing belongs elsewhere any more.
+            return null
         }
 
         /** Every workspace prefix a tool path may start with, to show paths relative to the workspace in either mode. */

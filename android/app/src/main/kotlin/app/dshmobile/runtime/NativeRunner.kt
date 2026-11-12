@@ -23,6 +23,11 @@ class NativeRunner(
     private val tmpDir: File,
     private val assets: (String) -> InputStream?,
     private val niceBinary: File? = ProotRunner.niceIfUsable(File(ProotRunner.SYSTEM_NICE)),
+    /**
+     * Folders dsh knows by a proot name (`/root/workspace`, `/root/.dsh`) and where they are on the phone: conversations made
+     * under proot keep their folder's proot name, and the shim maps paths below it (assets/dshn/shim.mjs, point 6).
+     */
+    private val remap: List<Pair<String, File>> = emptyList(),
 ) {
     private val binDir = File(baseDir, "bin")
     /** The libraries under their own sonames (symlinks to nativeLibraryDir), for LD_LIBRARY_PATH. */
@@ -95,6 +100,7 @@ class NativeRunner(
             put("PAGER", "cat")
             put("DSHN_FLOCK", program("flock-addon").path)
             put("DSHN_RG", File(binDir, "rg").path)
+            if (remap.isNotEmpty()) put("DSHN_REMAP", remap.joinToString(";") { (guest, host) -> "$guest=${host.path}" })
             putAll(env)
         }
         return pb
