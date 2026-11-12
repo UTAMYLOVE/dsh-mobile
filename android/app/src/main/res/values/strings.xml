@@ -195,6 +195,17 @@
     <string name="list_title">所有對話</string>
     <string name="list_new">＋ 新對話</string>
     <string name="open_settings">設定</string>
+    <string name="home_list">對話紀錄</string>
+    <string name="home_title">今天想聊什麼？</string>
+    <string name="home_sub">在下面打字、用說的，或拍一張照片給我。</string>
+    <string name="home_try">試試看</string>
+    <string name="home_recent">最近的對話</string>
+    <string-array name="home_suggestions">
+        <item>台積電今天多少？</item>
+        <item>午餐花了 120</item>
+        <item>今天會下雨嗎？</item>
+        <item>幫我想一個故事開頭</item>
+    </string-array>
     <string name="list_close">關閉</string>
     <string name="list_search_hint">搜尋對話</string>
     <string name="list_empty">還沒有對話</string>

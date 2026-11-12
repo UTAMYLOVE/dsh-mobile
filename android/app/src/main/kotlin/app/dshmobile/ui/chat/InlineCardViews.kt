@@ -70,7 +70,7 @@ internal fun InlineCardView(card: InlineCard, modifier: Modifier = Modifier) {
             )
             spec.badge?.let { b ->
                 Text(
-                    b, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FogFonts.ChakraPetch, maxLines = 1,
+                    b, color = if (spec.accent == Sakura.Aqua) Sakura.Text else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FogFonts.ChakraPetch, maxLines = 1,
                     modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(spec.accent).padding(horizontal = 8.dp, vertical = 3.dp),
                 )
             }

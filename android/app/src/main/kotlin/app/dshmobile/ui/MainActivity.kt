@@ -506,6 +506,7 @@ class MainActivity : ComponentActivity() {
         ChatPage(
             session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast, onRestartDsh = ::restartDsh, onOpenFile = ::openWorkspaceFile,
             onEditMessage = vm::startEdit,
+            onSuggest = vm::onText,
         )
     }
 

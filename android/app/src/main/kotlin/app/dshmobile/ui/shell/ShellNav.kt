@@ -57,7 +57,8 @@ class ShellNav {
      */
     fun back(): Boolean {
         if (tab == ShellTab.CHAT) {
-            if (listOpen && openSessionId != null) {
+            // The list closes over an open conversation, and over the home page (the simple shell's chat with nothing open).
+            if (listOpen && (openSessionId != null || !more)) {
                 listOpen = false
                 return true
             }

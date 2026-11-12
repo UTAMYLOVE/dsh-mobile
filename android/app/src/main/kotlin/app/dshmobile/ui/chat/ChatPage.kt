@@ -148,6 +148,8 @@ fun ChatPage(
     onEditMessage: (sessionId: String, boundary: Long, text: String) -> Unit = { _, _, _ -> },
     /** 打開 on a presented file (workspace-relative). */
     onOpenFile: (String) -> Unit = {},
+    /** A tapped 試試看 on the home page: the text goes into the dock for the owner to send or change. */
+    onSuggest: (String) -> Unit = {},
 ) {
     val openId = nav.openSessionId
     val prefs = (LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.conversationPrefs
@@ -164,7 +166,18 @@ fun ChatPage(
     val unlocked by UnlockedChats.ids.collectAsState()
     val lockedIds = prefs?.state?.collectAsState()?.value?.locked.orEmpty()
     val unlocker = LocalUnlocker.current
-    if (nav.listOpen || openId == null) {
+    if (openId == null && !nav.listOpen && !nav.more) {
+        // 0.6.0: with nothing open the chat is a greeting, not a list (the list is one tap away).
+        val rows by session.index.rows.collectAsState()
+        val hidden = prefs?.state?.collectAsState()?.value?.let { it.locked + it.temporary }.orEmpty()
+        Box(Modifier.fillMaxSize().padding(LocalPagePadding.current)) {
+            ChatHome(
+                recent = remember(rows, hidden) { rows.filter { it.id !in hidden }.sortedByDescending { it.updatedAt }.take(RECENT_MAX) },
+                onSuggest = onSuggest, onOpen = { nav.openSession(it) }, onOpenList = { nav.listOpen = true },
+                onSettings = { nav.select(app.dshmobile.ui.shell.ShellTab.SETTINGS) },
+            )
+        }
+    } else if (nav.listOpen || openId == null) {
         ListPage(session, nav, onMessage)
     } else if (openId in lockedIds && openId !in unlocked) {
         LockedPage(onUnlock = { unlocker?.unlock { UnlockedChats.add(openId) } })
@@ -344,7 +357,7 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
             },
             onClose = {
                 nav.listOpen = false
-                if (nav.openSessionId == null) nav.select(ShellTab.OVERVIEW)
+                if (nav.openSessionId == null) nav.select(nav.home)
             },
         )
         picker?.let { target ->

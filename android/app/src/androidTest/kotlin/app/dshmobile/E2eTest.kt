@@ -49,6 +49,7 @@ import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.shell.StatusTags
 import app.dshmobile.ui.chat.HelperTags
+import app.dshmobile.ui.chat.HomeTags
 import app.dshmobile.ui.chat.ProjectTags
 import app.dshmobile.chat.ComposeMode
 import app.dshmobile.ui.chat.ResultTags
@@ -966,6 +967,8 @@ class E2eTest {
                 ui.awaitTag(Tags.TAB + ShellTab.AGENTS.name)
                 ui.await("only the two tabs") { listOf(ShellTab.OVERVIEW, ShellTab.LIBRARY, ShellTab.SETTINGS).none { ui.has(Tags.TAB + it.name) } }
                 assertEquals(ShellTab.CHAT, E2e.nav { tab })
+                ui.awaitTag(HomeTags.HOME)
+                ui.tap(HomeTags.LIST)
                 ui.tap(Tags.LIST_SETTINGS)
                 ui.await("settings from the list") { E2e.nav { tab } == ShellTab.SETTINGS }
                 ui.awaitTag("switch-advanced")

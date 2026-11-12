@@ -144,6 +144,8 @@ android {
                 "--add-opens=java.base/java.io=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
             )
+            // -Pdshm.shots=<dir>: the tests that draw a screen also save a picture of it there (for the owner to look at).
+            (project.findProperty("dshm.shots") as String?)?.let { dir -> it.systemProperty("dshm.shots", dir) }
         }
     }
 }
