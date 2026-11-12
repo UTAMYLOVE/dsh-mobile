@@ -336,6 +336,21 @@ class DshMobileApp : Application(), Configuration.Provider {
         getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).edit().putBoolean(MORE_FEATURES, on).apply()
     }
 
+    /** 「生圖服務位址」 (0.7.0): the owner's own image service, or blank; dsh reads it from the workspace note ([app.dshmobile.chat.ImageGen]). */
+    val imageGenUrl: kotlinx.coroutines.flow.MutableStateFlow<String> by lazy {
+        kotlinx.coroutines.flow.MutableStateFlow(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).getString(app.dshmobile.chat.ImageGen.KEY, "").orEmpty())
+    }
+
+    /** Stores [input] when it is a usable address or blank (blank = not connected) and rewrites the note; false = not an address. */
+    fun setImageGenUrl(input: String): Boolean {
+        val url = app.dshmobile.chat.ImageGen.clean(input)
+        if (url == null && input.isNotBlank()) return false
+        imageGenUrl.value = url.orEmpty()
+        getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).edit().putString(app.dshmobile.chat.ImageGen.KEY, url.orEmpty()).apply()
+        applicationScope.launch(Dispatchers.IO) { app.dshmobile.chat.ImageGen.write(appPaths.workspace, url) }
+        return true
+    }
+
     fun setStatusLine(c: app.dshmobile.ui.shell.StatusLineConfig) {
         statusLineConfig.value = c
         app.dshmobile.ui.shell.StatusLineConfig.save(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE), c)
@@ -439,6 +454,7 @@ class DshMobileApp : Application(), Configuration.Provider {
                 scheduleHelperWake()
                 // dsh reads .dshm/weather.md for weather questions and the daily brief: keep it fresh.
                 applicationScope.launch { runCatching { weather.refreshIfStale() } }
+                applicationScope.launch(Dispatchers.IO) { app.dshmobile.chat.ImageGen.write(appPaths.workspace, app.dshmobile.chat.ImageGen.clean(imageGenUrl.value)) }
             },
         )
     }

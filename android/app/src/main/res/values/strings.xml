@@ -483,6 +483,12 @@
     <string name="share_saved">已存到書架（%1$d 個）</string>
     <string name="share_save_failed">存不進書架（讀不到分享的內容）</string>
     <string name="chat_more">更多：加入書架、數據</string>
+    <string name="set_section_image">生圖服務</string>
+    <string name="set_en_image">IMAGE</string>
+    <string name="set_image_note">之後你在電腦上裝好生圖程式，把它的位址填在這裡（例如 http://192.168.1.20:8188），AI 就能幫你畫圖。空著就是還沒接上，AI 會直接跟你說現在不能畫。</string>
+    <string name="set_image_url">生圖服務位址</string>
+    <string name="set_image_bad">這不是位址。要像 http://192.168.1.20:8188 這樣。</string>
+    <string name="set_image_save">套用位址</string>
     <string name="set_advanced">進階設定</string>
     <string name="set_advanced_note">小幫手數量、特效、花費上限、匯出這些平常用不到的設定。</string>
     <string name="set_more">顯示更多功能</string>

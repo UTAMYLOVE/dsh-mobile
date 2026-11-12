@@ -643,6 +643,20 @@ fun SettingsScreen(
             }
             (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.let { dshApp ->
                 AdvancedSection(advanced, R.string.set_section_status, R.string.set_en_status, 3) { StatusLineSettings(dshApp) }
+                AdvancedSection(advanced, R.string.set_section_image, R.string.set_en_image, 3) {
+                    val saved by dshApp.imageGenUrl.collectAsStateWithLifecycle()
+                    var field by androidx.compose.runtime.saveable.rememberSaveable(saved) { mutableStateOf(saved) }
+                    var bad by remember { mutableStateOf(false) }
+                    Text(stringResource(R.string.set_image_note), style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.material3.OutlinedTextField(
+                        field, { field = it; bad = false }, singleLine = true, isError = bad,
+                        label = { Text(stringResource(R.string.set_image_url)) }, modifier = Modifier.fillMaxWidth().testTag("image-url"),
+                    )
+                    if (bad) Text(stringResource(R.string.set_image_bad), color = Sakura.RoseBrown, style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = { bad = !dshApp.setImageGenUrl(field) }, enabled = field != saved, modifier = Modifier.testTag("image-url-save")) {
+                        Text(stringResource(R.string.set_image_save))
+                    }
+                }
             }
 
             AdvancedSection(advanced, R.string.set_section_budget, R.string.set_en_budget, 4) {

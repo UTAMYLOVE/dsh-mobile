@@ -56,6 +56,16 @@ object AppSkills {
             -->
             """,
         ),
+        "dshm-image" to skill(
+            "dshm-image",
+            "The owner asks for a generated picture (a photo, an illustration, artwork; not a chart or diagram): read .dshm/image-gen.md first.",
+            """
+            # 生圖
+            主人要你「畫一張圖、生一張照片、做插畫」這類需要生圖模型的東西時使用（流程圖、圖表用 dshm-draw）。
+            先讀工作區的 `.dshm/image-gen.md`：App 在裡面寫了生圖服務接上了沒、位址是什麼、該怎麼做。照那個檔案說的做。
+            檔案說還沒接上，或檔案不存在：直接告訴主人現在還不能生圖，以及要到哪裡設定。
+            """,
+        ),
         "dshm-novel" to skill(
             "dshm-novel",
             "Write fiction chapter by chapter: consistent characters from the setting card, one chapter per reply.",
