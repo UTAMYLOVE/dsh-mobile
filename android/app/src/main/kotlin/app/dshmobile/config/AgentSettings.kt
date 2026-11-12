@@ -19,8 +19,6 @@ data class AgentSettings(
     val autoRoute: Boolean = false,
     /** Remote MCP servers, one per line: `name https://…/mcp` (no headers: the app never hands dsh a secret). */
     val mcpServers: String = "",
-    /** The superpowers working methods (brainstorm, plan, test first, debug systematically) as dsh skills; on by default. */
-    val superpowers: Boolean = true,
     /**
      * 「Claude 帶隊，DeepSeek 做事」 (0.5.0): new conversations lead with [leadClaude] and every subagent runs on [workerModel]
      * (dsh's subagent tool pins the child model). Needs a Claude key; Agent Teams is off meanwhile (teammates can only use the

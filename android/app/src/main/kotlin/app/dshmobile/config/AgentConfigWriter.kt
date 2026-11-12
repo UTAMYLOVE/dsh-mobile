@@ -21,8 +21,6 @@ import java.nio.file.StandardCopyOption
  */
 class AgentConfigWriter(
     private val dshHome: File,
-    /** The APK's whole-folder skills (assets/dsh-skills), read when skills are installed; none in tests. */
-    private val bundledSkills: () -> Map<String, Map<String, ByteArray>> = { emptyMap() },
 ) {
     private val packageJson get() = File(dshHome, "profiles/web/package.json")
 
@@ -72,8 +70,7 @@ class AgentConfigWriter(
     fun ensureAutoReviewBundle(enabled: Boolean): Boolean = ensureBundle(AUTO_REVIEW_BUNDLE, enabled)
 
     /** The app's skills in dsh's skill root (stage 2 batch 2). */
-    /** [superpowers] off leaves the superpowers port out (its folders are then removed like any skill the app stopped shipping). */
-    fun installSkills(superpowers: Boolean = true) = AppSkills.install(dshHome, if (superpowers) bundledSkills() else emptyMap())
+    fun installSkills() = AppSkills.install(dshHome)
 
     private fun ensureBundle(name: String, enabled: Boolean): Boolean {
         fun isIt(e: kotlinx.serialization.json.JsonElement) = e is JsonPrimitive && e.isString && e.content == name
@@ -141,7 +138,7 @@ class AgentPatchProvider(
         // dsh warns "entry not found" for an agent-team row whose bundle is not loaded: write the row only when the bundle is in place.
         val teamsActive = writer.ensureAgentTeamsBundle(settings.agentTeams && !settings.claudeLeadsWith(hasClaudeKey))
         writer.ensureAutoReviewBundle(settings.autoReview)
-        writer.installSkills(settings.superpowers)
+        writer.installSkills()
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)
         val lay = layout()
         return DshPatch.render(gatewayBase, lay.pluginDir, section, includeAnthropic = hasClaudeKey, workspace = lay.workspace, shellPath = lay.shellPath)

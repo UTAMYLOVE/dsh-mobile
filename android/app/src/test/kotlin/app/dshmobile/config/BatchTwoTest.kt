@@ -12,8 +12,11 @@ class BatchTwoTest {
     @Test fun skillsAreInstalledAndOnlyTheAppsOwnAreCleanedUp() {
         val home = Files.createTempDirectory("dsh").toFile()
         File(home, "skills/dshm-old/SKILL.md").apply { parentFile.mkdirs(); writeText("old") }
+        // The superpowers port an earlier build installed (removed 2026-11-10) goes with the next start.
+        File(home, "skills/dshm-sp-brainstorming/references/x.md").apply { parentFile.mkdirs(); writeText("old") }
         File(home, "skills/mine/SKILL.md").apply { parentFile.mkdirs(); writeText("owner's") }
         AppSkills.install(home)
+        assertFalse(File(home, "skills/dshm-sp-brainstorming").exists())
         val novel = File(home, "skills/dshm-novel/SKILL.md").readText()
         assertTrue(novel.startsWith("---\nname: dshm-novel\ndescription: "))
         assertTrue(File(home, "skills/dshm-bookkeeping/SKILL.md").isFile)
