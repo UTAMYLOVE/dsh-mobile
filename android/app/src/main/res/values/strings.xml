@@ -490,13 +490,6 @@
     <string name="set_section_status">聊天框狀態列</string>
     <string name="set_en_status">STATUS LINE</string>
     <string name="set_status_hint">勾選要顯示的項目，用 ↑ ↓ 排順序。在聊天框裡點「思考」「審查」可以直接換，點「上下文」打開數據。</string>
-    <string name="set_claude_leads">Claude 帶隊，DeepSeek 做事</string>
-    <string name="set_claude_leads_note">新對話由 Claude 主導（想清楚、分工、驗收），派出去的子代理人都用 DeepSeek 做（便宜）。開著時「代理人團隊」會先關掉。Opus 每百萬 token 輸入 4 美元、輸出 20 美元；Fable 是 10／50 美元，最難的事才用。</string>
-    <string name="set_claude_leads_need_key">要先在上面存 Claude 金鑰才能開。</string>
-    <string name="set_claude_lead_opus">Opus 5.5（預設）</string>
-    <string name="set_claude_lead_fable">Fable 5.1（最強）</string>
-    <string name="set_worker_pro">做事：DeepSeek Pro</string>
-    <string name="set_worker_flash">做事：DeepSeek Flash</string>
     <string name="set_key_cwa">氣象署開放資料金鑰</string>
     <string name="set_key_cwa_note">天氣分析用來拿附近測站的實測值做校正（到 opendata.cwa.gov.tw 免費申請）。只有 App 自己查天氣時用，不會交給 dsh。沒有也能用，只是不校正。</string>
     <string name="set_key_claude_pending">現在有工作在跑，Claude 會在 dsh 下次重開後出現（可以按最下面的「套用」）。</string>

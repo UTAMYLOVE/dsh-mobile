@@ -17,18 +17,7 @@ data class AgentSettings(
     val autoReview: Boolean = false,
     /** Remote MCP servers, one per line: `name https://…/mcp` (no headers: the app never hands dsh a secret). */
     val mcpServers: String = "",
-    /**
-     * 「Claude 帶隊，DeepSeek 做事」 (0.5.0): new conversations lead with [leadClaude] and every subagent runs on [workerModel]
-     * (dsh's subagent tool pins the child model). Needs a Claude key; Agent Teams is off meanwhile (teammates can only use the
-     * lead's model in dsh 0.2.1).
-     */
-    val claudeLeads: Boolean = false,
-    val leadClaude: String = AgentModels.CLAUDE_LEAD_DEFAULT,
-    val workerModel: String = "deepseek-flash",
 ) {
-    /** Whether the Claude-leads mode applies (it is on and a Claude key is stored). */
-    fun claudeLeadsWith(hasClaudeKey: Boolean): Boolean = claudeLeads && hasClaudeKey
-
     init {
         require(maxConcurrent in MAX_CONCURRENT_RANGE) { "maxConcurrent $maxConcurrent not in $MAX_CONCURRENT_RANGE" }
         require(maxDepth in MAX_DEPTH_RANGE) { "maxDepth $maxDepth not in $MAX_DEPTH_RANGE" }
@@ -58,9 +47,7 @@ object AgentModels {
     const val DEEPSEEK_PROVIDER = "deepseek-official"
     const val ANTHROPIC_PROVIDER = "anthropic"
     const val DEFAULT_MODEL = "deepseek-flash"
-    const val CLAUDE_LEAD_DEFAULT = "claude-opus-5-5"
     /** The leads the Claude-leads mode offers: Opus by default, Fable for the hardest work. */
-    val CLAUDE_LEADS = listOf("claude-opus-5-5", "claude-fable-5-1")
 
     data class Model(val id: String, val provider: String) {
         val isClaude: Boolean get() = provider == ANTHROPIC_PROVIDER

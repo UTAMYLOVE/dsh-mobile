@@ -20,9 +20,6 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
             agentTeams = prefs.getBoolean(KEY_TEAMS, d.agentTeams),
             autoReview = prefs.getBoolean(KEY_AUTO_REVIEW, d.autoReview),
             mcpServers = prefs.getString(KEY_MCP, d.mcpServers).orEmpty(),
-            claudeLeads = prefs.getBoolean(KEY_CLAUDE_LEADS, d.claudeLeads),
-            leadClaude = prefs.getString(KEY_LEAD_CLAUDE, null)?.takeIf { it in AgentModels.CLAUDE_LEADS } ?: d.leadClaude,
-            workerModel = prefs.getString(KEY_WORKER, null)?.takeIf { AgentModels.find(it)?.isClaude == false } ?: d.workerModel,
         )
     }
 
@@ -35,9 +32,6 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
             .putBoolean(KEY_TEAMS, s.agentTeams)
             .putBoolean(KEY_AUTO_REVIEW, s.autoReview)
             .putString(KEY_MCP, s.mcpServers)
-            .putBoolean(KEY_CLAUDE_LEADS, s.claudeLeads)
-            .putString(KEY_LEAD_CLAUDE, s.leadClaude)
-            .putString(KEY_WORKER, s.workerModel)
             .apply()
     }
 
@@ -67,9 +61,6 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
         private const val KEY_TEAMS = "agent_teams"
         const val KEY_AUTO_REVIEW = "auto_review"
         const val KEY_MCP = "mcp_servers"
-        private const val KEY_CLAUDE_LEADS = "claude_leads"
-        private const val KEY_LEAD_CLAUDE = "lead_claude"
-        private const val KEY_WORKER = "worker_model"
         private const val KEY_HEARTBEAT = "heartbeat_min"
     }
 }

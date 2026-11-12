@@ -51,17 +51,4 @@ class BatchTwoTest {
         assertTrue(AppSkills.all.getValue("dshm-research").contains("reports/"))
     }
 
-    @Test fun claudeLeadsPinsSubagentsToDeepSeekAndTurnsTeamsOff() {
-        val w = AgentConfigWriter(Files.createTempDirectory("h").toFile())
-        val s = AgentSettings(maxConcurrent = 6, leadModel = "deepseek-flash", claudeLeads = true, leadClaude = "claude-fable-5-1", workerModel = "deepseek-v4-pro")
-        val on = w.patchSection(s, hasClaudeKey = true)
-        assertTrue(on, on.contains("- id: agent-default-model\n  config:\n    provider: anthropic\n    model: claude-fable-5-1\n"))
-        assertTrue(on, on.contains("- id: tool-subagent\n  config:\n    provider: spawn\n    toolName: subagent\n    agentOptions:\n      provider: deepseek-official\n      model: deepseek-v4-pro\n"))
-        assertFalse(on, on.contains("agent-team"))
-        val noKey = w.patchSection(s, hasClaudeKey = false)
-        assertFalse(noKey, noKey.contains("tool-subagent") || noKey.contains("anthropic"))
-        assertTrue(noKey, noKey.contains("model: deepseek-flash"))
-        val off = w.patchSection(s.copy(claudeLeads = false), hasClaudeKey = true)
-        assertFalse(off, off.contains("tool-subagent"))
-    }
 }
