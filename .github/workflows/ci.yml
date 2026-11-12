@@ -195,6 +195,9 @@ jobs:
         working-directory: android
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pdshm.nativeDir=$NATIVE_DIR"
       - name: Run the instrumentation tests on the emulator
+        # The suite takes about 35 minutes. A test that hangs must end this step, not the job: the steps below then still
+        # list what ran and upload the logcat (run 43308098768 was cancelled at the job's limit with nothing to read).
+        timeout-minutes: 60
         uses: reactivecircus/android-emulator-runner@v2
         env:
           PLAIN_BACKGROUND: ${{ inputs.plain_background && 'true' || 'false' }}
@@ -244,7 +247,7 @@ jobs:
             if [ -n "$rows" ]; then echo "$rows"; else echo "| (no measurement) | | | | | |"; fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Print failures and app crashes
-        if: failure()
+        if: failure() || cancelled()
         run: |
           python3 - <<'PY'
           import glob, re, html
@@ -260,7 +263,7 @@ jobs:
           echo "=== logcat: crashes, ANRs, low-memory kills, test runner"
           grep -E "FATAL EXCEPTION|AndroidRuntime|ANR in|lowmemorykiller|Low on memory|TestRunner|app\.dshmobile" logcat.txt | grep -vE "token=|Authorization|api[_-]?key" | tail -n 200 || true
       - name: Upload test reports and logcat
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-reports
