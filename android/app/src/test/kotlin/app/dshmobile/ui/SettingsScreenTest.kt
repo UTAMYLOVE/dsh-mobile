@@ -179,7 +179,7 @@ class SettingsScreenTest {
     private var claudeRestarts = 0
 
     private fun show(onClose: (() -> Unit)? = { closed++ }) = rule.setContent {
-        SakuraTheme { SettingsScreen(env, onClose = onClose) }
+        SakuraTheme { SettingsScreen(env, onClose = onClose, advancedOpen = true) }
     }
 
     private fun click(tag: String) {
@@ -804,7 +804,7 @@ class SettingsScreenTest {
         var visible by mutableStateOf(true)
         val alertBefore = meter.alertUsd
         val teamsBefore = draft.settings.agentTeams
-        rule.setContent { SakuraTheme { if (visible) SettingsScreen(env, draft = draft) } }
+        rule.setContent { SakuraTheme { if (visible) SettingsScreen(env, draft = draft, advancedOpen = true) } }
         rule.onNodeWithTag("alert-field").performScrollTo().performTextReplacement("7.5")
         click("switch-teams")
         rule.onNodeWithTag("replace-claude").performScrollTo().performClick()

@@ -127,6 +127,8 @@ internal fun Dock(
     enabled: Boolean,
     tab: ShellTab,
     onSelect: (ShellTab) -> Unit,
+    /** The tabs the dock shows ([ShellNav.tabs]); [tab] may be none of them (Settings), then no pill shows. */
+    tabs: List<ShellTab> = ShellTab.entries,
     onToggleAttachMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -207,7 +209,7 @@ internal fun Dock(
             }
         }
         Spacer(Modifier.height(8.dp))
-        TabRow(tab, onSelect)
+        TabRow(tab, tabs, onSelect)
     }
 }
 
@@ -387,19 +389,20 @@ private fun Tile(chip: AttachmentChip, onRemove: (String) -> Unit) {
     }
 }
 
-/** Five tabs (Chinese over English) with a white pill that slides to the selected one. */
+/** The tabs (Chinese over English) with a white pill that slides to the selected one. */
 @Composable
-private fun TabRow(selected: ShellTab, onSelect: (ShellTab) -> Unit) {
+private fun TabRow(selected: ShellTab, tabs: List<ShellTab>, onSelect: (ShellTab) -> Unit) {
     val effects = LocalEffects.current
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val cell = maxWidth / ShellTab.entries.size
-        val target = cell * selected.ordinal
+        val cell = maxWidth / tabs.size
+        val at = tabs.indexOf(selected)
+        val target = cell * at.coerceAtLeast(0)
         val x = animateDpAsState(
             target,
             if (effects.pageMs == 0) snap() else tween(FogMotion.PILL_MS, easing = FogMotion.Spring),
             label = "tab-pill",
         )
-        Box(Modifier.matchParentSize()) {
+        if (at >= 0) Box(Modifier.matchParentSize()) {
             Box(
                 Modifier
                     .offset { IntOffset(x.value.roundToPx(), 0) } // read while placing: the slide never recomposes
@@ -411,7 +414,7 @@ private fun TabRow(selected: ShellTab, onSelect: (ShellTab) -> Unit) {
             )
         }
         Row(Modifier.fillMaxWidth().selectableGroup()) {
-            ShellTab.entries.forEach { t ->
+            tabs.forEach { t ->
                 val on = t == selected
                 Column(
                     Modifier

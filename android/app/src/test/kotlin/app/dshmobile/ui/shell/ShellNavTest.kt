@@ -7,8 +7,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShellNavTest {
-    @Test fun backWalksListThenConversationThenTab() {
+    /** With 「顯示更多功能」: every tab is in the dock and back ends on the overview. */
+    private fun full() = ShellNav().apply { more = true; tab = ShellTab.OVERVIEW }
+
+    /** 0.6.0: the app opens on the chat, the dock is the chat and the war room, and back ends on the chat. */
+    @Test fun byDefaultTheShellIsTheChatAndTheWarRoom() {
         val nav = ShellNav()
+        assertEquals(ShellTab.CHAT, nav.tab)
+        assertEquals(listOf(ShellTab.CHAT, ShellTab.AGENTS), nav.tabs)
+        assertFalse("nothing to close on the chat: the system's back applies", nav.back())
+        nav.select(ShellTab.SETTINGS) // from the chat's menu
+        assertTrue(nav.back())
+        assertEquals(ShellTab.CHAT, nav.tab)
+        nav.openSession("s1")
+        nav.select(ShellTab.AGENTS)
+        assertTrue(nav.back())
+        assertEquals(ShellTab.CHAT, nav.tab)
+        assertEquals("the conversation is still open", "s1", nav.openSessionId)
+        nav.more = true
+        assertEquals(ShellTab.entries, nav.tabs)
+    }
+
+    @Test fun backWalksListThenConversationThenTab() {
+        val nav = full()
         nav.openSession("s1")
         nav.listOpen = true
         assertTrue(nav.back())
@@ -22,7 +43,7 @@ class ShellNavTest {
     }
 
     @Test fun aTabThatMayNotBeLeftStaysAndSaysWhy() {
-        val nav = ShellNav()
+        val nav = full()
         var busy = true
         var refusals = 0
         nav.canLeave = { from -> from != ShellTab.SETTINGS || !busy }
@@ -40,7 +61,7 @@ class ShellNavTest {
 
     /** Final review B1-I5: back on another tab goes to the overview and leaves the chat's hidden state alone. */
     @Test fun backOnAnotherTabLeavesTheHiddenChatAlone() {
-        val nav = ShellNav()
+        val nav = full()
         nav.openSession("s1")
         nav.listOpen = true
         nav.select(ShellTab.AGENTS)
@@ -52,7 +73,7 @@ class ShellNavTest {
     }
 
     @Test fun backAsksCanLeaveLikeATabTap() {
-        val nav = ShellNav()
+        val nav = full()
         var refusals = 0
         nav.canLeave = { from -> from != ShellTab.SETTINGS }
         nav.onLeaveRefused = { refusals++ }
@@ -63,7 +84,7 @@ class ShellNavTest {
     }
 
     @Test fun backFromTheListWithNothingOpenGoesToTheOverview() {
-        val nav = ShellNav()
+        val nav = full()
         nav.select(ShellTab.CHAT)
         nav.listOpen = true
         assertTrue(nav.back())

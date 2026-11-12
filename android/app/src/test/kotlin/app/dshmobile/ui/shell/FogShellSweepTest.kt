@@ -33,7 +33,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class FogShellSweepTest {
     @get:Rule val rule = createComposeRule()
-    private val nav = ShellNav()
+    private val nav = ShellNav().apply { more = true; tab = ShellTab.OVERVIEW }
     private var level by mutableStateOf(EffectLevel.FULL)
     private var reducedMotion by mutableStateOf(false)
 

@@ -57,7 +57,7 @@ internal class ShellHarness {
     var status by mutableStateOf(MainUiState.Ready)
     var connection by mutableStateOf<MuxState?>(MuxState.OPEN)
     var chips by mutableStateOf(emptyList<AttachmentChip>())
-    val nav = ShellNav()
+    val nav = ShellNav().apply { more = true; tab = ShellTab.OVERVIEW }
     var text by mutableStateOf("")
     var retries = 0
     var exports = 0
@@ -122,7 +122,7 @@ class FogShellTest {
     @Test fun fiveTabsInOrderWithChineseLabels() {
         h.show(rule)
         assertEquals(listOf("OVERVIEW", "CHAT", "AGENTS", "LIBRARY", "SETTINGS"), ShellTab.entries.map { it.name })
-        assertEquals(listOf("總覽", "對話", "代理人", "書架", "設定"), ShellTab.entries.map { it.zh })
+        assertEquals(listOf("總覽", "對話", "指揮室", "書架", "設定"), ShellTab.entries.map { it.zh })
         val lefts = ShellTab.entries.map { t ->
             tab(t).assertIsDisplayed().assertTextContains(t.zh) // the English line is decoration (ShellAccessibilityTest)
             tab(t).fetchSemanticsNode().boundsInRoot.left

@@ -9,8 +9,14 @@ import androidx.compose.runtime.setValue
  * it. Compose state, so the shell follows every change; main thread only. One per screen (it is not dsh's state).
  */
 class ShellNav {
-    /** The mockup's page 0 is the overview. */
-    var tab: ShellTab by mutableStateOf(ShellTab.OVERVIEW)
+    /** 「顯示更多功能」 (Settings): the overview, the bookshelf, projects, helpers and the status line are back. Off by default. */
+    var more: Boolean by mutableStateOf(false)
+    /** The dock's tabs. Settings is not among the simple ones: the chat's menus open it. */
+    val tabs: List<ShellTab> get() = if (more) ShellTab.entries else ShellTab.SIMPLE
+    /** Where back ends up: the chat, or the overview while it shows. */
+    val home: ShellTab get() = if (more) ShellTab.OVERVIEW else ShellTab.CHAT
+    /** The app opens on the chat. */
+    var tab: ShellTab by mutableStateOf(ShellTab.CHAT)
     var openSessionId: String? by mutableStateOf(null)
     var listOpen: Boolean by mutableStateOf(false)
     /** The list's tab (ListTab name) and the project page open in it, if any (0.5.0). */
@@ -45,9 +51,9 @@ class ShellNav {
 
     /**
      * One step back inside the shell. On the chat tab the conversation list closes first (over an open conversation), then the
-     * open conversation. Any other tab, and the chat with nothing left to close, goes to the overview through [select], so
+     * open conversation. Any other tab, and the chat with nothing left to close, goes to [home] through [select], so
      * [canLeave] is asked (a refusal still consumes the back: the app must not close under a busy page). The chat's state is
-     * only touched while the chat is the tab (final review B1-I5). False on the overview: the system's back then applies.
+     * only touched while the chat is the tab (final review B1-I5). False on [home]: the system's back then applies.
      */
     fun back(): Boolean {
         if (tab == ShellTab.CHAT) {
@@ -61,8 +67,8 @@ class ShellNav {
                 return true
             }
         }
-        if (tab == ShellTab.OVERVIEW) return false
-        select(ShellTab.OVERVIEW)
+        if (tab == home) return false
+        select(home)
         return true
     }
 }

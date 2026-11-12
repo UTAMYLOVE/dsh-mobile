@@ -89,6 +89,8 @@ object E2e {
         OnboardingState.Step.entries.forEach { state.markDone(it) }
         useEffects(effects)
         usePlainBackground()
+        // 0.6.0: the dock is the chat and the war room; these tests also cover what 「顯示更多功能」 brings back.
+        app.setMoreFeatures(true)
     }
 
     /**

@@ -44,6 +44,9 @@ object WorkTags {
     const val TODO_ITEM = "todo-item-"
     const val CONTEMPLATE = "contemplate-card"
     const val STANCE = "stance-"
+    const val LONG_CHAT = "long-chat"
+    const val LONG_CHAT_NEW = "long-chat-new"
+    const val LONG_CHAT_LATER = "long-chat-later"
     const val PLAN_CARD = "plan-card"
     const val PLAN_APPROVE = "plan-approve"
     const val PLAN_REVISE = "plan-revise"
@@ -55,6 +58,44 @@ object WorkTags {
 val STANCES = listOf("樂觀派", "保守派", "數據派")
 
 private val Card = RoundedCornerShape(16.dp)
+
+/**
+ * Whether a conversation is long enough that a new one would answer faster and sharper (0.6.0): the models' windows are a
+ * million tokens, so a fraction of the window comes far too late; past [LONG_CHAT_TOKENS] every reply rereads that much.
+ */
+fun isLongChat(tokens: Long?, fraction: Float?): Boolean = (tokens ?: 0) >= LONG_CHAT_TOKENS || (fraction ?: 0f) >= .5f
+
+const val LONG_CHAT_TOKENS = 120_000L
+
+/** 「這個對話很長了」 with 開新對話 and 先不用; shown between turns only. */
+@Composable
+fun LongChatNudge(onNew: () -> Unit, onLater: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .clip(Card)
+            .background(Color.White.copy(alpha = .72f))
+            .border(1.dp, Sakura.Aqua, Card)
+            .testTag(WorkTags.LONG_CHAT)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(stringResource(R.string.long_chat_text), color = Sakura.Text, fontSize = 13.sp, lineHeight = 19.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((label, tag, action) in listOf(
+                Triple(R.string.long_chat_new, WorkTags.LONG_CHAT_NEW, onNew), Triple(R.string.long_chat_later, WorkTags.LONG_CHAT_LATER, onLater),
+            )) {
+                Box(
+                    Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp))
+                        .background(if (tag == WorkTags.LONG_CHAT_NEW) Sakura.Primary else Sakura.Background)
+                        .clickable(role = Role.Button, onClick = action).testTag(tag).padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(stringResource(label), color = if (tag == WorkTags.LONG_CHAT_NEW) Color.White else Sakura.Text, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
 
 /** 「進度 3 / 7」, the item in progress and an aqua→pink bar; tapping shows every item. Nothing when there are no todos. */
 @Composable

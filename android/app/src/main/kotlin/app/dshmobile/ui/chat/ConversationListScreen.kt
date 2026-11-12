@@ -104,6 +104,8 @@ fun ConversationListScreen(
     /** The tab row (全部・專案・小助理・小幫手) and, for any tab but 全部, its page instead of the list. */
     tabs: (@Composable () -> Unit)? = null,
     tabPage: (@Composable () -> Unit)? = null,
+    /** 設定 under the header (0.6.0: Settings left the dock); null hides it. */
+    onSettings: (() -> Unit)? = null,
 ) {
     var dialog by remember { mutableStateOf<Dialog?>(null) }
     // Back closes a card or sheet before the shell's back leaves the list (final review B2-M6).
@@ -134,6 +136,11 @@ fun ConversationListScreen(
                         .clickable(role = Role.Button, onClick = onClose).testTag(Tags.SESSION_CLOSE).semantics { contentDescription = closeLabel },
                     contentAlignment = Alignment.Center,
                 ) { Text("✕", color = Sakura.Text, fontSize = 16.sp) }
+            }
+            if (onSettings != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    FogButton(stringResource(R.string.open_settings), FogButtonKind.GHOST, onSettings, Modifier.testTag(Tags.LIST_SETTINGS))
+                }
             }
             tabs?.invoke()
             if (tabPage != null) {

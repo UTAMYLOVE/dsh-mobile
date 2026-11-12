@@ -192,7 +192,10 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     draft: SettingsDraft = remember(env) { SettingsDraft.from(env) },
+    /** Whether 進階設定 starts open. Closed, the page is keys, models and the version (0.6.0: 「要簡單好用」). */
+    advancedOpen: Boolean = false,
 ) {
+    var advanced by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(advancedOpen) }
     val embedded = onClose == null
     val scope = rememberCoroutineScope() // keys and exports only: cancelling those half way is harmless
     var localBusy by draft::localBusy
@@ -480,6 +483,24 @@ fun SettingsScreen(
                 DshStatusView(dshStatus, onForceRestart = { forceRestart() }, onOpenAppSettings = env.openAppSettings)
             }
 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.set_advanced), color = Sakura.Text)
+                    Text(stringResource(R.string.set_advanced_note), style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = advanced, onCheckedChange = { advanced = it }, modifier = Modifier.testTag("switch-advanced"))
+            }
+            if (advanced) (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.let { dshApp ->
+                val more by dshApp.moreFeatures.collectAsStateWithLifecycle()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.set_more), color = Sakura.Text)
+                        Text(stringResource(R.string.set_more_note), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = more, onCheckedChange = { dshApp.setMoreFeatures(it) }, modifier = Modifier.testTag("switch-more"))
+                }
+            }
+
             Section(R.string.set_section_keys, R.string.set_en_keys, 0) {
                 Text(stringResource(R.string.set_key_hint), style = MaterialTheme.typography.bodySmall)
                 KeyRow(R.string.set_key_deepseek, "deepseek", hasDeepseek, !busy, { editing = Provider.DEEPSEEK; keyInput = ""; keyError = false }, { clearKey(Provider.DEEPSEEK) })
@@ -527,7 +548,7 @@ fun SettingsScreen(
                 Text(stringResource(R.string.set_key_cwa_note), style = MaterialTheme.typography.bodySmall)
             }
 
-            Section(R.string.set_section_agent, R.string.set_en_agents, 1) {
+            AdvancedSection(advanced, R.string.set_section_agent, R.string.set_en_agents, 1) {
                 val concurrent = stringResource(R.string.set_agent_concurrent)
                 val depth = stringResource(R.string.set_agent_depth)
                 val team = stringResource(R.string.set_agent_team)
@@ -624,7 +645,7 @@ fun SettingsScreen(
                 Text(stringResource(R.string.set_novel_hint), style = MaterialTheme.typography.bodySmall)
             }
 
-            Section(R.string.set_section_effects, R.string.set_en_effects, 3) {
+            AdvancedSection(advanced, R.string.set_section_effects, R.string.set_en_effects, 3) {
                 // The control shows the app's level and calls onEffectLevel only when a cell is tapped (never on recomposition).
                 val names = listOf(stringResource(R.string.set_effect_full), stringResource(R.string.set_effect_balanced), stringResource(R.string.set_effect_saver))
                 Segmented(
@@ -643,10 +664,10 @@ fun SettingsScreen(
                 Text(stringResource(R.string.set_effect_hint), style = MaterialTheme.typography.bodySmall)
             }
             (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.let { dshApp ->
-                Section(R.string.set_section_status, R.string.set_en_status, 3) { StatusLineSettings(dshApp) }
+                AdvancedSection(advanced, R.string.set_section_status, R.string.set_en_status, 3) { StatusLineSettings(dshApp) }
             }
 
-            Section(R.string.set_section_budget, R.string.set_en_budget, 4) {
+            AdvancedSection(advanced, R.string.set_section_budget, R.string.set_en_budget, 4) {
                 Text(stringResource(R.string.set_budget_today, String.format(Locale.US, "%.4f", todayUsd)))
                 OutlinedTextField(
                     value = alertText, onValueChange = { alertText = it; budgetMessage = null },
@@ -674,7 +695,7 @@ fun SettingsScreen(
                 }
             }
 
-            Section(R.string.set_section_heartbeat, R.string.set_en_heartbeat, 5) {
+            AdvancedSection(advanced, R.string.set_section_heartbeat, R.string.set_en_heartbeat, 5) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.set_heartbeat_value, heartbeat), Modifier.weight(1f))
                     StepButtons("heartbeat", stringResource(R.string.set_section_heartbeat), !busy && heartbeat > HeartbeatScheduler.MIN_INTERVAL_MIN, !busy && heartbeat < HeartbeatScheduler.MAX_INTERVAL_MIN,
@@ -707,7 +728,7 @@ fun SettingsScreen(
                 }
             }
 
-            Section(R.string.set_section_phantom, R.string.set_en_system, 7) {
+            AdvancedSection(advanced, R.string.set_section_phantom, R.string.set_en_system, 7) {
                 val label = stringResource(
                     when (phantom) {
                         PhantomState.DISABLED -> R.string.onb_phantom_state_disabled
@@ -719,7 +740,7 @@ fun SettingsScreen(
                 OutlinedButton(onClick = env.openDeveloperSettings, modifier = Modifier.testTag("open-developer")) { Text(stringResource(R.string.set_phantom_open)) }
             }
 
-            Section(R.string.set_section_export, R.string.set_en_export, 8) {
+            AdvancedSection(advanced, R.string.set_section_export, R.string.set_en_export, 8) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { export(env.exportErrorLog) }, enabled = !busy, modifier = Modifier.testTag("export-log")) { Text(stringResource(R.string.main_export_log)) }
                     OutlinedButton(onClick = { export(env.exportMemory) }, enabled = !busy, modifier = Modifier.testTag("export-memory")) { Text(stringResource(R.string.set_export_memory)) }
@@ -729,7 +750,7 @@ fun SettingsScreen(
             }
 
             env.nativeMode?.let { native ->
-                Section(R.string.set_section_native, R.string.set_en_native, 9) {
+                AdvancedSection(advanced, R.string.set_section_native, R.string.set_en_native, 9) {
                     val on by native.enabled.collectAsState()
                     Text(stringResource(R.string.set_native_note), style = MaterialTheme.typography.bodySmall)
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -805,6 +826,12 @@ private fun StopConfirmCard(action: StopAction, onWait: () -> Unit, onGo: () -> 
             FogButton(stringResource(action.go), FogButtonKind.PINK, onGo, Modifier.testTag(Tags.CONFIRM_GO))
         }
     }
+}
+
+/** A section that only shows with 進階設定 on. */
+@Composable
+private fun AdvancedSection(advanced: Boolean, title: Int, en: Int, index: Int, content: @Composable () -> Unit) {
+    if (advanced) Section(title, en, index, content)
 }
 
 @Composable

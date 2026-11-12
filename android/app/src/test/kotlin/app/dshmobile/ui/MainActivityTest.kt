@@ -397,8 +397,10 @@ class MainActivityTest {
         activity.onBackPressedDispatcher.onBackPressed()
         assertNull(activity.navForTest.openSessionId)
         assertFalse(activity.isFinishing)
-        activity.onBackPressedDispatcher.onBackPressed() // then back to the first tab
-        assertEquals(ShellTab.OVERVIEW, activity.navForTest.tab)
+        // 0.6.0: the chat is home; from another tab back returns to it
+        activity.navForTest.select(ShellTab.AGENTS)
+        activity.onBackPressedDispatcher.onBackPressed()
+        assertEquals(ShellTab.CHAT, activity.navForTest.tab)
         assertFalse(activity.isFinishing)
     }
 

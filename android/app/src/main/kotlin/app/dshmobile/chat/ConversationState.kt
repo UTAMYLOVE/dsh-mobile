@@ -77,6 +77,8 @@ sealed interface ChatItem {
         override val key: String, val seq: Long, val reasoning: String?, val text: String,
         /** 建議下一步 from the reply's hidden block (FollowUps). */
         val followUps: List<String> = emptyList(),
+        /** Cards from the reply's hidden blocks ([InlineCards]), shown under it. */
+        val cards: List<InlineCard> = emptyList(),
     ) : ChatItem
     data class Tool(
         override val key: String,

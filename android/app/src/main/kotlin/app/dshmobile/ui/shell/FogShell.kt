@@ -208,7 +208,7 @@ fun FogShell(
         val hidden = if (modalOverlay) Modifier.clearAndSetSemantics {} else Modifier
         Column(Modifier.fillMaxSize().then(hidden)) {
             Header(
-                nav.tab,
+                nav.tab, nav.tabs,
                 Modifier
                     .testTag(Tags.SHELL_HEADER)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
@@ -275,6 +275,7 @@ fun FogShell(
                 enabled = composer.enabled && ready,
                 tab = nav.tab,
                 onSelect = nav::select,
+                tabs = nav.tabs,
                 onToggleAttachMenu = { attachMenu = !attachMenu },
             )
         }
@@ -548,7 +549,7 @@ private fun ReconnectingChip(modifier: Modifier = Modifier) {
 
 /** "DSH MOBILE" and the time on the left; the page's name and five dots (the current one long and glowing) on the right. */
 @Composable
-private fun Header(tab: ShellTab, modifier: Modifier = Modifier) {
+private fun Header(tab: ShellTab, tabs: List<ShellTab>, modifier: Modifier = Modifier) {
     val now = rememberMinuteClock()
     Row(
         modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 18.dp, bottom = 10.dp),
@@ -564,7 +565,7 @@ private fun Header(tab: ShellTab, modifier: Modifier = Modifier) {
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(tab.zh, color = Sakura.Text, fontSize = 15.sp, letterSpacing = 0.12.em, maxLines = 1)
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                ShellTab.entries.forEach { t ->
+                tabs.forEach { t ->
                     val on = t == tab
                     Box(
                         Modifier

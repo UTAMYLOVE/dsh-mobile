@@ -280,6 +280,8 @@ internal sealed interface ChatRow {
     data class Pending(val p: PendingSend) : ChatRow { override val key = "pending:" + p.requestId; override val type = "pending"; override val gap = 12 }
     /** The stats line (may be blank) and the 「複製」 button of a finished reply; [copy] is the reply's text. */
     data class Stats(override val key: String, val text: String, val copy: String = "") : ChatRow { override val type = "stats"; override val gap = 4 }
+    /** A card from the reply's hidden block (weather, a ledger entry, a quote, a reminder). */
+    data class Card(override val key: String, val card: app.dshmobile.chat.InlineCard) : ChatRow { override val type = "card"; override val gap = 8 }
     /** 建議下一步 under the last finished reply. */
     data class FollowUps(override val key: String, val items: List<String>) : ChatRow { override val type = "followups"; override val gap = 6 }
 }
@@ -467,6 +469,7 @@ internal fun durableRows(
                     val cites = lastSearch?.let { citedSources(item.text, it.sources) }.orEmpty()
                     b.message(BubbleKind.AI, key, item.text, cites, if (reasoning != null) 4 else 12)
                 }
+                item.cards.forEachIndexed { i, c -> b.add(ChatRow.Card("card:" + item.key + ":" + i, c)) }
                 val line = replyLines[item.key]
                 if (line != null || item.text.isNotBlank()) b.add(ChatRow.Stats("stats:" + item.key, line.orEmpty(), item.text))
                 if (item.followUps.isNotEmpty() && item === items.lastOrNull { it is ChatItem.Assistant } && items.lastOrNull() !is ChatItem.User) {
@@ -642,6 +645,8 @@ fun ChatScreen(
     workBar: (@Composable () -> Unit)? = null,
     /** The contents drawer's entries (0.5.0); empty hides its button. */
     toc: List<TocEntry> = emptyList(),
+    /** 設定 behind ⋮ (0.6.0: Settings left the dock); null hides it. */
+    onSettings: (() -> Unit)? = null,
 ) {
     val pad = LocalPagePadding.current
     val dir = LocalLayoutDirection.current
@@ -764,7 +769,7 @@ fun ChatScreen(
             ChatHeader(
                 state.title.ifBlank { stringResource(R.string.chat_untitled) }, chip, onOpenList,
                 // 目錄, 加入書架 and 數據 share the ⋮: a fifth control in the title row was pushed off a narrow (or large-font) screen.
-                onMore = if (dataPanel != null || onAddToShelf != null || toc.isNotEmpty()) ({ moreOpen = !moreOpen; menuOpen = false }) else null,
+                onMore = if (dataPanel != null || onAddToShelf != null || toc.isNotEmpty() || onSettings != null) ({ moreOpen = !moreOpen; menuOpen = false }) else null,
                 running = state.running,
             ) { menuOpen = !menuOpen; moreOpen = false }
             if (menuOpen) ModelMenu(state.models, state.effort, state.reviewRounds, onPickEffort, onPickReview) { id -> menuOpen = false; onPickModel(id) }
@@ -785,6 +790,11 @@ fun ChatScreen(
                     if (dataPanel != null) {
                         TextButton(onClick = { moreOpen = false; ui.dataOpen = !ui.dataOpen }, modifier = Modifier.testTag(Tags.CHAT_DATA)) {
                             Text(if (ui.dataOpen) "收起數據" else "數據", fontSize = 13.sp)
+                        }
+                    }
+                    if (onSettings != null) {
+                        TextButton(onClick = { moreOpen = false; onSettings() }, modifier = Modifier.testTag(Tags.CHAT_SETTINGS)) {
+                            Text(stringResource(R.string.open_settings), fontSize = 13.sp)
                         }
                     }
                 }
@@ -894,6 +904,7 @@ private fun RowContent(row: ChatRow, a: RowActions) {
         is ChatRow.Notice -> NoticeLine(row.item)
         is ChatRow.Pending -> PendingBubble(row.p, a.onRetrySend, a.onDismissSend)
         is ChatRow.Stats -> ReplyStatsLine(row.text, row.key) { a.onCopy(row.copy) }
+        is ChatRow.Card -> InlineCardView(row.card)
         is ChatRow.FollowUps -> FollowUpChips(row.items, a.onFollowUp)
     }
 }

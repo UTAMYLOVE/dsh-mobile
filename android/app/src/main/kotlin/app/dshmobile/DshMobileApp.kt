@@ -319,6 +319,16 @@ class DshMobileApp : Application(), Configuration.Provider {
         kotlinx.coroutines.flow.MutableStateFlow(app.dshmobile.ui.shell.StatusLineConfig.load(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)))
     }
 
+    /** 「顯示更多功能」 (0.6.0): off, the app is the chat and the war room; on, the overview, bookshelf, projects, helpers and status line are back. */
+    val moreFeatures: kotlinx.coroutines.flow.MutableStateFlow<Boolean> by lazy {
+        kotlinx.coroutines.flow.MutableStateFlow(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).getBoolean(MORE_FEATURES, false))
+    }
+
+    fun setMoreFeatures(on: Boolean) {
+        moreFeatures.value = on
+        getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).edit().putBoolean(MORE_FEATURES, on).apply()
+    }
+
     fun setStatusLine(c: app.dshmobile.ui.shell.StatusLineConfig) {
         statusLineConfig.value = c
         app.dshmobile.ui.shell.StatusLineConfig.save(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE), c)
@@ -447,6 +457,7 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     private companion object {
+        const val MORE_FEATURES = "more_features"
         const val OVERVIEW_LINGER_MS = 5_000L
     }
 

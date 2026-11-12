@@ -253,8 +253,10 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
     val openProject = nav.projectSlug?.let { s -> projects.firstOrNull { it.slug == s } }
     Box(Modifier.fillMaxSize().padding(LocalPagePadding.current)) {
         ConversationListScreen(
-            tabs = { if (openProject == null) ListTabs(tab, { nav.listTab = it.name; nav.projectSlug = null }, helpers = helperCount) },
-            tabPage = when {
+            onSettings = { nav.select(app.dshmobile.ui.shell.ShellTab.SETTINGS) },
+            // Projects, assistants and helpers show with 「顯示更多功能」 only (0.6.0).
+            tabs = if (nav.more) ({ if (openProject == null) ListTabs(tab, { nav.listTab = it.name; nav.projectSlug = null }, helpers = helperCount) }) else null,
+            tabPage = if (!nav.more) null else when {
                 openProject != null -> ({
                     ProjectPage(
                         openProject, rows.filter { slugOf(it) == openProject.slug },
@@ -315,7 +317,7 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
                         }
                     }
                 },
-                onShelf = dshApp?.libraryStore?.let { lib ->
+                onShelf = dshApp?.libraryStore?.takeIf { nav.more }?.let { lib ->
                     { id: String ->
                         val row = rows.firstOrNull { it.id == id }
                         lib.addBook(row?.title.orEmpty(), id, null, row?.model)
@@ -324,8 +326,8 @@ private fun ListPage(session: ShellSession, nav: ShellNav, onMessage: (String) -
                 },
                 onExport = dshApp?.let { a -> { id: String -> exportConversation(session, a, rows.firstOrNull { it.id == id }?.title.orEmpty(), id, onMessage) } },
                 onNewTemporary = prefs?.let { p -> { act { val id = session.index.create(); p.setTemporary(id, true); nav.openSession(id) } } },
-                onMove = prefs?.let { { id: String -> picker = id } },
-                onNewInProject = { picker = "" },
+                onMove = prefs?.takeIf { nav.more }?.let { { id: String -> picker = id } },
+                onNewInProject = if (nav.more) ({ picker = "" }) else null,
             ),
             groups = split.second,
             query = query,
@@ -511,6 +513,7 @@ private fun ConversationPage(
     val todos = remember(session, id) { session.tree.state.map { t -> t.projections[id]?.let(app.dshmobile.chat.WorkProjections::todos) }.distinctUntilChanged() }
         .collectAsState(null).value
     var todoOpen by androidx.compose.runtime.saveable.rememberSaveable(id) { mutableStateOf(false) }
+    var longDismissed by androidx.compose.runtime.saveable.rememberSaveable(id) { mutableStateOf(false) }
 
     // The dock's status line (0.5.0): model ▶ 思考 ▶ 審查 ▶ 上下文 ▶ tok/s ▶ 花費, in the owner's order; values only change when
     // a reply ends, so the shell is not recomposed while one streams.
@@ -559,7 +562,8 @@ private fun ConversationPage(
             effort = ui.effort, reviewRounds = ui.reviewRounds,
             replyLines = replyLines, contextFill = conversation.context?.fraction, statsLine = statsLine, activity = activity,
         ),
-        onAddToShelf = library?.let { lib -> { lib.addBook(title, id, null, current) } },
+        onAddToShelf = library?.takeIf { nav.more }?.let { lib -> { lib.addBook(title, id, null, current) } },
+        onSettings = { nav.select(app.dshmobile.ui.shell.ShellTab.SETTINGS) },
         onShelf = onShelf,
         onEdit = { key, text -> branchBoundary(key, true)?.let { b -> onEditMessage(id, b, text) } },
         onReanswer = { key ->
@@ -586,8 +590,10 @@ private fun ConversationPage(
         workBar = {
             val todos = todos
             val stances = remember(team) { stanceAgents(team) }
-            if (!todos.isNullOrEmpty() || (stances.isNotEmpty() && conversation.running)) {
+            val long = !longDismissed && !conversation.running && isLongChat(conversation.context?.tokens, conversation.context?.fraction)
+            if (long || !todos.isNullOrEmpty() || (stances.isNotEmpty() && conversation.running)) {
                 Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    if (long) LongChatNudge(onNew = { session.scope.launch(Dispatchers.Main.immediate) { runCatching { nav.openSession(session.index.create()) } } }, onLater = { longDismissed = true })
                     if (!todos.isNullOrEmpty()) TodoBar(todos, todoOpen, { todoOpen = !todoOpen })
                     if (stances.isNotEmpty() && conversation.running) ContemplateCard(stances)
                 }

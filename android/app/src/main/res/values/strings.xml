@@ -194,6 +194,7 @@
 
     <string name="list_title">所有對話</string>
     <string name="list_new">＋ 新對話</string>
+    <string name="open_settings">設定</string>
     <string name="list_close">關閉</string>
     <string name="list_search_hint">搜尋對話</string>
     <string name="list_empty">還沒有對話</string>
@@ -353,6 +354,9 @@
     <string name="chat_writer_held_action">重新啟動 dsh</string>
     <string name="set_auto_review">權限自動審查（實驗）</string>
     <string name="set_auto_review_note">開啟後，每個工具動作先由同一個 AI 審查：一般的工作自動放行，刪除舊檔、對外寫入等有風險的才問你；外洩敏感資料一律擋下。會多花一點 token，也可能誤判，按「套用並重啟」後生效。</string>
+    <string name="long_chat_text">這個對話很長了。開一個新對話，AI 會回得比較快、也比較不會忘東忘西。</string>
+    <string name="long_chat_new">開新對話</string>
+    <string name="long_chat_later">先不用</string>
     <string name="chat_effort_title">思考強度</string>
     <string name="chat_review_title">另派審查員檢查</string>
     <string name="chat_effort_summary">思考 %1$s</string>
@@ -468,6 +472,10 @@
     <string name="share_saved">已存到書架（%1$d 個）</string>
     <string name="share_save_failed">存不進書架（讀不到分享的內容）</string>
     <string name="chat_more">更多：加入書架、數據</string>
+    <string name="set_advanced">進階設定</string>
+    <string name="set_advanced_note">小幫手數量、特效、花費上限、匯出這些平常用不到的設定。</string>
+    <string name="set_more">顯示更多功能</string>
+    <string name="set_more_note">把總覽、書架、專案、小幫手和聊天框狀態列放回畫面上。</string>
     <string name="set_section_status">聊天框狀態列</string>
     <string name="set_en_status">STATUS LINE</string>
     <string name="set_status_hint">勾選要顯示的項目，用 ↑ ↓ 排順序。在聊天框裡點「思考」「審查」可以直接換，點「上下文」打開數據。</string>

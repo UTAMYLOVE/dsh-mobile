@@ -390,6 +390,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        // 「顯示更多功能」: off, a tab that left the dock (the overview, the bookshelf) gives way to the chat.
+        val more by app.moreFeatures.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(more) {
+            nav.more = more
+            if (!more && (nav.tab == ShellTab.OVERVIEW || nav.tab == ShellTab.LIBRARY)) nav.tab = ShellTab.CHAT
+        }
         vm.otherMode?.let { madeNative -> OtherModeDialog(madeNative, onSwitch = vm::switchModeForConversation, onCancel = { vm.otherMode = null }) }
         FogShell(
             status = state,
@@ -414,9 +420,9 @@ class MainActivity : ComponentActivity() {
                 onVoice = ::listen,
                 onCamera = ::takePicture,
                 onCancelNotice = vm::cancelEdit,
-                assistants = assistants,
+                assistants = if (nav.more) assistants else emptyList(),
                 onAssistant = { slug -> openAssistant(session, slug) },
-                status = if (nav.tab == ShellTab.CHAT && !nav.listOpen) nav.statusLine else emptyList(),
+                status = if (nav.more && nav.tab == ShellTab.CHAT && !nav.listOpen) nav.statusLine else emptyList(),
                 onStatus = { nav.onStatus(it) },
             ),
             onRetry = ::retry,

@@ -512,6 +512,7 @@ class E2eTest {
                 try {
                     ui.await("the background animating at FULL", 30_000) { backgroundAnimating() == true }
                     ui.tap(Tags.TAB + ShellTab.SETTINGS.name)
+                    ui.tap("switch-advanced") // effects are an advanced setting since 0.6.0
                     ui.tap(Tags.EFFECT + 2)
                     ui.await("SAVER saved and the background still", 30_000) {
                         app.uiPrefs.effectLevel == EffectLevel.SAVER && backgroundAnimating() == false
@@ -953,6 +954,26 @@ class E2eTest {
                 CommandResult(0, "", "")
             }
             else -> CommandResult(1, "", "unexpected guest command")
+        }
+    }
+
+    /** 0.6.0: by default the dock is the chat and the war room, and Settings opens from the conversation list. */
+    @Test fun t34_theSimpleShellIsChatAndWarRoomWithSettingsBehindTheList() {
+        app.setMoreFeatures(false)
+        try {
+            shell {
+                ui.awaitTag(Tags.TAB + ShellTab.CHAT.name)
+                ui.awaitTag(Tags.TAB + ShellTab.AGENTS.name)
+                ui.await("only the two tabs") { listOf(ShellTab.OVERVIEW, ShellTab.LIBRARY, ShellTab.SETTINGS).none { ui.has(Tags.TAB + it.name) } }
+                assertEquals(ShellTab.CHAT, E2e.nav { tab })
+                ui.tap(Tags.LIST_SETTINGS)
+                ui.await("settings from the list") { E2e.nav { tab } == ShellTab.SETTINGS }
+                ui.awaitTag("switch-advanced")
+                E2e.onMain { E2e.shellActivity().onBackPressedDispatcher.onBackPressed() }
+                ui.await("back is the chat") { E2e.nav { tab } == ShellTab.CHAT }
+            }
+        } finally {
+            app.setMoreFeatures(true)
         }
     }
 

@@ -39,7 +39,7 @@ class FogShellRenderTest {
     private fun show(level: EffectLevel) = rule.setContent {
         FogTheme(effectsFor(level, reducedMotion = true)) {
             FogShell(
-                status = MainUiState.Ready, connection = MuxState.OPEN, nav = ShellNav(),
+                status = MainUiState.Ready, connection = MuxState.OPEN, nav = ShellNav().apply { more = true; tab = ShellTab.OVERVIEW },
                 composer = ComposerUi("", {}, enabled = true, canSend = false, running = false, onSend = {}, onStop = {}),
                 onRetry = {}, onExportErrorLog = {},
             ) {

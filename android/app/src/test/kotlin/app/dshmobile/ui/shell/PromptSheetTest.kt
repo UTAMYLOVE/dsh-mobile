@@ -231,7 +231,7 @@ class PromptModalTest {
         rule.setContent {
             FogTheme(effectsFor(EffectLevel.FULL, reducedMotion = true)) {
                 FogShell(
-                    status = app.dshmobile.ui.MainUiState.Ready, connection = app.dshmobile.remote.MuxState.OPEN, nav = ShellNav(),
+                    status = app.dshmobile.ui.MainUiState.Ready, connection = app.dshmobile.remote.MuxState.OPEN, nav = ShellNav().apply { more = true; tab = app.dshmobile.ui.shell.ShellTab.OVERVIEW },
                     composer = ComposerUi("", {}, enabled = true, canSend = false, running = false, onSend = {}, onStop = {}),
                     onRetry = {}, onExportErrorLog = {},
                     overlay = { PromptSheet(approval, "x", 0, false, null, {}, {}, {}, {}) },

@@ -56,7 +56,7 @@ class ShellAccessibilityTest {
         CompositionLocalProvider(LocalDensity provides Density(base.density, fontScale ?: base.fontScale)) {
             FogTheme(effectsFor(EffectLevel.FULL, reducedMotion = true)) {
                 FogShell(
-                    status = status, connection = connection, nav = ShellNav(),
+                    status = status, connection = connection, nav = ShellNav().apply { more = true; tab = ShellTab.OVERVIEW },
                     composer = ComposerUi("", {}, enabled = true, canSend = false, running = false, onSend = {}, onStop = {}),
                     onRetry = {}, onExportErrorLog = {}, reconnectChipDelayMs = 0,
                 ) {}
