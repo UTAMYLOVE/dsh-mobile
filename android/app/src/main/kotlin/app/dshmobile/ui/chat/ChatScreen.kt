@@ -121,8 +121,19 @@ data class ChatUiState(
     val activity: String? = null,
 )
 
-/** The thinking strengths dsh's model selection accepts (stage 2 §B.1). */
-val EFFORTS = listOf("off", "low", "high", "max")
+/**
+ * The thinking strengths each model accepts. Claude cannot switch thinking off (dsh refuses "off" for it) and has two more
+ * steps; DeepSeek has off, low, high and max. With none picked a model runs at 高 (dsh's default for DeepSeek; the app's
+ * provider row says so for Claude).
+ */
+val CLAUDE_EFFORTS = listOf("low", "medium", "high", "xhigh", "max")
+val DEEPSEEK_EFFORTS = listOf("off", "low", "high", "max")
+fun effortsFor(modelId: String?): List<String> =
+    if (modelId?.let { app.dshmobile.config.AgentModels.find(it)?.isClaude } == true) CLAUDE_EFFORTS else DEEPSEEK_EFFORTS
+
+internal fun effortLabel(e: String?): String = when (e) {
+    "off" -> "關"; "low" -> "低"; "medium" -> "中"; "high" -> "高"; "xhigh" -> "超高"; "max" -> "最高"; else -> "預設"
+}
 
 /** The models this conversation can switch to: the app's own list (DeepSeek always, Claude only with a key), [current] selected. */
 fun modelChoices(hasClaudeKey: Boolean, current: String?): List<ModelChoice> =
@@ -960,9 +971,6 @@ private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onTo
 }
 
 /** 「這個對話使用的模型」: inline under the header (it pushes the messages down, so it never covers a control). */
-private fun effortLabel(e: String?): String = when (e) {
-    "off" -> "關"; "low" -> "低"; "high" -> "高"; "max" -> "最高"; else -> "預設"
-}
 
 @Composable
 private fun tuningSummary(effort: String?, rounds: Int): String =
@@ -1037,7 +1045,7 @@ private fun ModelMenu(
                 )
             }
         }
-        ChipRow(stringResource(R.string.chat_effort_title), listOf<String?>(null) + EFFORTS, effort, { effortLabel(it) }, { Tags.EFFORT_OPTION + (it ?: "default") }, onPickEffort)
+        ChipRow(stringResource(R.string.chat_effort_title), listOf<String?>(null) + effortsFor(models.firstOrNull { it.selected }?.id), effort, { effortLabel(it) }, { Tags.EFFORT_OPTION + (it ?: "default") }, onPickEffort)
         ChipRow(stringResource(R.string.chat_review_title), (0..app.dshmobile.chat.ReviewRounds.MAX).toList(), reviewRounds, { if (it == 0) "不審" else "$it 輪" }, { Tags.REVIEW_OPTION + it }, onPickReview)
     }
 }

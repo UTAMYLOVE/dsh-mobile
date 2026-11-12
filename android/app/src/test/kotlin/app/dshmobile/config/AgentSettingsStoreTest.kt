@@ -11,7 +11,7 @@ class AgentSettingsStoreTest {
 
     @Test fun nothingSavedMeansDefaults() {
         assertEquals(AgentSettings.defaults(PhantomState.DISABLED, false), store.load(PhantomState.DISABLED, false))
-        assertEquals(6, store.load(PhantomState.ENABLED, true).maxConcurrent)
+        assertEquals(3, store.load(PhantomState.ENABLED, true).maxConcurrent)
     }
 
     @Test fun saveThenLoadRoundTrips() {

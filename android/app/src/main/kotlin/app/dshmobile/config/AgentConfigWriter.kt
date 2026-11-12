@@ -37,7 +37,7 @@ class AgentConfigWriter(
             append("- id: subagent\n  config:\n    maxActiveSubagents: ${s.maxConcurrent}\n    maxDepth: ${s.maxDepth}\n")
             if (claudeLeads) {
                 // Claude leads, DeepSeek works: dsh's subagent tool pins every child to the worker model (its agentOptions).
-                val worker = AgentModels.find(s.workerModel)?.takeIf { !it.isClaude } ?: AgentModels.find("deepseek-v4-pro")!!
+                val worker = AgentModels.find(s.workerModel)?.takeIf { !it.isClaude } ?: AgentModels.find(AgentModels.DEFAULT_MODEL)!!
                 append("- id: tool-subagent\n  config:\n    provider: spawn\n    toolName: subagent\n")
                 append("    agentOptions:\n      provider: ${worker.provider}\n      model: ${worker.id}\n")
             }

@@ -69,6 +69,7 @@ object DshPatch {
             |      anthropic:
             |        apiKeyEnv: ANTHROPIC_API_KEY
             |        baseURL: ${q("$gatewayBase/anthropic")}
+            |        reasoning: high
         """.trimMargin()
         return deepseek + "\n" + anthropic
     }

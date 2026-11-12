@@ -386,9 +386,9 @@ class SettingsScreenTest {
     @Test fun steppersChangeTheValuesWithinTheirRanges() {
         show()
         fun label(res: Int, v: Int) = "${str(res)}：$v"
-        rule.onNodeWithText(label(R.string.set_agent_concurrent, 6)).assertExists()
+        rule.onNodeWithText(label(R.string.set_agent_concurrent, 3)).assertExists()
         click("inc-concurrent")
-        rule.onNodeWithText(label(R.string.set_agent_concurrent, 7)).assertExists()
+        rule.onNodeWithText(label(R.string.set_agent_concurrent, 4)).assertExists()
         repeat(40) { click("inc-concurrent") }
         rule.onNodeWithText(label(R.string.set_agent_concurrent, 32)).assertExists()
         repeat(40) { click("dec-depth") }
@@ -406,7 +406,7 @@ class SettingsScreenTest {
     @Test fun phantomStateChoosesTheStartingConcurrency() {
         phantom = PhantomState.DISABLED
         show()
-        rule.onNodeWithText("${str(R.string.set_agent_concurrent)}：16").assertExists()
+        rule.onNodeWithText("${str(R.string.set_agent_concurrent)}：4").assertExists()
     }
 
     // ---------- apply ----------
@@ -422,18 +422,18 @@ class SettingsScreenTest {
 
     @Test fun applySavesTheChosenSettingsAndTellsTheWriterAboutAgentTeams() {
         show()
-        click("inc-concurrent")                 // 6 -> 7
-        click("dec-team")                       // 8 -> 7
+        click("inc-concurrent")                 // 3 -> 4
+        click("dec-team")                       // 3 -> 2
         click("inc-depth")                      // 2 -> 3
         click("model-deepseek-v4-pro")
-        click("switch-teams")                   // on -> off
+        click("switch-teams")                   // off -> on
         clickAndWait("apply")
         waitFor { "ensureRunning" in runtime.events }
         assertEquals(
-            AgentSettings(maxConcurrent = 7, maxDepth = 3, teamSize = 7, leadModel = "deepseek-v4-pro", agentTeams = false),
+            AgentSettings(maxConcurrent = 4, maxDepth = 3, teamSize = 2, leadModel = "deepseek-v4-pro", agentTeams = true),
             store.load(PhantomState.ENABLED, false),
         )
-        assertEquals(listOf(false), teamsApplied)
+        assertEquals(listOf(true), teamsApplied)
     }
 
     @Test fun nothingIsSavedUntilApply() {
@@ -445,6 +445,7 @@ class SettingsScreenTest {
     @Test fun agentTeamsThatCannotBeAppliedYetSaysSo() {
         teamsResult = false
         show()
+        click("switch-teams")                   // off (the default) -> on
         clickAndWait("apply")
         waitForText(str(R.string.set_apply_teams_later))
     }

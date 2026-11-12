@@ -57,7 +57,7 @@ class AgentConfigWriterTest {
         Json.parseToJsonElement(packageJson.readText()).jsonObject["dsh"]!!.jsonObject["profile"]!!.jsonObject["bundles"]!!
             .jsonArray.map { it.jsonPrimitive.content }
 
-    private val s = AgentSettings(maxConcurrent = 6, maxDepth = 2, teamSize = 4, leadModel = "deepseek-v4-pro")
+    private val s = AgentSettings(maxConcurrent = 6, maxDepth = 2, teamSize = 4, leadModel = "deepseek-v4-pro", agentTeams = true)
 
     // --- patchSection ---
 
@@ -232,19 +232,21 @@ class AgentConfigWriterTest {
 
     @Test fun settingsReachThePatchAndPhantomPicksTheDefaultConcurrency() {
         profile()
-        assertTrue(provider(Vault(), phantom = PhantomState.DISABLED)(base).contains("maxActiveSubagents: 16\n"))
-        assertTrue(provider(Vault(), phantom = PhantomState.ENABLED)(base).contains("maxActiveSubagents: 6\n"))
+        assertTrue(provider(Vault(), phantom = PhantomState.DISABLED)(base).contains("maxActiveSubagents: 4\n"))
+        assertTrue(provider(Vault(), phantom = PhantomState.ENABLED)(base).contains("maxActiveSubagents: 3\n"))
     }
 
     @Test fun launchAddsTheBundleAndTheTeamRowOnlyOnceTheBundleCanLoad() {
         // First start: dsh has not created its profile yet, so a row for a bundle that is not there would only make dsh
         // warn "entry not found": no team row, no file.
-        val first = provider(Vault())(base)
+        val store = AgentSettingsStore(InMemorySharedPreferences())
+        store.save(AgentSettings.defaults(PhantomState.ENABLED, false).copy(agentTeams = true)) // off by default since 0.6.0
+        val first = provider(Vault(), store)(base)
         assertFalse(first.contains("agent-team"))
         assertFalse(packageJson.exists())
         // Next start: the file exists, the bundle is added and the row follows.
         profile()
-        val second = provider(Vault())(base)
+        val second = provider(Vault(), store)(base)
         assertTrue(second.contains("- id: agent-team"))
         assertTrue(bundles().contains(bundle))
     }

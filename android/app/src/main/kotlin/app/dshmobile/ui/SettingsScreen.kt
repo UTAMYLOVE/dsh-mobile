@@ -568,11 +568,6 @@ fun SettingsScreen(
                     Switch(checked = settings.autoReview, onCheckedChange = { settings = settings.copy(autoReview = it) }, enabled = !busy, modifier = Modifier.testTag("switch-auto-review"))
                 }
                 Text(stringResource(R.string.set_auto_review_note), style = MaterialTheme.typography.bodySmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.set_auto_route), Modifier.weight(1f))
-                    Switch(checked = settings.autoRoute, onCheckedChange = { settings = settings.copy(autoRoute = it) }, enabled = !busy, modifier = Modifier.testTag("switch-auto-route"))
-                }
-                Text(stringResource(R.string.set_auto_route_note), style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.OutlinedTextField(
                     settings.mcpServers, { settings = settings.copy(mcpServers = it) }, enabled = !busy,
                     label = { Text(stringResource(R.string.set_mcp)) }, minLines = 2,

@@ -36,8 +36,6 @@ class ShellSession(
     val scope: CoroutineScope,
     /** Whether conversations should run under dsh's Auto review (stage 2 §J). */
     private val autoReview: () -> Boolean = { false },
-    /** Whether each message picks DeepSeek Flash or Pro by itself (stage 2 batch 2). */
-    private val autoRoute: () -> Boolean = { false },
 ) {
     /** Conversations already switched to `/permission auto` by this session's dsh. */
     private val autoSwitched = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -48,22 +46,6 @@ class ShellSession(
         autoSwitched += id
     }
 
-    /**
-     * 「自動選模型」: before a send, switch the conversation between DeepSeek Flash and Pro by [app.dshmobile.config.ModelRouter],
-     * keeping the chosen thinking strength. A conversation on a Claude model is left alone. A failure never blocks the send.
-     */
-    private suspend fun route(id: String, parts: List<app.dshmobile.remote.PromptPart>) {
-        if (!autoRoute()) return
-        val selection = tree.state.value.projections[id]?.get("modelSelection") as? kotlinx.serialization.json.JsonObject
-        fun model(key: String) = ((selection?.get(key) as? kotlinx.serialization.json.JsonObject)?.get("model") as? kotlinx.serialization.json.JsonPrimitive)?.content
-        val current = model("next") ?: model("lastUsed") ?: tree.state.value.summaries[id]?.let { it.nextModel ?: it.model }
-        if (current != null && app.dshmobile.config.AgentModels.find(current)?.isClaude == true) return
-        val pick = app.dshmobile.config.ModelRouter.pick(parts)
-        if (pick == current) return
-        val effort = synchronized(stores) { stores[id] }?.ui?.effort
-        if (effort == null) remote.selectModel(id, app.dshmobile.config.AgentModels.DEEPSEEK_PROVIDER, pick)
-        else remote.selectModelEffort(id, app.dshmobile.config.AgentModels.DEEPSEEK_PROVIDER, pick, effort)
-    }
 
     /** The shared session tree and the conversation list built on it (later tasks derive agents and the overview from the tree). */
     val tree = SessionTree(remote, scope)
@@ -105,7 +87,7 @@ class ShellSession(
     fun chatUi(id: String): ChatUiCache = open(id).ui
 
     private fun open(id: String): Open = synchronized(stores) {
-        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { parts -> ensureAutoReview(id); runCatching { route(id, parts) } }, decorate = { parts -> app.dshmobile.chat.ReviewRounds.decorate(synchronized(stores) { stores[id] }?.ui?.reviewRounds ?: 0, parts) }), ChatUiCache()).also { fresh ->
+        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensureAutoReview(id) }, decorate = { parts -> app.dshmobile.chat.ReviewRounds.decorate(synchronized(stores) { stores[id] }?.ui?.reviewRounds ?: 0, parts) }), ChatUiCache()).also { fresh ->
             stores[id] = fresh
             if (stores.size > MAX_STORES) {
                 val evictable = stores.entries.filter { it.key != id && it.value.store.pending.value.isEmpty() }

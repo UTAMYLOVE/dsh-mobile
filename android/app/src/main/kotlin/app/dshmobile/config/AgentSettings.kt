@@ -10,13 +10,11 @@ import app.dshmobile.system.PhantomState
 data class AgentSettings(
     val maxConcurrent: Int,
     val maxDepth: Int = 2,
-    val teamSize: Int = 8,
+    val teamSize: Int = 4,
     val leadModel: String,
-    val agentTeams: Boolean = true,
+    val agentTeams: Boolean = false,
     /** dsh's experimental Auto review (stage 2 §J): every conversation switches to `/permission auto`; off by default. */
     val autoReview: Boolean = false,
-    /** Stage 2 batch 2: pick Flash or Pro per message by how demanding it looks (only between DeepSeek models). */
-    val autoRoute: Boolean = false,
     /** Remote MCP servers, one per line: `name https://…/mcp` (no headers: the app never hands dsh a secret). */
     val mcpServers: String = "",
     /**
@@ -26,7 +24,7 @@ data class AgentSettings(
      */
     val claudeLeads: Boolean = false,
     val leadClaude: String = AgentModels.CLAUDE_LEAD_DEFAULT,
-    val workerModel: String = "deepseek-v4-pro",
+    val workerModel: String = "deepseek-flash",
 ) {
     /** Whether the Claude-leads mode applies (it is on and a Claude key is stored). */
     fun claudeLeadsWith(hasClaudeKey: Boolean): Boolean = claudeLeads && hasClaudeKey
@@ -45,9 +43,10 @@ data class AgentSettings(
         /** With the phantom-process limit off, many parallel subagents survive; with it on, a lower number avoids kills. */
         @Suppress("UNUSED_PARAMETER") // kept in the signature on purpose: the default model does not depend on it (see below)
         fun defaults(phantom: PhantomState, hasClaudeKey: Boolean): AgentSettings = AgentSettings(
-            maxConcurrent = if (phantom == PhantomState.DISABLED) 16 else 6,
+            // 0.6.0: a few helpers at once (many made the phone hot and the answers slow); the owner can raise it in Settings.
+            maxConcurrent = if (phantom == PhantomState.DISABLED) 4 else 3,
             // Stage 2 §I.2: with the limit off a team can be as large as the concurrency allows.
-            teamSize = if (phantom == PhantomState.DISABLED) 16 else 8,
+            teamSize = if (phantom == PhantomState.DISABLED) 4 else 3,
             // DeepSeek is the default whatever keys exist: a Claude key only makes the Claude models selectable.
             leadModel = AgentModels.DEFAULT_MODEL,
         )

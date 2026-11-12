@@ -24,12 +24,6 @@ class BatchTwoTest {
         assertEquals("owner's", File(home, "skills/mine/SKILL.md").readText())
     }
 
-    @Test fun routerSendsShortChatToFlashAndHeavyWorkToPro() {
-        assertEquals(ModelRouter.FLASH, ModelRouter.pick(listOf(PromptPart.Text("今天天氣如何"))))
-        assertEquals(ModelRouter.PRO, ModelRouter.pick(listOf(PromptPart.Text("幫我分析這兩支股票"))))
-        assertEquals(ModelRouter.PRO, ModelRouter.pick(listOf(PromptPart.Text("字".repeat(300)))))
-        assertEquals(ModelRouter.PRO, ModelRouter.pick(listOf(PromptPart.Text("看圖"), PromptPart.Image("image/png", "", null))))
-    }
 
     @Test fun mcpServersBecomeInsertRowsAndBadLinesAreDropped() {
         val text = "github https://example.com/mcp\nbad name https://x\nlocal http://127.0.0.1:3000/mcp\nplain http://evil.example/mcp"

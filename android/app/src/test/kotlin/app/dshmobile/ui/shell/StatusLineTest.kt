@@ -42,7 +42,10 @@ class StatusLineTest {
     }
 
     @Test fun effortCycles() {
-        assertEquals(listOf("low", "high", "max", "off", null), listOf<String?>(null, "low", "high", "max", "off").map(::nextEffort))
+        assertEquals(listOf("off", "low", "high", "max", null), listOf<String?>(null, "off", "low", "high", "max").map { nextEffort(it) })
+        // Claude has no 關 and two more steps; a strength it does not have goes back to the default.
+        val claude = app.dshmobile.ui.chat.effortsFor("claude-opus-5-5")
+        assertEquals(listOf("low", "medium", "high", "xhigh", "max", null, null), listOf<String?>(null, "low", "medium", "high", "xhigh", "max", "off").map { nextEffort(it, claude) })
     }
 
     @Test fun tappingASegmentReportsIt() {

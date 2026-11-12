@@ -525,7 +525,7 @@ private fun ConversationPage(
             when (seg) {
                 "model" -> ui.modelMenu = !ui.modelMenu
                 "effort" -> {
-                    val next = nextEffort(ui.effort)
+                    val next = nextEffort(ui.effort, effortsFor(latestCurrent))
                     ui.effort = next
                     AgentModels.find(latestCurrent)?.let { m -> session.scope.launch { store.selectModel(m, next ?: "high") } }
                 }
@@ -608,7 +608,10 @@ private fun ConversationPage(
         onPickModel = { mid ->
             AgentModels.find(mid)?.let { m ->
                 picked = mid
-                session.scope.launch(Dispatchers.Main.immediate) { if (!store.selectModel(m) && picked == mid) picked = null }
+                // A strength the new model does not have (Claude has no 關, DeepSeek no 中) goes back to the default.
+                if (ui.effort != null && ui.effort !in effortsFor(mid)) ui.effort = null
+                val effort = ui.effort
+                session.scope.launch(Dispatchers.Main.immediate) { if (!store.selectModel(m, effort) && picked == mid) picked = null }
             }
         },
         onLink = onLink,
@@ -730,10 +733,9 @@ private fun exportConversation(session: ShellSession, dshApp: app.dshmobile.DshM
     }
 }
 
-/** 思考 on the status line cycles 預設 → 低 → 高 → 最高 → 關 → 預設. */
-internal fun nextEffort(e: String?): String? = when (e) {
-    null -> "low"; "low" -> "high"; "high" -> "max"; "max" -> "off"; else -> null
-}
+/** 思考 on the status line cycles 預設 and then the model's own strengths ([effortsFor]). */
+internal fun nextEffort(e: String?, efforts: List<String> = DEEPSEEK_EFFORTS): String? =
+    if (e == null) efforts.firstOrNull() else efforts.getOrNull(efforts.indexOf(e) + 1).takeIf { e in efforts }
 
 /** Every status segment the conversation can show (the owner's config picks and orders them). */
 internal fun statusSegments(
@@ -741,7 +743,7 @@ internal fun statusSegments(
 ): List<app.dshmobile.ui.shell.StatusSeg> = buildList {
     activity?.let { add(app.dshmobile.ui.shell.StatusSeg("work", if (it.length > 14) it.take(13) + "…" else it, description = it)) }
     add(app.dshmobile.ui.shell.StatusSeg("model", (model ?: "模型").uppercase(), description = "模型 ${model.orEmpty()}，點一下換"))
-    val e = when (effort) { "off" -> "關"; "low" -> "低"; "high" -> "高"; "max" -> "最高"; else -> "預設" }
+    val e = effortLabel(effort)
     add(app.dshmobile.ui.shell.StatusSeg("effort", "思考 $e", description = "思考強度 $e，點一下換"))
     add(app.dshmobile.ui.shell.StatusSeg("review", if (review > 0) "審查 $review" else "審查 關", description = "審查 $review 輪，點一下換"))
     context?.let { c ->

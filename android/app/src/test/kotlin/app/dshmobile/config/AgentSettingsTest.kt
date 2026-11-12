@@ -10,9 +10,9 @@ import org.junit.Test
 
 class AgentSettingsTest {
     @Test fun defaultsDependOnPhantomState() {
-        assertEquals(16, AgentSettings.defaults(PhantomState.DISABLED, hasClaudeKey = false).maxConcurrent)
-        assertEquals(6, AgentSettings.defaults(PhantomState.ENABLED, hasClaudeKey = false).maxConcurrent)
-        assertEquals(6, AgentSettings.defaults(PhantomState.UNKNOWN, hasClaudeKey = false).maxConcurrent)
+        assertEquals(4, AgentSettings.defaults(PhantomState.DISABLED, hasClaudeKey = false).maxConcurrent)
+        assertEquals(3, AgentSettings.defaults(PhantomState.ENABLED, hasClaudeKey = false).maxConcurrent)
+        assertEquals(3, AgentSettings.defaults(PhantomState.UNKNOWN, hasClaudeKey = false).maxConcurrent)
     }
 
     @Test fun defaultsUseDeepSeekWhateverTheClaudeKey() {
@@ -20,8 +20,8 @@ class AgentSettingsTest {
             val d = AgentSettings.defaults(PhantomState.UNKNOWN, claude)
             assertEquals("deepseek-flash", d.leadModel)
             assertEquals(2, d.maxDepth)
-            assertEquals(8, d.teamSize)
-            assertTrue(d.agentTeams)
+            assertEquals(3, d.teamSize)
+            assertFalse(d.agentTeams)
         }
     }
 

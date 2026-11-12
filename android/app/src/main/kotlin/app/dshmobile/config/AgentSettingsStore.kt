@@ -19,7 +19,6 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
             leadModel = prefs.getString(KEY_MODEL, null)?.takeIf { AgentModels.find(it) != null } ?: d.leadModel,
             agentTeams = prefs.getBoolean(KEY_TEAMS, d.agentTeams),
             autoReview = prefs.getBoolean(KEY_AUTO_REVIEW, d.autoReview),
-            autoRoute = prefs.getBoolean(KEY_AUTO_ROUTE, d.autoRoute),
             mcpServers = prefs.getString(KEY_MCP, d.mcpServers).orEmpty(),
             claudeLeads = prefs.getBoolean(KEY_CLAUDE_LEADS, d.claudeLeads),
             leadClaude = prefs.getString(KEY_LEAD_CLAUDE, null)?.takeIf { it in AgentModels.CLAUDE_LEADS } ?: d.leadClaude,
@@ -35,7 +34,6 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
             .putString(KEY_MODEL, s.leadModel)
             .putBoolean(KEY_TEAMS, s.agentTeams)
             .putBoolean(KEY_AUTO_REVIEW, s.autoReview)
-            .putBoolean(KEY_AUTO_ROUTE, s.autoRoute)
             .putString(KEY_MCP, s.mcpServers)
             .putBoolean(KEY_CLAUDE_LEADS, s.claudeLeads)
             .putString(KEY_LEAD_CLAUDE, s.leadClaude)
@@ -68,7 +66,6 @@ class AgentSettingsStore(private val prefs: SharedPreferences) {
         private const val KEY_MODEL = "lead_model"
         private const val KEY_TEAMS = "agent_teams"
         const val KEY_AUTO_REVIEW = "auto_review"
-        const val KEY_AUTO_ROUTE = "auto_route"
         const val KEY_MCP = "mcp_servers"
         private const val KEY_CLAUDE_LEADS = "claude_leads"
         private const val KEY_LEAD_CLAUDE = "lead_claude"
