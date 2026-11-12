@@ -574,6 +574,8 @@ class ChatUiCache {
     var effort by mutableStateOf<String?>(null)
     /** How many independent reviewer rounds each reply gets (0..[app.dshmobile.chat.ReviewRounds.MAX]). */
     var reviewRounds by mutableIntStateOf(0)
+    /** The prompt size at which the app last asked dsh to condense this conversation ([app.dshmobile.chat.AutoCompact]); 0 = never. */
+    var compactedAt by androidx.compose.runtime.mutableLongStateOf(0L)
     /** Whether the pull-out data panel is open. */
     var dataOpen by mutableStateOf(false)
     /** Whether the model menu under the header is open (the status line's 模型 segment opens it too). */

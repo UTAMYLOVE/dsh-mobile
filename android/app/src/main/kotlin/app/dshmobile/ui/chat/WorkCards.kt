@@ -62,10 +62,11 @@ private val Card = RoundedCornerShape(16.dp)
 /**
  * Whether a conversation is long enough that a new one would answer faster and sharper (0.6.0): the models' windows are a
  * million tokens, so a fraction of the window comes far too late; past [LONG_CHAT_TOKENS] every reply rereads that much.
+ * The app condenses a conversation by itself well before this ([app.dshmobile.chat.AutoCompact]); the card is for when that did not help.
  */
 fun isLongChat(tokens: Long?, fraction: Float?): Boolean = (tokens ?: 0) >= LONG_CHAT_TOKENS || (fraction ?: 0f) >= .5f
 
-const val LONG_CHAT_TOKENS = 120_000L
+const val LONG_CHAT_TOKENS = 250_000L
 
 /** 「這個對話很長了」 with 開新對話 and 先不用; shown between turns only. */
 @Composable

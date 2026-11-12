@@ -527,6 +527,14 @@ private fun ConversationPage(
         .collectAsState(null).value
     var todoOpen by androidx.compose.runtime.saveable.rememberSaveable(id) { mutableStateOf(false) }
     var longDismissed by androidx.compose.runtime.saveable.rememberSaveable(id) { mutableStateOf(false) }
+    // 「自動 context」: a long conversation is condensed by dsh between turns, without asking.
+    val contextTokens = conversation.context?.tokens
+    LaunchedEffect(id, conversation.running, contextTokens) {
+        if (app.dshmobile.chat.AutoCompact.due(contextTokens, conversation.running, ui.compactedAt)) {
+            ui.compactedAt = contextTokens ?: 0
+            runCatching { session.remote.runCommand(id, app.dshmobile.chat.AutoCompact.COMMAND) }.onFailure { if (it is CancellationException) throw it }
+        }
+    }
 
     // The dock's status line (0.5.0): model ▶ 思考 ▶ 審查 ▶ 上下文 ▶ tok/s ▶ 花費, in the owner's order; values only change when
     // a reply ends, so the shell is not recomposed while one streams.
