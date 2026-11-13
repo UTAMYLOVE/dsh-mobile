@@ -68,7 +68,7 @@ class FogDrawCacheTest {
         val grid = FogDebug.get("background.grid")
         val ring = FogDebug.get("ring.cache")
         val meter = FogDebug.get("meter.cache")
-        assertTrue("caches built at all: $glows $grid $ring $meter", glows > 0 && grid > 0 && ring > 0 && meter > 0)
+        assertTrue("caches built at all: $glows $grid $ring $meter", glows > 0 && grid == 0 && ring > 0 && meter > 0)
         frames(60)
         assertTrue("the clock drives real frames", FogDebug.get("background.glows.draw") >= 30)
         assertEquals(glows, FogDebug.get("background.glows"))

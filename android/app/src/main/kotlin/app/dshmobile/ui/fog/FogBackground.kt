@@ -128,7 +128,7 @@ fun FogBackground(backdrop: Backdrop, modifier: Modifier = Modifier) {
         Box(Modifier.fillMaxSize().background(Sakura.Background))
         if (!plain) {
             Box(Modifier.fillMaxSize().fogGlows(clock))
-            Box(Modifier.fillMaxSize().fogGrids(clock, effects.perspectiveGrid))
+            // 0.8.0 (the owner: 「不要科技感了，來一個舒服的感覺」): the perspective grids are gone; the soft glows stay.
         }
     }
 }

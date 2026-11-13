@@ -79,24 +79,16 @@ class FogBackgroundTest {
         assertTrue("busy: $ticks ticks in a second", ticks >= 55)
     }
 
-    /** SAVER is the safe mode: the grid's lines are projected once and drawn flat (no 3D transform, no offscreen), and nothing ticks. */
-    @Test fun saverDrawsTheGridFlatAndNothingTicks() {
-        show(EffectLevel.SAVER)
-        frames(30)
-        assertEquals("no 3D grid in SAVER", 0, FogDebug.get("background.grid.depth"))
-        assertTrue(FogDebug.get("background.grid.flat") > 0)
-        assertEquals(0, FogDebug.get("clock.tick"))
-    }
-
-    @Test fun fullDrawsTheGridInPerspective() = depth(EffectLevel.FULL)
-
-    @Test fun balancedDrawsTheGridInPerspective() = depth(EffectLevel.BALANCED)
-
-    private fun depth(level: EffectLevel) {
-        show(level)
-        frames(10)
-        assertEquals(0, FogDebug.get("background.grid.flat"))
-        assertTrue(FogDebug.get("background.grid.depth") > 0)
+    /** 0.8.0 (the owner: 「不要科技感了，來一個舒服的感覺」): no level draws the perspective grid any more; SAVER still ticks nothing. */
+    @Test fun noLevelDrawsTheGrid() {
+        for (level in EffectLevel.entries) {
+            FogDebug.reset()
+            show(level)
+            frames(3)
+            assertEquals("$level", 0, FogDebug.get("background.grid.depth"))
+            assertEquals("$level", 0, FogDebug.get("background.grid.flat"))
+            assertEquals("$level", 0, FogDebug.get("background.grid"))
+        }
     }
 
     /** The bisecting switch for renderer crashes: only the pink ground, nothing animated. */

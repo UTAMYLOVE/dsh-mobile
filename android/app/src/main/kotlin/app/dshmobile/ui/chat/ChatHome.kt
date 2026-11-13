@@ -57,8 +57,8 @@ object HomeTags {
 
 /**
  * The chat with nothing open (0.6.0): like the assistants' own apps it is a greeting, a few things to try and the latest
- * conversations; typing in the dock starts a new one (對話紀錄 is in the shell's top bar). The frame with corner brackets and small code-style labels follows
- * 赛博老爸's Harness skin (deepseek-meihuaqi; laid out for a phone, drawn here in the app's six colours, no asset of his).
+ * conversations; typing in the dock starts a new one (對話紀錄 is in the shell's top bar). Soft white cards on the pink
+ * ground, no frames or code-style labels (0.8.0, the owner: 「不要科技感了，來一個舒服的感覺」).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -73,26 +73,22 @@ fun ChatHome(
         modifier.fillMaxSize().testTag(HomeTags.HOME).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("DSH MOBILE // SAKURA", style = FogText.Label, maxLines = 1, overflow = TextOverflow.Clip, modifier = Modifier.weight(1f).clearAndSetSemantics {})
-            FogButton(stringResource(R.string.open_settings), FogButtonKind.GHOST, onSettings, Modifier.testTag(HomeTags.SETTINGS))
-        }
         Column(
-            Modifier.fillMaxWidth().brackets().padding(horizontal = 18.dp, vertical = 26.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                stringResource(R.string.home_title), color = Sakura.Text, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em,
+                stringResource(R.string.home_title), color = Sakura.Text, fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() },
             )
-            Text(stringResource(R.string.home_sub), color = Sakura.TextSecondary, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center)
+            Text(stringResource(R.string.home_sub), color = Sakura.TextSecondary, fontSize = 15.sp, lineHeight = 22.sp, textAlign = TextAlign.Center)
         }
-        Panel("01", stringResource(R.string.home_try)) {
+        Panel(stringResource(R.string.home_try)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 stringArrayResource(R.array.home_suggestions).forEachIndexed { i, s ->
                     Box(
-                        Modifier.heightIn(min = 44.dp).clip(Chip).background(Color.White.copy(alpha = .75f)).border(1.dp, Sakura.Aqua, Chip)
+                        Modifier.heightIn(min = 44.dp).clip(Chip).background(Sakura.Background.copy(alpha = .9f))
                             .clickable(role = Role.Button) { onSuggest(s) }.testTag(HomeTags.SUGGEST + i).padding(horizontal = 14.dp),
                         contentAlignment = Alignment.Center,
                     ) { Text(s, color = Sakura.Text, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
@@ -100,7 +96,7 @@ fun ChatHome(
             }
         }
         if (recent.isNotEmpty()) {
-            Panel("02", stringResource(R.string.home_recent)) {
+            Panel(stringResource(R.string.home_recent)) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     recent.take(RECENT_MAX).forEach { row ->
                         Row(
@@ -118,41 +114,25 @@ fun ChatHome(
                 }
             }
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            FogButton(stringResource(R.string.open_settings), FogButtonKind.GHOST, onSettings, Modifier.testTag(HomeTags.SETTINGS))
+        }
         Spacer(Modifier.height(4.dp))
     }
 }
 
 const val RECENT_MAX = 4
-private val Chip = RoundedCornerShape(14.dp)
-private val PanelShape = RoundedCornerShape(4.dp)
+private val Chip = RoundedCornerShape(18.dp)
+private val PanelShape = RoundedCornerShape(24.dp)
 
-/** A thin-framed panel with a numbered, code-style title bar. */
+/** A soft white card with a small title. */
 @Composable
-private fun Panel(index: String, title: String, content: @Composable () -> Unit) {
+private fun Panel(title: String, content: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().clip(PanelShape).background(Color.White.copy(alpha = .35f)).border(1.dp, Sakura.Primary.copy(alpha = .55f), PanelShape),
+        Modifier.fillMaxWidth().clip(PanelShape).background(Color.White.copy(alpha = .6f)).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth().background(Sakura.Primary.copy(alpha = .16f)).padding(horizontal = 12.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(index, style = FogText.Label.copy(color = Sakura.RoseBrown), modifier = Modifier.clearAndSetSemantics {})
-            Text(title, color = Sakura.Text, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.1.em, modifier = Modifier.semantics { heading() })
-        }
-        Box(Modifier.fillMaxWidth().padding(12.dp)) { content() }
+        Text(title, color = Sakura.TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.semantics { heading() })
+        content()
     }
-}
-
-/** Four corner brackets, pink at the top-left and bottom-right, aqua at the other two. */
-private fun Modifier.brackets(): Modifier = drawBehind {
-    val arm = 18.dp.toPx()
-    val w = 2.dp.toPx()
-    fun corner(x: Float, y: Float, dx: Float, dy: Float, color: Color) {
-        drawLine(color, Offset(x, y), Offset(x + dx * arm, y), w, StrokeCap.Square)
-        drawLine(color, Offset(x, y), Offset(x, y + dy * arm), w, StrokeCap.Square)
-    }
-    corner(0f, 0f, 1f, 1f, Sakura.Primary)
-    corner(size.width, 0f, -1f, 1f, Sakura.Aqua)
-    corner(0f, size.height, 1f, -1f, Sakura.Aqua)
-    corner(size.width, size.height, -1f, -1f, Sakura.Primary)
 }

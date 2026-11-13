@@ -37,12 +37,10 @@ object FogFonts {
 object FogText {
     /** Tabular figures, so counting numbers do not jitter. */
     val Number = TextStyle(fontFamily = FogFonts.ChakraPetch, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum", color = Sakura.Text)
-    val Label = TextStyle(
-        fontFamily = FogFonts.ChakraPetch, fontWeight = FontWeight.Normal, fontSize = 11.sp, letterSpacing = 0.14.em, color = Sakura.TextSecondary,
-    )
-    val Heading = TextStyle(
-        fontFamily = FogFonts.Orbitron, fontWeight = FontWeight.Medium, fontSize = 18.sp, letterSpacing = 0.26.em, color = Sakura.Text,
-    )
+    // 0.8.0 (the owner: 「不要科技感了，來一個舒服的感覺」): labels and headings use the system's own rounded-friendly face with
+    // ordinary spacing; the display faces stay only for numbers.
+    val Label = TextStyle(fontWeight = FontWeight.Normal, fontSize = 12.sp, letterSpacing = 0.02.em, color = Sakura.TextSecondary)
+    val Heading = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 18.sp, letterSpacing = 0.04.em, color = Sakura.Text)
 }
 
 enum class EffectLevel { FULL, BALANCED, SAVER }
