@@ -117,6 +117,7 @@ class DshVersions(
             if (r.exitCode != 0) throw IllegalStateException("npm install exited ${r.exitCode}: ${tail(r.stderr.ifBlank { r.stdout })}")
             val installed = readInstalledVersion(File(tmp, "$MODULE_DIR/package.json"))
             if (installed != version) throw IllegalStateException("installed version is $installed, expected $version")
+            addWasmSharp(tmp, "/opt/dsh/$version.tmp")
             synchronized(fsLock) {
                 val target = File(optDsh, version)
                 RootfsInstaller.deleteTree(target) // a bare directory without the package: never a usable version
@@ -270,6 +271,17 @@ class DshVersions(
 
     private fun hasDir(version: String): Boolean =
         Files.isDirectory(File(optDsh, version).toPath(), LinkOption.NOFOLLOW_LINKS)
+
+    /**
+     * sharp's WebAssembly build next to the one npm picked, so pictures can be attached on Android's own node (see
+     * rootfs/inner-setup.sh, whose script this runs: it installs the package aside and copies in only what is missing). A
+     * failure, or a rootfs without the script, is logged and the version still installs: only pictures would fail natively.
+     */
+    private fun addWasmSharp(dir: File, guestDir: String) {
+        if (!File(dir, "node_modules/sharp/package.json").isFile) return
+        val r = cmd.run(listOf("/usr/local/bin/dshm-add-sharp-wasm", guestDir), INSTALL_TIMEOUT_MS)
+        if (r.exitCode != 0) log.append(TAG, "sharp-wasm32 not added (exit ${r.exitCode}): ${tail(r.stderr.ifBlank { r.stdout })}")
+    }
 
     private fun readInstalledVersion(pkg: File): String? = try {
         val obj = Json.parseToJsonElement(pkg.readText(Charsets.UTF_8)) as? JsonObject

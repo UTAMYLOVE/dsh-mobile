@@ -28,9 +28,35 @@ ln -sfn "/opt/dsh/${DSH_PINNED_VERSION}" /opt/dsh/current
 # integrity check against pinned dist.integrity (from the generated lockfile)
 GOT="$(node -p "require('/opt/dsh/${DSH_PINNED_VERSION}/package-lock.json').packages['node_modules/@deepseek-ai/dsh'].integrity")"
 [ "$GOT" = "$DSH_INTEGRITY" ] || { echo "dsh integrity mismatch: $GOT" >&2; exit 1; }
-# dsh's own tree already carries sharp's WebAssembly build (@img/sharp-wasm32) beside the glibc one: on Android's own node (no
-# proot) the glibc build cannot load and sharp falls back to it. Nothing is added here: an extra npm install with --cpu=wasm32
-# in this tree removed dsh's linux addons and dsh no longer started (run 43325750462). Only checked.
+# sharp's WebAssembly build, next to the glibc one: on Android's own node (no proot) the glibc build cannot load and sharp falls
+# back to it, so pictures can be attached there too (npm leaves it out here: run 43337935453). It is installed in a directory
+# of its own and only the packages the dsh tree lacks are copied in: an npm install with --cpu=wasm32 in the dsh tree itself
+# removed dsh's linux addons and dsh did not start (run 43325750462). The app's dsh updater runs the same script.
+cat > /usr/local/bin/dshm-add-sharp-wasm <<'SH'
+#!/bin/bash
+# dshm-add-sharp-wasm DIR: adds @img/sharp-wasm32 (the version of DIR's sharp) and what it needs to DIR/node_modules.
+set -euo pipefail
+DIR="$1"
+V="$(node -p "JSON.parse(require('fs').readFileSync('$DIR/node_modules/sharp/package.json','utf8')).version")"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+npm install --prefix "$TMP" --force --cpu=wasm32 "@img/sharp-wasm32@$V" --no-audit --no-fund --loglevel=error
+for d in "$TMP"/node_modules/*; do
+  n="$(basename "$d")"
+  case "$n" in
+    @*) mkdir -p "$DIR/node_modules/$n"
+        for s in "$d"/*; do [ -e "$DIR/node_modules/$n/$(basename "$s")" ] || cp -a "$s" "$DIR/node_modules/$n/"; done ;;
+    *)  [ -e "$DIR/node_modules/$n" ] || cp -a "$d" "$DIR/node_modules/" ;;
+  esac
+done
+test -f "$DIR/node_modules/@img/sharp-wasm32/package.json"
+SH
+chmod 755 /usr/local/bin/dshm-add-sharp-wasm
+BEFORE="$(find "/opt/dsh/${DSH_PINNED_VERSION}/node_modules" -type f | wc -l)"
+dshm-add-sharp-wasm "/opt/dsh/${DSH_PINNED_VERSION}"
+# nothing of dsh's own tree may be gone, and dsh still starts
+[ "$(find "/opt/dsh/${DSH_PINNED_VERSION}/node_modules" -type f | wc -l)" -ge "$BEFORE" ]
+"/opt/dsh/current/node_modules/.bin/dsh" --version
 test -f "/opt/dsh/${DSH_PINNED_VERSION}/node_modules/@img/sharp-wasm32/package.json"
 test -f "/opt/dsh/${DSH_PINNED_VERSION}/node_modules/@deepseek-ai/dsh/lib/bin.js"
 (cd "/opt/dsh/${DSH_PINNED_VERSION}" && npm ls --all > npm-ls.txt 2>&1 || true)
