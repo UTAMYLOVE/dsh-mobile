@@ -55,6 +55,21 @@ for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
   const real = childProcess[name]
   childProcess[name] = function (file, ...rest) { return real.call(this, swap(file), ...rest) }
 }
+// 5b. dsh makes a stored picture durable by fsyncing every directory from its home up to the filesystem root. On Android the
+//     levels above the app's own data (/data/user/0, /data/user, /data) may not be opened, and the prompt was refused with
+//     "EACCES: permission denied, open '/data/user/0'" (the owner's 0.5.0 screenshot: 「prompt rejected」). Those levels are the
+//     system's; when one of them refuses a read-only open, the caller gets a handle whose sync does nothing.
+const ownHome = process.env.DSH_HOME || process.env.HOME || ''
+const aboveHome = (p) => typeof p === 'string' && p.startsWith('/') && ownHome !== '' && p !== ownHome && ownHome.startsWith(p.endsWith('/') ? p : p + '/')
+const realPromisesOpen = fs.promises.open
+fs.promises.open = async function open(path, ...rest) {
+  try { return await realPromisesOpen.call(this, path, ...rest) } catch (e) {
+    if (!e || !['EACCES', 'EPERM'].includes(e.code) || !aboveHome(path)) throw e
+    const nothing = async () => {}
+    return { fd: -1, sync: nothing, datasync: nothing, close: nothing, [Symbol.asyncDispose]: nothing }
+  }
+}
+
 // 6. Conversations made under proot have /root/workspace (and dsh's home /root/.dsh) as their folder, and dsh never runs a turn
 //    whose folder is missing. Those are the same folders on the phone under their host names, so paths below them are mapped
 //    (DSHN_REMAP = "from=to;from=to") in fs, in a child's working directory and in chdir. Nothing else is rewritten.
