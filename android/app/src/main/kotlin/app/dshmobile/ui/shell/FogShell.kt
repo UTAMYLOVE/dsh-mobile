@@ -32,6 +32,12 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -207,7 +213,12 @@ fun FogShell(
         FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND))
         val hidden = if (modalOverlay) Modifier.clearAndSetSemantics {} else Modifier
         Column(Modifier.fillMaxSize().then(hidden)) {
-            Header(
+            if (!nav.more) SimpleBar(
+                nav,
+                Modifier
+                    .testTag(Tags.SHELL_HEADER)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+            ) else Header(
                 nav.tab, nav.tabs,
                 Modifier
                     .testTag(Tags.SHELL_HEADER)
@@ -242,6 +253,13 @@ fun FogShell(
                         .background(Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .9f), Sakura.Background.copy(alpha = 0f)))),
                 )
             }
+        }
+        // The ＋ menu folds on a tap anywhere outside it (the owner: 「按空白處介面不會縮回去」).
+        if (attachMenu) {
+            Box(
+                Modifier.fillMaxSize().testTag(Tags.ATTACH_SCRIM)
+                    .pointerInput(Unit) { detectTapGestures(onTap = { attachMenu = false }) },
+            )
         }
         Column(
             Modifier
@@ -545,6 +563,47 @@ private fun ReconnectingChip(modifier: Modifier = Modifier) {
         Box(Modifier.size(7.dp).glow(Sakura.Aqua, 6.dp, CircleShape).background(Sakura.Aqua, CircleShape))
         Text(stringResource(R.string.shell_reconnecting), color = Sakura.Text, fontSize = 12.sp, letterSpacing = 0.06.em)
     }
+}
+
+/**
+ * The simple shell's top bar (0.8.0, the owner: 「更簡單、更好用」): 對話紀錄 on the left, the page's name, and on the right the
+ * war room and 新對話. It replaces the brand header and the dock's tab row, so the conversation gets the height of both. On
+ * the war room or Settings the right side is one 回對話.
+ */
+@Composable
+private fun SimpleBar(nav: ShellNav, modifier: Modifier = Modifier) {
+    val onChat = nav.tab == ShellTab.CHAT
+    Row(
+        modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (onChat) BarButton(stringResource(R.string.bar_list), Tags.BAR_LIST) { nav.listOpen = true }
+        Text(
+            if (onChat) "" else nav.tab.zh, color = Sakura.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.08.em,
+            maxLines = 1, modifier = Modifier.weight(1f).padding(start = if (onChat) 0.dp else 8.dp),
+        )
+        if (onChat) {
+            BarButton(ShellTab.AGENTS.zh, Tags.TAB + ShellTab.AGENTS.name) { nav.select(ShellTab.AGENTS) }
+            BarButton(stringResource(R.string.bar_new), Tags.BAR_NEW, pink = true) { nav.listOpen = false; nav.openSessionId = null }
+        } else {
+            BarButton(stringResource(R.string.bar_back), Tags.TAB + ShellTab.CHAT.name, pink = true) { nav.select(ShellTab.CHAT) }
+        }
+    }
+}
+
+@Composable
+private fun BarButton(label: String, tag: String, pink: Boolean = false, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .heightIn(min = 48.dp)
+            .clip(Round)
+            .background(if (pink) Sakura.Primary.copy(alpha = .9f) else Color.White.copy(alpha = .55f), Round)
+            .border(1.dp, if (pink) Color.White.copy(alpha = .9f) else Sakura.Primary.copy(alpha = .6f), Round)
+            .clickable(role = Role.Button, onClick = onClick)
+            .testTag(tag)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = if (pink) Color.White else Sakura.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1) }
 }
 
 /** "DSH MOBILE" and the time on the left; the page's name and five dots (the current one long and glowing) on the right. */

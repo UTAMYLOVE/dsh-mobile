@@ -14,6 +14,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import app.dshmobile.chat.InlineCard
@@ -68,28 +70,56 @@ class ChatHomeTest {
         File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    @Test fun theHomePageSuggestsOpensAndLeadsToTheListAndSettings() {
+    @Test fun theHomePageSuggestsOpensAndLeadsToSettings() {
         val picked = mutableListOf<String>()
-        shell { ChatHome(rows, onSuggest = { picked += "suggest:$it" }, onOpen = { picked += "open:$it" }, onOpenList = { picked += "list" }, onSettings = { picked += "settings" }) }
+        shell { ChatHome(rows, onSuggest = { picked += "suggest:$it" }, onOpen = { picked += "open:$it" }, onSettings = { picked += "settings" }) }
         rule.onNodeWithTag(HomeTags.HOME).assertIsDisplayed()
         snap("home")
         rule.onNodeWithTag(HomeTags.SUGGEST + 1).performScrollTo().performClick()
         rule.onNodeWithTag(HomeTags.RECENT + "s2").performScrollTo().performClick()
-        rule.onNodeWithTag(HomeTags.LIST).performScrollTo().performClick()
         rule.onNodeWithTag(HomeTags.SETTINGS).performScrollTo().performClick()
-        assertEquals(listOf("suggest:午餐花了 120", "open:s2", "list", "settings"), picked)
+        assertEquals(listOf("suggest:午餐花了 120", "open:s2", "settings"), picked)
     }
 
     @Config(sdk = [36], qualifiers = "w360dp-h740dp-port", fontScale = 1.3f)
     @Test fun atALargeFontEveryControlOfTheHomePageCanStillBeTapped() {
         val picked = mutableListOf<String>()
-        shell { ChatHome(rows, onSuggest = { picked += it }, onOpen = { picked += it }, onOpenList = { picked += "list" }, onSettings = { picked += "settings" }) }
+        shell { ChatHome(rows, onSuggest = { picked += it }, onOpen = { picked += it }, onSettings = { picked += "settings" }) }
         snap("home-large-font")
-        rule.onNodeWithTag(HomeTags.LIST).performScrollTo().performClick()
         rule.onNodeWithTag(HomeTags.SETTINGS).performScrollTo().performClick()
         rule.onNodeWithTag(HomeTags.SUGGEST + 3).performScrollTo().performClick()
         rule.onNodeWithTag(HomeTags.RECENT + "s3").performScrollTo().performClick()
-        assertEquals(listOf("list", "settings", "幫我想一個故事開頭", "s3"), picked)
+        assertEquals(listOf("settings", "幫我想一個故事開頭", "s3"), picked)
+    }
+
+    /** 0.8.0: the simple shell has one thin bar on top and no tab row under the input. */
+    @Test fun theTopBarOpensTheListTheWarRoomAndANewChat() {
+        val nav = ShellNav().apply { openSessionId = "s1" }
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) {
+                FogShell(
+                    status = MainUiState.Ready, connection = MuxState.OPEN, nav = nav,
+                    composer = ComposerUi("", {}, enabled = true, canSend = false, running = false, onSend = {}, onStop = {}),
+                    onRetry = {}, onExportErrorLog = {},
+                ) { Box(Modifier.fillMaxSize()) }
+            }
+        }
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.TAB + "OVERVIEW").assertDoesNotExist()
+        // the ＋ menu folds on a tap outside it
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.ATTACH).performClick()
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.ATTACH_IMAGE).assertIsDisplayed()
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.ATTACH_SCRIM).performTouchInput { click(androidx.compose.ui.geometry.Offset(width / 2f, 40f)) }
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.ATTACH_IMAGE).assertDoesNotExist()
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.BAR_LIST).performClick()
+        rule.runOnIdle { assertEquals(true, nav.listOpen) }
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.BAR_NEW).performClick()
+        rule.runOnIdle { assertEquals(null, nav.openSessionId); assertEquals(false, nav.listOpen) }
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.TAB + "AGENTS").performClick()
+        rule.runOnIdle { assertEquals(app.dshmobile.ui.shell.ShellTab.AGENTS, nav.tab) }
+        snap("bar-war-room")
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.BAR_LIST).assertDoesNotExist()
+        rule.onNodeWithTag(app.dshmobile.ui.shell.Tags.TAB + "CHAT").performClick() // 回對話
+        rule.runOnIdle { assertEquals(app.dshmobile.ui.shell.ShellTab.CHAT, nav.tab) }
     }
 
     @Test fun cardsShowTheirHeadlineAndReadAsOneSentence() {

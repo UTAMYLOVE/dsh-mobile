@@ -9,6 +9,7 @@ import app.dshmobile.ui.fog.LocalBackdrop
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -658,6 +660,10 @@ fun ChatScreen(
     // A contents entry to jump to: its message key; older pages load until it is in the list (or there are no more).
     var jumpTo by remember { mutableStateOf<String?>(null) }
     BackHandler(enabled = menuOpen || moreOpen) { menuOpen = false; moreOpen = false }
+    // A tap on the conversation's empty space folds everything that covers it (the owner, 2026-11-13: 「按空白處介面不會縮回去」):
+    // the model menu, the ⋮ row, the data panel and the keyboard.
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val fold = { menuOpen = false; moreOpen = false; ui.dataOpen = false; focus.clearFocus() }
 
     carryOpenThinking(ui, state.live?.attemptId, state.items)
     val cache = ui.blocks
@@ -819,7 +825,7 @@ fun ChatScreen(
                 }
             }
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) { detectTapGestures(onTap = { fold() }) }) {
             // Messages are glass without blur: a blurred backdrop per bubble would be redrawn on every scroll frame. Panels, the
             // header and the dock keep theirs.
             CompositionLocalProvider(LocalBackdrop provides null) {

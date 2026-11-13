@@ -50,7 +50,6 @@ import app.dshmobile.ui.theme.Sakura
 
 object HomeTags {
     const val HOME = "chat-home"
-    const val LIST = "home-list"
     const val SETTINGS = "home-settings"
     const val SUGGEST = "home-suggest-"
     const val RECENT = "home-recent-"
@@ -58,7 +57,7 @@ object HomeTags {
 
 /**
  * The chat with nothing open (0.6.0): like the assistants' own apps it is a greeting, a few things to try and the latest
- * conversations; typing in the dock starts a new one. The frame with corner brackets and small code-style labels follows
+ * conversations; typing in the dock starts a new one (對話紀錄 is in the shell's top bar). The frame with corner brackets and small code-style labels follows
  * 赛博老爸's Harness skin (deepseek-meihuaqi; laid out for a phone, drawn here in the app's six colours, no asset of his).
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -67,7 +66,6 @@ fun ChatHome(
     recent: List<SessionRow>,
     onSuggest: (String) -> Unit,
     onOpen: (String) -> Unit,
-    onOpenList: () -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -77,7 +75,6 @@ fun ChatHome(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("DSH MOBILE // SAKURA", style = FogText.Label, maxLines = 1, overflow = TextOverflow.Clip, modifier = Modifier.weight(1f).clearAndSetSemantics {})
-            FogButton(stringResource(R.string.home_list), FogButtonKind.GHOST, onOpenList, Modifier.testTag(HomeTags.LIST))
             FogButton(stringResource(R.string.open_settings), FogButtonKind.GHOST, onSettings, Modifier.testTag(HomeTags.SETTINGS))
         }
         Column(

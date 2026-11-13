@@ -173,7 +173,7 @@ fun ChatPage(
         Box(Modifier.fillMaxSize().padding(LocalPagePadding.current)) {
             ChatHome(
                 recent = remember(rows, hidden) { rows.filter { it.id !in hidden }.sortedByDescending { it.updatedAt }.take(RECENT_MAX) },
-                onSuggest = onSuggest, onOpen = { nav.openSession(it) }, onOpenList = { nav.listOpen = true },
+                onSuggest = onSuggest, onOpen = { nav.openSession(it) },
                 onSettings = { nav.select(app.dshmobile.ui.shell.ShellTab.SETTINGS) },
             )
         }

@@ -968,7 +968,7 @@ class E2eTest {
                 ui.await("only the two tabs") { listOf(ShellTab.OVERVIEW, ShellTab.LIBRARY, ShellTab.SETTINGS).none { ui.has(Tags.TAB + it.name) } }
                 assertEquals(ShellTab.CHAT, E2e.nav { tab })
                 ui.awaitTag(HomeTags.HOME)
-                ui.tap(HomeTags.LIST)
+                ui.tap(Tags.BAR_LIST)
                 ui.tap(Tags.LIST_SETTINGS)
                 ui.await("settings from the list") { E2e.nav { tab } == ShellTab.SETTINGS }
                 ui.awaitTag("switch-advanced")

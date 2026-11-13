@@ -67,6 +67,9 @@ object Tags {
     const val CHAT_DATA_SCROLL = "chat-data-scroll"
     /** + [ShellTab.name]. */
     const val TAB = "tab-"
+    const val ATTACH_SCRIM = "attach-scrim"
+    const val BAR_LIST = "bar-list"
+    const val BAR_NEW = "bar-new"
     const val CHAT_SETTINGS = "chat-settings"
     const val LIST_SETTINGS = "list-settings"
     const val COMPOSER_INPUT = "composer-input"

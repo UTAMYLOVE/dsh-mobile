@@ -19,6 +19,8 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performScrollToNode
 import app.dshmobile.chat.ChatItem
 import app.dshmobile.chat.LiveReply
@@ -219,6 +221,16 @@ class ChatScreenTest {
         rule.waitForIdle()
         assertEquals(listOf("deepseek-v4-pro"), h.picked)
         assertEquals("the menu closes", 0, rule.onAllNodesWithTag(Tags.MODEL_MENU).fetchSemanticsNodes().size)
+    }
+
+    /** The owner, 2026-11-13: 「按空白處介面不會縮回去」: a tap on the conversation's empty space folds the model menu. */
+    @Test fun aTapOnEmptySpaceFoldsTheModelMenu() {
+        show()
+        rule.onNodeWithTag(Tags.MODEL_CHIP).performClick()
+        assertEquals(1, rule.onAllNodesWithTag(Tags.MODEL_MENU).fetchSemanticsNodes().size)
+        rule.onNodeWithTag(Tags.CHAT_MESSAGES).performTouchInput { click(androidx.compose.ui.geometry.Offset(width / 2f, 8f)) }
+        rule.waitForIdle()
+        assertEquals("folded by the tap", 0, rule.onAllNodesWithTag(Tags.MODEL_MENU).fetchSemanticsNodes().size)
     }
 
     @Test fun theModelMenuOffersThinkingStrengthAndReviewerRoundsAndTheHeaderSummarisesThem() {

@@ -196,6 +196,9 @@
     <string name="list_new">＋ 新對話</string>
     <string name="open_settings">設定</string>
     <string name="home_list">對話紀錄</string>
+    <string name="bar_list">☰ 紀錄</string>
+    <string name="bar_new">＋ 新對話</string>
+    <string name="bar_back">回對話</string>
     <string name="home_title">今天想聊什麼？</string>
     <string name="home_sub">在下面打字、用說的，或拍一張照片給我。</string>
     <string name="home_try">試試看</string>

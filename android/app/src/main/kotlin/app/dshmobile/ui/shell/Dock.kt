@@ -208,8 +208,11 @@ internal fun Dock(
                 RoundButton(stringResource(R.string.shell_send), enabled && composer.canSend, Tags.SEND, composer.onSend, pink) { tint -> SendIcon(tint) }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        TabRow(tab, tabs, onSelect)
+        // The simple shell (the chat and the war room) has no tab row: its top bar switches (0.8.0, 「更簡單」).
+        if (tabs.size > ShellTab.SIMPLE.size) {
+            Spacer(Modifier.height(8.dp))
+            TabRow(tab, tabs, onSelect)
+        }
     }
 }
 
