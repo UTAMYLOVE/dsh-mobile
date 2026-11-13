@@ -80,15 +80,21 @@ class FogBackgroundTest {
     }
 
     /** 0.8.0 (the owner: 「不要科技感了，來一個舒服的感覺」): no level draws the perspective grid any more; SAVER still ticks nothing. */
-    @Test fun noLevelDrawsTheGrid() {
-        for (level in EffectLevel.entries) {
-            FogDebug.reset()
-            show(level)
-            frames(3)
-            assertEquals("$level", 0, FogDebug.get("background.grid.depth"))
-            assertEquals("$level", 0, FogDebug.get("background.grid.flat"))
-            assertEquals("$level", 0, FogDebug.get("background.grid"))
-        }
+    @Test fun fullDrawsNoGrid() = noGrid(EffectLevel.FULL)
+
+    @Test fun balancedDrawsNoGrid() = noGrid(EffectLevel.BALANCED)
+
+    @Test fun saverDrawsNoGridAndNothingTicks() {
+        noGrid(EffectLevel.SAVER)
+        assertEquals(0, FogDebug.get("clock.tick"))
+    }
+
+    private fun noGrid(level: EffectLevel) {
+        show(level)
+        frames(10)
+        assertEquals(0, FogDebug.get("background.grid.depth"))
+        assertEquals(0, FogDebug.get("background.grid.flat"))
+        assertEquals(0, FogDebug.get("background.grid"))
     }
 
     /** The bisecting switch for renderer crashes: only the pink ground, nothing animated. */
