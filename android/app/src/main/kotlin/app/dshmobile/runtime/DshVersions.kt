@@ -117,7 +117,6 @@ class DshVersions(
             if (r.exitCode != 0) throw IllegalStateException("npm install exited ${r.exitCode}: ${tail(r.stderr.ifBlank { r.stdout })}")
             val installed = readInstalledVersion(File(tmp, "$MODULE_DIR/package.json"))
             if (installed != version) throw IllegalStateException("installed version is $installed, expected $version")
-            installWasmSharp(tmp, "/opt/dsh/$version.tmp")
             synchronized(fsLock) {
                 val target = File(optDsh, version)
                 RootfsInstaller.deleteTree(target) // a bare directory without the package: never a usable version
@@ -271,20 +270,6 @@ class DshVersions(
 
     private fun hasDir(version: String): Boolean =
         Files.isDirectory(File(optDsh, version).toPath(), LinkOption.NOFOLLOW_LINKS)
-
-    /**
-     * sharp's WebAssembly build next to the one npm picked: Android's own node cannot load the glibc build and sharp falls back
-     * to this one, so pictures can be attached without proot (the rootfs build does the same for the bundled version). A failure
-     * is logged and the version still installs: only pictures would then fail there.
-     */
-    private fun installWasmSharp(dir: File, guestDir: String) {
-        val sharp = readInstalledVersion(File(dir, "node_modules/sharp/package.json")) ?: return
-        val r = cmd.run(
-            listOf("npm", "install", "--prefix", guestDir, "--no-save", "--force", "--cpu=wasm32", "@img/sharp-wasm32@$sharp", "--no-audit", "--no-fund", "--loglevel=error"),
-            INSTALL_TIMEOUT_MS,
-        )
-        if (r.exitCode != 0) log.append(TAG, "sharp-wasm32 $sharp not installed (exit ${r.exitCode}): ${tail(r.stderr.ifBlank { r.stdout })}")
-    }
 
     private fun readInstalledVersion(pkg: File): String? = try {
         val obj = Json.parseToJsonElement(pkg.readText(Charsets.UTF_8)) as? JsonObject
