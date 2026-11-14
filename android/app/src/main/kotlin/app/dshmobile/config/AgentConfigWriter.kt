@@ -124,6 +124,8 @@ class AgentPatchProvider(
     private val phantom: () -> PhantomState,
     /** Where dsh sees things for this start (the controller publishes it before asking for the patch). */
     private val layout: () -> DshLayout = { DshLayout.active },
+    /** The owner's permission level (RuntimeModeStore.permission): which preset new conversations start with. */
+    private val permission: () -> app.dshmobile.runtime.PermissionLevel = { app.dshmobile.runtime.PermissionLevel.SMART },
 ) : (String) -> String {
     override fun invoke(gatewayBase: String): String {
         val hasClaudeKey = vault.get(Provider.ANTHROPIC) != null // asked once: the section and the provider row must agree
@@ -134,7 +136,7 @@ class AgentPatchProvider(
         writer.installSkills()
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)
         val lay = layout()
-        return DshPatch.render(gatewayBase, lay.pluginDir, section, includeAnthropic = hasClaudeKey, workspace = lay.workspace, shellPath = lay.shellPath)
+        return DshPatch.render(gatewayBase, lay.pluginDir, section, includeAnthropic = hasClaudeKey, workspace = lay.workspace, shellPath = lay.shellPath, permission = permission())
     }
 }
 

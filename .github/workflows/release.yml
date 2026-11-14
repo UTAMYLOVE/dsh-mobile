@@ -168,10 +168,11 @@ jobs:
           platforms: arm64
       - name: Stage plugins for the rootfs
         run: |
-          mkdir -p out/staging/plugins/memory out/staging/plugins/notify out/staging/plugins/ui
+          mkdir -p out/staging/plugins/memory out/staging/plugins/notify out/staging/plugins/ui out/staging/plugins/guard
           cp plugins/packages/memory/dist/index.js out/staging/plugins/memory/index.js
           cp plugins/packages/notify/dist/index.js out/staging/plugins/notify/index.js
           cp plugins/packages/ui/dist/index.js out/staging/plugins/ui/index.js
+          cp plugins/packages/guard/dist/index.js out/staging/plugins/guard/index.js
       - name: Build rootfs
         run: bash rootfs/build-rootfs.sh arm64 out/dshm-rootfs-arm64.tar.xz out/staging
       - name: Smoke test rootfs

@@ -1,6 +1,8 @@
 package app.dshmobile.config
 
 import app.dshmobile.runtime.AppPaths
+import app.dshmobile.runtime.GUARDED_PRESET
+import app.dshmobile.runtime.PermissionLevel
 
 /**
  * Generates the dsh `--patch` overlay (YAML list of Cordis rows). Each section is its own function so later
@@ -22,9 +24,10 @@ object DshPatch {
         includeAnthropic: Boolean = false,
         workspace: String = AppPaths.GUEST_WORKSPACE,
         shellPath: String? = null,
+        permission: PermissionLevel = PermissionLevel.SMART,
     ): String {
         require(includeAnthropic || !agentSection.contains("anthropic", ignoreCase = true)) { "agent section names anthropic but there is no Claude key" }
-        return sections(gatewayBase, pluginDir, agentSection, includeAnthropic, workspace, shellPath)
+        return sections(gatewayBase, pluginDir, agentSection, includeAnthropic, workspace, shellPath, permission)
             .filter { it.isNotBlank() }
             .joinToString("\n", postfix = "\n") { it.trimEnd() }
     }
@@ -32,12 +35,36 @@ object DshPatch {
     /** The sections in output order; [render] joins them. */
     internal fun sections(
         gatewayBase: String, pluginDir: String, agentSection: String = "", includeAnthropic: Boolean = false,
-        workspace: String = AppPaths.GUEST_WORKSPACE, shellPath: String? = null,
+        workspace: String = AppPaths.GUEST_WORKSPACE, shellPath: String? = null, permission: PermissionLevel = PermissionLevel.SMART,
     ): List<String> =
         listOf(
             providers(gatewayBase, includeAnthropic), agentSection, privacy(), directoryPicker(), workspaceController(workspace),
-            shellPath?.let { terminalShell(it) }.orEmpty(), plugins(pluginDir),
+            shellPath?.let { terminalShell(it) }.orEmpty(), permission(permission), plugins(pluginDir),
         )
+
+    /**
+     * The permission presets and the one new conversations start with. dsh's own "workspace-write" needs a sandbox backend
+     * (bubblewrap or Landlock) that an Android app cannot have: every command was refused until the model retried it with an
+     * escalation the owner approved, and subagents (approval policy pinned to "never") could run none. [GUARDED_PRESET] is full
+     * access with approvals on, so the app's guard plugin (dshm-guard) can ask before the risky kinds; "danger-full-access"
+     * never asks. dsh refuses a default that matches no preset, hence the explicit table. The row's config replaces dsh's.
+     */
+    internal fun permission(level: PermissionLevel): String = """
+        |- id: permission
+        |  config:
+        |    presets:
+        |      $GUARDED_PRESET:
+        |        sandbox: danger-full-access
+        |        approval: ask
+        |        name: ${q("DSH Mobile")}
+        |        description: ${q("No dsh sandbox exists on Android; the app's guard asks before risky actions.")}
+        |      danger-full-access:
+        |        sandbox: danger-full-access
+        |        approval: never
+        |        name: danger-full-access
+        |        description: ${q("Full file access without approval prompts.")}
+        |    defaultPreset: ${level.preset}
+    """.trimMargin()
 
     /** Native mode: Android has no /bin/bash, so dsh's shell is the bundled bash (see `NativeRunner`). */
     internal fun terminalShell(shellPath: String): String = """
@@ -124,6 +151,8 @@ object DshPatch {
             |      name: ${q("$dir/notify/index.js")}
             |    - id: dshm-ui
             |      name: ${q("$dir/ui/index.js")}
+            |    - id: dshm-guard
+            |      name: ${q("$dir/guard/index.js")}
         """.trimMargin()
     }
 

@@ -70,8 +70,9 @@ fun buildSettingsEnv(
             }
             NativeModeControl(
                 app.nativeRunner.available, app.runtimeMode.native, set = { on -> app.runtimeMode.set(on); restart() },
-                noApproval = app.runtimeMode.noApproval,
-                setNoApproval = { on -> app.runtimeMode.setNoApproval(on); if (app.runtimeMode.native.value) restart() },
+                permission = app.runtimeMode.permission,
+                // Both modes read the level when dsh starts, so a change restarts it.
+                setPermission = { level -> if (level != app.runtimeMode.permission.value) { app.runtimeMode.setPermission(level); restart() } },
             )
         },
         // dsh lists Claude models only when it starts with the key (the anthropic row and its env var): restart it now,

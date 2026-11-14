@@ -958,15 +958,24 @@ class E2eTest {
         }
     }
 
-    /** 0.6.0: by default the dock is the chat and the war room, and Settings opens from the conversation list. */
+    /**
+     * 0.6.0: by default the app is the chat and the war room, and Settings opens from the conversation list. Since the thin top
+     * bar (2026-11-13) the chat shows 紀錄, 指揮室 and 新對話 in it, and the other pages show one 回對話.
+     */
     @Test fun t34_theSimpleShellIsChatAndWarRoomWithSettingsBehindTheList() {
         app.setMoreFeatures(false)
         try {
             shell {
-                ui.awaitTag(Tags.TAB + ShellTab.CHAT.name)
+                ui.awaitTag(Tags.BAR_LIST)
+                ui.awaitTag(Tags.BAR_NEW)
                 ui.awaitTag(Tags.TAB + ShellTab.AGENTS.name)
-                ui.await("only the two tabs") { listOf(ShellTab.OVERVIEW, ShellTab.LIBRARY, ShellTab.SETTINGS).none { ui.has(Tags.TAB + it.name) } }
+                ui.await("no other page in the bar") { listOf(ShellTab.CHAT, ShellTab.OVERVIEW, ShellTab.LIBRARY, ShellTab.SETTINGS).none { ui.has(Tags.TAB + it.name) } }
                 assertEquals(ShellTab.CHAT, E2e.nav { tab })
+                ui.tap(Tags.TAB + ShellTab.AGENTS.name)
+                ui.await("the war room") { E2e.nav { tab } == ShellTab.AGENTS }
+                ui.await("the war room's bar is one 回對話") { ui.has(Tags.TAB + ShellTab.CHAT.name) && !ui.has(Tags.BAR_LIST) && !ui.has(Tags.BAR_NEW) }
+                ui.tap(Tags.TAB + ShellTab.CHAT.name)
+                ui.await("back on the chat") { E2e.nav { tab } == ShellTab.CHAT }
                 ui.awaitTag(HomeTags.HOME)
                 ui.tap(Tags.BAR_LIST)
                 ui.tap(Tags.LIST_SETTINGS)

@@ -80,14 +80,44 @@ class DshPatchTest {
         )
     }
 
-    @Test fun insertsAllThreePluginsByAbsolutePath() {
+    @Test fun insertsTheAppsPluginsByAbsolutePath() {
         assertTrue(yaml.contains("- id: dshm-memory"))
         assertTrue(yaml.contains("name: \"/opt/dshm/plugins/memory/index.js\""))
         assertTrue(yaml.contains("- id: dshm-notify"))
         assertTrue(yaml.contains("name: \"/opt/dshm/plugins/notify/index.js\""))
         assertTrue(yaml.contains("- id: dshm-ui"))
         assertTrue(yaml.contains("name: \"/opt/dshm/plugins/ui/index.js\""))
-        assertEquals(3, Regex("- id: dshm-").findAll(yaml).count())
+        assertTrue(yaml.contains("- id: dshm-guard"))
+        assertTrue(yaml.contains("name: \"/opt/dshm/plugins/guard/index.js\""))
+        assertEquals(4, Regex("- id: dshm-").findAll(yaml).count())
+    }
+
+    /**
+     * Android has no dsh sandbox backend, so new conversations start on a full-access preset: with approvals on (the guard
+     * plugin can ask) for the 一般 and 每次都問 levels, dsh's own never-asking one for 全部放行. dsh refuses to start when the
+     * default matches no preset in the table, so both are always there and nothing sandboxed is.
+     */
+    @Test fun thePermissionRowNamesTheDefaultPresetOfTheOwnersLevel() {
+        val guarded = """
+            |- id: permission
+            |  config:
+            |    presets:
+            |      dshm-guarded:
+            |        sandbox: danger-full-access
+            |        approval: ask
+        """.trimMargin()
+        for (level in app.dshmobile.runtime.PermissionLevel.entries) {
+            val text = DshPatch.render(base, permission = level)
+            assertTrue(level.name, text.contains(guarded))
+            assertTrue(level.name, text.contains("      danger-full-access:\n        sandbox: danger-full-access\n        approval: never\n"))
+            assertTrue(level.name, text.contains("    defaultPreset: ${level.preset}\n"))
+            assertEquals(level.name, 1, Regex("defaultPreset:").findAll(text).count())
+            assertTrue(level.name, !text.contains("workspace-write") && !text.contains("read-only"))
+        }
+        assertEquals("dshm-guarded", app.dshmobile.runtime.PermissionLevel.SMART.preset)
+        assertEquals("dshm-guarded", app.dshmobile.runtime.PermissionLevel.ASK.preset)
+        assertEquals("danger-full-access", app.dshmobile.runtime.PermissionLevel.FULL.preset)
+        assertTrue("the default is the smart level", DshPatch.render(base).contains("defaultPreset: dshm-guarded"))
     }
 
     @Test fun pluginDirectoryIsConfigurable() {
@@ -95,6 +125,7 @@ class DshPatchTest {
         assertTrue(custom.contains("name: \"/srv/p/memory/index.js\""))
         assertTrue(custom.contains("name: \"/srv/p/notify/index.js\""))
         assertTrue(custom.contains("name: \"/srv/p/ui/index.js\""))
+        assertTrue(custom.contains("name: \"/srv/p/guard/index.js\""))
     }
 
     @Test fun neverContainsAnApiKey() {

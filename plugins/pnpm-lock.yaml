@@ -26,6 +26,8 @@ importers:
 
   packages/common: {}
 
+  packages/guard: {}
+
   packages/memory:
     dependencies:
       '@dshm/common':

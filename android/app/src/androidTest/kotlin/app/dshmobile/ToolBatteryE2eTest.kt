@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.DshLayout
+import app.dshmobile.runtime.PermissionLevel
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.json.JSONArray
@@ -43,7 +44,7 @@ class ToolBatteryE2eTest {
     }
 
     @After fun tearDown() {
-        app.runtimeMode.setNoApproval(false)
+        app.runtimeMode.setPermission(PermissionLevel.SMART)
         app.runtimeMode.set(false)
         app.controller.stop()
         app.controller.release(HOLDER)
@@ -56,7 +57,7 @@ class ToolBatteryE2eTest {
     @Test fun everyToolTheModelUsesWorksNatively() {
         assumeTrue("this APK has no native runtime", app.nativeRunner.available)
         app.runtimeMode.set(true)
-        app.runtimeMode.setNoApproval(true)
+        app.runtimeMode.setPermission(PermissionLevel.FULL)
         val running = runBlocking { app.controller.ensureRunning() }
         assertTrue("the layout is not native: ${DshLayout.active}", DshLayout.active.native)
         val client = DshClient(http, running.launch).also { runBlocking { it.login() } }

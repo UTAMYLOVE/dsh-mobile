@@ -247,11 +247,12 @@ class DshMobileApp : Application(), Configuration.Provider {
             filesDir = filesDir,
             isRootfsInstalled = rootfsInstaller::isInstalled,
             launcher = DshLauncher { env, args ->
+                // The guard plugin's level and the app's own folders it never lets go (plugins/packages/guard).
+                val level = "DSHM_GUARD_LEVEL" to runtimeMode.permission.value.id
                 if (DshLayout.active.native) {
-                    // The owner's opt-in (Settings): dsh runs commands without asking (RuntimeModeStore.noApproval).
-                    val extra = if (runtimeMode.noApproval.value) mapOf("DSH_PERMISSION_MODE" to "danger-full-access") else emptyMap()
-                    nativeRunner.command(args, env + extra, appPaths.workspace).start()
-                } else proot.command(args, env).start()
+                    val own = listOf(appPaths.rootfs, File(filesDir, "native")).joinToString(":") { it.path }
+                    nativeRunner.command(args, env + level + ("DSHM_GUARD_PROTECTED" to own), appPaths.workspace).start()
+                } else proot.command(args, env + level + ("DSHM_GUARD_PROTECTED" to "/opt/dsh:/opt/dshm")).start()
             },
             layout = ::layoutForStart,
             // Many agents at once make many requests: the runaway guard scales with the concurrency setting.
@@ -272,6 +273,7 @@ class DshMobileApp : Application(), Configuration.Provider {
                 store = agentSettingsStore,
                 writer = agentConfigWriter,
                 phantom = PhantomProcessDetector(contentResolver)::state,
+                permission = { runtimeMode.permission.value },
             ),
             upstreams = upstreamsOverride ?: DshController.DEFAULT_UPSTREAMS,
             beforeLaunch = {
@@ -369,7 +371,7 @@ class DshMobileApp : Application(), Configuration.Provider {
         val loopback = loopbackHttp
         val holder = ShellSessionHolder { running ->
             val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
-            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope, autoReview = { agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview }) }
+            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope, autoReview = { agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview }, levelPreset = { runtimeMode.permission.value.preset }) }
         }
         applicationScope.launch(Dispatchers.Main) {
             controller.isRunning.collect { running -> if (!running) holder.detach() }

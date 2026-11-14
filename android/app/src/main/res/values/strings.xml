@@ -181,8 +181,14 @@
     <string name="set_native_note">預設開著：dsh 直接在安卓上跑，不用模擬 Linux。如果這支手機用原生方式有問題，關掉就會改用舊的相容模式（比較慢、比較耗電）。兩種方式用的是同一份對話和檔案，什麼都不會刪除。切換時 dsh 會重新啟動。</string>
     <string name="set_native_on">目前：原生</string>
     <string name="set_native_off">目前：相容模式（模擬 Linux）</string>
-    <string name="set_native_no_approval">原生模式：指令不用每次問我</string>
-    <string name="set_native_no_approval_note">原生模式沒有 dsh 的沙盒，所以幾乎每個指令都要你按允許。打開後就直接執行，AI 一樣只碰得到 DSH 自己的資料，碰不到手機其他東西；但刪檔這類動作也不會再問你。預設關閉，切換時 dsh 會重新啟動。</string>
+    <string name="set_permission_title">權限：AI 可以自己做到哪裡</string>
+    <string name="set_permission_smart">一般（建議）</string>
+    <string name="set_permission_smart_note">工作區裡的事直接做。有風險的先問你：刪除或寫到工作區外面、把資料送上網、執行下載來的程式、動到系統。</string>
+    <string name="set_permission_full">全部放行</string>
+    <string name="set_permission_full_note">什麼都不問，直接做。</string>
+    <string name="set_permission_ask">每次都問</string>
+    <string name="set_permission_ask_note">只有查看不用問；會改東西的指令、寫檔、派子代理人都先問你。</string>
+    <string name="set_permission_note">不管哪一級，會刪掉 DSH 自己資料的指令一律擋下。AI 只碰得到 DSH 自己的資料夾，碰不到手機上其他 App 的東西。改了會重新啟動 dsh。</string>
     <string name="set_native_unavailable">這個版本沒有附原生執行環境</string>
     <string name="set_export_workspace">匯出整個工作區（zip）</string>
 

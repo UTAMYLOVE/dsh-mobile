@@ -765,17 +765,28 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.testTag("native-state"),
                     )
-                    val noApproval by native.noApproval.collectAsState()
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.set_native_no_approval), modifier = Modifier.weight(1f))
-                        Switch(
-                            checked = noApproval,
-                            onCheckedChange = { native.setNoApproval(it) },
-                            enabled = !busy && native.available,
-                            modifier = Modifier.testTag("switch-native-no-approval"),
-                        )
+                    // 權限 (both modes): how much the agent may do without a question.
+                    val level by native.permission.collectAsState()
+                    Text(stringResource(R.string.set_permission_title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
+                    for ((option, label, note) in listOf(
+                        Triple(app.dshmobile.runtime.PermissionLevel.SMART, R.string.set_permission_smart, R.string.set_permission_smart_note),
+                        Triple(app.dshmobile.runtime.PermissionLevel.FULL, R.string.set_permission_full, R.string.set_permission_full_note),
+                        Triple(app.dshmobile.runtime.PermissionLevel.ASK, R.string.set_permission_ask, R.string.set_permission_ask_note),
+                    )) {
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .selectable(selected = option == level, enabled = !busy, role = Role.RadioButton) { native.setPermission(option) }
+                                .testTag("permission-" + option.id),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = option == level, onClick = null, enabled = !busy)
+                            Column(Modifier.padding(start = 8.dp)) {
+                                Text(stringResource(label))
+                                Text(stringResource(note), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
-                    Text(stringResource(R.string.set_native_no_approval_note), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.set_permission_note), style = MaterialTheme.typography.bodySmall)
                 }
             }
 

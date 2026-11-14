@@ -36,14 +36,25 @@ class ShellSession(
     val scope: CoroutineScope,
     /** Whether conversations should run under dsh's Auto review (stage 2 §J). */
     private val autoReview: () -> Boolean = { false },
+    /** The dsh permission preset of the owner's permission level (PermissionLevel.preset); null leaves conversations as they are. */
+    private val levelPreset: () -> String? = { null },
 ) {
-    /** Conversations already switched to `/permission auto` by this session's dsh. */
-    private val autoSwitched = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    /** Conversations this session's dsh already has on the wanted preset (by conversation id). */
+    private val presetSet = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    private suspend fun ensureAutoReview(id: String) {
-        if (!autoReview() || id in autoSwitched) return
-        remote.runCommand(id, "/permission auto")
-        autoSwitched += id
+    /**
+     * Before a message goes out, the conversation is put on the preset the owner's settings ask for: Auto review when that is
+     * on, else the permission level's preset. New conversations start there already (DshPatch.permission); this moves the ones
+     * made earlier, which dsh keeps on the preset they were created with (the old "workspace-write", where every command had to
+     * be escalated and approved). Nothing is sent when dsh already reports the wanted preset.
+     */
+    private suspend fun ensurePreset(id: String) {
+        val wanted = if (autoReview()) "auto" else levelPreset() ?: return
+        if (presetSet[id] == wanted) return
+        val current = ((tree.state.value.projections[id]?.get("permissions") as? kotlinx.serialization.json.JsonObject)
+            ?.get("currentValue") as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        if (current != wanted) remote.runCommand(id, "/permission $wanted")
+        presetSet[id] = wanted
     }
 
 
@@ -87,7 +98,7 @@ class ShellSession(
     fun chatUi(id: String): ChatUiCache = open(id).ui
 
     private fun open(id: String): Open = synchronized(stores) {
-        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensureAutoReview(id) }, decorate = { parts -> app.dshmobile.chat.ReviewRounds.decorate(synchronized(stores) { stores[id] }?.ui?.reviewRounds ?: 0, parts) }), ChatUiCache()).also { fresh ->
+        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensurePreset(id) }, decorate = { parts -> app.dshmobile.chat.ReviewRounds.decorate(synchronized(stores) { stores[id] }?.ui?.reviewRounds ?: 0, parts) }), ChatUiCache()).also { fresh ->
             stores[id] = fresh
             if (stores.size > MAX_STORES) {
                 val evictable = stores.entries.filter { it.key != id && it.value.store.pending.value.isEmpty() }

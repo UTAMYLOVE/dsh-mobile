@@ -163,4 +163,28 @@ class ShellSessionHolderTest {
         assertEquals("off: nothing is switched", 2, remote.commands.size)
         session.close()
     }
+
+    /**
+     * The permission level's preset: a conversation made before (dsh keeps the preset it was created with) is moved once before
+     * its next message; Auto review, when on, wins; without a level nothing is sent.
+     */
+    @Test fun aConversationIsPutOnThePermissionLevelsPresetOnceBeforeItsNextSend() = kotlinx.coroutines.runBlocking {
+        var preset: String? = "dshm-guarded"
+        var auto = false
+        val remote = FakeRemote()
+        val session = ShellSession(remote, events = null, scope = CoroutineScope(Job()), autoReview = { auto }, levelPreset = { preset })
+        val parts = listOf(app.dshmobile.remote.PromptPart.Text("hi"))
+        session.conversation("s1").send(parts, "hi", emptyList())
+        session.conversation("s1").send(parts, "again", emptyList())
+        assertEquals(listOf("s1" to "/permission dshm-guarded"), remote.commands.toList())
+        preset = "danger-full-access" // the owner changed the level
+        session.conversation("s1").send(parts, "third", emptyList())
+        auto = true
+        session.conversation("s1").send(parts, "fourth", emptyList())
+        assertEquals(listOf("/permission dshm-guarded", "/permission danger-full-access", "/permission auto"), remote.commands.map { it.second })
+        preset = null; auto = false
+        session.conversation("s9").send(parts, "hi", emptyList())
+        assertEquals("no level: nothing is switched", 3, remote.commands.size)
+        session.close()
+    }
 }

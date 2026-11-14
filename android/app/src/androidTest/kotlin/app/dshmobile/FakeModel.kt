@@ -92,8 +92,8 @@ class FakeModel {
                 listOf(
                     toolUse(
                         "approve", "write",
-                        JSONObject().put("file_path", "/tmp/e2e-outside.txt").put("content", "x")
-                            .put("sandbox_permissions", "danger-full-access").put("justification", "E2E approval"),
+                        // Outside the workspace and the temp folders: what the app's guard asks the owner about.
+                        JSONObject().put("file_path", "../e2e-outside.txt").put("content", "x"),
                     ),
                 ),
                 "tool_use",

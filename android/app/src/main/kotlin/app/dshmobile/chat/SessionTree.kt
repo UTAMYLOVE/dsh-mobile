@@ -57,7 +57,7 @@ data class SessionTreeState(
 object SessionTreeReducer {
     private val KEPT = setOf(
         "title", "turnOutline", "modelSelection", "subagent", "tokenUsage", "sessionStats", "contextPressure", "subagentTiming", "inbox",
-        "todos", "plan", "workingDirectory",
+        "todos", "plan", "workingDirectory", "permissions",
     )
 
     /** The list is the new baseline (children included). */
