@@ -2,6 +2,7 @@ package app.dshmobile
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.dshmobile.runtime.NativeRunner
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -92,6 +93,40 @@ class NativeRuntimeTest {
         val (code, out) = run(lib("node"), "-e", js)
         assertEquals(out, 0, code)
         assertTrue(out, out.contains("tryLock"))
+    }
+
+    /**
+     * Python as the app sets it up for dsh (NativeRunner.prepare): the standard library unpacked from python.tar.xz, each
+     * extension module a symlink in lib-dynload to its library in nativeLibraryDir, which Python dlopens through the link.
+     */
+    @Test fun pythonRunsWithItsUnpackedStandardLibraryAndLinkedModules() {
+        val manifest = app.assets.open("native/manifest.json").use { it.readBytes().toString(Charsets.UTF_8) }
+        assumeTrue("no python in this native runtime", JSONObject(manifest).has("python"))
+        val base = File(app.filesDir, "native-test-python").apply { removeTree() }
+        val problems = mutableListOf<String>()
+        val runner = NativeRunner(
+            libDir, base, File(base, "home"), File(app.cacheDir, "native-test-python"),
+            assets = { name -> try { app.assets.open(name) } catch (_: java.io.IOException) { null } }, niceBinary = null, log = { problems += it },
+        )
+        try {
+            runner.prepare()
+            assertEquals(emptyList<String>(), problems)
+            val code = "import ssl, sqlite3, ctypes, lzma, bz2, zlib, decimal, subprocess; ssl.create_default_context(); " +
+                "print('py-ok', ctypes.CDLL('libc.so').abs(-3), subprocess.run('echo hi', shell=True, capture_output=True, text=True).stdout.strip())"
+            val p = runner.command(listOf(File(base, "bin/python3").path, "-c", code), emptyMap(), base).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            assertTrue("timed out", p.waitFor(60, TimeUnit.SECONDS))
+            assertEquals(out, 0, p.exitValue())
+            assertTrue(out, out.contains("py-ok 3 hi"))
+        } finally {
+            base.removeTree()
+        }
+    }
+
+    /** site-packages is read-only (NativeRunner.preparePython): write access comes back before the delete. */
+    private fun File.removeTree() {
+        walkTopDown().filter { it.isDirectory }.forEach { it.setWritable(true, true) }
+        deleteRecursively()
     }
 
     @Test fun nodeSpeaksTlsWithTheBundledCertificates() {

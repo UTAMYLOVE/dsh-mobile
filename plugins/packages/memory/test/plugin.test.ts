@@ -127,7 +127,10 @@ describe("plugin shape", () => {
   it("the phone note says what the shell has in each runtime", () => {
     const native = plugin.phoneNote("native");
     expect(native).toContain("$TMPDIR");
-    expect(native).toContain("no python");
+    expect(native).toContain("python3 -m pip install");
+    expect(native).toContain("python3 file.py");
+    expect(native).toContain("most packages with C extensions cannot be installed");
+    expect(native).not.toContain("no python");
     expect(native).toContain("相容模式");
     expect(native).toContain("設定 → 執行方式 → 權限");
     expect(native).not.toContain("Debian");

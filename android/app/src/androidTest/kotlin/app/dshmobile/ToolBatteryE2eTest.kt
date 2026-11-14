@@ -79,6 +79,25 @@ class ToolBatteryE2eTest {
         }
         bash(client, "script-by-interpreter", "cd $DIR && printf '#!/bin/sh\\necho script-ok\\n' > s.sh && sh s.sh && bash s.sh") { it.lines().count { l -> l.trim() == "script-ok" } == 2 }
 
+        // Python (2026-11-15): the standard library's native modules (each one a library of its own in nativeLibraryDir),
+        // subprocess's shell, pip, a user-site install without the network (a wheel made on the spot) and venvs.
+        bash(client, "python3", PYTHON_STDLIB) { it.contains("py-ok hi") }
+        bash(client, "python-file", "cd $DIR && printf 'import sys\\nprint(\"py-file\", sys.argv[1])\\n' > s.py && python3 s.py ok") { it.contains("py-file ok") }
+        bash(client, "pip", "python3 -m pip --version") { Regex("""pip \d+\.\d+.* from .*/native/python/.* \(python 3\.\d+\)""").containsMatchIn(it) }
+        bash(client, "pip-install-user", "cd $DIR && rm -f $WHEEL && python3 -c '$MAKE_WHEEL' && python3 -m pip install --no-index --no-deps ./$WHEEL && " +
+            "python3 -c 'import dshm_probe, site; print(\"probe\", dshm_probe.VALUE, dshm_probe.__file__.startswith(site.getuserbase()))' && python3 -m pip uninstall -y -q dshm-probe") {
+            it.contains("probe 42 True")
+        }
+        // A venv's bin/python is a symlink to native/bin/python3, itself a symlink into nativeLibraryDir: it runs.
+        bash(client, "venv", "rm -rf \"\$TMPDIR/v\" && python3 -m venv --without-pip \"\$TMPDIR/v\" && \"\$TMPDIR/v/bin/python\" -c 'import sys; print(\"venv\", sys.prefix != sys.base_prefix)'") {
+            it.contains("venv True")
+        }
+        // There is no ensurepip wheel: the note tells the model to make a venv that borrows the app's pip, which installs into the venv.
+        bash(client, "venv-pip", "cd $DIR && rm -rf \"\$TMPDIR/v2\" && python3 -m venv --without-pip --system-site-packages \"\$TMPDIR/v2\" && \"\$TMPDIR/v2/bin/python\" -m pip install -q --no-index --no-deps ./$WHEEL && " +
+            "\"\$TMPDIR/v2/bin/python\" -c 'import dshm_probe, sys; print(\"venv-probe\", dshm_probe.VALUE, dshm_probe.__file__.startswith(sys.prefix))'") {
+            it.contains("venv-probe 42 True")
+        }
+
         val newFile = File(dir, "new.txt")
         tool(client, "write", "write", JSONObject().put("file_path", "$DIR/new.txt").put("content", "hello battery\n")) {
             Files.isRegularFile(newFile.toPath(), LinkOption.NOFOLLOW_LINKS) && newFile.readText() == "hello battery\n"
@@ -204,6 +223,24 @@ class ToolBatteryE2eTest {
         const val PROGRAMS = "sh bash cat ls cp mv rm mkdir touch grep sed awk find sort uniq head tail wc cut tr xargs tee date sleep basename dirname mktemp " +
             "tar gzip unzip zip diff patch which file curl wget python3 node npm npx git rg jq sqlite3 make"
         /** Programs the native runtime does not carry yet. Exactly this set may be missing: more is a regression, fewer means this list is stale. */
-        val KNOWN_MISSING: Set<String> = setOf("wget", "python3", "npm", "npx", "make")
+        val KNOWN_MISSING: Set<String> = setOf("wget", "npm", "npx", "make")
+
+        /** Imports what a model's script reaches for, uses the modules that need a library of their own, and runs a shell command. */
+        const val PYTHON_STDLIB = """python3 -c 'import ssl, sqlite3, ctypes, lzma, bz2, zlib, hashlib, decimal, json, os, subprocess
+assert sqlite3.connect(":memory:").execute("select 6*7").fetchone()[0] == 42
+assert lzma.decompress(lzma.compress(b"x")) == bz2.decompress(bz2.compress(b"x")) == zlib.decompress(zlib.compress(b"x")) == b"x"
+assert ctypes.CDLL("libc.so").getpid() == os.getpid()
+assert str(decimal.Decimal("1.1") + decimal.Decimal("2.2")) == "3.3"
+assert hashlib.sha256(b"").hexdigest().startswith("e3b0c442") and json.loads(json.dumps({"a": [1]})) == {"a": [1]}
+ssl.create_default_context()
+print("py-ok", subprocess.run("echo hi", shell=True, capture_output=True, text=True).stdout.strip())'"""
+
+        const val WHEEL = "dshm_probe-1.0-py3-none-any.whl"
+        /** A pure-Python wheel, so pip can be tried without the network (python3 -c '...', no single quotes inside). */
+        const val MAKE_WHEEL = "import zipfile; z = zipfile.ZipFile(\"$WHEEL\", \"w\"); " +
+            "z.writestr(\"dshm_probe/__init__.py\", \"VALUE = 42\\n\"); " +
+            "z.writestr(\"dshm_probe-1.0.dist-info/METADATA\", \"Metadata-Version: 2.1\\nName: dshm-probe\\nVersion: 1.0\\n\"); " +
+            "z.writestr(\"dshm_probe-1.0.dist-info/WHEEL\", \"Wheel-Version: 1.0\\nGenerator: e2e\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n\"); " +
+            "z.writestr(\"dshm_probe-1.0.dist-info/RECORD\", \"\"); z.close()"
     }
 }

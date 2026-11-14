@@ -252,8 +252,9 @@ export function phoneNote(runtime: string | undefined): string {
   ];
   if (runtime === "native") {
     lines.push(
-      "- Commands run on Android's own programs, not Linux: bash, node, git, rg, curl, jq, sqlite3, zip, unzip and Android's toybox (ls, cat, cp, mv, sed, grep, find, sort, tar, gzip, diff ...). There is no python, pip, npm, apt, make or compiler: write scripts in node or bash instead. If a task truly needs Python or Linux packages, tell the owner it works in 設定 → 執行方式 → 相容模式.",
-      "- There is no /tmp: use $TMPDIR. Files in the workspace cannot be executed directly (./run.sh fails): run them with bash run.sh or node run.js.",
+      "- Commands run on Android's own programs, not Linux: bash, node, python3, git, rg, curl, jq, sqlite3, zip, unzip and Android's toybox (ls, cat, cp, mv, sed, grep, find, sort, tar, gzip, diff ...). There is no npm, apt, make or compiler. If a task truly needs Linux packages, tell the owner it works in 設定 → 執行方式 → 相容模式.",
+      "- Python packages: `python3 -m pip install <package>` (there is no pip command; packages go to the user site). Pure-Python packages work; most packages with C extensions cannot be installed. Run an installed tool as `python3 -m <module>`. No venv is needed; if one is wanted, `python3 -m venv --without-pip --system-site-packages DIR`, then `DIR/bin/python -m pip`.",
+      "- There is no /tmp: use $TMPDIR. Files in the workspace cannot be executed directly (./run.sh and ./file.py fail): run them with bash run.sh, node run.js or python3 file.py.",
     );
   } else if (runtime === "proot") {
     lines.push("- Commands run in a Debian Linux (相容模式): the usual Linux tools are there, and apt can install more.");

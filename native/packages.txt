@@ -6,3 +6,5 @@ git libcurl libnghttp2 libnghttp3 libngtcp2 libssh2
 ca-certificates
 # Everyday programs a model reaches for (2026-11-15, the tool battery): curl, jq, sqlite3, zip, unzip.
 curl jq oniguruma sqlite zip unzip libbz2
+# Python 3 with pip (2026-11-15), and the libraries its programs and extension modules need beyond the above (readelf -d).
+python python-pip gdbm libexpat libffi liblzma ncurses-ui-libs zstd libandroid-posix-semaphore

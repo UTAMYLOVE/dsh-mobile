@@ -57,14 +57,7 @@ class RootfsInstaller(
                     if (pct != last) { last = pct; onProgress(pct) }
                 }
                 tmp.mkdirs()
-                TarArchiveInputStream(XZCompressorInputStream(counting.buffered(BUF))).use { tar ->
-                    var entry = tar.nextEntry
-                    while (entry != null) {
-                        extract(tar, entry as TarArchiveEntry)
-                        report()
-                        entry = tar.nextEntry
-                    }
-                }
+                TarArchiveInputStream(XZCompressorInputStream(counting.buffered(BUF))).use { tar -> extractTar(tar, tmp, ::report) }
             }
             val marker = File(tmp, VERSION_MARKER)
             if (!marker.isFile || marker.readText().trim() != expectedVersion) {
@@ -85,88 +78,7 @@ class RootfsInstaller(
      * set aside as `rootfs.old` and deleted last; if that delete is cut short, the next
      * [install] removes the leftover.
      */
-    private fun swapIn() {
-        val hadOld = Files.exists(rootfs.toPath(), LinkOption.NOFOLLOW_LINKS)
-        if (hadOld) Files.move(rootfs.toPath(), old.toPath(), StandardCopyOption.ATOMIC_MOVE)
-        try {
-            Files.move(tmp.toPath(), rootfs.toPath(), StandardCopyOption.ATOMIC_MOVE)
-        } catch (t: Throwable) {
-            if (hadOld) {
-                try {
-                    Files.move(old.toPath(), rootfs.toPath(), StandardCopyOption.ATOMIC_MOVE)
-                } catch (restore: Throwable) {
-                    t.addSuppressed(restore)
-                }
-            }
-            throw t
-        }
-        // The new rootfs is already live; a failed cleanup is retried by the next install.
-        try { deleteTree(old) } catch (_: IOException) {}
-    }
-
-    /** Resolves an archive path under [tmp], rejecting anything that escapes it (tar-slip). */
-    private fun resolve(name: String): Path? {
-        val root = tmp.toPath().toAbsolutePath().normalize()
-        val p = root.resolve(name.trimStart('/')).normalize()
-        if (!p.startsWith(root)) throw IOException("tar entry escapes destination: $name")
-        if (p == root) return null
-        // Never write through a symlink we extracted earlier (absolute links would escape).
-        var parent = p.parent
-        while (parent != null && parent != root) {
-            if (Files.isSymbolicLink(parent)) throw IOException("tar entry passes through symlink: $name")
-            parent = parent.parent
-        }
-        return p
-    }
-
-    private fun extract(tar: TarArchiveInputStream, e: TarArchiveEntry) {
-        val dest = resolve(e.name) ?: return
-        when {
-            e.isDirectory -> {
-                if (!Files.isDirectory(dest, LinkOption.NOFOLLOW_LINKS)) {
-                    Files.deleteIfExists(dest)
-                    Files.createDirectories(dest)
-                }
-                applyMode(dest, e.mode, dir = true)
-            }
-            e.isSymbolicLink -> {
-                Files.createDirectories(dest.parent)
-                Files.deleteIfExists(dest)
-                Files.createSymbolicLink(dest, Paths.get(e.linkName))
-            }
-            e.isLink -> {
-                val target = resolve(e.linkName) ?: throw IOException("bad hard link: ${e.name}")
-                Files.createDirectories(dest.parent)
-                Files.deleteIfExists(dest)
-                try {
-                    Files.createLink(dest, target)
-                } catch (_: IOException) {
-                    Files.copy(target, dest)
-                } catch (_: UnsupportedOperationException) {
-                    Files.copy(target, dest)
-                }
-            }
-            e.isFile -> {
-                Files.createDirectories(dest.parent)
-                Files.deleteIfExists(dest)
-                Files.newOutputStream(dest).use { out -> tar.copyTo(out, BUF) }
-                applyMode(dest, e.mode, dir = false)
-            }
-            else -> Unit // devices / fifos: proot binds /dev, nothing to create
-        }
-    }
-
-    private fun applyMode(p: Path, mode: Int, dir: Boolean) {
-        // Always keep owner rw(x) so the app can still manage the tree; drop setuid/setgid/sticky.
-        val m = (mode and 0b111_111_111) or (if (dir) 0b111_000_000 else 0b110_000_000)
-        val all = PosixFilePermission.values() // OWNER_READ .. OTHERS_EXECUTE, in 0400..0001 order
-        val perms = all.indices.filter { m and (0b100_000_000 shr it) != 0 }.mapTo(HashSet()) { all[it] }
-        try {
-            Files.setPosixFilePermissions(p, perms)
-        } catch (_: UnsupportedOperationException) {
-            if (m and 0b001_000_000 != 0) p.toFile().setExecutable(true, true)
-        }
-    }
+    private fun swapIn() = replaceTree(tmp, rootfs, old)
 
     private class CountingInputStream(i: InputStream) : FilterInputStream(i) {
         var count = 0L
@@ -179,6 +91,108 @@ class RootfsInstaller(
         const val ASSET_NAME = "rootfs.tar.xz"
         const val VERSION_MARKER = "etc/dshm-rootfs-version"
         private const val BUF = 64 * 1024
+
+        /**
+         * Unpacks every entry of [tar] under [dest] (which must exist), calling [onEntry] after each. Rejects entries that
+         * escape [dest] or pass through a symlink unpacked before; keeps owner rw(x) on everything, drops setuid/setgid/sticky.
+         * Also used for the native runtime's Python (NativeRunner).
+         */
+        internal fun extractTar(tar: TarArchiveInputStream, dest: File, onEntry: () -> Unit = {}) {
+            val root = dest.toPath().toAbsolutePath().normalize()
+            var entry = tar.nextEntry
+            while (entry != null) {
+                extract(root, tar, entry as TarArchiveEntry)
+                onEntry()
+                entry = tar.nextEntry
+            }
+        }
+
+        /**
+         * Puts [tmp] in the place of [live] with renames only, so [live] is always either the complete old tree or the
+         * complete new one; the old tree goes to [old] first and is deleted last (a cut-short delete is the caller's to
+         * retry). When the second rename fails, the old tree is put back.
+         */
+        internal fun replaceTree(tmp: File, live: File, old: File) {
+            val hadOld = Files.exists(live.toPath(), LinkOption.NOFOLLOW_LINKS)
+            if (hadOld) Files.move(live.toPath(), old.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            try {
+                Files.move(tmp.toPath(), live.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            } catch (t: Throwable) {
+                if (hadOld) {
+                    try {
+                        Files.move(old.toPath(), live.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                    } catch (restore: Throwable) {
+                        t.addSuppressed(restore)
+                    }
+                }
+                throw t
+            }
+            // The new tree is already live; a failed cleanup is retried by the next install.
+            try { deleteTree(old) } catch (_: IOException) {}
+        }
+
+        /** Resolves an archive path under [root], rejecting anything that escapes it (tar-slip). */
+        private fun resolve(root: Path, name: String): Path? {
+            val p = root.resolve(name.trimStart('/')).normalize()
+            if (!p.startsWith(root)) throw IOException("tar entry escapes destination: $name")
+            if (p == root) return null
+            // Never write through a symlink we extracted earlier (absolute links would escape).
+            var parent = p.parent
+            while (parent != null && parent != root) {
+                if (Files.isSymbolicLink(parent)) throw IOException("tar entry passes through symlink: $name")
+                parent = parent.parent
+            }
+            return p
+        }
+
+        private fun extract(root: Path, tar: TarArchiveInputStream, e: TarArchiveEntry) {
+            val dest = resolve(root, e.name) ?: return
+            when {
+                e.isDirectory -> {
+                    if (!Files.isDirectory(dest, LinkOption.NOFOLLOW_LINKS)) {
+                        Files.deleteIfExists(dest)
+                        Files.createDirectories(dest)
+                    }
+                    applyMode(dest, e.mode, dir = true)
+                }
+                e.isSymbolicLink -> {
+                    Files.createDirectories(dest.parent)
+                    Files.deleteIfExists(dest)
+                    Files.createSymbolicLink(dest, Paths.get(e.linkName))
+                }
+                e.isLink -> {
+                    val target = resolve(root, e.linkName) ?: throw IOException("bad hard link: ${e.name}")
+                    Files.createDirectories(dest.parent)
+                    Files.deleteIfExists(dest)
+                    try {
+                        Files.createLink(dest, target)
+                    } catch (_: IOException) {
+                        Files.copy(target, dest)
+                    } catch (_: UnsupportedOperationException) {
+                        Files.copy(target, dest)
+                    }
+                }
+                e.isFile -> {
+                    Files.createDirectories(dest.parent)
+                    Files.deleteIfExists(dest)
+                    Files.newOutputStream(dest).use { out -> tar.copyTo(out, BUF) }
+                    applyMode(dest, e.mode, dir = false)
+                }
+                else -> Unit // devices / fifos: proot binds /dev, nothing to create
+            }
+        }
+
+        private fun applyMode(p: Path, mode: Int, dir: Boolean) {
+            // Always keep owner rw(x) so the app can still manage the tree; drop setuid/setgid/sticky.
+            val m = (mode and 0b111_111_111) or (if (dir) 0b111_000_000 else 0b110_000_000)
+            val all = PosixFilePermission.values() // OWNER_READ .. OTHERS_EXECUTE, in 0400..0001 order
+            val perms = all.indices.filter { m and (0b100_000_000 shr it) != 0 }.mapTo(HashSet()) { all[it] }
+            try {
+                Files.setPosixFilePermissions(p, perms)
+            } catch (_: UnsupportedOperationException) {
+                if (m and 0b001_000_000 != 0) p.toFile().setExecutable(true, true)
+            }
+        }
 
         /** Recursive delete that never follows symlinks (extracted links may point anywhere). */
         internal fun deleteTree(f: File) {

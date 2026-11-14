@@ -176,6 +176,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             File(applicationInfo.nativeLibraryDir ?: File(filesDir, "no-native-libs").path), File(filesDir, "native"), File(appPaths.userData, "home"), File(cacheDir, "native-tmp"),
             assets = { name -> try { assets.open(name) } catch (_: java.io.IOException) { null } },
             remap = appPaths.binds.map { (host, guest) -> guest to host },
+            log = { errorLog.append("native", it) },
         )
     }
 

@@ -68,7 +68,9 @@
 5. dsh 存圖片時會一路往上 fsync 到根目錄；Android 不准開 `/data/user/0` 這些系統層 → 被拒時回傳一個「同步什麼都不做」的假 handle。
 6. 在相容模式下建立的對話，資料夾記成 `/root/workspace`；原生模式用路徑對應（`DSHN_REMAP`）把它對到手機上真正的位置，所以兩種模式共用同一份對話。
 
-執行檔（node、bash、rg、git）以 `libdshn_*.so` 的名字放在 jniLibs，啟動時在 App 資料夾建符號連結。打包腳本在 `native/`（從 Termux 套件庫抓、鎖版本在 `native/termux.lock`）。
+執行檔（node、bash、rg、git、curl、jq、sqlite3、zip、unzip、python3）以 `libdshn_*.so` 的名字放在 jniLibs，啟動時在 App 資料夾建符號連結。打包腳本在 `native/`（從 Termux 套件庫抓、鎖版本在 `native/termux.lock`）。
+
+**Python（含 pip）**：python3 和它的原生模組（lib-dynload 裡的每個 `.so`，打包成 `libdshn_py_<模組>.so`）跟其他程式一樣放在 jniLibs；純 Python 的標準庫和 pip 是資料，打包成 `assets/native/python.tar.xz`（約 2.6MB，雜湊記在 `manifest.json`）。`NativeRunner.prepare()` 在雜湊變了的時候才解壓到 `files/native/python`（先解到暫存資料夾、驗雜湊、再一次改名換上），然後在 `lib-dynload` 建符號連結指向 jniLibs 的模組（Android 准許經由符號連結 dlopen 原生函式庫資料夾的檔案，不准的只是直接執行 App 資料裡的檔案）。解壓失敗只記錯誤紀錄、python3 不放上 PATH，dsh 照常啟動。環境變數：`PYTHONHOME`、`PYTHONUSERBASE`（App 的 home 下 `.local`）、`PIP_CERT`、`PIP_DISABLE_PIP_VERSION_CHECK`。`site-packages` 設成唯讀，所以 `pip install` 會自己裝到使用者目錄，在 venv 裡則照常裝進 venv（不用 `PIP_USER`，它會讓 venv 裡的安裝失敗）。打包時把 Termux 路徑改掉：`subprocess` 的 shell 改 `/system/bin/sh`、`posixpath.defpath` 改 `/system/bin`、pip 的 `cacert.pem` 換成 App 的憑證檔。限制：沒有編譯器，大部分有 C 擴充的套件裝不起來；沒有 ensurepip 的 wheel，venv 要用 `--without-pip --system-site-packages`。APK 約大 7MB（x86_64：新函式庫壓縮後約 4.2MB＋資產 2.6MB）。
 
 圖片處理用 sharp 的 WebAssembly 版（`@img/sharp-wasm32`），因為 Linux 版的原生模組在 Android node 上載不起來。安裝方式見 `rootfs/inner-setup.sh`（裝在旁邊、只複製缺的檔案，避免 npm 刪掉 dsh 的其他零件）。
 
