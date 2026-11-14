@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * listens on 127.0.0.1 inside the test process. Request bodies are kept for assertions but never logged.
  */
 class FakeModel {
-    enum class Kind { DREAM, SEARCH_BACKEND, TOOL_USE, FOLLOW_UP, HELLO, SLOW, LONG, SEARCH, APPROVE, ASK, SUB, CHILD, FILE, FOLLOWUPS, TODOS, PRESENT, PLAN, SCHEDULE, OTHER }
+    enum class Kind { DREAM, SEARCH_BACKEND, TOOL_USE, FOLLOW_UP, HELLO, SLOW, LONG, SEARCH, APPROVE, ASK, SUB, CHILD, FILE, FOLLOWUPS, TODOS, PRESENT, PLAN, SCHEDULE, TOOL, OTHER }
 
     /** One request the model got. [body] is for assertions only: [toString] leaves it out, so failure logs never carry it. */
     data class Seen(
@@ -140,9 +140,29 @@ class FakeModel {
                 listOf(toolUse("sched", "schedule_create", JSONObject().put("title", "E2E helper").put("prompt", "E2E helper task").put("every_seconds", 7200))),
                 "tool_use",
             )
+            // The tool battery: the prompt names the tool call to make (`E2E_TOOL {"name": ..., "args": {...}}`).
+            Kind.TOOL -> toolCall(parsed)?.let { (name, args) -> sse(listOf(toolUse("tool", name, args)), "tool_use") }
+                ?: sse(listOf(Block.Text("E2E tool: no call in the prompt")), "end_turn")
             Kind.OTHER -> sse(listOf(Block.Text("E2E title")), "end_turn")
         }
     }
+
+    /** One tool result the agent sent back: the `tool_use` it answers, whether dsh marked it an error, and its text. */
+    data class ToolResult(val toolUseId: String, val isError: Boolean, val text: String)
+
+    /** The results of the battery's tool calls (ids `toolu_tool_*`) among the follow-up requests since [from], oldest first. */
+    fun toolResults(from: Int): List<ToolResult> = since(from).filter { it.kind == Kind.FOLLOW_UP }.mapNotNull { seen ->
+        val result = runCatching { JSONObject(seen.body) }.getOrNull()?.let(::lastToolResult) ?: return@mapNotNull null
+        val id = result.optString("tool_use_id")
+        if (!id.startsWith("toolu_tool_")) return@mapNotNull null
+        val content = result.opt("content")
+        val text = when (content) {
+            is String -> content
+            is JSONArray -> (0 until content.length()).mapNotNull { content.optJSONObject(it) }.joinToString("\n") { it.optString("text") }
+            else -> ""
+        }
+        ToolResult(id, result.optBoolean("is_error"), text)
+    }.distinctBy { it.toolUseId }
 
     private fun toolUse(prefix: String, name: String, input: JSONObject) = Block.ToolUse("toolu_${prefix}_${ids.incrementAndGet()}", name, input.toString())
 
@@ -180,6 +200,7 @@ class FakeModel {
             id.startsWith("toolu_present_") -> PRESENT_REPLY
             id.startsWith("toolu_plan_") -> PLAN_REPLY
             id.startsWith("toolu_sched_") -> "E2E helper scheduled"
+            id.startsWith("toolu_tool_") -> TOOL_REPLY
             else -> "ok"
         }
     }
@@ -289,6 +310,9 @@ class FakeModel {
         const val PLAN = "E2E_PLAN"
         const val PLAN_REPLY = "E2E plan done"
         const val MEMORY_PROMPT = "remember the E2E mark"
+        /** Followed by one JSON object `{"name": "<tool>", "args": {...}}`: the model makes exactly that tool call. */
+        const val TOOL = "E2E_TOOL"
+        const val TOOL_REPLY = "E2E tool done"
 
         // What the tests wait for.
         const val SEARCH_REPLY = "Sunny today. [E2E Weather](https://example.com/e2e-weather)"
@@ -310,6 +334,8 @@ class FakeModel {
             val text = lastUserText(request)
             // A subagent's own turn: checked before the tool list, in case dsh gives children fewer tools.
             if (text.contains(CHILD)) return Kind.CHILD
+            // Only a request that carries tool definitions can make the call (title generation repeats the prompt without any).
+            if (text.contains(TOOL) && body.contains("\"input_schema\"")) return Kind.TOOL
             if (!body.contains("\"memory_write\"")) return Kind.OTHER // no agent tool list: title generation and the like
             return when {
                 text.contains(MEMORY_PROMPT) -> Kind.TOOL_USE
@@ -354,6 +380,15 @@ class FakeModel {
                 return blocks.filter { it.optString("type") == "text" }.joinToString("\n") { it.optString("text") }
             }
             return ""
+        }
+
+        /** The tool call an `E2E_TOOL {...}` prompt asks for: the first JSON value after the keyword (text after it is ignored). */
+        private fun toolCall(request: JSONObject?): Pair<String, JSONObject>? {
+            val text = request?.let(::lastUserText) ?: return null
+            val at = text.indexOf(TOOL).takeIf { it >= 0 } ?: return null
+            val call = runCatching { org.json.JSONTokener(text.substring(at + TOOL.length)).nextValue() as? JSONObject }.getOrNull() ?: return null
+            val name = call.optString("name").takeIf { it.isNotEmpty() } ?: return null
+            return name to (call.optJSONObject("args") ?: JSONObject())
         }
 
         /** The one instance of this instrumentation process (started by [E2eRunner]). */
