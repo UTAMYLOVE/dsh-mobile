@@ -51,6 +51,9 @@ jobs:
           cache-dependency-path: plugins/pnpm-lock.yaml
       - run: pnpm -C plugins install --frozen-lockfile
       - run: pnpm -C plugins test
+      # The scripts app skills ship next to their SKILL.md (assets/skills/), e.g. the bookkeeping skill's life.mjs.
+      - name: Skill scripts
+        run: node --test 'android/app/src/test/node/**/*.test.mjs'
 
   rootfs:
     runs-on: ubuntu-latest
