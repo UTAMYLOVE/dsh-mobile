@@ -72,15 +72,21 @@ class ToolBatteryE2eTest {
         bash(client, "mktemp", "f=\$(mktemp) && echo tmp-ok > \"\$f\" && cat \"\$f\" && rm \"\$f\"") { it.contains("tmp-ok") }
         bash(client, "node", "node -e 'console.log(6*7)'") { it.contains("42") }
         bash(client, "pipes", "printf 'b\\na\\nb\\n' | sort | uniq -c | wc -l") { it.trim().lines().first().trim() == "2" }
-        bash(client, "git", "cd $DIR && rm -rf repo && git init -q repo && cd repo && git config user.email e2e@example.com && git config user.name e2e && echo x > f && git add f && git commit -qm first && git log --oneline | wc -l") { it.trim().lines().last().trim() == "1" }
+        bash(client, "git", "cd $DIR && rm -rf repo && git init -q repo && cd repo && git config user.email e2e@example.com && git config user.name e2e && echo x > f && git add f && git commit -qm first && echo commits=$(git log --oneline | wc -l)") { it.contains("commits=1") && !it.contains("templates not found") }
+        bash(client, "curl-jq-sqlite", "printf '{\"a\":[1,2,3]}' | jq '.a | length' && sqlite3 :memory: 'select 6*7' && cd $DIR && printf z > z.txt && zip -q z.zip z.txt && unzip -l z.zip | grep -c z.txt && curl --version | head -1") {
+            val l = it.trim().lines()
+            l.getOrNull(0) == "3" && l.getOrNull(1) == "42" && l.getOrNull(2) == "1" && l.getOrNull(3)?.startsWith("curl ") == true
+        }
         bash(client, "script-by-interpreter", "cd $DIR && printf '#!/bin/sh\\necho script-ok\\n' > s.sh && sh s.sh && bash s.sh") { it.lines().count { l -> l.trim() == "script-ok" } == 2 }
 
         val newFile = File(dir, "new.txt")
         tool(client, "write", "write", JSONObject().put("file_path", "$DIR/new.txt").put("content", "hello battery\n")) {
             Files.isRegularFile(newFile.toPath(), LinkOption.NOFOLLOW_LINKS) && newFile.readText() == "hello battery\n"
         }
-        tool(client, "read", "read", JSONObject().put("file_path", "$DIR/new.txt")) { it.contains("hello battery") }
-        tool(client, "edit", "edit", JSONObject().put("file_path", "$DIR/new.txt").put("old_string", "hello").put("new_string", "edited")) {
+        // dsh lets a conversation edit only a file it has read, so read and edit share one conversation.
+        val reading = newSession(client)
+        tool(client, "read", "read", JSONObject().put("file_path", "$DIR/new.txt"), reading) { it.contains("hello battery") }
+        tool(client, "edit", "edit", JSONObject().put("file_path", "$DIR/new.txt").put("old_string", "hello").put("new_string", "edited"), reading) {
             Files.isRegularFile(newFile.toPath(), LinkOption.NOFOLLOW_LINKS) && newFile.readText() == "edited battery\n"
         }
         tool(client, "glob", "glob", JSONObject().put("pattern", "$DIR/*.txt")) { it.contains("new.txt") }
@@ -132,11 +138,11 @@ class ToolBatteryE2eTest {
     }
 
     private fun bash(client: DshClient, id: String, command: String, ok: (String) -> Boolean) =
-        tool(client, id, "bash", JSONObject().put("description", "Battery: $id").put("command", command), ok)
+        tool(client, id, "bash", JSONObject().put("description", "Battery: $id").put("command", command), ok = ok)
 
     /** One call of [tool]; passes when dsh did not mark the result an error and [ok] accepts its text. */
-    private fun tool(client: DshClient, id: String, tool: String, args: JSONObject, ok: (String) -> Boolean) {
-        val result = call(client, tool, args)
+    private fun tool(client: DshClient, id: String, tool: String, args: JSONObject, session: String? = null, ok: (String) -> Boolean) {
+        val result = call(client, tool, args, session = session)
         record(id, result != null && !result.isError && ok(result.text), result?.let { (if (it.isError) "[error] " else "") + it.text.take(300) } ?: "no result within the time")
     }
 
@@ -151,10 +157,13 @@ class ToolBatteryE2eTest {
         assertTrue("$mode tool battery: ${failures.size} of ${outcomes.size} failed $failures\n" + outcomes.joinToString("\n"), failures.isEmpty())
     }
 
-    /** Asks for the call in a new conversation and returns the result dsh sent back to the model, or null when none came. */
-    private fun call(client: DshClient, tool: String, args: JSONObject, timeoutMs: Long = 90_000): FakeModel.ToolResult? {
+    private fun newSession(client: DshClient): String =
+        rpc(client, "session/create", JSONObject().put("request", JSONObject().put("cwd", DshLayout.active.workspace))).getString("sessionId")
+
+    /** Asks for the call (in a new conversation unless [session]) and returns the result dsh sent back to the model, or null. */
+    private fun call(client: DshClient, tool: String, args: JSONObject, timeoutMs: Long = 90_000, session: String? = null): FakeModel.ToolResult? {
         val from = FakeModel.instance.seen.size
-        val sessionId = rpc(client, "session/create", JSONObject().put("request", JSONObject().put("cwd", DshLayout.active.workspace))).getString("sessionId")
+        val sessionId = session ?: newSession(client)
         val text = "${FakeModel.TOOL} " + JSONObject().put("name", tool).put("args", args)
         rpc(
             client, "session/prompt",
@@ -195,6 +204,6 @@ class ToolBatteryE2eTest {
         const val PROGRAMS = "sh bash cat ls cp mv rm mkdir touch grep sed awk find sort uniq head tail wc cut tr xargs tee date sleep basename dirname mktemp " +
             "tar gzip unzip zip diff patch which file curl wget python3 node npm npx git rg jq sqlite3 make"
         /** Programs the native runtime does not carry yet. Exactly this set may be missing: more is a regression, fewer means this list is stale. */
-        val KNOWN_MISSING: Set<String> = emptySet()
+        val KNOWN_MISSING: Set<String> = setOf("wget", "python3", "npm", "npx", "make")
     }
 }

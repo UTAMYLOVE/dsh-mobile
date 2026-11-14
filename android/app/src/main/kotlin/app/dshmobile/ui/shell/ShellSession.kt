@@ -97,13 +97,26 @@ class ShellSession(
     /** The chat page's cache for conversation [id] (parsed Markdown, open thinking, scroll), kept and evicted with its store. */
     fun chatUi(id: String): ChatUiCache = open(id).ui
 
+    /**
+     * The conversation the shell shows (MainActivity keeps it current). It is never evicted: the dock's STOP and running state
+     * read its store, and a closed store stopped updating (no STOP for the next reply, or STOP stuck after one).
+     */
+    @Volatile var openId: String? = null
+
+    /** A conversation's own choices (思考強度, 審查輪數, when it was last condensed) outlive its evicted store. Under `stores`. */
+    private val keptChoices = HashMap<String, Triple<String?, Int, Long>>()
+
     private fun open(id: String): Open = synchronized(stores) {
-        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensurePreset(id) }, decorate = { parts -> app.dshmobile.chat.ReviewRounds.decorate(synchronized(stores) { stores[id] }?.ui?.reviewRounds ?: 0, parts) }), ChatUiCache()).also { fresh ->
+        stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensurePreset(id) }, decorate = { parts -> app.dshmobile.chat.ReviewRounds.decorate(synchronized(stores) { stores[id] }?.ui?.reviewRounds ?: 0, parts) }), ChatUiCache().also { ui ->
+            keptChoices.remove(id)?.let { (effort, rounds, compacted) -> ui.effort = effort; ui.reviewRounds = rounds; ui.compactedAt = compacted }
+        }).also { fresh ->
             stores[id] = fresh
             if (stores.size > MAX_STORES) {
-                val evictable = stores.entries.filter { it.key != id && it.value.store.pending.value.isEmpty() }
+                val shown = openId
+                val evictable = stores.entries.filter { it.key != id && it.key != shown && it.value.store.pending.value.isEmpty() }
                 evictable.take(stores.size - MAX_STORES).forEach { (key, old) ->
                     stores.remove(key)
+                    keptChoices[key] = Triple(old.ui.effort, old.ui.reviewRounds, old.ui.compactedAt)
                     old.store.close()
                 }
             }

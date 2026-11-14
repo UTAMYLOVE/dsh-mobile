@@ -48,7 +48,7 @@ class NativeRunner(
     /** Creates the bin symlinks and refreshes the shim and certificates; idempotent and cheap enough for every start. */
     fun prepare() {
         val m = requireNotNull(manifest) { "this build has no native runtime" }
-        binDir.mkdirs(); libLinks.mkdirs(); home.mkdirs(); tmpDir.mkdirs()
+        binDir.mkdirs(); libLinks.mkdirs(); home.mkdirs(); tmpDir.mkdirs(); File(baseDir, "git-templates").mkdirs()
         for ((name, lib) in m.bins) link(File(binDir, name), File(nativeLibDir, lib))
         for ((soname, lib) in m.libs) link(File(libLinks, soname), File(nativeLibDir, lib))
         copyAsset("dshn/shim.mjs", shim)
@@ -98,6 +98,8 @@ class NativeRunner(
             put("CURL_CA_BUNDLE", cert.path)
             put("GIT_SSL_CAINFO", cert.path)
             put("GIT_EXEC_PATH", binDir.path)
+            // Termux's git looks for its templates under Termux's prefix and warns on every init; an empty folder is enough.
+            put("GIT_TEMPLATE_DIR", File(baseDir, "git-templates").path)
             put("GIT_CONFIG_NOSYSTEM", "1")
             put("GIT_PAGER", "cat")
             put("PAGER", "cat")

@@ -369,6 +369,7 @@ class MainActivity : ComponentActivity() {
         val connection by connectionFlow.collectAsState()
         // Only whether the open conversation runs reaches the shell (not every streamed token).
         val openId = nav.openSessionId
+        androidx.compose.runtime.SideEffect { session?.openId = openId } // the shown conversation's store is never evicted
         val runningFlow = remember(session, openId) {
             val s = session
             if (s == null || openId == null) flowOf(false) else s.conversation(openId).state.map { it.running }.distinctUntilChanged()

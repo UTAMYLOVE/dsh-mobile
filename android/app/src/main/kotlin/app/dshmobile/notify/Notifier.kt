@@ -112,7 +112,10 @@ class Notifier(private val context: Context) {
      */
     fun workingNotification(work: List<RunningWork>): Notification {
         val first = work.firstOrNull { it.parentId == null } ?: work.firstOrNull()
-        val name = first?.title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
+        // A locked conversation's title is never shown, here as in every other notice (the shade and the lock screen show this one).
+        val topLevel = first?.let { w -> if (w.parentId == null) w.sessionId else work.firstOrNull { it.sessionId == w.parentId }?.sessionId ?: w.sessionId }
+        val name = if (first != null && (isLocked(first.sessionId) || isLocked(topLevel))) LOCKED_TITLE
+            else first?.title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
         val text = if (work.size > 1) "$name 等 ${work.size} 件" else name
         val stop = PendingIntent.getService(
             context, ID_WORK_STOP,

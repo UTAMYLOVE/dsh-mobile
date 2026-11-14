@@ -755,7 +755,8 @@ private fun exportConversation(session: ShellSession, dshApp: app.dshmobile.DshM
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            onMessage(dshApp.getString(R.string.list_export_failed, failureCode(e)))
+            // A toast needs the main thread: from this IO scope the error message itself crashed the app.
+            kotlinx.coroutines.withContext(Dispatchers.Main) { onMessage(dshApp.getString(R.string.list_export_failed, failureCode(e))) }
         }
     }
 }

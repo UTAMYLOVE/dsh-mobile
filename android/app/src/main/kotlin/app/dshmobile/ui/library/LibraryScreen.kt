@@ -111,7 +111,10 @@ fun LibraryScreen(
             BookView(b, store, dsh, onRead = { key -> pageKey = "read:${b.id}|$key" }) { pageKey = "shelf" }
         } ?: LaunchedEffect(Unit) { pageKey = "shelf" }
         is Page.Reader -> data.books.firstOrNull { it.id == page.id }?.let { b ->
-            Reader(b, page.key, data, store, dsh, onKey = { k -> pageKey = "read:${b.id}|$k" }) { pageKey = "book:${b.id}" }
+            // Keyed by the chapter: 下一章 / 上一章 starts the next chapter at its own saved place, not at the last one's offset.
+            androidx.compose.runtime.key(b.id, page.key) {
+                Reader(b, page.key, data, store, dsh, onKey = { k -> pageKey = "read:${b.id}|$k" }) { pageKey = "book:${b.id}" }
+            }
         } ?: LaunchedEffect(Unit) { pageKey = "shelf" }
     }
 }
@@ -322,7 +325,8 @@ private fun Reader(b: Book, key: String, data: LibraryData, store: LibraryStore,
     LaunchedEffect(b.id, key) {
         snapshotFlow { scroll.value }.debounce(400).collect { v ->
             val done = if (scroll.maxValue > 0 && v >= scroll.maxValue - 40) index + 1 else index
-            store.savePosition(b.id, key, v, done)
+            // The library file holds every chapter's text: writing it on the main thread hitched the reading.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { store.savePosition(b.id, key, v, done) }
         }
     }
     Column(Modifier.fillMaxSize().background(bg).padding(LocalPagePadding.current).testTag(Tags.LIB_READER)) {

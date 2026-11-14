@@ -31,6 +31,7 @@ import app.dshmobile.ui.shell.AttachmentChip
 import app.dshmobile.ui.shell.ShellNav
 import app.dshmobile.ui.shell.ShellTab
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -270,14 +271,26 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
      * attachments. [toNew]: a new conversation, sent at once; else the draft waits and the list opens to pick a conversation.
      */
     fun takeShared(message: String, uris: List<Uri>, toNew: Boolean) {
+        // A half-typed draft is not thrown away: sent at once into a new conversation, the shared text goes alone and the draft
+        // comes back afterwards; waiting for a conversation to be picked, the shared text is added below the draft.
+        val draft = composerText.takeIf { it.isNotBlank() && editTarget == null }
         cancelEdit()
-        composerText = message
         if (toNew) {
+            composerText = message
             nav.openSessionId = null
             nav.listOpen = false
             nav.select(ShellTab.CHAT)
-            addPicked(uris) { onDockSend() }
+            addPicked(uris) {
+                onDockSend()
+                if (draft != null) {
+                    app.shellSessions.current.value?.scope?.launch(Dispatchers.Main) {
+                        snapshotFlow { sending }.first { !it } // the shared message has left the dock
+                        if (composerText.isEmpty()) composerText = draft
+                    }
+                }
+            }
         } else {
+            composerText = if (draft != null) draft.trimEnd() + "\n\n" + message else message
             addPicked(uris)
             nav.select(ShellTab.CHAT)
             nav.listTab = "ALL"

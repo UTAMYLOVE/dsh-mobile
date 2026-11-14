@@ -75,9 +75,28 @@ fun rememberWarAgents(tree: SessionTree, recorder: WarRoomRecorder, openId: Stri
     var startedAt by remember { mutableStateOf<Pair<String, Long>?>(null) }
     val running = leadState?.takeIf { it.sessionId == leadId }?.running ?: (leadId?.let { state.summaries[it]?.running } ?: false)
     LaunchedEffect(leadId, running) { startedAt = if (running && leadId != null) leadId to System.currentTimeMillis() else null }
-    return WarRoomBuilder.build(
+    val built = WarRoomBuilder.build(
         state, leadId, leadState?.takeIf { it.sessionId == leadId }, history, now, startedAt?.takeIf { it.first == leadId }?.second,
     )
+    // A locked conversation (not unlocked in this visit) shows no words of its own here, as in the list: no last line, no tool
+    // queries. Its helpers count as part of it.
+    val prefs = (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.conversationPrefs
+    val locked = prefs?.state?.collectAsState()?.value?.locked.orEmpty()
+    val unlocked by app.dshmobile.ui.chat.UnlockedChats.ids.collectAsState()
+    return hideLocked(built, locked - unlocked)
+}
+
+/** [agents] with the words of every agent under a conversation in [hidden] blanked (its label and numbers stay). */
+internal fun hideLocked(agents: List<AgentStatus>, hidden: Set<String>): List<AgentStatus> {
+    if (hidden.isEmpty()) return agents
+    val parentOf = agents.associate { it.id to it.parentId }
+    fun rootOf(id: String): String {
+        var cur = id
+        val seen = HashSet<String>()
+        while (seen.add(cur)) cur = parentOf[cur] ?: return cur
+        return cur
+    }
+    return agents.map { a -> if (a.id in hidden || rootOf(a.id) in hidden) a.copy(lastLine = null, action = null, recent = emptyList()) else a }
 }
 
 /**

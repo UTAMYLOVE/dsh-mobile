@@ -49,8 +49,11 @@ process.dlopen = function dlopen(module, filename, ...rest) {
 }
 
 // 5. The same for programs: dsh's ripgrep (@vscode/ripgrep's Linux binary in the rootfs) runs as Android's ripgrep (DSHN_RG).
+//    Newer @vscode/ripgrep keeps the binary in a per-platform package (@vscode/ripgrep-linux-arm64/bin/rg): without that form
+//    the glob and grep tools ran the glibc build and failed ("ripgrep provider failure", the tool battery, 2026-11-15).
 const rg = process.env.DSHN_RG
-const swap = (file) => (rg && typeof file === 'string' && /[\\/]@vscode[\\/]ripgrep[\\/]bin[\\/]rg$/.test(file) ? rg : file)
+export const RG_PATH = /[\\/]@vscode[\\/]ripgrep(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?[\\/]bin[\\/]rg$/
+const swap = (file) => (rg && typeof file === 'string' && RG_PATH.test(file) ? rg : file)
 for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
   const real = childProcess[name]
   childProcess[name] = function (file, ...rest) { return real.call(this, swap(file), ...rest) }

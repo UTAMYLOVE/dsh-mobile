@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -659,7 +660,8 @@ fun ChatScreen(
     var tocOpen by remember { mutableStateOf(false) }
     // A contents entry to jump to: its message key; older pages load until it is in the list (or there are no more).
     var jumpTo by remember { mutableStateOf<String?>(null) }
-    BackHandler(enabled = menuOpen || moreOpen) { menuOpen = false; moreOpen = false }
+    // Back folds what covers the conversation first (the data panel too), then leaves it.
+    BackHandler(enabled = menuOpen || moreOpen || ui.dataOpen) { menuOpen = false; moreOpen = false; ui.dataOpen = false }
     // A tap on the conversation's empty space folds everything that covers it (the owner, 2026-11-13: 「按空白處介面不會縮回去」):
     // the model menu, the ⋮ row, the data panel and the keyboard.
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
@@ -970,6 +972,8 @@ private fun ChatHeader(title: String, chip: String, onOpenList: () -> Unit, onTo
                 .clickable(role = Role.Button, onClick = onChip)
                 .testTag(Tags.MODEL_CHIP)
                 .semantics { contentDescription = menuLabel }
+                // Bounded, so at a large font the chip cannot take the title's and ⋮'s room (it ellipsizes instead).
+                .widthIn(max = 104.dp)
                 .padding(horizontal = 12.dp, vertical = 5.dp),
             contentAlignment = Alignment.Center,
         ) {
