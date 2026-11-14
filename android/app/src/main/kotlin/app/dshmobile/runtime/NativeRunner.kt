@@ -12,7 +12,7 @@ import java.nio.file.LinkOption
 /**
  * The experimental native mode's launcher: the official dsh (from the rootfs) on Android's own node, no proot.
  *
- * Programs (node, bash, ripgrep, git) and the file-lock addon ship as libdshn_*.so in [nativeLibDir] (native/build-runtime.py;
+ * Programs (node, bash, ripgrep, git, curl, jq, sqlite3, zip, unzip) and the file-lock addon ship as libdshn_*.so in [nativeLibDir] (native/build-runtime.py;
  * Android executes nothing from the app's data). [prepare] puts the programs on PATH by name as symlinks in `native/bin`
  * and copies the shim (`node --import`, see assets/dshn/shim.mjs) and the CA bundle next to them.
  */
@@ -94,6 +94,9 @@ class NativeRunner(
             put("LANG", "C.UTF-8")
             put("SSL_CERT_FILE", cert.path)
             put("NODE_EXTRA_CA_CERTS", cert.path)
+            // Termux's curl and git look for certificates under Termux's own prefix, which the phone does not have.
+            put("CURL_CA_BUNDLE", cert.path)
+            put("GIT_SSL_CAINFO", cert.path)
             put("GIT_EXEC_PATH", binDir.path)
             put("GIT_CONFIG_NOSYSTEM", "1")
             put("GIT_PAGER", "cat")

@@ -198,7 +198,7 @@ class DshControllerTest {
         assertEquals(64, running.token.value.length)
     }
 
-    @Test fun environmentIsExactlyTheSevenVariablesAndHasNoRealKey() = runBlocking {
+    @Test fun environmentIsExactlyTheEightVariablesAndHasNoRealKey() = runBlocking {
         val running = newController().ensureRunning()
         val env = envs.single()
         assertEquals(
@@ -207,6 +207,7 @@ class DshControllerTest {
                 "DSHM_WORKSPACE" to "/root/workspace",
                 "DSH_HOME" to "/root/.dsh",
                 "DSH_TELEMETRY_MODE" to "DISABLED",
+                "DSHM_RUNTIME" to "proot",
                 "DEEPSEEK_API_KEY" to "dshm-proxy",
                 "ANTHROPIC_API_KEY" to "dshm-proxy",
                 "TZ" to "Asia/Taipei",
@@ -227,7 +228,7 @@ class DshControllerTest {
         val env = envs.single()
         assertFalse(env.containsKey("ANTHROPIC_API_KEY"))
         assertEquals("dshm-proxy", env["DEEPSEEK_API_KEY"])
-        assertEquals(6, env.size)
+        assertEquals(7, env.size)
     }
 
     @Test fun patchProviderGetsTheGatewayBaseAndItsTextIsWritten() = runBlocking {

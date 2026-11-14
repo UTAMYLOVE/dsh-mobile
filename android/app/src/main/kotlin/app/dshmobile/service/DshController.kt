@@ -507,6 +507,8 @@ class DshController(
         "DSHM_WORKSPACE" to lay.workspace,
         "DSH_HOME" to lay.dshHome,
         "DSH_TELEMETRY_MODE" to "DISABLED",
+        // What the shell has (the memory plugin's phone note): Android's own programs, or the Debian rootfs.
+        "DSHM_RUNTIME" to if (lay.native) "native" else "proot",
         "DEEPSEEK_API_KEY" to FAKE_KEY,
     ).also { env ->
         if (vault.get(Provider.ANTHROPIC) != null) env["ANTHROPIC_API_KEY"] = FAKE_KEY

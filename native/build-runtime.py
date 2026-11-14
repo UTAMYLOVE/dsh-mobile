@@ -26,6 +26,12 @@ BINS = {
     "rg": "bin/rg",
     "git": "bin/git",
     "git-remote-http": "libexec/git-core/git-remote-http",
+    # Everyday programs a model reaches for in a shell; Android's own toybox covers the rest (ls, sed, find, tar, ...).
+    "curl": "bin/curl",
+    "jq": "bin/jq",
+    "sqlite3": "bin/sqlite3",
+    "zip": "bin/zip",
+    "unzip": "bin/unzip",
 }
 # What Android itself provides to every process (bionic's public libraries).
 SYSTEM_LIBS = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so", "libz.so"}

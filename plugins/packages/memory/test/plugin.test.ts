@@ -124,6 +124,19 @@ describe("plugin shape", () => {
     expect(fake.contexts[1]!.text()).toContain("## memory/2026-11-04.md");
   });
 
+  it("the phone note says what the shell has in each runtime", () => {
+    const native = plugin.phoneNote("native");
+    expect(native).toContain("$TMPDIR");
+    expect(native).toContain("no python");
+    expect(native).toContain("相容模式");
+    expect(native).toContain("設定 → 執行方式 → 權限");
+    expect(native).not.toContain("Debian");
+    const proot = plugin.phoneNote("proot");
+    expect(proot).toContain("Debian");
+    expect(proot).not.toContain("$TMPDIR");
+    expect(plugin.phoneNote(undefined)).toContain("設定 → 代理人");
+  });
+
   it("without webServer the tools still register and no route is attempted", () => {
     const fake = makeCtx({ webServer: false });
     mount(fake);

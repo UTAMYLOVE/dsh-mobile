@@ -239,16 +239,34 @@ function registerRoutes(ctx: PluginCtx, store: MemoryStore): void {
 }
 
 /**
- * What the agent must know about running inside the DSH Mobile app (stage 2 §I.2/§I.3): limits are app settings, dsh's own
- * config is regenerated, workflows have no sandbox here.
+ * What the agent must know about running inside the DSH Mobile app (stage 2 §I.2/§I.3): limits and permissions are app
+ * settings, dsh's own config is regenerated, and what the shell has depends on how dsh runs (`DSHM_RUNTIME`: `native` on
+ * Android's own programs, `proot` in a Debian rootfs).
  */
-export const PHONE_NOTE = [
-  "# Running inside the DSH Mobile Android app",
-  "- Agent limits (concurrent subagents, team size, delegation depth), models and permissions are set by the owner in the app: 設定 → 代理人, then 「套用並重啟」. If a limit stops you, tell the owner which app setting to change. Never edit dsh config files under /opt/dsh or ~/.dsh: the app rewrites them on every start.",
-  "- dsh runs in proot on Android, so the workflow sandbox (workspace-write) is not available. Do not start workflows; do the work directly or dispatch subagents instead.",
-  "- Files you write under the workspace can be shared from the app (對話 → 數據 → 檔案). Long prose replies in a book conversation become chapters on the app's bookshelf.",
-  "- Reply in the owner's language (Traditional Chinese unless asked otherwise).",
-].join("\n");
+export function phoneNote(runtime: string | undefined): string {
+  const lines = [
+    "# Running inside the DSH Mobile Android app",
+    "- Agent limits (concurrent subagents, team size, delegation depth), models and permissions are set by the owner in the app: 設定 → 代理人, then 「套用並重啟」. If a limit stops you, tell the owner which app setting to change. Never edit dsh config files under /opt/dsh or ~/.dsh: the app rewrites them on every start.",
+    "- There is no dsh sandbox on Android; the app decides what needs the owner's approval (設定 → 執行方式 → 權限). Ordinary work in the workspace runs; deleting or writing outside it, sending data to the network, running downloaded code or touching the system may ask the owner first; deleting DSH's own data is always refused. Do not set sandbox_permissions. If a call is refused, say so plainly instead of working around it.",
+    "- Workflows are not supported on the phone. Do the work directly or dispatch subagents instead.",
+  ];
+  if (runtime === "native") {
+    lines.push(
+      "- Commands run on Android's own programs, not Linux: bash, node, git, rg, curl, jq, sqlite3, zip, unzip and Android's toybox (ls, cat, cp, mv, sed, grep, find, sort, tar, gzip, diff ...). There is no python, pip, npm, apt, make or compiler: write scripts in node or bash instead. If a task truly needs Python or Linux packages, tell the owner it works in 設定 → 執行方式 → 相容模式.",
+      "- There is no /tmp: use $TMPDIR. Files in the workspace cannot be executed directly (./run.sh fails): run them with bash run.sh or node run.js.",
+    );
+  } else if (runtime === "proot") {
+    lines.push("- Commands run in a Debian Linux (相容模式): the usual Linux tools are there, and apt can install more.");
+  }
+  lines.push(
+    "- Files you write under the workspace can be shared from the app (對話 → 數據 → 檔案). Long prose replies in a book conversation become chapters on the app's bookshelf.",
+    "- Reply in the owner's language (Traditional Chinese unless asked otherwise).",
+  );
+  return lines.join("\n");
+}
+
+/** The note for the runtime this dsh was started in. */
+export const PHONE_NOTE = phoneNote(process.env.DSHM_RUNTIME);
 
 export function apply(ctx: PluginCtx): void {
   // Keys are managed by the app whether or not memory is usable.

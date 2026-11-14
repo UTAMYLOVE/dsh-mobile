@@ -4,3 +4,5 @@ bash libandroid-support libiconv readline ncurses
 ripgrep pcre2
 git libcurl libnghttp2 libnghttp3 libngtcp2 libssh2
 ca-certificates
+# Everyday programs a model reaches for (2026-11-15, the tool battery): curl, jq, sqlite3, zip, unzip.
+curl jq oniguruma sqlite zip unzip libbz2
