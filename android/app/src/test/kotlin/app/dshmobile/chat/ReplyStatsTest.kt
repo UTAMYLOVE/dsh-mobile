@@ -100,6 +100,36 @@ class ReplyStatsTest {
         assertNull(replyCostUsd(PriceTable(), r.copy(provider = null), Instant.EPOCH))
     }
 
+    /**
+     * The conversation's 花費 (2026-11-15): dsh names DeepSeek's route `deepseek-official`, which was not recognised (no cost at
+     * all for DeepSeek replies), and the cache writes, which Claude bills above the plain input price, were left out.
+     */
+    @Test fun aReplysCostCountsCacheWritesAndKnowsDsh_sProviderNames() {
+        val s = ConversationReducer.reduce(
+            ConversationState("s1"),
+            snap(
+                e("turn/start", 1, 1_000),
+                e("request/context", 2, 1_050, """{"provider":"anthropic","model":"claude-opus-5-5","contextWindow":1000000}"""),
+                e(
+                    "assistant/message", 3, 2_000,
+                    """{"message":{"role":"assistant","content":[{"type":"text","text":"hi"}]},
+                       "usage":{"inputTokens":1000000,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":1000000}}""",
+                ),
+                e("turn/end", 4, 2_100, """{"turn":1,"reason":{"kind":"completed"}}"""),
+            ),
+        )
+        val r = s.replyStats.getValue("e3")
+        assertEquals(1_000_000L, r.cacheWriteTokens)
+        assertEquals(ContextFill(2_000_000, 1_000_000), s.context)
+        assertEquals(4.0 + 5.0, replyCostUsd(PriceTable(), r, Instant.EPOCH)!!, 1e-9)
+        assertTrue(replyLine(r, null), replyLine(r, null).contains("入 2M"))
+        val deepseek = ReplyStats("deepseek-official", "deepseek-flash", 1_000_000, 0, 0, null, 0, null, 1)
+        assertNotNull("deepseek-official is DeepSeek", replyCostUsd(PriceTable(), deepseek, Instant.parse("2026-11-08T12:00:00Z")))
+        assertEquals(app.dshmobile.gateway.Provider.DEEPSEEK, providerOf("deepseek-official"))
+        assertEquals(app.dshmobile.gateway.Provider.ANTHROPIC, providerOf("anthropic"))
+        assertNull(providerOf("openai"))
+    }
+
     @Test fun shortFormats() {
         assertEquals("950", shortTokens(950))
         assertEquals("12.3K", shortTokens(12_340))

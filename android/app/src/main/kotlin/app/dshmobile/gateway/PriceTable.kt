@@ -75,6 +75,7 @@ class PriceTable {
             "deepseek-v4-pro" to DeepseekRates(0.044, 1.32, 3.96),
         )
         val anthropic = mapOf(
+            "claude-fable-5-2" to AnthropicRates(8.0, 40.0, 0.20, 10.0),
             "claude-fable-5-1" to AnthropicRates(10.0, 50.0, 0.25, 12.50),
             "claude-opus-5-5" to AnthropicRates(4.0, 20.0, 0.20, 5.0),
             "claude-sonnet-5-5" to AnthropicRates(2.0, 10.0, 0.20, 2.50),

@@ -98,7 +98,7 @@ internal fun SummaryStrip(input: WarRoomInput, costOf: (AgentStatus) -> Double?)
             Stat("速度 tok/s", speed?.let { String.format(Locale.US, "%.0f", it) } ?: "—", Modifier.weight(1f))
             Stat("用量 tok", shortTokens(tokens), Modifier.weight(1f))
             val today = input.todayUsd
-            Stat(input.alertUsd?.let { String.format(Locale.US, "今日／上限 $%.0f", it) } ?: "今日花費", today?.let { String.format(Locale.US, "$%.2f", it) } ?: "—", Modifier.weight(1.3f))
+            Stat(input.alertUsd?.let { String.format(Locale.US, "今日／提醒 $%.0f", it) } ?: "今日花費", today?.let { String.format(Locale.US, "$%.2f", it) } ?: "—", Modifier.weight(1.3f))
             Stat("這次", spent?.let { if (it < .01) String.format(Locale.US, "$%.4f", it) else String.format(Locale.US, "$%.2f", it) } ?: "—", Modifier.weight(1f))
         }
     }

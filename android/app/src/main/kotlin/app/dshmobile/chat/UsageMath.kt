@@ -91,16 +91,20 @@ fun teamUsage(tree: SessionTreeState, rootId: String): SessionUsage {
 fun allUsage(tree: SessionTreeState): SessionUsage =
     (tree.summaries.keys + tree.projections.keys).fold(SessionUsage()) { a, id -> a + SessionUsage.of(tree.projections[id]) }
 
-fun providerOf(name: String?): Provider? = when (name?.lowercase()) {
-    "deepseek" -> Provider.DEEPSEEK
-    "anthropic", "claude" -> Provider.ANTHROPIC
-    else -> null
+/** dsh names the route's provider (`deepseek-official`, `deepseek`, `anthropic`); the price follows the company. */
+fun providerOf(name: String?): Provider? {
+    val n = name?.lowercase() ?: return null
+    return when {
+        n.startsWith("deepseek") -> Provider.DEEPSEEK
+        n.startsWith("anthropic") || n.startsWith("claude") -> Provider.ANTHROPIC
+        else -> null
+    }
 }
 
 /** The app's own estimate of one reply's cost; null when the provider is unknown. */
 fun replyCostUsd(prices: PriceTable, r: ReplyStats, at: Instant): Double? {
     val p = providerOf(r.provider) ?: return null
-    return prices.costUsd(p, r.model.orEmpty(), Usage(r.inputTokens, r.outputTokens, r.cacheReadTokens), at)
+    return prices.costUsd(p, r.model.orEmpty(), Usage(r.inputTokens, r.outputTokens, r.cacheReadTokens, r.cacheWriteTokens), at)
 }
 
 /** Short token count: 950, 12.3K, 1.2M. */
@@ -125,7 +129,7 @@ fun shortUsd(v: Double): String = when {
 fun replyLine(r: ReplyStats, costUsd: Double?): String = buildList {
     r.tokensPerSecond?.let { add(String.format(Locale.US, "%.0f tok/s", it)) }
     r.ttftMs?.let { add("首字 ${shortDuration(it)}") }
-    add("入 ${shortTokens(r.inputTokens + r.cacheReadTokens)}" + (if (r.cacheReadTokens > 0) "（快取 ${shortTokens(r.cacheReadTokens)}）" else ""))
+    add("入 ${shortTokens(r.inputTokens + r.cacheReadTokens + r.cacheWriteTokens)}" + (if (r.cacheReadTokens > 0) "（快取 ${shortTokens(r.cacheReadTokens)}）" else ""))
     add("出 ${shortTokens(r.outputTokens)}")
     costUsd?.let { add(shortUsd(it)) }
     r.durationMs?.let { add("共 ${shortDuration(it)}") }

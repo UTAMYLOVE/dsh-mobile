@@ -40,6 +40,8 @@ data class ReplyStats(
     val decodeMs: Long,
     val durationMs: Long?,
     val steps: Int,
+    /** Prompt tokens written to the provider's cache (dsh's counts are disjoint: billed input = input + cache read + cache write). */
+    val cacheWriteTokens: Long = 0,
 ) {
     /** Output tokens per second while generating; null when too short to measure. */
     val tokensPerSecond: Double? get() = if (decodeMs >= MIN_DECODE_MS && outputTokens > 0) outputTokens * 1000.0 / decodeMs else null
@@ -63,6 +65,7 @@ data class TurnAcc(
     val input: Long = 0,
     val output: Long = 0,
     val cacheRead: Long = 0,
+    val cacheWrite: Long = 0,
     val ttftMs: Long? = null,
     val decodeMs: Long = 0,
     val steps: Int = 0,

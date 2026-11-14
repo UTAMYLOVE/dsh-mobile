@@ -282,6 +282,7 @@ object ConversationReducer {
         val acc = state.turn ?: TurnAcc()
         val input = usage.num("inputTokens") ?: 0
         val cacheRead = usage.num("cacheReadTokens") ?: 0
+        val cacheWrite = usage.num("cacheWriteTokens") ?: 0
         val firstChunk = (data["stream"] as? JsonArray)?.firstNotNullOfOrNull { r ->
             (r as? JsonObject)?.let { it.num("time") ?: it.num("time0") }
         }
@@ -291,12 +292,13 @@ object ConversationReducer {
             input = acc.input + input,
             output = acc.output + (usage.num("outputTokens") ?: 0),
             cacheRead = acc.cacheRead + cacheRead,
+            cacheWrite = acc.cacheWrite + cacheWrite,
             ttftMs = ttft,
             decodeMs = acc.decodeMs + decode,
             steps = acc.steps + 1,
             lastAssistant = seq?.let { "e$it" } ?: acc.lastAssistant,
         )
-        return state.copy(turn = next, context = ContextFill(input + cacheRead, acc.window ?: state.context?.window))
+        return state.copy(turn = next, context = ContextFill(input + cacheRead + cacheWrite, acc.window ?: state.context?.window))
     }
 
     /** At `turn/end`, files the folded turn under its last assistant item. */
@@ -313,6 +315,7 @@ object ConversationReducer {
             decodeMs = acc.decodeMs,
             durationMs = if (time != null && acc.startMs != null) (time - acc.startMs).coerceAtLeast(0) else null,
             steps = acc.steps,
+            cacheWriteTokens = acc.cacheWrite,
         )
         return state.copy(turn = null, replyStats = state.replyStats + (key to stats))
     }
