@@ -37,9 +37,13 @@ data class DshLayout(
             pluginDir = "/opt/dshm/plugins",
             patchFile = "/opt/dshm/dshm.cordis.yml",
             dshEntry = "/opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js",
-            // The rootfs' node, without the proot loader's LD_LIBRARY_PATH.
-            node = listOf("/usr/bin/env", "-u", "LD_LIBRARY_PATH", "node"),
+            // The rootfs' node, without the proot loader's LD_LIBRARY_PATH, and with the hard-link fix (assets/dshn/proot-link.mjs).
+            node = listOf("/usr/bin/env", "-u", "LD_LIBRARY_PATH", "node", "--import", "file:///opt/dshm/proot-link.mjs"),
         )
+
+        /** Where the proot hard-link fix is inside the rootfs (written before every start), and its asset. */
+        const val PROOT_LINK = "/opt/dshm/proot-link.mjs"
+        const val PROOT_LINK_ASSET = "dshn/proot-link.mjs"
 
         /** Native: the host paths; [dshDir] is the active version's directory in the rootfs (rootfs/opt/dsh/<version>). */
         fun native(paths: AppPaths, dshDir: File, node: List<String>, shellPath: String) = DshLayout(

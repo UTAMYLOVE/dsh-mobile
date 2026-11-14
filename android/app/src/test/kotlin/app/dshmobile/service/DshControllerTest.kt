@@ -264,7 +264,7 @@ class DshControllerTest {
         assertEquals(
             listOf(
                 "/usr/bin/env", "-u", "LD_LIBRARY_PATH",
-                "node", "/opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js",
+                "node", "--import", "file:///opt/dshm/proot-link.mjs", "/opt/dsh/current/node_modules/@deepseek-ai/dsh/lib/bin.js",
                 "--profile", "web", "--patch", "/opt/dshm/dshm.cordis.yml",
                 "--no-open", "--host", "127.0.0.1", "--port", "0",
             ),

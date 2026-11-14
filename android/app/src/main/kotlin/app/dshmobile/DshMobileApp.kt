@@ -278,6 +278,8 @@ class DshMobileApp : Application(), Configuration.Provider {
             upstreams = upstreamsOverride ?: DshController.DEFAULT_UPSTREAMS,
             beforeLaunch = {
                 appPaths.ensureUserDirs()
+                // 相容模式's node loads this before dsh (DshLayout.PROOT): proot's fake hard links broke new files.
+                installAsset(DshLayout.PROOT_LINK_ASSET, File(appPaths.rootfs, DshLayout.PROOT_LINK.removePrefix("/")))
                 // A rootfs upgrade resets dsh to its bundled version: a `current` link to a version that is gone goes back to it.
                 try {
                     dshVersions.current()
@@ -289,6 +291,20 @@ class DshMobileApp : Application(), Configuration.Provider {
             afterHealthy = { launch -> workspaces.ensure(launch) },
             killer = processKiller,
         )
+    }
+
+    /** Copies an app asset to [dst] when it differs (atomic: temp file, then rename); a failure is logged, not thrown. */
+    private fun installAsset(name: String, dst: File) {
+        try {
+            val bytes = assets.open(name).use { it.readBytes() }
+            if (dst.isFile && dst.readBytes().contentEquals(bytes)) return
+            dst.parentFile?.mkdirs()
+            val tmp = File(dst.path + ".tmp")
+            tmp.writeBytes(bytes)
+            if (!tmp.renameTo(dst)) { dst.delete(); tmp.renameTo(dst) }
+        } catch (e: java.io.IOException) {
+            errorLog.append("controller", "could not install $name: ${e.javaClass.simpleName}")
+        }
     }
 
     /** dsh versions under the rootfs' /opt/dsh (guest commands run through proot); the main screen's rollback uses it. */
