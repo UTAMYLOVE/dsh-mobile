@@ -8,6 +8,10 @@
 // when the target exists, as link does) plus an fsync. dsh only links to publish without replacing, never to share a file.
 import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
+import { install as reviewJson } from './review-json.mjs'
+
+// Auto review's verdict is read from the reviewer's answer even when the model wrapped it in a sentence (review-json.mjs).
+reviewJson()
 
 const copy = async (existing, target) => {
   await fs.promises.copyFile(existing, target, fs.constants.COPYFILE_EXCL)

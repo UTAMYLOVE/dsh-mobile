@@ -44,6 +44,9 @@ data class DshLayout(
         /** Where the proot hard-link fix is inside the rootfs (written before every start), and its asset. */
         const val PROOT_LINK = "/opt/dshm/proot-link.mjs"
         const val PROOT_LINK_ASSET = "dshn/proot-link.mjs"
+        /** Imported by both the native shim and [PROOT_LINK]: Auto review's verdict found in the reviewer's answer. */
+        const val REVIEW_JSON_ASSET = "dshn/review-json.mjs"
+        const val PROOT_REVIEW_JSON = "/opt/dshm/review-json.mjs"
 
         /** Native: the host paths; [dshDir] is the active version's directory in the rootfs (rootfs/opt/dsh/<version>). */
         fun native(paths: AppPaths, dshDir: File, node: List<String>, shellPath: String) = DshLayout(

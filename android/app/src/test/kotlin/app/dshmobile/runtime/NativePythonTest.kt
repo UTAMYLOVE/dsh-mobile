@@ -70,7 +70,7 @@ class NativePythonTest {
     private fun runner(archive: ByteArray, sha: String = sha256(archive), libs: File = libDir, modules: String = MODULES): NativeRunner {
         val assets = mapOf(
             "native/manifest.json" to manifest(sha, modules).toByteArray(), "native/python.tar.xz" to archive,
-            "dshn/shim.mjs" to "// shim".toByteArray(), "dshn/require-builtin.cjs" to "//".toByteArray(), "native/ca-bundle.crt" to "CERT".toByteArray(),
+            "dshn/shim.mjs" to "// shim".toByteArray(), "dshn/require-builtin.cjs" to "//".toByteArray(), "dshn/review-json.mjs" to "//".toByteArray(), "native/ca-bundle.crt" to "CERT".toByteArray(),
         )
         return NativeRunner(libs, base, home, File(tmp.root, "tmp"), assets = { name -> opened += name; assets[name]?.inputStream() }, niceBinary = null, log = { logged += it })
     }
@@ -188,7 +188,7 @@ class NativePythonTest {
         assertNull("PIP_USER would break every install in a venv", env["PIP_USER"])
 
         val noPython = """{"bins":{"node":"libdshn_bin_node.so","bash":"libdshn_bin_bash.so"},"libs":{},"flock":"libdshn_flock.so"}"""
-        val assets = mapOf("native/manifest.json" to noPython, "dshn/shim.mjs" to "//", "dshn/require-builtin.cjs" to "//", "native/ca-bundle.crt" to "C")
+        val assets = mapOf("native/manifest.json" to noPython, "dshn/shim.mjs" to "//", "dshn/require-builtin.cjs" to "//", "dshn/review-json.mjs" to "//", "native/ca-bundle.crt" to "C")
         val old = NativeRunner(libDir, File(tmp.root, "native-old"), home, File(tmp.root, "tmp"), assets = { assets[it]?.byteInputStream() }, niceBinary = null)
         old.prepare()
         assertNull(old.command(old.node(), emptyMap(), File(tmp.root, "ws")).environment()["PYTHONHOME"])

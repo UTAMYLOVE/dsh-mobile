@@ -72,6 +72,7 @@ class NativeRunner(
         for ((soname, lib) in m.libs) link(File(libLinks, soname), File(nativeLibDir, lib))
         copyAsset("dshn/shim.mjs", shim)
         copyAsset("dshn/require-builtin.cjs", File(baseDir, "require-builtin.cjs"))
+        copyAsset(DshLayout.REVIEW_JSON_ASSET, File(baseDir, "review-json.mjs"))
         copyAsset("native/ca-bundle.crt", cert)
         val py = m.python ?: return
         val ready = try {

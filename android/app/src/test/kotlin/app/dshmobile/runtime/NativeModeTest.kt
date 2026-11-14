@@ -72,7 +72,7 @@ class NativeModeTest {
         val libDir = tmp.newFolder("lib")
         for (f in listOf("libdshn_bin_node.so", "libdshn_bin_bash.so", "libdshn_flock.so", "libdshn_libz_so_1.so")) File(libDir, f).writeText("elf")
         val manifest = """{"bins":{"node":"libdshn_bin_node.so","bash":"libdshn_bin_bash.so"},"libs":{"libz.so.1":"libdshn_libz_so_1.so"},"flock":"libdshn_flock.so"}"""
-        val assets = mapOf("native/manifest.json" to manifest, "dshn/shim.mjs" to "// shim", "dshn/require-builtin.cjs" to "//", "native/ca-bundle.crt" to "CERT")
+        val assets = mapOf("native/manifest.json" to manifest, "dshn/shim.mjs" to "// shim", "dshn/require-builtin.cjs" to "//", "dshn/review-json.mjs" to "// review", "native/ca-bundle.crt" to "CERT")
         val base = File(tmp.root, "native")
         val runner = NativeRunner(libDir, base, File(tmp.root, "home"), File(tmp.root, "tmp"), assets = { assets[it]?.byteInputStream() }, niceBinary = null)
         assertTrue(runner.available)
@@ -80,6 +80,8 @@ class NativeModeTest {
         runner.prepare() // idempotent
         assertEquals(File(libDir, "libdshn_bin_node.so").toPath(), Files.readSymbolicLink(File(base, "bin/node").toPath()))
         assertEquals("// shim", File(base, "shim.mjs").readText())
+        // The shim imports review-json.mjs from its own folder (Auto review's verdict, assets/dshn/review-json.mjs).
+        assertEquals("// review", File(base, "review-json.mjs").readText())
         val node = runner.node()
         assertEquals(File(libDir, "libdshn_bin_node.so").path, node[0])
         assertEquals(listOf("--import", File(base, "shim.mjs").toURI().toString(), "--expose-internals"), node.drop(1))

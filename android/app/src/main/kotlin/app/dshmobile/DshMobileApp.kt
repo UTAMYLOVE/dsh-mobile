@@ -282,6 +282,7 @@ class DshMobileApp : Application(), Configuration.Provider {
             beforeLaunch = {
                 appPaths.ensureUserDirs()
                 // 相容模式's node loads this before dsh (DshLayout.PROOT): proot's fake hard links broke new files.
+                installAsset(DshLayout.REVIEW_JSON_ASSET, File(appPaths.rootfs, DshLayout.PROOT_REVIEW_JSON.removePrefix("/")))
                 installAsset(DshLayout.PROOT_LINK_ASSET, File(appPaths.rootfs, DshLayout.PROOT_LINK.removePrefix("/")))
                 // A rootfs upgrade resets dsh to its bundled version: a `current` link to a version that is gone goes back to it.
                 try {

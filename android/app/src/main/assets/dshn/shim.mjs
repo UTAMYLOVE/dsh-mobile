@@ -3,6 +3,7 @@
 import fs from 'node:fs'
 import childProcess from 'node:child_process'
 import { registerHooks, syncBuiltinESMExports } from 'node:module'
+import { install as reviewJson } from './review-json.mjs'
 
 // 1. Android's node reports process.platform "android"; dsh (file lock, process inspector, platform packages) knows "linux".
 //    The kernel is Linux, so the launcher presents it as such.
@@ -112,4 +113,7 @@ if (remaps.length > 0) {
   const realChdir = process.chdir
   process.chdir = function chdir(dir) { return realChdir.call(this, map(dir)) }
 }
+// 7. Auto review's verdict is read from the reviewer's answer even when the model wrapped it in a sentence (review-json.mjs).
+reviewJson()
+
 syncBuiltinESMExports()
