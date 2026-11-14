@@ -21,6 +21,8 @@ import java.nio.file.StandardCopyOption
  */
 class AgentConfigWriter(
     private val dshHome: File,
+    /** Opens an app asset (null when it is not there): the files skills ship next to their SKILL.md ([AppSkills.files]). */
+    private val assets: (String) -> java.io.InputStream? = { null },
 ) {
     private val packageJson get() = File(dshHome, "profiles/web/package.json")
 
@@ -63,7 +65,7 @@ class AgentConfigWriter(
     fun ensureAutoReviewBundle(enabled: Boolean): Boolean = ensureBundle(AUTO_REVIEW_BUNDLE, enabled)
 
     /** The app's skills in dsh's skill root (stage 2 batch 2). */
-    fun installSkills() = AppSkills.install(dshHome)
+    fun installSkills() = AppSkills.install(dshHome, assets)
 
     private fun ensureBundle(name: String, enabled: Boolean): Boolean {
         fun isIt(e: kotlinx.serialization.json.JsonElement) = e is JsonPrimitive && e.isString && e.content == name

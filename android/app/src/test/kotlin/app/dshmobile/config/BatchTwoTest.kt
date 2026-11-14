@@ -15,7 +15,7 @@ class BatchTwoTest {
         // The superpowers port an earlier build installed (removed 2026-11-10) goes with the next start.
         File(home, "skills/dshm-sp-brainstorming/references/x.md").apply { parentFile.mkdirs(); writeText("old") }
         File(home, "skills/mine/SKILL.md").apply { parentFile.mkdirs(); writeText("owner's") }
-        AppSkills.install(home)
+        AppSkills.install(home) { null }
         assertFalse(File(home, "skills/dshm-sp-brainstorming").exists())
         val novel = File(home, "skills/dshm-novel/SKILL.md").readText()
         assertTrue(novel.startsWith("---\nname: dshm-novel\ndescription: "))

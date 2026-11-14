@@ -699,6 +699,8 @@ class E2eTest {
             val f = java.io.File(app.appPaths.dshHome, "skills/$name/SKILL.md")
             assertTrue("$name is installed", f.isFile && f.readText().startsWith("---\nname: $name"))
         }
+        // Files a skill ships come from the app's assets: the bookkeeping skill's script.
+        assertTrue("life.mjs is installed", java.io.File(app.appPaths.dshHome, "skills/dshm-bookkeeping/life.mjs").length() > 1000)
         // The superpowers port is gone (the owner, 2026-11-10): none of its folders is left.
         assertTrue(java.io.File(app.appPaths.dshHome, "skills").list().orEmpty().none { it.startsWith("dshm-sp-") })
     }

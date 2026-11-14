@@ -90,6 +90,8 @@ dsh 支援 `--patch <yml>` 覆蓋設定。`DshPatch.kt` 產生這份 YAML：
 
 `AppSkills.kt` 把 App 的技能寫成 dsh 的 `SKILL.md`（`$DSH_HOME/skills/dshm-*`）：記帳、小說、每日簡報、天氣、畫圖（SVG）、成品、深度研究、沉思（三方意見）、對話卡片、生圖等。技能平常只有標題佔 AI 的注意力，用到才讀全文。寫法原則：講清楚要什麼結果，不寫「必須」「第一步第二步」這種命令式寫法（新一代模型會過度照做）。
 
+技能也可以在 `SKILL.md` 旁邊附檔案（`AppSkills.files`，內容來自 `assets/skills/<技能>/`，每次啟動有變才重寫，不再附的就刪掉）。記帳技能（生活紀錄：記帳、熱量、運動、體重、Uber 週結算）附 `life.mjs`：所有加總、預算、分桶、熱量都由它算，AI 不心算；資料是工作區 `生活/` 裡的 CSV 和 `設定.json`（所有數字和清單都能改，沒改就用預設值）。AI 用 `node "$DSH_HOME/skills/dshm-bookkeeping/life.mjs" <指令>` 呼叫，路徑保留變數，權限守門才不會每次都問。
+
 ### 2.4 金鑰與花費（`gateway/`、`security/`）
 
 - `KeyVault`：Android Keystore 加密保存 DeepSeek、Claude、氣象署金鑰。
@@ -183,6 +185,7 @@ dsh 會一直更新。只在外面加轉接層，升級 dsh 時只要確認轉�
 - 模擬器整合測試在 CI 跑（`.github/workflows/ci.yml` 的 e2e 工作，`androidTest/` 裡的 `E2eTest`、`NativeModeE2eTest`；用 `FakeModel` 假裝模型回答）。
 - 發版：`release.yml`，推一個 `v<版本>+<版本號>` 標籤觸發；可以先用 `dry_run` 試打包。
 - dsh 插件：`plugins/`（pnpm、vitest）。
+- 技能附的腳本：`node --test 'android/app/src/test/node/**/*.test.mjs'`（`life.mjs` 的測試，假資料在 `fixtures/`）。
 - 相容模式的 Debian 映像：`rootfs/build-rootfs.sh`；原生執行環境：`native/build.sh`。
 
 ## 7. 讀程式碼建議的順序

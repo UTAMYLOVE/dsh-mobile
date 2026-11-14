@@ -1,14 +1,33 @@
 package app.dshmobile.config
 
 import java.io.File
+import java.io.InputStream
 
 /**
  * Skills the app ships to dsh (stage 2 batch 2 「讓 dsh 進化」), through dsh's official skill root `$DSH_HOME/skills/<name>/SKILL.md`
  * (dsh-skill-filesystem). Only folders named `dshm-*` are the app's: they are rewritten on every start and removed when the app
- * no longer ships them; anything else in that folder is the owner's and never touched.
+ * no longer ships them; anything else in that folder is the owner's and never touched. A skill may also ship files next to its
+ * SKILL.md ([files], from the app's assets); inside a `dshm-*` folder every other file is removed.
  */
 object AppSkills {
     const val PREFIX = "dshm-"
+
+    /** Where a shipped file is in the app's assets: `skills/<skill>/<file>`. */
+    const val ASSET_DIR = "skills"
+
+    /**
+     * Files shipped next to a skill's SKILL.md, by skill (plain file names). The bookkeeping skill's `life.mjs` does every sum, so
+     * the model never does arithmetic; the skill calls it as `node "$DSH_HOME/skills/dshm-bookkeeping/life.mjs"`.
+     */
+    val files: Map<String, List<String>> = mapOf("dshm-bookkeeping" to listOf("life.mjs"))
+
+    fun assetPath(skill: String, file: String): String = "$ASSET_DIR/$skill/$file"
+
+    /**
+     * How the bookkeeping skill runs its script. `$DSH_HOME` stays a variable: the guard plugin asks the owner before a command
+     * that names a path outside the workspace, and dsh's home is one, so a spelled-out path would ask on every entry.
+     */
+    private const val LIFE = "node \"\$DSH_HOME/skills/dshm-bookkeeping/life.mjs\""
 
     val all: Map<String, String> = linkedMapOf(
         "dshm-followups" to skill(
@@ -110,22 +129,76 @@ object AppSkills {
         ),
         "dshm-bookkeeping" to skill(
             "dshm-bookkeeping",
-            "Record expenses and income the owner tells you into monthly CSV files in the workspace and summarise them.",
+            "Life records: expenses and income, food and calories, home workouts, body weight and Uber driver weekly statements, kept as CSV files in 生活/; every total, budget, split and calorie sum comes from the life.mjs script, never from mental arithmetic.",
             """
-            # 記帳
-            主人說「午餐 120」「收入 3000 薪水」「這個月花多少」時使用。
-            - 帳本是工作區的 `帳本/YYYY-MM.csv`（台北時間的月份），第一行標題 `日期,類別,項目,金額,備註`；支出寫負數，收入寫正數。
-            - 記一筆：選類別（餐飲、交通、購物、居家、娛樂、醫療、收入、其他），在檔案最後加一行，回一句確認（例如「已記：餐飲 午餐 -120」）。金額或項目聽不清楚就先問，因為記錯比多問一句麻煩。舊紀錄只有主人明說才改。
-            - 統計：讀當月 CSV，給總支出、總收入、各類別小計、和上個月的比較。加總用工具算（例如 node），不要心算。
-            - 帳本是主人的私人資料，只留在工作區：不寫進記憶，不傳到網路上。
-            - 記完一筆，在回覆最後加這個區塊，App 會把它變成一張記帳卡片（主人看不到區塊本身）：
+            # 生活紀錄（記帳、吃了什麼、運動、體重）
+            使用者隨口說的花費、收入、吃的東西、運動和體重，都記在工作區的 `生活/` 資料夾（一般的 CSV，他可以自己打開、匯出）。他想知道今天、這個月的狀況時，給他看結果。
+
+            所有的數字都由工具算：加總、剩多少、比例、分桶、熱量、和上個月比。自己心算的數字容易錯，不寫進回覆。
+            ```
+            $LIFE <指令>
+            ```
+            照這樣寫 `${'$'}DSH_HOME`，不要換成展開後的完整路徑（完整路徑每次都會跳出權限詢問）。工具印出的句子可以直接用在回覆裡；加 --json 會輸出 JSON。
+
+            ## 記下來
+            一句話常常有好幾筆：「早餐蛋餅 45、午餐雞腿便當 120、晚上珍奶 60」是三筆帳，吃的東西也同時記熱量。全部放進同一次 add（JSON 陣列）：
+            ```
+            $LIFE add '[{"表":"帳","金額":120,"分類":"午餐","內容":"雞腿便當"},{"表":"熱量","餐別":"午餐","內容":"雞腿便當","熱量":[700,850],"蛋白質":35}]'
+            ```
+
+            - 帳：金額（正數）、分類、內容；類型是 支出（沒寫就是）、收入 或 轉帳；可以加 帳戶、桶、日期（今天、昨天、11/14）、時間、備註。分類從設定裡的清單挑最接近的。
+            - 熱量：餐別、內容、熱量 [下限, 上限]，可以加 蛋白質、脂肪、碳水（公克）和 份數。熱量給誠實的範圍：一個便當 700–850 比 783 誠實，不確定就放寬。我的食物庫有的東西可以不給熱量，工具會用使用者自己的數字。
+            - 健身：動作、組數、次數或秒數（15 或 "60秒"）。
+            - 體重：體重（公斤），可以加體脂（%）。
+            金額、日期或吃了什麼聽不清楚，先問一句再記。內容裡有單引號時，改用 <<'EOF' 把 JSON 從 stdin 傳進去。
+
+            記好之後，回覆照工具印的確認行，一筆一行，最後一句告訴他打錯了說「刪掉」就好。工具印出的記帳卡片區塊放在回覆最後，App 會把它變成卡片（使用者看不到區塊本身），像這樣：
 
             <!--dshm-card ledger
-            項目: 午餐
+            項目: 雞腿便當
             金額: -120
-            類別: 餐飲
+            類別: 午餐
             本月支出: -5,480
             -->
+
+            工具沒有記、而是說：
+            - 同一天已經有一模一樣的：問使用者是不是重複。他說真的又買了一次，才加 --force 再記。
+            - 舊格式的檔案（先前的記帳技能寫的）：問他要不要升級，舊資料會備份；同意了才執行 migrate --yes，再記一次。
+            - 某個欄位看不懂：照工具說的改好再試。
+            工具印的「提示」也轉告使用者：某樣東西記過好幾次，問他要不要存進「我的食物庫」（food learn 名稱），之後就用他自己的數字；分類不在清單裡，問他要不要加進去。
+
+            ## 刪掉、改
+            - 「刪掉」「剛剛那筆不對」：undo 編號（編號在確認行裡；找不到就用 recent 看最近幾筆）。
+            - 「改成 150」「那是昨天的」：edit 編號 '{"金額":150}'、edit 編號 '{"日期":"昨天"}'。
+            舊紀錄只有使用者明說才動。
+
+            ## 看結果
+            - 今天花多少、還能吃多少：today（或 today 昨天）
+            - 這個月、月結、跟上個月比：month（或 month 2026-10）
+            - 某樣東西花了多少：find 咖啡 --month 2026-11
+            - 收入怎麼分、桶還剩多少：buckets（或 buckets --income 30000）
+            回覆挑重點，不用整段貼；月結那一句可以直接用。
+
+            ## 每個人都不一樣，什麼都能改
+            settings 看全部設定；set 改，可以一次改好幾個：
+            - 預算：set 每月預算 15000 分類預算.手搖飲 1500
+            - 分類、帳戶、餐別：set 支出分類 +寵物、set 支出分類 -宵夜、set 帳戶 +郵局、set 預設帳戶 郵局
+            - 桶（收入照比例分，例如生活費 92%、娛樂費 8%）：set 桶 '[{"名稱":"生活費","比例":92},{"名稱":"娛樂費","比例":8}]'；哪個分類花哪個桶：set 分類對應桶.手搖飲 娛樂費
+            - 熱量目標：填了身高、體重、年齡、性別、活動量（久坐、輕度、中度、高度）、目標（減重、維持、增肌）會自動算，例如 set 身體.身高 165 身體.體重 60 身體.年齡 28 身體.性別 女；也可以直接 set 熱量目標.熱量 1800
+            - 功能開關：set 功能.熱量 false（關掉的就不記也不顯示）；外送工具預設關著，傳 Uber 結算單時照樣能算
+            - 每天提醒：set 提醒.開啟 true 提醒.時間 21:30，再用排程工具建立每天這個時間的提醒；關掉時把排程也刪掉
+            設定檔是 `生活/設定.json`，使用者也可以自己改。
+
+            ## 飲食建議的分寸
+            建議溫和、做得到。不建議斷食、每天低於 1200 大卡或低於基礎代謝、催吐、瀉藥、一週掉超過 1 公斤這類做法；使用者想吃很少時，說明風險，建議先問醫師或營養師。懷孕、生病、未成年或提到飲食困擾時，只幫忙記錄，不給減重建議。
+
+            ## Uber 外送週結算
+            使用者傳 Uber 的週結算 PDF 時，用 read 讀出全部文字，存成 `生活/外送/結算-2026-11-16.txt`（日期用那一週的最後一天），再執行 uber --file 生活/外送/結算-2026-11-16.txt。
+            工具會給期初餘額、收入（車費、其他收入、小費）、收的現金、期末餘額（負的就是要轉給 Uber 的錢），並核對加總；對不上的地方照實告訴使用者，不要自己猜數字。
+            外送法的每單保底只是估算，回覆時要說是估算；最低時薪、每單 45 元這些數字可以改（set 外送.最低時薪 196、set 外送.每單保底 45）。工具最後給的記帳指令，問過使用者再執行。
+
+            ## 隱私
+            這些是使用者的私人資料：只放在工作區，不寫進記憶，不傳到網路上。
             """,
         ),
         "dshm-phone" to skill(
@@ -230,20 +303,34 @@ object AppSkills {
     internal fun descriptionOf(skillText: String): String? =
         Regex("""^---\nname: [a-z0-9-]+\ndescription: "((?:[^"\\]|\\.)*)"\n---\n""").find(skillText)?.groupValues?.get(1)
 
-    /** Writes every app skill under [dshHome]`/skills` and removes `dshm-*` folders the app no longer ships. Never throws. */
-    fun install(dshHome: File) {
+    /**
+     * Writes every app skill under [dshHome]`/skills` with the files it ships ([files], opened through [asset] by [assetPath]),
+     * removes every other file inside a `dshm-*` folder, and removes `dshm-*` folders the app no longer ships. A shipped file whose
+     * asset cannot be read keeps the copy from an earlier start. Only changed files are written (a temporary file, then a rename).
+     * Never throws.
+     */
+    fun install(dshHome: File, asset: (String) -> InputStream?) {
         runCatching {
             val root = File(dshHome, "skills").apply { mkdirs() }
-            for ((name, text) in all) {
+            for ((name, text) in all) runCatching {
                 val dir = File(root, name).apply { mkdirs() }
-                val file = File(dir, "SKILL.md")
-                if (!file.isFile || file.readText() != text) {
-                    val tmp = File(dir, "SKILL.md.tmp")
-                    tmp.writeText(text)
-                    if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+                writeIfChanged(File(dir, "SKILL.md"), text.toByteArray(Charsets.UTF_8))
+                val shipped = files[name].orEmpty()
+                for (file in shipped) {
+                    val bytes = runCatching { asset(assetPath(name, file))?.use { it.readBytes() } }.getOrNull() ?: continue
+                    writeIfChanged(File(dir, file), bytes)
                 }
+                val keep = shipped.toSet() + "SKILL.md"
+                dir.listFiles()?.filter { it.name !in keep }?.forEach { it.deleteRecursively() }
             }
             root.listFiles()?.filter { it.isDirectory && it.name.startsWith(PREFIX) && it.name !in all }?.forEach { it.deleteRecursively() }
         }
+    }
+
+    private fun writeIfChanged(file: File, bytes: ByteArray) {
+        if (file.isFile && file.readBytes().contentEquals(bytes)) return
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        tmp.writeBytes(bytes)
+        if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
     }
 }

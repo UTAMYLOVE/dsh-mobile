@@ -229,7 +229,9 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     /** dsh's own home on the host (guest `/root/.dsh`, bound in from [AppPaths.dshHome]). */
-    val agentConfigWriter: AgentConfigWriter by lazy { AgentConfigWriter(appPaths.dshHome) }
+    val agentConfigWriter: AgentConfigWriter by lazy {
+        AgentConfigWriter(appPaths.dshHome) { name -> try { assets.open(name) } catch (_: java.io.IOException) { null } }
+    }
 
     /**
      * Test-only: the model upstreams the gateway forwards to (the emulator end-to-end test points them at an in-process fake
