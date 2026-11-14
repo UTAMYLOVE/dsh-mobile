@@ -10,7 +10,8 @@ enum class ComposeMode(val zh: String, val hint: String, val skill: String?) {
     PLAN("計畫模式", "先給你看計畫，你按同意才動手", null),
     CONTEMPLATE("沉思", "派 3 個 AI 各自想，再合成最好的答案", "dshm-contemplate"),
     RESEARCH("深度研究", "上網查很多資料，寫成附來源的報告", "dshm-research"),
-    DELIVERABLE("成品模式", "交出文件、表格或網頁，存到書架", "dshm-deliverable");
+    DELIVERABLE("成品模式", "交出文件、表格或網頁，存到書架", "dshm-deliverable"),
+    NOVEL("小說模式", "寫長篇：設定、角色、大綱和伏筆都記在檔案裡，一章一章寫不走鐘", "dshm-novel");
 
     /** The text dsh gets: the owner's words, led by the skill to use. */
     fun apply(text: String): String = skill?.let { "請用 $it 技能：$text" } ?: text

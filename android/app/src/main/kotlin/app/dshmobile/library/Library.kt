@@ -71,11 +71,13 @@ object Chapters {
     }
 
     /** The opening message of a new book: the card as setup, then the request for chapter one. */
-    fun opening(title: String, card: CharacterCard?): String = buildString {
-        append("我們來寫一本小說，書名《").append(title).append("》。")
-        if (card != null) append("\n\n以下是設定卡「").append(card.name).append("」，請一直遵守：\n").append(card.body.trim())
-        append("\n\n請直接寫第一章。每次回覆只寫一章正文，章名放第一行，不要加解說。")
-    }
+    fun opening(title: String, card: CharacterCard?): String = app.dshmobile.chat.ComposeMode.NOVEL.apply(
+        buildString {
+            append("我們來寫一本小說，書名《").append(title).append("》。")
+            if (card != null) append("\n\n以下是設定卡「").append(card.name).append("」，請一直遵守：\n").append(card.body.trim())
+            append("\n\n請直接寫第一章。每次回覆只寫一章正文，章名放第一行，不要加解說。")
+        },
+    )
 
     const val NEXT = "請接著寫下一章。只寫正文，章名放第一行。"
 }

@@ -53,6 +53,9 @@ class LibraryTest {
         assertTrue("e2" in now.excluded)
         val opening = Chapters.opening("霧城", CharacterCard("c", "小美", "愛吃草莓"))
         assertTrue(opening.contains("《霧城》") && opening.contains("愛吃草莓") && opening.contains("第一章"))
+        // A new book runs in 小說模式: the agent loads the novel skill, which keeps the story bible in files.
+        assertTrue(opening.startsWith("請用 dshm-novel 技能："))
+        assertEquals(opening.removePrefix("請用 dshm-novel 技能："), app.dshmobile.chat.ComposeMode.strip(opening))
     }
 
     @Test fun aBrokenFileStartsEmpty() {
