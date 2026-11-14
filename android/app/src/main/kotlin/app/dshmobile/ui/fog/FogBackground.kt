@@ -1,7 +1,10 @@
 package app.dshmobile.ui.fog
 
 import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.BiasAlignment
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -42,6 +45,10 @@ object FogSemantics {
     val Blur = SemanticsPropertyKey<Boolean>("FogBlur")
     /** True while the background (glows, grid) is being animated. */
     val Animating = SemanticsPropertyKey<Boolean>("FogAnimating")
+    /** How many 粉嫩二次元 things float over the background (absent: none). */
+    val Kawaii = SemanticsPropertyKey<Int>("FogKawaii")
+    /** Present while the user's own picture is shown. */
+    val Picture = SemanticsPropertyKey<Boolean>("FogPicture")
 
     /**
      * Whether glass surfaces report [Blur]. Reporting it makes every glass surface a semantics node of its own, which nothing but
@@ -129,6 +136,16 @@ fun FogBackground(backdrop: Backdrop, modifier: Modifier = Modifier) {
         if (!plain) {
             Box(Modifier.fillMaxSize().fogGlows(clock))
             // 0.8.0 (the owner: 「不要科技感了，來一個舒服的感覺」): the perspective grids are gone; the soft glows stay.
+            // 外觀主題 (2026-11-15): the user's own picture over the glows, then the 粉嫩二次元 floating things.
+            val look = LocalLook.current
+            rememberLookPicture(look)?.let { picture ->
+                Image(
+                    picture, contentDescription = null, contentScale = ContentScale.Crop, alignment = BiasAlignment(0f, look.align.bias),
+                    alpha = look.opacity / 100f, modifier = Modifier.fillMaxSize().semantics { set(FogSemantics.Picture, true) },
+                )
+            }
+            val particles = remember(look) { Kawaii.particles(look) }
+            if (particles.isNotEmpty()) Box(Modifier.fillMaxSize().kawaii(clock, particles, Kawaii.pace(look.speed)).semantics { set(FogSemantics.Kawaii, particles.size) })
         }
     }
 }

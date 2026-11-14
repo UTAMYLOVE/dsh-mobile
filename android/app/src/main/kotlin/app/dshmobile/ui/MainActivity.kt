@@ -33,6 +33,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import app.dshmobile.ui.fog.LocalLook
+import app.dshmobile.ui.fog.LocalLookPicture
+import app.dshmobile.ui.fog.Look
+import app.dshmobile.ui.fog.StartupIntro
+import app.dshmobile.ui.fog.rememberLookPicture
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -229,12 +234,21 @@ class MainActivity : ComponentActivity() {
         // The view model ([vm], made on first use) restores the shell (tab, conversation, list, draft) after a process death, or
         // opens the conversation that was open last time (saved in onStop) on a fresh start; a deep link (below) replaces it.
         reducedMotion = systemReducedMotion()
+        // 外觀主題's startup animation plays when the app is opened, not when the screen is only recreated (rotation, process death).
+        val playIntro = savedInstanceState == null && app.look.look.value.intro.enabled
         setContent {
             // Live: the user's level held down by the jank governor, and the system's animation setting.
             val level by app.effectsController.effective.collectAsState()
             val effects = remember(level, reducedMotion) { effectsFor(level, reducedMotion) }
+            val look by app.look.look.collectAsState()
             FogTheme(effects) {
-                androidx.compose.runtime.CompositionLocalProvider(LocalUnlocker provides unlocker, LocalPickFiles provides ::pickFiles) { Shell() }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalUnlocker provides unlocker, LocalPickFiles provides ::pickFiles,
+                    LocalLook provides look, LocalLookPicture provides app.look.pictureFile,
+                ) {
+                    Shell()
+                    Intro(look, playIntro)
+                }
             }
         }
         trackJank()
@@ -360,6 +374,21 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- the shell ----------
+
+    /**
+     * The startup animation over the shell, once when the app opens ([playOnOpen]) and again for every 「預覽」 in Settings. dsh
+     * starts underneath it either way.
+     */
+    @Composable
+    private fun Intro(look: Look, playOnOpen: Boolean) {
+        val tick by app.look.introTick.collectAsState()
+        var seen by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(if (playOnOpen) -1 else tick) }
+        if (seen == tick) return
+        StartupIntro(
+            look.intro, rememberLookPicture(look), reducedMotion,
+            onDone = { seen = tick },
+        )
+    }
 
     @Composable
     private fun Shell() {

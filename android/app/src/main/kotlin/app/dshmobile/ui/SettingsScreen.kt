@@ -623,6 +623,9 @@ fun SettingsScreen(
                 Text(stringResource(R.string.set_novel_hint), style = MaterialTheme.typography.bodySmall)
             }
 
+            (androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp)?.let { dshApp ->
+                Section(R.string.set_section_look, R.string.set_en_look, 3) { LookSettings(dshApp.look) }
+            }
             AdvancedSection(advanced, R.string.set_section_effects, R.string.set_en_effects, 3) {
                 // The control shows the app's level and calls onEffectLevel only when a cell is tapped (never on recomposition).
                 val names = listOf(stringResource(R.string.set_effect_full), stringResource(R.string.set_effect_balanced), stringResource(R.string.set_effect_saver))

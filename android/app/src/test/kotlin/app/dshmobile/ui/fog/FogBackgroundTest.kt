@@ -11,6 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import org.junit.After
@@ -153,5 +156,24 @@ class FogBackgroundTest {
         assertEquals(1f, floor.fade(hh * .9f), .001f)
         assertEquals(0f, floor.fade(hh * .15f), .001f)
         assertEquals(.5f, floor.fade(hh * .525f), .001f)
+    }
+
+    @Test fun theKawaiiLookFloatsThingsAndTheCosyLookDoesNot() {
+        rule.mainClock.autoAdvance = false
+        var look by androidx.compose.runtime.mutableStateOf(Look())
+        rule.setContent {
+            view = LocalView.current
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                CompositionLocalProvider(LocalLook provides look) { Box(Modifier.size(300.dp)) { FogBackground(rememberBackdrop()) } }
+            }
+        }
+        frames(2)
+        rule.onAllNodes(SemanticsMatcher.keyIsDefined(FogSemantics.Kawaii), useUnmergedTree = true).assertCountEquals(0)
+        look = Look(style = BackdropStyle.KAWAII, amount = 100)
+        frames(2)
+        rule.onAllNodes(SemanticsMatcher.expectValue(FogSemantics.Kawaii, Kawaii.MAX_PARTICLES + Kawaii.MAX_CLOUDS), useUnmergedTree = true).assertCountEquals(1)
+        FogDebug.reset()
+        frames(3)
+        assertTrue("the floating things move with the clock", FogDebug.get("background.kawaii.draw") >= 2)
     }
 }

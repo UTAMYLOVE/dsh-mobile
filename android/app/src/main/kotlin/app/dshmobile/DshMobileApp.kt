@@ -343,6 +343,13 @@ class DshMobileApp : Application(), Configuration.Provider {
     /** Small per-install UI choices (effect level, last conversation). */
     val uiPrefs: UiPrefs by lazy { UiPrefs(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)) }
 
+    /** 外觀主題: background style, the user's own picture and the startup animation (Settings). */
+    val look: app.dshmobile.ui.fog.LookController by lazy {
+        app.dshmobile.ui.fog.LookController(
+            app.dshmobile.ui.fog.LookStore(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)), java.io.File(filesDir, "look"),
+        )
+    }
+
     /** Which segments the chat box's status line shows, in order (Settings). */
     val statusLineConfig: kotlinx.coroutines.flow.MutableStateFlow<app.dshmobile.ui.shell.StatusLineConfig> by lazy {
         kotlinx.coroutines.flow.MutableStateFlow(app.dshmobile.ui.shell.StatusLineConfig.load(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)))
