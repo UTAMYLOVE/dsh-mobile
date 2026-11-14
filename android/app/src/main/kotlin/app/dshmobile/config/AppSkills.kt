@@ -199,8 +199,17 @@ object AppSkills {
         ),
     )
 
+    /**
+     * The description is a double-quoted YAML scalar: written plain, one with ": " in it (「Deep research: many ...」) is not
+     * valid YAML, and dsh ignores the whole skill file (six of the thirteen skills until 2026-11-15, among them every compose
+     * mode's; DSH on the phone: 「dshm-research 這個技能還是不存在」).
+     */
     private fun skill(name: String, description: String, body: String): String =
-        "---\nname: $name\ndescription: ${description.replace("\n", " ")}\n---\n\n" + body.trimIndent() + "\n"
+        "---\nname: $name\ndescription: ${DshPatch.q(description.replace("\n", " "))}\n---\n\n" + body.trimIndent() + "\n"
+
+    /** The frontmatter's description as dsh will read it (the text inside the quotes); null when it is not a quoted scalar. */
+    internal fun descriptionOf(skillText: String): String? =
+        Regex("""^---\nname: [a-z0-9-]+\ndescription: "((?:[^"\\]|\\.)*)"\n---\n""").find(skillText)?.groupValues?.get(1)
 
     /** Writes every app skill under [dshHome]`/skills` and removes `dshm-*` folders the app no longer ships. Never throws. */
     fun install(dshHome: File) {

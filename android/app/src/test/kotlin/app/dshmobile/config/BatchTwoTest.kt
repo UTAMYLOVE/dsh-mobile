@@ -51,4 +51,24 @@ class BatchTwoTest {
         assertTrue(AppSkills.all.getValue("dshm-research").contains("reports/"))
     }
 
+    /**
+     * dsh reads the frontmatter as YAML and ignores a skill file it cannot parse. A plain (unquoted) description with ": " in it
+     * is not YAML, which hid six skills, so every description is a double-quoted scalar on one line and the name is dsh's kind.
+     */
+    @Test fun everySkillDescriptionIsAQuotedYamlScalarSoDshDoesNotIgnoreTheSkill() {
+        assertTrue(AppSkills.all.size >= 13)
+        for ((name, text) in AppSkills.all) {
+            assertTrue(name, Regex("^[a-z0-9]+(-[a-z0-9]+)*$").matches(name))
+            assertTrue(name, text.startsWith("---\nname: $name\ndescription: \""))
+            val description = AppSkills.descriptionOf(text)
+            assertTrue("$name: the description is not a quoted scalar", description != null && description.length > 20)
+            assertTrue(name, description!!.none { it < ' ' })
+            assertEquals(name, 4, text.lines().indexOfFirst { it.isEmpty() }) // ---, name, description, ---, blank
+        }
+        // The ones that were lost: their descriptions have a colon followed by a space.
+        for (name in listOf("dshm-image", "dshm-novel", "dshm-weather", "dshm-contemplate", "dshm-research", "dshm-deliverable")) {
+            assertTrue(name, AppSkills.descriptionOf(AppSkills.all.getValue(name))!!.contains(": "))
+        }
+    }
+
 }
