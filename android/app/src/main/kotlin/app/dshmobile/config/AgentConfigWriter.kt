@@ -134,7 +134,9 @@ class AgentPatchProvider(
         val settings = store.load(phantom(), hasClaudeKey)
         // dsh warns "entry not found" for an agent-team row whose bundle is not loaded: write the row only when the bundle is in place.
         val teamsActive = writer.ensureAgentTeamsBundle(settings.agentTeams)
-        writer.ensureAutoReviewBundle(settings.autoReview)
+        // 全部放行 means nothing reviews or asks: the Auto review switch only applies at the other levels (the owner, 2026-11-15:
+        // 「我全開欸」 while every command still went through the reviewer and failed).
+        writer.ensureAutoReviewBundle(settings.autoReview && permission() != app.dshmobile.runtime.PermissionLevel.FULL)
         writer.installSkills()
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)
         val lay = layout()

@@ -270,4 +270,15 @@ class AgentConfigWriterTest {
         assertTrue(writer.ensureAutoReviewBundle(false))
         assertEquals(listOf("@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", bundle), bundles())
     }
+
+    /** 全部放行 means nothing reviews: the Auto review switch only loads its bundle at the other levels (the owner: 「我全開欸」). */
+    @Test fun autoReviewIsNotLoadedAtTheFullLevel() {
+        profile()
+        val store = AgentSettingsStore(InMemorySharedPreferences())
+        store.save(AgentSettings(maxConcurrent = 6, leadModel = "deepseek-flash", autoReview = true))
+        AgentPatchProvider(Vault(), store, writer, { PhantomState.ENABLED }, permission = { app.dshmobile.runtime.PermissionLevel.FULL })(base)
+        assertFalse(bundles().contains(AgentConfigWriter.AUTO_REVIEW_BUNDLE))
+        AgentPatchProvider(Vault(), store, writer, { PhantomState.ENABLED }, permission = { app.dshmobile.runtime.PermissionLevel.SMART })(base)
+        assertTrue(bundles().contains(AgentConfigWriter.AUTO_REVIEW_BUNDLE))
+    }
 }
