@@ -130,6 +130,9 @@ data class StopReport(
  * time is still the one first seen. [sweep] finds leftover dsh processes nobody tracks ([markers] in the command line) and stops
  * them the same way. Pids that belong to a command run right now ([track]) are never swept.
  */
+/** A process whose command line has this is proot (it ignores SIGTERM; SIGQUIT is its way to stop every tracee). */
+internal const val PROOT_MARKER = "libproot"
+
 class ProcessTreeKiller(
     private val procs: ProcSource,
     private val signals: SignalSender,
@@ -196,9 +199,12 @@ class ProcessTreeKiller(
         val found = members.size
         val rootIds = roots.map { ProcId(it.pid, it.startTime) }
 
-        // 1. SIGTERM to the roots' own children: node under proot (dsh disposes its sessions and releases their locks).
+        // 1. SIGTERM to the roots' own children: node under proot (dsh disposes its sessions and releases their locks). In native
+        //    mode the root is node itself (nice execs it), so a root that is not proot gets the SIGTERM too: SIGQUIT alone ended
+        //    node at once and skipped dsh's clean shutdown.
         var t0 = clock()
-        val children = table.filter { p -> roots.any { it.pid == p.ppid } && mine(p) && p.alive }.map { ProcId(it.pid, it.startTime) }
+        val children = table.filter { p -> roots.any { it.pid == p.ppid } && mine(p) && p.alive }.map { ProcId(it.pid, it.startTime) } +
+            roots.filter { !it.cmdline.contains(PROOT_MARKER) && mine(it) && it.alive }.map { ProcId(it.pid, it.startTime) }
         val termed = children.count { signal(it, Sig.TERM) }
         if (termed > 0) waitGone(children, termGraceMs, onProgress, members)
         val termMs = clock() - t0

@@ -11,6 +11,7 @@ import app.dshmobile.runtime.PermissionLevel
  */
 object DshPatch {
     const val DEFAULT_PLUGIN_DIR = "/opt/dshm/plugins"
+    private val ANTHROPIC_ROUTE = Regex("""(?im)^\s*provider:\s*"?anthropic"?\s*$""")
 
     /**
      * [agentSection] (see `AgentConfigWriter.patchSection`) is placed after the providers. With [includeAnthropic] false the
@@ -26,7 +27,9 @@ object DshPatch {
         shellPath: String? = null,
         permission: PermissionLevel = PermissionLevel.SMART,
     ): String {
-        require(includeAnthropic || !agentSection.contains("anthropic", ignoreCase = true)) { "agent section names anthropic but there is no Claude key" }
+        // Only a row that routes to the anthropic provider is refused: an MCP server whose name or URL mentions anthropic is not one
+        // (it made every start fail for a DeepSeek-only user).
+        require(includeAnthropic || !ANTHROPIC_ROUTE.containsMatchIn(agentSection)) { "agent section routes to anthropic but there is no Claude key" }
         return sections(gatewayBase, pluginDir, agentSection, includeAnthropic, workspace, shellPath, permission)
             .filter { it.isNotBlank() }
             .joinToString("\n", postfix = "\n") { it.trimEnd() }

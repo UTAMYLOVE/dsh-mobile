@@ -32,6 +32,16 @@ class ProcessTreeKillerTest {
         assertTrue(fake.sent.none { it.first == 200 })
     }
 
+    /** Native mode: the root is node itself (no proot above it), so it gets the SIGTERM that lets dsh shut down cleanly. */
+    @Test fun aNativeNodeRootGetsSigtermFirst() {
+        fake.add(100, fake.myPid, "/data/app/x/lib/x86_64/libdshn_bin_node.so --import shim.mjs bin.js")
+        fake.add(101, 100, "/bin/bash -c sleep 99")
+        val report = fake.killer().stopTree(100)
+        assertTrue(report.stopped)
+        assertTrue("node got no SIGTERM: ${fake.sent}", (100 to Sig.TERM) in fake.sent)
+        assertTrue("SIGTERM before anything else: ${fake.sent}", fake.sent.first().second == Sig.TERM)
+    }
+
     @Test fun signalOrderIsNodeTermThenProotQuitThenKill() {
         fake.proot(100)
         fake.node(101, 100, diesOn = setOf(Sig.KILL)) // a node that does not end on SIGTERM

@@ -50,6 +50,17 @@ class DshPatchTest {
         DshPatch.render(base, agentSection = "- id: agent-default-model\n  config:\n    provider: anthropic\n", includeAnthropic = true)
     }
 
+    /** An MCP server whose name or address mentions anthropic is not a route to Claude: it must not stop every start. */
+    @Test fun anMcpServerThatMentionsAnthropicIsFineWithoutAClaudeKey() {
+        val mcp = "- insert:\n    - id: dshm-mcp-anthropic-docs\n      name: \"@deepseek-ai/dsh-mcp-client\"\n      config:\n        url: \"https://docs.anthropic.com/mcp\"\n"
+        assertTrue(DshPatch.render(base, agentSection = mcp, includeAnthropic = false).contains("docs.anthropic.com"))
+        try {
+            DshPatch.render(base, agentSection = "- id: tool-subagent\n  config:\n    provider: \"anthropic\"\n", includeAnthropic = false)
+            org.junit.Assert.fail("a quoted anthropic provider is still refused")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
     @Test fun containsFullPrivacyPatch() {
         assertTrue(yaml.contains("- id: session-telemetry-otel\n  config:\n    mode: DISABLED"))
         assertTrue(yaml.contains("- id: session-log-deepseek\n  config:\n    enabled: false"))

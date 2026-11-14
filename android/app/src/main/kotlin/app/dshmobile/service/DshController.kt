@@ -168,6 +168,9 @@ class DshController(
     override suspend fun ensureRunning(): RunningDsh = startLock.withLock {
         runningInfo()?.let { return it }
         synchronized(stateLock) { current }?.let { teardown(it) } // a dead leftover
+        // A stop on another thread clears `current` first and then spends seconds ending the tree; its tail (status, gateway,
+        // patch file) must not land on this start: the patch path is the same for every run, so it deleted the new one.
+        for (r in synchronized(stateLock) { tearingDown.toList() }) withContext(Dispatchers.IO) { synchronized(r) {} }
         if (!isRootfsInstalled()) {
             setStatus(DshPhase.STOPPED, failure = DshFailure(DshPhase.STARTING, DshFailReason.ROOTFS_MISSING))
             throw RootfsNotInstalledException()
@@ -432,6 +435,9 @@ class DshController(
     }
 
     /** Idempotent; a second caller waits until the first has finished, so after it returns everything is down. */
+    /** Runs whose teardown has begun and not finished (under stateLock): a new start waits for them. */
+    private val tearingDown = HashSet<Run>()
+
     private fun teardown(run: Run) {
         synchronized(run) { tearDownLocked(run) }
     }
@@ -444,6 +450,15 @@ class DshController(
     private fun tearDownLocked(run: Run) {
         if (run.tornDown) return
         run.tornDown = true
+        synchronized(stateLock) { tearingDown.add(run) }
+        try {
+            tearDownTree(run)
+        } finally {
+            synchronized(stateLock) { tearingDown.remove(run) }
+        }
+    }
+
+    private fun tearDownTree(run: Run) {
         if (run.stopRequested) run.stopSignal.complete(Unit)
         val wasCurrent = synchronized(stateLock) {
             (current === run).also {

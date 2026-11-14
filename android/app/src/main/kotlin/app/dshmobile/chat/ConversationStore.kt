@@ -155,17 +155,42 @@ class ConversationStore(
     private fun onFrame(frame: JsonElement?) {
         val o = frame as? JsonObject
         when ((o?.get("type") as? JsonPrimitive)?.content) {
-            "assistant-stream" -> onStream(o?.get("frame") as? JsonObject)
+            "assistant-stream" -> { hintJob?.cancel(); onStream(o?.get("frame") as? JsonObject) }
             else -> {
                 val snapshot = o != null && (o["type"] as? JsonPrimitive)?.content == "snapshot"
-                if (snapshot) dropLive()
+                if (snapshot) dropLive() else hintJob?.cancel() // the conversation's own events now say whether it runs
                 _state.update { ConversationReducer.reduce(it, frame) }
                 if (snapshot) {
                     adoptActiveAttempt(frame)
-                    if (!_state.value.running && _state.value.hasMore && runningHint() == true) _state.update { it.copy(running = true) }
+                    if (!_state.value.running && _state.value.hasMore && runningHint() == true) {
+                        _state.update { it.copy(running = true) }
+                        recheckHint()
+                    }
                 }
                 releaseHeld()
                 dropAccepted()
+            }
+        }
+    }
+
+    /** Rechecks a running flag that came only from the session list (a cut snapshot showed no turn). Only on reduceContext. */
+    private var hintJob: Job? = null
+
+    /**
+     * The list's running flag can be a moment behind: a conversation opened just as its turn ended stayed 「執行中」 (STOP shown,
+     * sends queued, no auto-compact) until another message. While no event of the conversation itself has said otherwise, the
+     * list is asked again, and a list that says it is not running ends the flag.
+     */
+    private fun recheckHint() {
+        hintJob?.cancel()
+        hintJob = scope.launch(reduceContext) {
+            repeat(HINT_RECHECKS) {
+                delay(HINT_RECHECK_MS)
+                if (!_state.value.running) return@launch
+                if (liveAttempt == null && runningHint() == false) {
+                    _state.update { it.copy(running = false) }
+                    return@launch
+                }
             }
         }
     }
@@ -420,6 +445,8 @@ class ConversationStore(
         private val BACKOFF_MS = listOf(1_000L, 2_000L, 5_000L, 10_000L)
         private const val PUBLISH_MS = 50L
         private const val HOLD_MS = 10_000L
+        private const val HINT_RECHECK_MS = 2_000L
+        private const val HINT_RECHECKS = 30
         private const val PAGE_MESSAGES = 200
     }
 }

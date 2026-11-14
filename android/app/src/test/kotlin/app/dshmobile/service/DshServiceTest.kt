@@ -328,6 +328,23 @@ class DshServiceTest {
         sc.destroy()
     }
 
+    /**
+     * A restart from a screen (stop, then ensureRunning, with no start command) must move the watcher to the new dsh: on the
+     * old one, new work would not be held and the old work's hold would never be let go.
+     */
+    @Test fun aRestartFromAScreenMovesTheWatcherToTheNewDsh() {
+        val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true, title = "研究")))
+        val (c, sc, service) = startWithFakeRemote(remote)
+        waitUntil { "work" in c.holders }
+        val first = service.tracker
+        remote.sessions = emptyList()
+        c.stop()
+        kotlinx.coroutines.runBlocking { c.ensureRunning() } // what 重新啟動 dsh and the settings switches do
+        waitUntil(30_000) { service.tracker != null && service.tracker !== first }
+        waitUntil { "work" !in c.holders }
+        sc.destroy()
+    }
+
     @Test fun theStopActionStopsAllWork() {
         val remote = FakeWorkRemote(listOf(FakeWorkRemote.row("a", true), FakeWorkRemote.row("k", true, parent = "a")))
         val (_, sc, service) = startWithFakeRemote(remote)

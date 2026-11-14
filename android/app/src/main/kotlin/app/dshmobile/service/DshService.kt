@@ -55,6 +55,12 @@ class DshService : Service() {
             app.errorLog.append("service", "dsh exited with code $code")
             handleCrash()
         }
+        // A restart from a screen (重新啟動 dsh, the runtime or permission switch, a new Claude key) stops and starts dsh without
+        // a start command, so the watcher stayed on the dead dsh: new work was not held (dsh was then stopped mid-reply after the
+        // grace) or old work was held forever. Whenever a dsh is up, the watcher follows it (the same dsh keeps its watcher).
+        scope.launch {
+            app.controller.isRunning.collect { up -> if (up && startJob?.isActive != true) startDsh() }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
