@@ -138,6 +138,7 @@ describe("plugin shape", () => {
     expect(proot).toContain("Debian");
     expect(proot).not.toContain("$TMPDIR");
     expect(plugin.phoneNote(undefined)).toContain("設定 → 代理人");
+    expect(plugin.phoneNote("native")).toContain('memory_write target "user"');
   });
 
   it("without webServer the tools still register and no route is attempted", () => {

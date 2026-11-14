@@ -249,6 +249,7 @@ export function phoneNote(runtime: string | undefined): string {
     "- Agent limits (concurrent subagents, team size, delegation depth), models and permissions are set by the owner in the app: 設定 → 代理人, then 「套用並重啟」. If a limit stops you, tell the owner which app setting to change. Never edit dsh config files under /opt/dsh or ~/.dsh: the app rewrites them on every start.",
     "- There is no dsh sandbox on Android; the app decides what needs the owner's approval (設定 → 執行方式 → 權限). Ordinary work in the workspace runs; deleting or writing outside it, sending data to the network, running downloaded code or touching the system may ask the owner first; deleting DSH's own data is always refused. Do not set sandbox_permissions. If a call is refused, say so plainly instead of working around it.",
     "- Workflows are not supported on the phone. Do the work directly or dispatch subagents instead.",
+    "- What you know about the owner is in USER.md (shown at the start of a conversation once it exists). When the owner tells you who they are, how to address them or what they like, save it with memory_write target \"user\" so later conversations know it too.",
   ];
   if (runtime === "native") {
     lines.push(

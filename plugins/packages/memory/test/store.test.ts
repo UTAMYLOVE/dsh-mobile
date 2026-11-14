@@ -163,8 +163,9 @@ describe("get / resolveInside", () => {
     expect(store.get("./memory/../memory/2026-11-02.md", 4)).toBe("l4");
   });
 
-  it("reports a missing file clearly", () => {
-    expect(() => store.get("MEMORY.md")).toThrow(/not found/);
+  it("a memory file nobody wrote yet reads as empty, not as a failure", () => {
+    expect(store.get("MEMORY.md")).toBe("(MEMORY.md is empty: nothing has been saved there yet.)");
+    expect(store.get("USER.md")).toContain("USER.md is empty");
   });
 });
 

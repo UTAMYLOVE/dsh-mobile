@@ -14,6 +14,11 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import lockfile from "proper-lockfile";
 
 /** A path that is not an in-workspace Markdown file (or does not exist). */
+/** What memory_get returns for a memory file that does not exist yet. */
+export function notWrittenYet(rel: string): string {
+  return `(${rel} is empty: nothing has been saved there yet.)`;
+}
+
 export class MemoryPathError extends Error {
   override name = "MemoryPathError";
 }
@@ -144,7 +149,9 @@ export class MemoryStore {
     try {
       text = readFileSync(abs, "utf8");
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MemoryPathError(`file not found: ${rel}`);
+      // A memory file nobody has written yet is empty, not a failure: the owner saw 「失敗」 on memory_get USER.md (2026-11-15)
+      // when nothing about them had been saved.
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return notWrittenYet(rel);
       throw new MemoryPathError(`cannot read: ${rel}`);
     }
     if (from === undefined && lines === undefined) return text;
