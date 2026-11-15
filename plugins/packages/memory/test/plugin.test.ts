@@ -504,6 +504,9 @@ describe("a conversation made under proot, run natively", () => {
     }
   });
 
+  /** The real name dsh records for [path]: the workspace under another spelling, as /data/data is for /data/user/0. */
+  const canonical = (path: string) => (path === root || path.startsWith(root + "/") ? "/real" + path : path);
+
   /** The plugin with a fake workingDirectory whose conversation is in [cwd]; returns the assemble listener and the fake. */
   function mountWith(cwd: string, runtime: string | undefined, remap?: string) {
     if (runtime === undefined) delete process.env.DSHM_RUNTIME; else process.env.DSHM_RUNTIME = runtime;
@@ -511,7 +514,8 @@ describe("a conversation made under proot, run natively", () => {
     let folder = cwd;
     const workingDirectory = {
       get: vi.fn(() => folder),
-      set: vi.fn(async (_agent: unknown, path: string) => { folder = path; return path; }),
+      // Like dsh, which records the folder's real name (links resolved): on the phone /data/user/0/... becomes /data/data/...
+      set: vi.fn(async (_agent: unknown, path: string) => { folder = canonical(path); return folder; }),
     };
     const fake = makeCtx({ workingDirectory });
     mount(fake);
@@ -528,7 +532,8 @@ describe("a conversation made under proot, run natively", () => {
     await m.run(agent);
     expect(m.workingDirectory.set).toHaveBeenCalledWith(agent, `${root}/projects/x`, expect.any(AbortSignal));
     expect(m.next).toHaveBeenCalledTimes(1);
-    // dsh now reports the real name: nothing more to move.
+    // dsh now reports the folder under its real name (not the spelling the plugin asked for): nothing more to move.
+    expect(m.workingDirectory.get()).toBe(`/real${root}/projects/x`);
     await m.run(agent);
     expect(m.workingDirectory.set).toHaveBeenCalledTimes(1);
     expect(m.next).toHaveBeenCalledTimes(2);

@@ -292,9 +292,11 @@ export function realFolder(cwd: unknown, aliases: string[], workspace: string): 
 /**
  * Native mode: a conversation made under proot (相容模式) keeps /root/workspace as its folder. The shim maps that name for dsh's
  * own file calls, but a command's text is not rewritten, so `cat /root/workspace/x` failed natively while the model was still
- * told that name. Before such a conversation's next request its folder is moved once to the same folder's real name: dsh records
- * the change (so it happens once per conversation), tells the model, and subagents started later inherit it. Back in 相容模式
- * the real name works too, because proot binds the workspace at its host path as well.
+ * told that name. Before such a conversation's next request its folder is moved once to the same folder's host name: dsh records
+ * the change (so it happens once per conversation), tells the model, and subagents started later inherit it. dsh records the
+ * folder with its links resolved (/data/data/... for /data/user/0/...), which no longer matches /root/workspace, so the move is
+ * not repeated. The guard reads both spellings as the workspace, and back in 相容模式 both work, because proot binds the
+ * workspace at each of them (DshMobileApp.proot).
  */
 function moveProotFolder(ctx: PluginCtx, workspace: string): void {
   if (process.env.DSHM_RUNTIME !== "native") return;

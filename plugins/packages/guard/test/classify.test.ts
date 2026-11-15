@@ -182,6 +182,19 @@ describe("the workspace's other name (conversations made in the other mode)", ()
   it("a name that only starts the same is not the workspace", () => {
     expect(classify("write", { file_path: "/root/workspace2/x", content: "x" }, native)).toMatchObject({ kind: "ask", why: "outside" });
   });
+  it("natively, the folders under their link-resolved name (/data/data for /data/user/0) are the same folders", () => {
+    // What readEnv adds from the phone's links: dsh records and prints that name, and models copy it.
+    const linked: GuardEnv = { ...native, aliases: [...native.aliases!, ["/data/data", "/data/user/0"]] };
+    const real = (p: string) => p.replace("/data/user/0/", "/data/data/");
+    const at = (command: string, level: Level = "smart") => { const v = classify("bash", { command }, { ...linked, level }); return v.kind === "allow" ? "allow" : `${v.kind}:${v.why}`; };
+    expect(classify("write", { file_path: `${real(WS)}/notes.md`, content: "x" }, linked).kind).toBe("allow");
+    expect(classify("bash", { command: "echo hi > out.txt", workdir: real(WS) }, linked).kind).toBe("allow");
+    expect(at(`rm -rf ${real(WS)}`)).toBe("ask:delete");
+    expect(at(`rm -rf ${real(DSH_HOME)}`)).toBe("deny:delete-app");
+    expect(at(`rm -rf ${real(DSH_HOME)}`, "full")).toBe("deny:delete-app");
+    expect(at("rm -rf /data/data/app.dshmobile/files", "full")).toBe("deny:delete-app");
+    expect(classify("write", { file_path: "/data/data/other.app/x", content: "x" }, linked)).toMatchObject({ kind: "ask", why: "outside" });
+  });
   it("under proot, the workspace's host path (bound inside too) is the workspace", () => {
     const proot: GuardEnv = { level: "smart", workspace: "/root/workspace", temp: ["/tmp"], protectedRoots: ["/root/.dsh", "/opt/dsh", "/opt/dshm"], home: "/root", aliases: [[WS, "/root/workspace"]] };
     expect(classify("write", { file_path: `${WS}/notes.md`, content: "x" }, proot).kind).toBe("allow");

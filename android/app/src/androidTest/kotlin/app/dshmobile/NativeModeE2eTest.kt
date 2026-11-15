@@ -126,8 +126,12 @@ class NativeModeE2eTest {
         var result: FakeModel.ToolResult? = null
         E2e.waitFor(180_000, "the result of the absolute-path command") { FakeModel.instance.toolResults(from).lastOrNull()?.also { result = it } != null }
         val told = FakeModel.instance.since(from).filter { it.kind == FakeModel.Kind.TOOL || it.kind == FakeModel.Kind.FOLLOW_UP }
-        assertTrue("the model was not told the real folder", told.isNotEmpty() && told.all { it.body.contains("Current working directory: \\\"$host") })
-        assertTrue("the model was still told /root/workspace", told.none { it.body.contains("Current working directory: \\\"${AppPaths.GUEST_WORKSPACE}") })
+        // dsh records the folder with its links resolved: /data/user/0 is a link to /data/data, so either spelling is the
+        // workspace (the guard and proot know both).
+        val names = setOf(host, app.appPaths.workspace.canonicalPath)
+        val cwds = told.map { Regex("""Current working directory: \\"([^\\"]+)""").find(it.body)?.groupValues?.get(1) }
+        assertTrue("the model was not told the real folder: $cwds (expected one of $names)", told.isNotEmpty() && cwds.all { c -> c != null && names.any { c == it || c.startsWith("$it/") } })
+        assertTrue("the model was still told /root/workspace: $cwds", cwds.none { it != null && it.startsWith(AppPaths.GUEST_WORKSPACE) })
         val r = result!!
         assertTrue("the command failed: ${r.text.take(300)}", !r.isError && r.text.contains("probe-ok"))
     }

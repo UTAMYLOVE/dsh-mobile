@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { classify, type GuardEnv, type Level } from "./classify.js";
 
@@ -36,8 +37,31 @@ function pairs(value: string | undefined): [string, string][] {
     .map(([from, to]) => [trim(from), trim(to)]);
 }
 
-/** The guard's settings from the environment the app starts dsh with; undefined when the workspace is not known. */
-export function readEnv(e: Record<string, string | undefined>): GuardEnv | undefined {
+/** The folder's real name (symbolic links resolved); undefined when it cannot be read. */
+function realName(p: string): string | undefined {
+  try {
+    return realpathSync(p);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The shortest pair of folders that makes [real] and [given] the same path: /data/data and /data/user/0 for the app's folders
+ * on Android, where /data/user/0 is a link to /data/data. Neither side is ever "/".
+ */
+export function linkPair(real: string, given: string): [string, string] {
+  const a = real.split("/");
+  const b = given.split("/");
+  while (a.length > 2 && b.length > 2 && a[a.length - 1] === b[b.length - 1]) { a.pop(); b.pop(); }
+  return [a.join("/"), b.join("/")];
+}
+
+/**
+ * The guard's settings from the environment the app starts dsh with; undefined when the workspace is not known. [real] reads a
+ * folder's real name (a parameter so tests can fake the phone's links).
+ */
+export function readEnv(e: Record<string, string | undefined>, real: (p: string) => string | undefined = realName): GuardEnv | undefined {
   const workspace = e["DSHM_WORKSPACE"];
   if (workspace === undefined || !isAbsolute(workspace)) return undefined;
   const level = LEVELS.includes(e["DSHM_GUARD_LEVEL"] as Level) ? (e["DSHM_GUARD_LEVEL"] as Level) : "smart";
@@ -45,11 +69,24 @@ export function readEnv(e: Record<string, string | undefined>): GuardEnv | undef
   const temp = [...new Set([...list(e["TMPDIR"]), "/tmp"])];
   const home = e["HOME"] !== undefined && isAbsolute(e["HOME"]) ? e["HOME"].replace(/\/+$/, "") : undefined;
   const dshHome = list(e["DSH_HOME"]);
+  const root = workspace.replace(/\/+$/, "");
+  const protectedRoots = [...new Set([...dshHome, ...list(e["DSHM_GUARD_PROTECTED"])])];
   // The folders' other names: native mode's DSHN_REMAP (/root/workspace and /root/.dsh onto the phone's folders, the shim's own
   // table), proot's DSHM_GUARD_ALIASES (the workspace's host path, which proot also binds).
-  const aliases = [...pairs(e["DSHN_REMAP"]), ...pairs(e["DSHM_GUARD_ALIASES"])];
+  const named = [...pairs(e["DSHN_REMAP"]), ...pairs(e["DSHM_GUARD_ALIASES"])];
+  // And their real names: dsh resolves links in every path it records or prints (a conversation's folder, a tool's <path>), so
+  // on the phone the model also sees /data/data/... for the /data/user/0/... folders it was given. Without these, a write in
+  // the workspace under that name asked as "outside" and deleting dsh's home under it was not refused.
+  const linked = new Map<string, [string, string]>();
+  for (const p of [root, ...protectedRoots, ...temp, ...(home === undefined ? [] : [home])]) {
+    const r = real(p);
+    if (r === undefined || !isAbsolute(r) || r === p) continue;
+    const pair = linkPair(r.length > 1 ? r.replace(/\/+$/, "") : r, p);
+    if (pair[0] !== pair[1]) linked.set(pair.join("="), pair);
+  }
+  const aliases = [...named, ...linked.values()];
   return {
-    level, workspace: workspace.replace(/\/+$/, ""), temp, protectedRoots: [...new Set([...dshHome, ...list(e["DSHM_GUARD_PROTECTED"])])],
+    level, workspace: root, temp, protectedRoots,
     ...(home === undefined ? {} : { home }), ...(aliases.length === 0 ? {} : { aliases }),
   };
 }
@@ -98,6 +135,7 @@ export function apply(ctx: PluginCtx): void {
         // Turns dsh starts itself (a reminder, a helper, a conversation dsh moved to danger-full-access at a clean stop) kept a
         // stale preset, and at 一般 every risky step was refused as if from a subagent. The same rule is applied here, and this
         // very call is judged by the new state (dsh reads the approval policy when it asks).
+        let moved = false;
         if (!subagent && presets !== undefined) {
           const wanted = wantedPreset(env.level, autoReview, preset);
           if (wanted !== undefined && preset !== wanted) {
@@ -105,9 +143,13 @@ export function apply(ctx: PluginCtx): void {
             preset = wanted;
             mode = FULL_ACCESS;
             policy = wanted === FULL_ACCESS ? "never" : "ask";
+            moved = true;
           }
         }
-        auto = preset === AUTO;
+        // The call that moves a conversation onto "auto" is still judged by the level: dsh's own Auto review may already have
+        // passed this call on while the conversation was on its old preset (whichever listener runs first), and then nothing
+        // would review it or ask. From the next call on, the reviewer judges.
+        auto = preset === AUTO && !moved;
       } catch (e) {
         ctx.logger.warn(`[dshm-guard] cannot read the conversation's permissions: ${e instanceof Error ? e.message : String(e)}`);
       }

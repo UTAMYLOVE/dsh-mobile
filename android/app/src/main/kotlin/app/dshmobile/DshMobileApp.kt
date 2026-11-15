@@ -162,11 +162,12 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     private val proot: ProotRunner by lazy {
-        // The workspace is also bound at its own host path: conversations made natively have that path as their folder, and
-        // dsh never runs a turn whose folder is missing.
+        // The workspace is also bound at its own host path, under both spellings (/data/user/0/... and the /data/data/... dsh
+        // records after resolving links): conversations made natively have one of them as their folder, and dsh never runs a
+        // turn whose folder is missing.
         ProotRunner(
             File(applicationInfo.nativeLibraryDir), appPaths.rootfs, File(cacheDir, "proot"),
-            appPaths.binds + (appPaths.workspace to appPaths.workspace.absolutePath),
+            appPaths.binds + app.dshmobile.runtime.GuardEnvironment.hostNames(appPaths.workspace).map { appPaths.workspace to it },
         )
     }
 
@@ -250,19 +251,20 @@ class DshMobileApp : Application(), Configuration.Provider {
             filesDir = filesDir,
             isRootfsInstalled = rootfsInstaller::isInstalled,
             launcher = DshLauncher { env, args ->
-                // The guard plugin's level and the app's own folders it never lets go (plugins/packages/guard). DSHM_AUTO_REVIEW
-                // lets the guard put a conversation dsh runs on its own (a reminder, a helper) on the same preset ShellSession
-                // gives the ones the owner sends to; internal, not a setting.
-                val level = mapOf("DSHM_GUARD_LEVEL" to runtimeMode.permission.value.id, "DSHM_AUTO_REVIEW" to if (autoReviewWanted()) "1" else "0")
-                if (DshLayout.active.native) {
-                    val own = listOf(appPaths.rootfs, File(filesDir, "native")).joinToString(":") { it.path }
-                    nativeRunner.command(args, env + level + ("DSHM_GUARD_PROTECTED" to own), appPaths.workspace).start()
-                } else {
-                    // Under proot the workspace is also bound at its host path (conversations made natively use it): the guard
-                    // reads that name as the workspace too, so writing there is not "outside".
-                    val aliases = "DSHM_GUARD_ALIASES" to "${appPaths.workspace.absolutePath}=${app.dshmobile.runtime.AppPaths.GUEST_WORKSPACE}"
-                    proot.command(args, env + level + ("DSHM_GUARD_PROTECTED" to "/opt/dsh:/opt/dshm") + aliases).start()
-                }
+                // The guard plugin's level, Auto review as it applies at that level, and the app's folders under every name
+                // (GuardEnvironment); internal, not settings. ShellSession follows the same Auto review value until dsh's next
+                // start, so the two never pull a conversation two ways.
+                val level = runtimeMode.permission.value
+                val switch = agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview
+                launchedAutoReview = level.autoReviews(switch)
+                val native = DshLayout.active.native
+                val guard = app.dshmobile.runtime.GuardEnvironment.of(
+                    level, switch, native,
+                    nativeOwn = listOf(appPaths.rootfs, File(filesDir, "native")),
+                    workspaceNames = app.dshmobile.runtime.GuardEnvironment.hostNames(appPaths.workspace),
+                )
+                if (native) nativeRunner.command(args, env + guard, appPaths.workspace).start()
+                else proot.command(args, env + guard).start()
             },
             layout = ::layoutForStart,
             // Many agents at once make many requests: the runaway guard scales with the concurrency setting.
@@ -397,10 +399,18 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     /**
      * Whether conversations should be on dsh's Auto review now: the owner's switch, never at 全部放行 (PermissionLevel.autoReviews).
-     * ShellSession asks before each send and the launcher hands the answer to the guard, so both follow the same rule.
+     * Used before this process has started dsh; afterwards ShellSession follows [launchedAutoReview].
      */
     private fun autoReviewWanted(): Boolean =
         runtimeMode.permission.value.autoReviews(agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview)
+
+    /**
+     * The Auto review value the running dsh's guard was started with (DSHM_AUTO_REVIEW). ShellSession puts conversations on the
+     * same preset until dsh starts again: a switch stored without a restart (a Claude key saved while work ran) used to make
+     * ShellSession send one preset before each message while the guard moved the conversation back at its next tool call.
+     */
+    @Volatile
+    private var launchedAutoReview: Boolean? = null
 
     /**
      * The native interface's link to the running dsh: one [ShellSession] per dsh instance, in a scope of its own (a child of
@@ -415,7 +425,7 @@ class DshMobileApp : Application(), Configuration.Provider {
         val holder = ShellSessionHolder { running ->
             val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
             DshRemote(DshClient(loopback, running.launch), scope).let {
-                ShellSession(it, it.events, scope, autoReview = ::autoReviewWanted, levelPreset = { runtimeMode.permission.value.preset }, keptChoices = kept)
+                ShellSession(it, it.events, scope, autoReview = { launchedAutoReview ?: autoReviewWanted() }, levelPreset = { runtimeMode.permission.value.preset }, keptChoices = kept)
             }
         }
         applicationScope.launch(Dispatchers.Main) {

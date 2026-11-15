@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { classify } from "../src/classify.js";
 import * as plugin from "../src/index.js";
 
 type Listener = (exec: unknown, next: () => Promise<{ kind: string }>) => Promise<{ kind: string; reason?: string; displayReason?: { zh: string } }>;
@@ -116,10 +117,20 @@ describe("dshm-guard", () => {
       expect(await g.run("bash", { command: "ls" })).toEqual({ kind: "allow" });
       expect(g.set).toHaveBeenCalledTimes(1);
     });
-    it("with Auto review on it is moved to auto and the reviewer takes over", async () => {
+    it("with Auto review on it is moved to auto and the reviewer takes over from the next call", async () => {
       const g = load({ DSHM_GUARD_LEVEL: "smart", DSHM_AUTO_REVIEW: "1" }, { policy: "never", preset: "danger-full-access" });
-      expect(await g.run("bash", { command: "git push" })).toEqual({ kind: "allow" });
+      // dsh's Auto review may already have passed this call on while it was still on danger-full-access: the level judges it.
+      const first = await g.run("bash", { command: "git push" });
+      expect(first.kind).toBe("ask");
       expect(g.set).toHaveBeenCalledWith(expect.anything(), "auto");
+      // Ordinary work on that call still runs without a question.
+      const g1 = load({ DSHM_GUARD_LEVEL: "smart", DSHM_AUTO_REVIEW: "1" }, { policy: "never", preset: "danger-full-access" });
+      expect(await g1.run("bash", { command: "ls" })).toEqual({ kind: "allow" });
+      // Now on auto: the guard passes the next call on to the reviewer.
+      g.next.mockClear();
+      expect(await g.run("bash", { command: "git push" })).toEqual({ kind: "allow" });
+      expect(g.next).toHaveBeenCalledTimes(1);
+      expect(g.set).toHaveBeenCalledTimes(1);
       // The always-refused list holds from the very first call on auto.
       const g2 = load({ DSHM_GUARD_LEVEL: "ask", DSHM_AUTO_REVIEW: "1" }, { preset: "dshm-guarded" });
       expect((await g2.run("bash", { command: `rm -rf ${DSH_HOME}` })).kind).toBe("deny");
@@ -165,9 +176,30 @@ describe("dshm-guard", () => {
   });
 
   it("reads its folders from the environment", () => {
-    expect(plugin.readEnv({ DSHM_WORKSPACE: "/w/", TMPDIR: "/t/", HOME: "/h", DSH_HOME: "/h/.dsh", DSHM_GUARD_PROTECTED: "/opt/dsh:/opt/dshm:relative", DSHM_GUARD_LEVEL: "ask" }))
+    const same = (p: string) => p;
+    expect(plugin.readEnv({ DSHM_WORKSPACE: "/w/", TMPDIR: "/t/", HOME: "/h", DSH_HOME: "/h/.dsh", DSHM_GUARD_PROTECTED: "/opt/dsh:/opt/dshm:relative", DSHM_GUARD_LEVEL: "ask" }, same))
       .toEqual({ level: "ask", workspace: "/w", temp: ["/t", "/tmp"], protectedRoots: ["/h/.dsh", "/opt/dsh", "/opt/dshm"], home: "/h" });
     expect(plugin.readEnv({ DSHM_WORKSPACE: "relative" })).toBeUndefined();
+  });
+
+  it("also knows the folders under their link-resolved names (/data/user/0 is a link to /data/data on the phone)", () => {
+    const real = (p: string) => (p.startsWith("/data/user/0/") ? p.replace("/data/user/0/", "/data/data/") : p === "/missing" ? undefined : p);
+    const e = plugin.readEnv({ DSHM_WORKSPACE: WS, DSH_HOME, TMPDIR: "/data/user/0/app.dshmobile/cache/tmp", DSHM_GUARD_PROTECTED: "/missing", DSHN_REMAP: `/root/workspace=${WS}` }, real);
+    // The names the app gave come first; one pair covers every folder under the link.
+    expect(e?.aliases).toEqual([["/root/workspace", WS], ["/data/data", "/data/user/0"]]);
+    expect(plugin.linkPair("/data/data/app.dshmobile/files/userdata/workspace", "/data/user/0/app.dshmobile/files/userdata/workspace")).toEqual(["/data/data", "/data/user/0"]);
+    // A link at the folder itself pairs the folders, and neither side is ever the root.
+    expect(plugin.linkPair("/b/real", "/a/ws")).toEqual(["/b/real", "/a/ws"]);
+    expect(plugin.linkPair("/private/tmp", "/tmp")).toEqual(["/private/tmp", "/tmp"]);
+    // With no links (or none readable), nothing is added.
+    expect(plugin.readEnv({ DSHM_WORKSPACE: "/w" }, () => undefined)?.aliases).toBeUndefined();
+  });
+
+  it("natively, a write under the workspace's link-resolved name runs and dsh's home under it is refused", async () => {
+    const real = (p: string) => p.replace("/data/user/0/", "/data/data/");
+    const e = plugin.readEnv({ DSHM_WORKSPACE: WS, DSH_HOME, DSHM_GUARD_LEVEL: "full" }, real)!;
+    expect(classify("bash", { command: `rm -rf ${real(DSH_HOME)}` }, e)).toMatchObject({ kind: "deny", why: "delete-app" });
+    expect(classify("write", { file_path: `${real(WS)}/notes.md`, content: "x" }, { ...e, level: "smart" }).kind).toBe("allow");
   });
 
   it("reads the folders' other names: native mode's DSHN_REMAP and proot's DSHM_GUARD_ALIASES", () => {
