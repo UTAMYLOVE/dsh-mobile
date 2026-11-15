@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -83,17 +84,20 @@ internal class IntroLayout(val w: Float, val h: Float, val dp: Float, val iT: Fl
             welcomeBottom = cf.y - ry - 10f * dp
             crestR = .17f * h
         } else {
-            c = Offset(w / 2f, .36f * h)
+            // The system half sits low enough that the beat block fills the lower third: at .36H / .66H a band of empty sky sat
+            // between the sigil and the caption and another between the sub and the progress line.
+            c = Offset(w / 2f, .39f * h)
             r = if (split) .19f * h else min(.40f * wc, .19f * h)
             colLeft = (w - wc) / 2f + g
             colWidth = wc - 2f * g
-            captionTop = if (split) c.y + r + 24f * dp else max(.66f * h, c.y + r + 48f * dp)
+            captionTop = if (split) c.y + r + 24f * dp else max(.69f * h, c.y + r + 48f * dp)
             rx = if (wide) .78f * wc else .62f * w
             ry = .28f * rx
             cf = Offset(w / 2f, min(h - iB - .115f * h, floorBottom - ry))
             welcomeCenterX = w / 2f
             welcomeBottom = cf.y - ry - 10f * dp
-            crestR = (if (small) 64f else 80f) * s * dp
+            // 66 dp: at 80 the crest was the biggest coloured mass on screen and outweighed the 88 sp name.
+            crestR = 66f * s * dp
         }
     }
 
@@ -224,8 +228,16 @@ internal class IntroScene(
     // Pink under the white, never aqua: aqua over the pink field measured as a grey-blue band (#DFE3E4).
     val scanPink = Brush.verticalGradient(listOf(Sakura.Primary.copy(alpha = 0f), Sakura.Primary.copy(alpha = .35f)), -18f * dp, 0f)
     val ringDisc = Path().apply { addOval(Rect(lay.c, lay.r)) }
-    val flashBrush = Brush.radialGradient(listOf(Color.White, Color.White.copy(alpha = .55f)), lay.c, hypot(w, h))
-    val topScrim = Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .60f), Sakura.Background.copy(alpha = 0f)), 0f, .14f * h)
+    /**
+     * The flash, drawn over everything: full white at C, a hot core round the sigil, and a veil of about half strength from the
+     * beat block outward, so at its peak the rosette and monogram wash to about 70 % white and 核驗通過 to about 40 %.
+     */
+    val flashBrush = Brush.radialGradient(
+        0f to Color.White, .18f to Color.White.copy(alpha = .88f), .34f to Color.White.copy(alpha = .58f), 1f to Color.White.copy(alpha = .55f),
+        center = lay.c, radius = hypot(w, h),
+    )
+    /** Over the user's picture the brand and date need 4.5:1 against busy key art: blush .80 at the top, gone by .16H. */
+    val topScrim = Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .80f), Sakura.Background.copy(alpha = 0f)), 0f, .16f * h)
     val bottomScrim = Brush.verticalGradient(
         0f to Sakura.Background.copy(alpha = 0f), (.52f - .42f) / .58f to Sakura.Background.copy(alpha = .85f),
         (.58f - .42f) / .58f to Sakura.Background.copy(alpha = .92f), 1f to Sakura.Background.copy(alpha = .92f), startY = .42f * h, endY = h,
@@ -268,10 +280,13 @@ internal class IntroScene(
     }
 
     /** The picture's placement at [ms] in the magic half: from the window's crop, opening out, then a slow Ken Burns to rest. */
+    /** The iris-in's progress at [ms], 0..1 (1 at once for the reduced-motion still). */
+    fun irisK(ms: Float): Float = if (reduced) 1f else seg(ms, marks.hit + 30f * marks.pace, 560f * marks.pace, IntroEase.ExpoOut)
+
     fun backdropPlacement(ms: Float, out: Placement) {
         val m = marks
         val p = m.pace
-        val ki = seg(ms, m.hit + 30f * p, 560f * p, IntroEase.ExpoOut)
+        val ki = irisK(ms)
         val kbStart = m.hit + 590f * p
         val z = if (ms <= kbStart || reduced) (if (reduced) 1f else 1.06f) else lerp(1.06f, 1f, seg(ms, kbStart, m.e - kbStart, IntroEase.SineInOut))
         welcomeAt(z, tmpPlacement)
@@ -284,48 +299,55 @@ internal class IntroScene(
     fun irisRadius(ki: Float): Float = lerp(.30f * lay.r, rMax, ki)
 
     /**
-     * The monogram (or, with no name or an emoji first, the sakura mon), ghosted below the scan line and solid above it. The ghost
-     * is rose brown, not faded ink: ink at a fifth of its strength over the white plate reads as grey.
+     * The window's content without a picture: the monogram (or, with no name or an emoji first, the sakura mon), ghosted below
+     * the scan line and solid above it, at [scale] of its 52 sp. The ghost is rose brown, not faded ink: ink at a fifth of its
+     * strength over the plate reads as grey. [crest] (0..1) is how far the window has become the crest: the monogram stands on a
+     * pink sakura and becomes a sticker like the name (white outline, pink drop), so the character the scan found is the crest.
      */
-    fun drawMonogram(scope: DrawScope, center: Offset, scale: Float, ghost: Float, scanY: Float, alpha: Float) = with(scope) {
+    fun drawMonogram(scope: DrawScope, center: Offset, rw: Float, scale: Float, ghost: Float, scanY: Float, alpha: Float, crest: Float) = with(scope) {
         val run = texts.monogram
-        val draw: DrawScope.(Float, Color) -> Unit = { a, ink ->
-            withTransform({ scale(scale, scale, center) }) {
-                if (run == null) {
-                    val r = .22f * lay.r
-                    withTransform({ translate(center.x, center.y); scale(r, r, Offset.Zero) }) {
-                        drawPath(sakura, Sakura.Primary.copy(alpha = .90f * a))
-                        drawPath(sakura, Sakura.RoseBrown.copy(alpha = a), style = Stroke(.75f * dp / r))
-                    }
-                    drawCircle(Sakura.White.copy(alpha = a), 3f * dp, center)
-                } else {
-                    val base = center.y + .36f * run.fontPx
-                    drawGlyph(run, 0, Offset(center.x - run.advance[0] / 2f, base - run.baseline), ink, a)
+        if (run == null) {
+            // The sakura mon alone: .73 of the window (.22 R), growing to .86 of the crest; faint below the scan line.
+            val r = lerp(.733f, .86f, crest) * rw
+            val mon: DrawScope.(Float) -> Unit = { a ->
+                withTransform({ translate(center.x, center.y); scale(r, r, Offset.Zero) }) {
+                    drawPath(sakura, Sakura.Primary.copy(alpha = .90f * a))
+                    drawPath(sakura, Sakura.RoseBrown.copy(alpha = a), style = Stroke(lerp(.75f, 1f, crest) * dp / r))
+                    if (crest > 0f) drawPath(monVeins, Sakura.White.copy(alpha = .55f * a * crest), style = Stroke(1.25f * dp / r, cap = StrokeCap.Round))
                 }
+                drawCircle(Sakura.White.copy(alpha = a), lerp(3f, 3.5f, crest) * dp, center)
+            }
+            mon((ghost * 1.6f).coerceAtMost(alpha))
+            if (scanY > -1e6f) clipRect(top = -h * 4f, bottom = scanY.coerceAtMost(h * 4f)) { mon(alpha) }
+            return@with
+        }
+        if (crest > 0f) {
+            // The backing plate: the sakura at .86 of the crest in pink, with a fine rose-brown outline.
+            val r = .86f * rw
+            withTransform({ translate(center.x, center.y); scale(r, r, Offset.Zero) }) {
+                drawPath(sakura, Sakura.Primary.copy(alpha = .90f * alpha * crest))
+                drawPath(sakura, Sakura.RoseBrown.copy(alpha = alpha * crest), style = Stroke(1f * dp / r, join = StrokeJoin.Round))
             }
         }
-        draw((ghost * 1.6f).coerceAtMost(alpha), Sakura.RoseBrown)
-        if (scanY > -1e6f) clipRect(top = 0f, bottom = scanY.coerceAtMost(h * 4f)) { draw(alpha, Sakura.Text) }
+        val at = Offset(center.x - run.advance[0] / 2f, center.y + .36f * run.fontPx - run.baseline)
+        withTransform({ scale(scale, scale, center) }) {
+            if (crest > 0f) {
+                // Under the scale, so the outline is .11 em and the drop .045 em of the crest's 68 sp.
+                drawGlyph(run, 0, at + Offset(0f, .045f * run.fontPx), Sakura.Primary, .5f * alpha * crest, stroke = monogramStroke)
+                drawGlyph(run, 0, at + Offset(0f, .045f * run.fontPx), Sakura.Primary, .5f * alpha * crest)
+                drawGlyph(run, 0, at, Sakura.White, alpha * crest, stroke = monogramStroke)
+            }
+            val g = (ghost * 1.6f).coerceAtMost(alpha) * (1f - crest)
+            if (g > 0f) drawGlyph(run, 0, at, Sakura.RoseBrown, g)
+            if (scanY > -1e6f) clipRect(top = -h * 4f, bottom = ((scanY - center.y) / scale + center.y).coerceAtMost(h * 4f)) {
+                drawGlyph(run, 0, at, Sakura.Text, alpha)
+            }
+        }
     }
+
+    private val monogramStroke: Stroke? = texts.monogram?.let { stickerStroke(it) }
 
     val sakura: Path = sakuraSilhouette()
-
-    /**
-     * The crest's sakura mon (no picture): a white disc, the flower at .78 of the crest's radius in pink with a white rim and a
-     * fine rose-brown outline, and a white centre. It replaces the monogram, which only repeated the name's first character.
-     */
-    fun drawMon(scope: DrawScope, center: Offset, rc: Float, alpha: Float) = with(scope) {
-        if (alpha <= 0f) return@with
-        drawCircle(Sakura.White.copy(alpha = .85f * alpha), rc, center)
-        val r = .78f * rc
-        withTransform({ translate(center.x, center.y); scale(r, r, Offset.Zero) }) {
-            drawPath(sakura, Sakura.RoseBrown.copy(alpha = alpha), style = Stroke((2.5f + 1.5f) * dp / r, join = androidx.compose.ui.graphics.StrokeJoin.Round))
-            drawPath(sakura, Sakura.White.copy(alpha = alpha), style = Stroke(2.5f * dp / r, join = androidx.compose.ui.graphics.StrokeJoin.Round))
-            drawPath(sakura, Sakura.Primary.copy(alpha = .90f * alpha))
-            drawPath(monVeins, Sakura.White.copy(alpha = .55f * alpha), style = Stroke(1.25f * dp / r, cap = androidx.compose.ui.graphics.StrokeCap.Round))
-        }
-        drawCircle(Sakura.White.copy(alpha = alpha), 3f * dp * (rc / (80f * lay.s * dp)).coerceIn(.8f, 1.2f), center)
-    }
 
     /** Five short white lines from the mon's centre toward its petal notches: the flower's stamens, so it reads as sakura. */
     private val monVeins = Path().apply {
@@ -369,12 +391,15 @@ internal fun IntroScene.ray(ms: Float): Float {
 /** System half → magic half for the field (blooms, halftone, rays), 0..1. */
 internal fun IntroScene.magic(ms: Float): Float = seg(ms, marks.hit, 700f * marks.pace, IntroEase.SineInOut)
 
-/** L1–L4: sky, light leak, the picture backdrop with its scrims, halftone, blooms, rays and pillars. */
+/**
+ * L1–L4: sky, light leak, halftone, blooms and rays, the picture backdrop with its scrims, then the magic half's lights. The
+ * system half's light (the bloom and rays at C, the halftone) lies under the picture: drawn over it, they washed the art inside
+ * the opening circle to a lavender grey. Only the top-layer flash tints the picture, and it is gone by hit + 380 ms.
+ */
 internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: Placement) {
     val m = sc.marks
     val p = m.pace
     val L = sc.lay
-    val dp = L.dp
     val R = L.r
     val skyIn = seg(ms, 40f, 400f, IntroEase.SineInOut)
     if (skyIn > 0f) {
@@ -382,27 +407,6 @@ internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: P
         drawRect(sc.leak, alpha = skyIn)
     }
     val fm = sc.magic(ms)
-    // L2: the picture opens from the window into the full screen.
-    if (sc.backdrop && ms >= m.hit + 30f * p) {
-        sc.backdropPlacement(ms, place)
-        val ki = if (sc.reduced) 1f else seg(ms, m.hit + 30f * p, 560f * p, IntroEase.ExpoOut)
-        val r = sc.irisRadius(ki)
-        if (ki < 1f) {
-            val clip = sc.kit.scratch
-            clip.reset()
-            clip.addOval(Rect(L.c, r))
-            clipPath(clip) { sc.drawPictureAt(this, place, 1f) }
-            val rim = 1f - ((r / sc.rMax - .8f) / .2f).coerceIn(0f, 1f)
-            if (rim > 0f) {
-                drawCircle(Sakura.White.copy(alpha = .25f * rim), r, L.c, style = Stroke(12f * dp))
-                drawCircle(Sakura.White.copy(alpha = .95f * rim), r, L.c, style = Stroke(2.5f * dp))
-            }
-        } else sc.drawPictureAt(this, place, 1f)
-        // The scrims arrive with the picture (not with the slower field change), so the HUD and 核驗通過 stay readable over it.
-        val scrim = max(fm, ki)
-        drawRect(sc.topScrim, alpha = scrim)
-        drawRect(sc.bottomScrim, alpha = scrim)
-    }
     // L3: halftone (stronger in the system half, so the space under the beat lines has some structure).
     if (L.halftone) {
         val sys = .80f * seg(ms, 80f, 400f)
@@ -419,9 +423,26 @@ internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: P
     }
     val ray = sc.ray(ms)
     val rot = if (sc.level == EffectLevel.SAVER) 0f else 18f * seg(ms, m.hit, 600f * p, IntroEase.QuintOut)
-    val raysAtC = ray * (1f - fm)
+    // Rays at C; over a backdrop they stay on through the hit and fade out between +200 and +700, round the opening circle.
+    val raysAtC = ray * ((1f - fm) + if (sc.backdrop) fm * (1f - seg(ms, m.hit + 200f * p, 500f * p)) else 0f)
     if (raysAtC > 0f) withTransform({ translate(L.c.x, L.c.y); scale(R, R, Offset.Zero); rotate(rot, Offset.Zero) }) {
         drawPath(sc.kit.rays, sc.kit.rayBrush, alpha = raysAtC.coerceAtMost(1f))
+    }
+    // L2: the picture opens from the window into the full screen, at full strength (its rim is drawn over the sigil, with the
+    // crest layer).
+    if (sc.backdrop && ms >= m.hit + 30f * p) {
+        sc.backdropPlacement(ms, place)
+        val ki = sc.irisK(ms)
+        if (ki < 1f) {
+            val clip = sc.kit.scratch
+            clip.reset()
+            clip.addOval(Rect(L.c, sc.irisRadius(ki)))
+            clipPath(clip) { sc.drawPictureAt(this, place, 1f) }
+        } else sc.drawPictureAt(this, place, 1f)
+        // The scrims arrive with the picture (not with the slower field change), so the HUD and 核驗通過 stay readable over it.
+        val scrim = max(fm, ki)
+        drawRect(sc.topScrim, alpha = scrim)
+        drawRect(sc.bottomScrim, alpha = scrim)
     }
     if (fm <= 0f) return
     // The magic half: a top bloom, the floor's shadow and its light, and rays behind the crest (none over a picture). Over the
@@ -442,12 +463,20 @@ internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: P
         withTransform({ translate(L.crestC.x, L.crestC.y); scale(R, R, Offset.Zero); rotate(rot + if (sc.reduced) 0f else 2f * amb, Offset.Zero) }) {
             drawPath(sc.kit.rays, sc.kit.rayBrush, alpha = a.coerceAtMost(1f))
         }
-    } else if (sc.backdrop) {
-        val a = ray * (1f - seg(ms, m.hit + 200f * p, 500f * p)) * fm
-        if (a > 0f) withTransform({ translate(L.c.x, L.c.y); scale(R, R, Offset.Zero); rotate(rot, Offset.Zero) }) {
-            drawPath(sc.kit.rays, sc.kit.rayBrush, alpha = a.coerceAtMost(1f))
-        }
     }
+}
+
+/** The opening circle's rim (white 2.5 dp over a 12 dp glow), drawn over the sigil so it reads as the window bursting open. */
+internal fun DrawScope.drawIrisRim(sc: IntroScene, ms: Float) {
+    if (!sc.backdrop || sc.reduced || ms < sc.marks.hit + 30f * sc.marks.pace) return
+    val ki = sc.irisK(ms)
+    if (ki >= 1f) return
+    val r = sc.irisRadius(ki)
+    val rim = 1f - ((r / sc.rMax - .8f) / .2f).coerceIn(0f, 1f)
+    if (rim <= 0f) return
+    val dp = sc.lay.dp
+    drawCircle(Sakura.White.copy(alpha = .25f * rim), r, sc.lay.c, style = Stroke(12f * dp))
+    drawCircle(Sakura.White.copy(alpha = .95f * rim), r, sc.lay.c, style = Stroke(2.5f * dp))
 }
 
 /** L5–L6: far stars and the system chrome (power-on line, hairlines with ticks, ruler, progress), which retracts at the hit. */

@@ -129,14 +129,34 @@ internal class IntroMeasure(private val measurer: TextMeasurer, density: Float, 
 /** One paint for every emoji silhouette: an emoji drawn into a layer with this paint comes out in the hero text colour. */
 private val EmojiInk = Paint().apply { colorFilter = ColorFilter.tint(Sakura.Text, BlendMode.SrcIn) }
 private val EmojiShadow = Paint().apply { colorFilter = ColorFilter.tint(Sakura.Primary, BlendMode.SrcIn) }
+/** Tint paints for sticker emoji, one per colour (only the few sticker colours are ever asked for). */
+private val EmojiTints = HashMap<Color, Paint>()
+
+/** The emoji glyph [layout] as a flat [color] silhouette, grown by [grow] px (drawn at 12 offsets round it) for an outline. */
+private fun DrawScope.emojiSilhouette(layout: TextLayoutResult, color: Color, alpha: Float, grow: Float) {
+    val paint = EmojiTints.getOrPut(color) { Paint().apply { colorFilter = ColorFilter.tint(color, BlendMode.SrcIn) } }
+    paint.alpha = alpha
+    drawIntoCanvas { canvas ->
+        canvas.saveLayer(androidx.compose.ui.geometry.Rect(-grow, -grow, layout.size.width + grow, layout.size.height + grow), paint)
+        if (grow > 0f) for (k in 0 until 12) {
+            val a = k * (Math.PI / 6.0)
+            drawText(layout, topLeft = Offset((kotlin.math.cos(a) * grow).toFloat(), (kotlin.math.sin(a) * grow).toFloat()), drawStyle = Fill)
+        }
+        drawText(layout, topLeft = Offset.Zero, drawStyle = Fill)
+        canvas.restore()
+    }
+}
 
 /**
  * Draws glyph [i] of [run] with its top-left at [at], [scale] about its own bottom centre and [alpha]. Emoji become ink
  * silhouettes, a little smaller and lighter than the letters (a full-size solid one outweighed the name); [stroke] (a sticker
- * outline) skips them, since a colour bitmap has no outline to stroke.
+ * outline) skips them, since a colour bitmap has no outline to stroke. With [sticker] (the name) an emoji joins the sticker
+ * instead: [stroke] grows its silhouette by half the stroke in [color], and the fill is pink with a fine rose-brown edge (a dark
+ * silhouette with no outline read as a blot next to the sticker letters).
  */
 internal fun DrawScope.drawGlyph(
     run: GlyphRun, i: Int, at: Offset, color: Color, alpha: Float, scale: Float = 1f, stroke: Stroke? = null, shadow: Boolean = false,
+    sticker: Boolean = false,
 ) {
     if (alpha <= 0.004f) return
     val layout = run.glyphs[i]
@@ -144,7 +164,18 @@ internal fun DrawScope.drawGlyph(
         translate(at.x, at.y)
         if (scale != 1f) scale(scale, scale, Offset(run.advance[i] / 2f, run.baseline))
     }) {
-        if (run.emoji[i]) {
+        if (run.emoji[i] && sticker) {
+            withTransform({ scale(.80f, .80f, Offset(run.advance[i] / 2f, run.baseline * .62f)) }) {
+                when {
+                    stroke != null -> emojiSilhouette(layout, color, alpha, stroke.width / 2f / .80f)
+                    shadow -> emojiSilhouette(layout, color, alpha, 0f)
+                    else -> {
+                        emojiSilhouette(layout, Sakura.RoseBrown, alpha, 1f * density / .80f)
+                        emojiSilhouette(layout, Sakura.Primary, alpha, 0f)
+                    }
+                }
+            }
+        } else if (run.emoji[i]) {
             if (stroke == null) withTransform({ scale(.80f, .80f, Offset(run.advance[i] / 2f, run.baseline * .62f)) }) {
                 drawIntoCanvas { canvas ->
                     val paint = if (shadow) EmojiShadow else EmojiInk

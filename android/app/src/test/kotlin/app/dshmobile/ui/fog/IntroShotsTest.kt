@@ -62,7 +62,7 @@ class IntroShotsTest {
     }
 
     @Test fun theNameIsAnInkStickerWithAWhiteOutline() {
-        val frames = play(Intro(enabled = true, name = "小雨", seconds = 3f), 600, 1260, 2250)
+        val frames = play(Intro(enabled = true, name = "小雨", seconds = 3f), 600, 1275, 2250)
         val box = rule.onNodeWithText("歡迎回來，小雨").fetchSemanticsNode().boundsInRoot
         val welcome = frames.last()
         val l = box.left.roundToInt(); val t = box.top.roundToInt(); val r = box.right.roundToInt(); val b = box.bottom.roundToInt()
@@ -74,15 +74,29 @@ class IntroShotsTest {
         // The flash frame is bright but still in the palette: never more than a white veil over blush.
         val flash = frames[1]
         assertTrue(flash.count(0, 0, flash.width, flash.height) { red, g, bl -> red < 200 && g < 200 && bl < 200 && maxOf(red, g, bl) - minOf(red, g, bl) < 6 } == 0)
+        // The flash is over everything: at its peak even the monogram's ink (#5E4445) at C is washed most of the way to white.
+        // Drawn behind the sigil it only paled the sky and the ink stayed dark.
+        val dark = flash.count(372, 674, 452, 754) { red, g, bl -> red + g + bl < 3 * 150 }
+        assertEquals("dark monogram pixels at the flash peak", 0, dark)
+    }
+
+    @Test fun overAPictureTheBrandStaysFullInk() {
+        // An invented busy picture (rose-brown and pink stripes): the brand and date keep full #5E4445 over it, not .75.
+        val bmp = Bitmap.createBitmap(400, 800, Bitmap.Config.ARGB_8888).apply {
+            for (y in 0 until 800) for (x in 0 until 400) setPixel(x, y, if ((x / 6 + y / 9) % 2 == 0) 0xFF9E7A7A.toInt() else 0xFFDC9FB4.toInt())
+        }
+        val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f), 2250, picture = bmp.asImageBitmap()).single()
+        val ink = frame.count(36, 20, 240, 60) { red, g, bl -> kotlin.math.abs(red - 0x5E) <= 4 && kotlin.math.abs(g - 0x44) <= 4 && kotlin.math.abs(bl - 0x45) <= 4 }
+        assertTrue("full-ink brand pixels: $ink", ink > 30)
     }
 
     /** Grey: the channels within 6 of each other and darker than near-white (the old aqua scan trail measured #DFE3E4). */
     private fun grey(r: Int, g: Int, b: Int) = maxOf(r, g, b) - minOf(r, g, b) < 6 && .2126f * r + .7152f * g + .0722f * b < 235f
 
     @Test fun theScanLeavesNoGreyBandOverTheSigil() {
-        // Mid-scan at 3 s (scan 640 → 1040 ms). Ring A's disc is at C = (206, 329.4) dp, R = 164.8 dp; at xhdpi × 2.
+        // Mid-scan at 3 s (scan 640 → 1040 ms). Ring A's disc is at C = (206, 356.85) dp, R = 164.8 dp; at xhdpi × 2.
         val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f), 900).single()
-        val cx = 412f; val cy = 658.8f; val r = 329.6f
+        val cx = 412f; val cy = 713.7f; val r = 329.6f
         var n = 0
         for (y in (cy - r).toInt()..(cy + r).toInt()) for (x in (cx - r).toInt()..(cx + r).toInt()) {
             if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue
@@ -90,6 +104,21 @@ class IntroShotsTest {
             if (grey((c shr 16) and 255, (c shr 8) and 255, c and 255)) n++
         }
         assertEquals("grey pixels over the sigil while scanning", 0, n)
+    }
+
+    @Test fun theRibbonsWrapRoundTheCircleInsteadOfCuttingThroughIt() {
+        val kit = SigilKit(320f, 2f, 28, .5f)
+        for ((i, pm) in kit.ribbonMeasures.withIndex()) {
+            assertTrue(pm.length > 1f)
+            var d = 0f
+            while (d <= pm.length) {
+                val p = pm.getPosition(d)
+                assertTrue("ribbon $i passes ${kotlin.math.hypot(p.x, p.y)} R from the centre", kotlin.math.hypot(p.x, p.y) >= .8f)
+                d += pm.length / 200f
+            }
+            // Each ends higher than it starts, so the welcome words under the circle are clear by the time they come in.
+            assertTrue(pm.getPosition(pm.length).y < pm.getPosition(0f).y)
+        }
     }
 
     @Config(qualifiers = "w600dp-h960dp-port-xhdpi")
@@ -106,9 +135,9 @@ class IntroShotsTest {
             if ((c shr 16) and 255 < 60 && (c shr 8) and 255 > 150 && c and 255 < 60) { sx += x; sy += y; n++ }
         }
         assertTrue("the dot shows in the window", n > 20)
-        // C = (300, 0.36 × 960) dp; within 8 dp.
+        // C = (300, 0.39 × 960) dp; within 8 dp.
         val dx = sx / n.toFloat() / 2f - 300f
-        val dy = sy / n.toFloat() / 2f - .36f * 960f
+        val dy = sy / n.toFloat() / 2f - .39f * 960f
         assertTrue("the face lands ${kotlin.math.hypot(dx, dy)} dp from the centre", kotlin.math.hypot(dx, dy) <= 8f)
     }
 

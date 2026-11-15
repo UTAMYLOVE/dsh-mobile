@@ -58,8 +58,37 @@ class IntroMarksTest {
         assertEquals(2f, nudge(40f), .001f)
         assertEquals(0f, nudge(140f), 0f)
         assertEquals(0f, stutter(0f), .001f)
-        assertEquals(22.5f, stutter(1.5f), .001f)
-        assertEquals(45f, stutter(3.0f), .01f)
+        // Half a petal per step: the rosette always comes to rest on a heavy or a mid tick.
+        assertEquals(36f, stutter(1.5f), .001f)
+        assertEquals(72f, stutter(3.0f), .01f)
+        // The capped slam falls in no wider than the cap, then squashes and rests exactly as the plain one.
+        assertEquals(1.15f, slamCapped(0f, 1.15f), .001f)
+        assertEquals(1.32f, slamCapped(0f, 2f), .001f)
+        assertEquals(1f, slamCapped(0f, .9f), .001f)
+        assertEquals(slam(.6f), slamCapped(.6f, 1.15f), .0001f)
+        assertEquals(1f, slamCapped(1f, 1.15f), .001f)
+        for (i in 0..100) assertTrue(slamCapped(i / 100f, 1.15f) <= 1.15f + 1e-4f)
+    }
+
+    @Test fun longRunsAssembleTheRosetteDuringTheAccessBeat() {
+        for (len in 5000..8000 step 500) {
+            val m = IntroMarks.of(len)
+            assertEquals(m.a + 560f * m.pace, m.build, .01f)
+            // It starts while 需要訪問許可 is up, not after a long empty dial.
+            assertTrue("$len: starts during ACCESS", m.build < m.b - 200f)
+        }
+    }
+
+    @Test fun theVerifiedCaptionOnlyShowsWhenItCanStayUp() {
+        // At 3 s and below 03's caption would be up for under 100 ms before it must go: the slam has the beat to itself.
+        for (len in listOf(1500, 2200, 3000)) assertTrue("$len", !IntroMarks.of(len).verifiedCaption())
+        val m8 = IntroMarks.of(8000)
+        assertTrue(m8.verifiedCaption())
+        assertEquals(m8.hit + 480f, m8.verifiedOut(), .01f)
+        for (len in 1500..8000 step 100) {
+            val m = IntroMarks.of(len)
+            assertTrue("$len: gone before d", m.verifiedOut() + 120f * m.pace <= m.d - 9f * m.pace)
+        }
     }
 
     @Test fun theSakuraSilhouetteValleysSitAtSeventyPercent() {

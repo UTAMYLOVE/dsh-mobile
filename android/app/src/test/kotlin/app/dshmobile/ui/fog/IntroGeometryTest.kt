@@ -21,11 +21,11 @@ class IntroGeometryTest {
     private fun layouts() = screens.map { (w, h, t, b) -> IntroLayout(w * dp, h * dp, dp, t * dp, b * dp) }
 
     @Test fun theSigilStaysUprightAndClearOfTheBigWordsUntilTheMorph() {
-        for (L in layouts()) for (len in 1500..8000 step 250) {
+        for (L in layouts()) for (len in 1500..8000 step 250) for (early in listOf(false, true)) {
             val m = IntroMarks.of(len)
             var ms = m.hit
             while (ms <= m.d) {
-                val k = floorProgress(ms, m, L.floorLimit)
+                val k = floorProgress(ms, m, L.floorLimit, early)
                 val pulse = sigilScale(ms, m)
                 if (L.landscape) {
                     val right = lerp(L.c.x, L.cf.x, k) + lerp(1f, L.rx / L.r, k) * pulse * L.r
@@ -36,16 +36,33 @@ class IntroGeometryTest {
                 }
                 ms += 2f
             }
-            // Upright through 核驗通過, lying down by the welcome, and never a jump on the way.
-            assertEquals(0f, floorProgress(m.d - 61f * m.pace, m, L.floorLimit), 0f)
-            assertEquals(1f, floorProgress(m.d + 700f * m.pace, m, L.floorLimit), .0001f)
+            // Upright through 核驗通過 (over a picture it starts down at the hit itself), lying down by the welcome, and never a
+            // jump on the way.
+            if (!early) assertEquals(0f, floorProgress(m.d - 61f * m.pace, m, L.floorLimit), 0f)
+            assertEquals(0f, floorProgress(m.hit - 1f, m, L.floorLimit, early), 0f)
+            assertEquals(1f, floorProgress(m.d + 700f * m.pace, m, L.floorLimit, early), .0001f)
             var last = 0f
-            ms = m.d - 60f * m.pace
+            ms = m.hit
             while (ms <= m.d + 700f * m.pace) {
-                val k = floorProgress(ms, m, L.floorLimit)
+                val k = floorProgress(ms, m, L.floorLimit, early)
                 assertTrue("$len at $ms jumps ${k - last}", k - last in -.0001f..(.06f))
                 last = k
                 ms += 1f
+            }
+        }
+    }
+
+    @Test fun theVerifiedCaptionIsGoneBeforeTheFloorReachesIt() {
+        // No line art runs through 03 — VERIFIED or 權限已開啟: wherever the lying circle's bottom edge is below the caption's top,
+        // their fade is over.
+        for (L in layouts().filter { !it.landscape }) for (len in 1500..8000 step 250) for (early in listOf(false, true)) {
+            val m = IntroMarks.of(len)
+            var ms = m.hit
+            while (ms <= m.d + 700f * m.pace) {
+                val k = floorProgress(ms, m, L.floorLimit, early)
+                val bottom = lerp(L.c.y, L.cf.y, k) + lerp(1f, L.ry / L.r, k) * sigilScale(ms, m) * L.r
+                if (bottom > L.captionTop) assertTrue("$len at $ms", ms >= m.verifiedOut() + 120f * m.pace)
+                ms += 2f
             }
         }
     }
@@ -66,7 +83,15 @@ class IntroGeometryTest {
     @Test fun theCrestStandsWhereTheSigilStood() {
         val L = IntroLayout(412f * dp, 915f * dp, dp, 32f * dp, 24f * dp)
         assertEquals(L.c, L.crestC)
-        assertEquals(80f * dp, L.crestR, .01f)
+        assertEquals(66f * dp, L.crestR, .01f)
+    }
+
+    @Test fun theHeavyTicksSitOnThePetals() {
+        // Five heavy ticks on the petals (every 72°, the first straight up) and five mid ones between them: not a 12-hour dial.
+        val heavy = (0 until SigilKit.TICKS).filter { SigilKit.tickFrom(it) == .78f }.map { it * 360f / SigilKit.TICKS }
+        assertEquals(listOf(0f, 72f, 144f, 216f, 288f), heavy)
+        val mid = (0 until SigilKit.TICKS).filter { SigilKit.tickFrom(it) == .80f }.map { it * 360f / SigilKit.TICKS }
+        assertEquals(listOf(36f, 108f, 180f, 252f, 324f), mid)
     }
 
     @Test fun theWindowFramesTheFaceOnAnyScreen() {

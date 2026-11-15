@@ -117,6 +117,8 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
     )
     val subs = arrayOf(words.permissionSub, words.checkingSub, words.passedSub).map { mm.run(it, IntroFonts.sans(13f, FontWeight.Normal), .08f) }.toTypedArray()
     val authLabel = mm.run(IntroLatin.AUTH, c11b, .12f)
+    /** The settled 100 %, in proportional figures: in a tabular cell the narrow 1 left a hole ("AUTH 1 00%"). */
+    val authDone = mm.run("100%", IntroFonts.chakra(11f, true), .12f)
     val digits = Array(10) { mm.one(it.toString(), c11b) }
     val digitW = digits[0].let { it.getLineRight(0) - it.getLineLeft(0) } + .12f * 11f * s * mm.pxPerSp
     val percent = mm.one("%", c11b)
@@ -157,19 +159,37 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
         val style = IntroFonts.sans(start, FontWeight.Bold)
         val maxW = lay.colWidth
         val one = mm.fit(text, style, track, start, 44f, maxW)
-        nameLines = if (one.width <= maxW) listOf(one) else {
-            // Two balanced lines at the floor size; an ellipsis when even that does not fit.
-            val g = graphemes(text)
-            val half = (g.size + 1) / 2
-            val first = mm.run(g.take(half).joinToString(""), style, track, 44f)
-            var rest = g.drop(half)
-            var second = mm.run(rest.joinToString(""), style, track, 44f)
-            while (second.width > maxW && rest.size > 1) {
-                rest = rest.dropLast(1)
-                second = mm.run(rest.joinToString("") + "…", style, track, 44f)
-            }
-            listOf(first, second)
+        nameLines = if (one.width <= maxW) listOf(one) else twoLines(text, style, track, maxW)
+    }
+
+    /**
+     * [text] on two lines at the floor size. Balanced: the break whose wider line is the narrowest (halving by count split a
+     * surname, 星野夢美子桜 / 庭ひなた); a near tie (within .25 em) keeps the shorter line on top, and a name with spaces breaks only
+     * at a space. When even the best break is too wide, the first line takes what fits and the second ends in an ellipsis.
+     */
+    private fun twoLines(text: String, style: androidx.compose.ui.text.TextStyle, track: Float, maxW: Float): List<GlyphRun> {
+        val g = graphemes(text)
+        val full = mm.run(text, style, track, 44f)
+        val n = g.size
+        fun left(k: Int) = full.x[k - 1] + full.advance[k - 1]
+        fun right(k: Int) = full.x[n - 1] + full.advance[n - 1] - full.x[k]
+        val spaced = g.any { it == " " }
+        val breaks = (1 until n).filter { !spaced || g[it - 1] == " " }
+        val least = breaks.minOfOrNull { max(left(it), right(it)) } ?: Float.MAX_VALUE
+        val best = breaks.firstOrNull { max(left(it), right(it)) <= least + .25f * full.fontPx } ?: -1
+        if (best > 0 && least <= maxW) {
+            return listOf(mm.run(g.take(best).joinToString("").trim(), style, track, 44f), mm.run(g.drop(best).joinToString("").trim(), style, track, 44f))
         }
+        var k = 1
+        while (k < n - 1 && left(k + 1) <= maxW) k++
+        val first = mm.run(g.take(k).joinToString("").trim(), style, track, 44f)
+        var rest = g.drop(k)
+        var second = mm.run(rest.joinToString("").trim(), style, track, 44f)
+        while (second.width > maxW && rest.size > 1) {
+            rest = rest.dropLast(1)
+            second = mm.run(rest.joinToString("").trim() + "…", style, track, 44f)
+        }
+        return listOf(first, second)
     }
 
     val nameFontPx = nameLines[0].fontPx
@@ -237,13 +257,45 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
     /** The hero lines' baselines (1.12 em line box) and their slot clip. */
     fun heroBaseline(i: Int): Float = lay.heroTop + .94f * heroes[i].fontPx
     fun heroBottom(i: Int): Float = lay.heroTop + 1.12f * heroes[i].fontPx
-    fun subTop(i: Int): Float = heroBottom(i) + 10f * dp
+    /** The pink bar under each hero line: 4 dp, from the column's left edge for .35 of the column (each beat's graphic anchor). */
+    fun barTop(i: Int): Float = heroBottom(i) + 4f * dp
+    val barWidth = max(60f * dp, .35f * lay.wc - lay.g)
+    fun subTop(i: Int): Float = heroBottom(i) + 18f * dp
+
+    /** 核驗通過's lighter sticker: a .08 em white outline over a pink drop at (0, .04 em). */
+    val verifiedStroke = stickerStroke(heroes[2], .08f)
+
+    /**
+     * The giant faded beat numerals 01 / 02 / 03 (Chakra Petch SemiBold up to 140 sp), right-aligned on the gutter with their
+     * baseline 20 dp above the progress line, so the band between the beat block and the progress line is not empty halftone.
+     * Sized to the room under the widest hero line; none where that room is too small (short, split and landscape screens).
+     */
+    val numerals: Array<GlyphRun>? = run {
+        if (lay.landscape || lay.split) return@run null
+        val baseline = lay.progressY - 20f * dp
+        val top = (0 until 3).maxOf { barTop(it) + 4f * dp } + 14f * dp
+        // Digits stand .70 em tall in Chakra Petch.
+        val sp = min(140f, (baseline - top) / .70f / (s * mm.pxPerSp))
+        if (sp < 72f) null else Array(3) { mm.run("0${it + 1}", IntroFonts.chakra(140f, true, tnum = true), .02f, sp) }
+    }
 }
 
 /** The paint for the glints' offscreen layer (SrcAtop needs the glyphs alone in a layer). */
 private val LayerPaint = Paint()
 /** The name shadow's layer: drawn opaque inside, faded as one. */
 private val ShadowPaint = Paint()
+/** 核驗通過's pink drop, in its own layer for the same reason. */
+private val HeroShadowPaint = Paint()
+
+/**
+ * When 03's caption, sub, bar and giant numeral start their 120 ms fade: by hit + 480 ms, and always early enough that they are
+ * gone before the floor circle sweeps down through the beat block (it is held clear of the caption until d, then passes it at
+ * once).
+ */
+internal fun IntroMarks.verifiedOut(): Float = min(hit + 480f * pace, d - 130f * pace)
+
+/** 03's caption and sub show only when they would stay up for 100 ms; at 3 s and below the slam has the beat to itself. */
+internal fun IntroMarks.verifiedCaption(): Boolean = verifiedOut() - (hit + 160f * pace) >= 100f * pace
 
 private fun DrawScope.glint(bounds: Rect, k: Float, body: DrawScope.() -> Unit) {
     drawIntoCanvas { canvas ->
@@ -268,9 +320,10 @@ internal fun DrawScope.drawHudAndBeats(sc: IntroScene, ms: Float) {
     val p = m.pace
     val L = sc.lay
     val dp = L.dp
-    // HUD alpha: dims in the inhale; after the hit the brand and date stay at .75 and the rest goes.
+    // HUD alpha: dims in the inhale; after the hit the brand and date stay at .75 (full over the user's picture, where .75 fell
+    // under 3:1 against busy art) and the rest goes.
     val inh = seg(ms, m.c, m.hit - m.c, IntroEase.CubicIn)
-    val dim = if (ms < m.hit) lerp(1f, .55f, inh) else lerp(.55f, .75f, seg(ms, m.hit + 40f * p, 220f))
+    val dim = if (ms < m.hit) lerp(1f, .55f, inh) else lerp(.55f, if (sc.backdrop) 1f else .75f, seg(ms, m.hit + 40f * p, 220f))
     val gone = if (ms < m.hit) lerp(1f, .55f, inh) else .55f * (1f - seg(ms, m.hit + 40f * p, 220f))
     val ink = Sakura.Text
     t.brand.draw(this, L.m, L.hud1Top, ms, 120f, ink, dim)
@@ -290,9 +343,11 @@ internal fun DrawScope.drawHudAndBeats(sc: IntroScene, ms: Float) {
         val top = L.progressY - 6f * dp - t.authLabel.height
         drawRun(t.authLabel, x, top, ink, a)
         x += t.authLabel.width + .12f * t.authLabel.fontPx
-        val ds = intArrayOf(pct / 100, (pct / 10) % 10, pct % 10)
-        for (d in ds) { withTransform({ translate(x, top) }) { drawText(t.digits[d], color = ink, alpha = a) }; x += t.digitW }
-        withTransform({ translate(x, top) }) { drawText(t.percent, color = ink, alpha = a) }
+        if (pct >= 100) drawRun(t.authDone, right - t.authDone.width, top, ink, a) else {
+            val ds = intArrayOf(pct / 100, (pct / 10) % 10, pct % 10)
+            for (d in ds) { withTransform({ translate(x, top) }) { drawText(t.digits[d], color = ink, alpha = a) }; x += t.digitW }
+            withTransform({ translate(x, top) }) { drawText(t.percent, color = ink, alpha = a) }
+        }
     }
     // The skip label (when skippable): 跳過 SKIP and two drawn chevrons.
     if (sc.skippable) {
@@ -314,6 +369,7 @@ internal fun DrawScope.drawHudAndBeats(sc: IntroScene, ms: Float) {
         }
     }
     if (sc.reduced) { drawEyebrow(sc, ms); return }
+    t.numerals?.let { drawNumerals(sc, it, ms) }
     // Beat 1 (and, when compact, the block that cross-fades into beat 2 and stays until c).
     val b1Exit = if (m.compact) m.c else m.b
     val b1Dur = if (m.compact) 160f * p else 180f * p
@@ -321,6 +377,25 @@ internal fun DrawScope.drawHudAndBeats(sc: IntroScene, ms: Float) {
     if (!m.compact) drawBeat(sc, 1, ms, m.b, 60f * p, m.c, 160f * p, compactSwap = false)
     // Beat 3: the slam, then the morph into the eyebrow.
     if (ms >= m.hit) drawVerified(sc, ms)
+}
+
+/** The giant faded numeral of the current beat, cross-fading at each beat mark. */
+private fun DrawScope.drawNumerals(sc: IntroScene, nums: Array<GlyphRun>, ms: Float) {
+    val m = sc.marks
+    val L = sc.lay
+    val out = m.verifiedOut()
+    val alphas = floatArrayOf(
+        seg(ms, m.a, 200f) * (1f - seg(ms, m.b, 160f)),
+        seg(ms, m.b, 160f) * (1f - seg(ms, m.hit, 120f)),
+        seg(ms, m.hit, 120f) * (1f - seg(ms, out, 120f * m.pace)),
+    )
+    val right = L.colLeft + L.colWidth
+    val baseline = L.progressY - 20f * L.dp
+    for (i in 0 until 3) {
+        if (alphas[i] <= 0f) continue
+        val run = nums[i]
+        drawRun(run, right - run.width, baseline - run.baseline, Sakura.RoseBrown, .10f * alphas[i])
+    }
 }
 
 /**
@@ -358,8 +433,11 @@ private fun DrawScope.drawBeat(sc: IntroScene, i: Int, ms: Float, start: Float, 
             drawRun(h2, L.colLeft, t.heroBaseline(1) - h2.baseline + outY, Sakura.Text, swap * outA)
         }
     }
+    // The pink bar under the hero, drawing on with it.
+    val bk = IntroEase.ExpoOut.transform(seg(ms, start + heroDelay, 300f * p))
+    if (bk > 0f) drawRect(Sakura.Primary.copy(alpha = outA), Offset(L.colLeft, lerp(t.barTop(i), t.barTop(1), swap) + outY), Size(t.barWidth * bk, 4f * dp))
     val subIndex = if (swap >= .5f) 1 else i
-    drawSub(sc, subIndex, ms, start + 200f * p, outA * (if (swap > 0f && swap < 1f) kotlin.math.abs(1f - 2f * swap) else 1f), outY, t.subTop(i))
+    drawSub(sc, subIndex, ms, start + 200f * p, outA * (if (swap > 0f && swap < 1f) kotlin.math.abs(1f - 2f * swap) else 1f), outY, lerp(t.subTop(i), t.subTop(1), swap))
 }
 
 private fun DrawScope.drawCaption(sc: IntroScene, i: Int, ms: Float, start: Float, alpha: Float, dy: Float, trackFrom: Float = .80f) {
@@ -393,15 +471,24 @@ private fun DrawScope.drawSub(sc: IntroScene, i: Int, ms: Float, start: Float, a
     drawRun(sub, L.colLeft + 7f * dp + 6f * dp, top, Sakura.TextSecondary, a)
 }
 
-/** 核驗通過: the slam, its caption and sub, the glint, then the line shrinking into the welcome's eyebrow. */
+/**
+ * 核驗通過: the slam, its bar (and, when there is time, its caption and sub, which come in after the squash so the falling line
+ * never covers them), the glint, then the line shrinking into the welcome's eyebrow.
+ */
 private fun DrawScope.drawVerified(sc: IntroScene, ms: Float) {
     val t = sc.texts
     val m = sc.marks
     val p = m.pace
     val L = sc.lay
-    val capOut = 1f - seg(ms, m.d, 160f)
-    drawCaption(sc, 2, ms, m.hit + 40f * p, capOut, 0f, trackFrom = 1f)
-    drawSub(sc, 2, ms, m.hit + 160f * p, capOut, 0f, t.subTop(2))
+    val capOut = 1f - seg(ms, m.verifiedOut(), 120f * p)
+    if (capOut > 0f) {
+        if (m.verifiedCaption()) {
+            drawCaption(sc, 2, ms, m.hit + 160f * p, capOut, 0f, trackFrom = 1f)
+            drawSub(sc, 2, ms, m.hit + 160f * p, capOut, 0f, t.subTop(2))
+        }
+        val bk = IntroEase.ExpoOut.transform(seg(ms, m.hit + 60f * p, 300f * p))
+        if (bk > 0f) drawRect(Sakura.Primary.copy(alpha = capOut), Offset(L.colLeft, t.barTop(2)), Size(t.barWidth * bk, 4f * L.dp))
+    }
     drawEyebrow(sc, ms)
 }
 
@@ -416,15 +503,29 @@ private fun DrawScope.drawEyebrow(sc: IntroScene, ms: Float) {
     val u = seg(ms, m.hit, 280f * p)
     val a = if (sc.reduced) 1f else ((ms - m.hit) / 70f).coerceIn(0f, 1f)
     val k = if (sc.reduced) 1f else seg(ms, m.d, 420f * p, IntroEase.EmphDecel)
-    // The slam starts large but never past the screen's right edge.
-    val fit = max(1f, (L.w - 10f * dp - L.colLeft) / hero.width)
-    val scale = lerp(min(slam(u), fit), t.eyebrowScale, k)
+    // The slam starts large but never wider than the column (at 1.32 a long line ran into the right gutter).
+    val scale = lerp(slamCapped(u, L.colWidth / hero.width), t.eyebrowScale, k)
     val bx = lerp(L.colLeft, t.eyebrowTextLeft, k)
     val by = lerp(t.heroBaseline(2), t.eyebrowBaseline, k)
     val color = lerpColor(Sakura.Text, if (sc.backdrop) Sakura.Text else Sakura.TextSecondary, k)
     val glintK = if (!m.compact && !sc.reduced && m.d - m.hit - 300f * p >= 300f) seg(ms, m.hit + 300f * p, 420f * p, IntroEase.CubicInOut) else 0f
+    // A lighter sticker than the name's (so the climax word has a voice of its own), fading out as it becomes the eyebrow.
+    val st = a * (1f - k)
     val body: DrawScope.() -> Unit = {
         withTransform({ translate(bx, by); scale(scale, scale, Offset.Zero) }) {
+            if (st > 0f) {
+                val dy = .04f * hero.fontPx
+                drawIntoCanvas { canvas ->
+                    HeroShadowPaint.alpha = .5f * st
+                    canvas.saveLayer(Rect(-t.verifiedStroke.width, -hero.baseline - t.verifiedStroke.width, hero.width + t.verifiedStroke.width, hero.height - hero.baseline + dy + t.verifiedStroke.width), HeroShadowPaint)
+                    for (g in 0 until hero.size) {
+                        drawGlyph(hero, g, Offset(hero.x[g], -hero.baseline + dy), Sakura.Primary, 1f, stroke = t.verifiedStroke)
+                        drawGlyph(hero, g, Offset(hero.x[g], -hero.baseline + dy), Sakura.Primary, 1f)
+                    }
+                    canvas.restore()
+                }
+                for (g in 0 until hero.size) drawGlyph(hero, g, Offset(hero.x[g], -hero.baseline), Sakura.White, st, stroke = t.verifiedStroke)
+            }
             for (g in 0 until hero.size) drawGlyph(hero, g, Offset(hero.x[g], -hero.baseline), color, a)
         }
     }
@@ -533,7 +634,7 @@ internal fun DrawScope.drawName(sc: IntroScene, ms: Float) {
     val p = m.pace
     val L = sc.lay
     val d = m.d
-    if (ms < d + 40f * p && !sc.reduced) return
+    if (ms < d + 40f * p - 40f && !sc.reduced) return
     val cjk = t.nameLines.none { line -> line.text.all { isLatin(it) } }
     val stagger = (if (m.compact) 24f else if (cjk) 40f else 20f) * p
     val total = t.nameLines.sumOf { it.size }
@@ -548,24 +649,28 @@ internal fun DrawScope.drawName(sc: IntroScene, ms: Float) {
             val left = L.welcomeCenterX - line.width / 2f
             val base = t.nameBaseline(li)
             for (g in 0 until line.size) {
-                val raw = if (sc.reduced) 1f else ((ms - d - 40f * p - step * n) / (420f * p)).coerceIn(0f, 1f)
+                // The white outline (and the drop under it) leads the ink by 40 ms, so each glyph stamps in: a live blur here
+                // smeared the ink into its outline and drop as a grey-mauve mud.
+                val lead = if (pass < 2) 40f else 0f
+                val raw = if (sc.reduced) 1f else ((ms - d - 40f * p - step * n + lead) / (420f * p)).coerceIn(0f, 1f)
                 n++
                 if (raw <= 0f) continue
                 val e = IntroEase.ExpoOut.transform(raw)
-                val a = (raw / .45f).coerceAtMost(1f)
+                // Opaque within 85 ms: ink half faded in over its white outline reads as a grey mauve.
+                val a = (raw / .2f).coerceAtMost(1f)
                 val at = Offset(left + line.x[g] + dx, base - line.baseline + .35f * line.fontPx * (1f - e) + dy)
-                val sc2 = lerp(1.06f, 1f, e)
+                val sc2 = lerp(1.12f, 1f, e)
                 when (pass) {
                     0 -> {
-                        drawGlyph(line, g, at, Sakura.Primary, a, sc2, stroke = stroke)
-                        drawGlyph(line, g, at, Sakura.Primary, a, sc2, shadow = true)
+                        drawGlyph(line, g, at, Sakura.Primary, a, sc2, stroke = stroke, sticker = true)
+                        drawGlyph(line, g, at, Sakura.Primary, a, sc2, shadow = true, sticker = true)
                     }
-                    1 -> drawGlyph(line, g, at, Sakura.White, a, sc2, stroke = stroke)
+                    1 -> drawGlyph(line, g, at, Sakura.White, a, sc2, stroke = stroke, sticker = true)
                     else -> {
                         // A thin blush inline between the ink and the white: ink anti-aliased straight onto white made a grey
                         // fringe (#E7E3E3) round every stroke.
                         drawGlyph(line, g, at, Sakura.Background, a, sc2, stroke = t.nameInline)
-                        drawGlyph(line, g, at, Sakura.Text, a, sc2)
+                        drawGlyph(line, g, at, Sakura.Text, a, sc2, sticker = true)
                     }
                 }
             }

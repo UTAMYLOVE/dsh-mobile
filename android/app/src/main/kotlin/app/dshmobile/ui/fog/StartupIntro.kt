@@ -29,13 +29,11 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -277,17 +275,10 @@ fun StartupIntro(
             val place = remember(scene) { Placement() }
             Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawField(scene, ms(), amb(), place) })
             Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawChrome(scene, ms(), amb()) })
-            // The one flash whites out the sky behind the sigil. Over everything it fogged 核驗通過 to grey for its whole slam
-            // and washed the pink flood and the burst out; behind them, the transformation reads in full colour against light.
-            if (!reducedMotion) {
-                val peak = if (level == EffectLevel.SAVER) .35f else .70f
-                Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind {
-                    val f = flash(ms(), marks.hit, peak)
-                    if (f > 0f) drawRect(scene.flashBrush, alpha = f)
-                })
-            }
+            // L7–L8: the sigil and its beat effects. Over the user's picture it dims to .35 from the hit, so the face reads as
+            // soon as the opening circle shows it.
             Spacer(
-                Modifier.fillMaxSize().graphicsLayer { }.drawWithCache {
+                Modifier.fillMaxSize().graphicsLayer { alpha = scene.sigilAlpha(run.ms.floatValue) }.drawWithCache {
                     val ring = recordRing(scene, obtainGraphicsLayer())
                     val pose = SigilPose()
                     onDrawBehind {
@@ -295,10 +286,14 @@ fun StartupIntro(
                         scene.pose(t, amb(), pose)
                         drawSigil(scene, t, amb(), pose, ring)
                         if (!reducedMotion) drawSigilEffects(scene, t)
-                        drawWindow(scene, t, amb())
                     }
                 },
             )
+            // The hit's shock rings, speed lines and ribbons: over the sigil, under the crest (a ribbon across the crest read
+            // as a 'no entry' slash). Over the user's picture they dim to .35 from the hit, so no ribbon whips across the face.
+            if (!reducedMotion) {
+                Spacer(Modifier.fillMaxSize().graphicsLayer { alpha = scene.hitFxAlpha(run.ms.floatValue) }.drawBehind { drawHitFx(scene, ms()) })
+            }
             Spacer(
                 Modifier.fillMaxSize().graphicsLayer { }.drawBehind {
                     val t = ms()
@@ -306,19 +301,21 @@ fun StartupIntro(
                     scene.parts.drawBurst(this, t)
                 },
             )
+            // L10: the window, which becomes the crest, and the opening circle's rim.
+            Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawWindow(scene, ms(), amb()); drawIrisRim(scene, ms()) })
         }
-        if (!reducedMotion) Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawHitFx(scene, ms()) })
         Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawHudAndBeats(scene, ms()); drawWelcome(scene, ms()) })
-        Spacer(
-            Modifier.fillMaxSize()
-                .graphicsLayer {
-                    // FULL only: the name comes into focus over its first 260 ms (a live blur, then none at all).
-                    val t = run.ms.floatValue - marks.d - 40f * marks.pace
-                    val r = if (level == EffectLevel.FULL && !reducedMotion && t >= 0f && t < 260f) 10f * density.density * (1f - t / 260f) else 0f
-                    renderEffect = if (r > .5f) BlurEffect(r, r, TileMode.Decal) else null
-                }
-                .drawBehind { drawName(scene, ms()) },
-        )
+        // The name has no live blur: it stamps in glyph by glyph (white outline first), see drawName.
+        Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawName(scene, ms()) })
+        // L12: the one flash, over everything, so the light bursts out of the sigil over the type and the HUD too (drawn
+        // behind them it only paled the sky).
+        if (!reducedMotion) {
+            val peak = if (level == EffectLevel.SAVER) .35f else .70f
+            Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind {
+                val f = flash(ms(), marks.hit, peak)
+                if (f > 0f) drawRect(scene.flashBrush, alpha = f)
+            })
+        }
         IntroSemantics(scene, intro, words, phase, reducedMotion, skipLabel)
     }
 }

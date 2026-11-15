@@ -31,8 +31,12 @@ class IntroMarks(val a: Float, val b: Float, val c: Float, val hit: Float, val d
     val compact: Boolean = total < 2200f
     val scanStart: Float get() = b + 40f * pace
     val scanMs: Float get() = (c - b - 60f * pace).coerceIn(180f, 700f)
-    /** When the inner sigil starts to assemble; it always finishes (530 ms × pace) by [c]. */
-    val build: Float get() = maxOf(a, minOf(b - 100f * pace, c - 540f * pace))
+    /**
+     * When the inner sigil starts to assemble; it always finishes (530 ms × pace) by [c]. From 5 s it starts right after ring A
+     * closes, so the rosette assembles during 需要訪問許可: waiting for b left ring A and its ticks alone for over a second, and
+     * that read as a wristwatch dial.
+     */
+    val build: Float get() = if (total >= 5000f) a + 560f * pace else maxOf(a, minOf(b - 100f * pace, c - 540f * pace))
 
     fun phase(ms: Float): IntroPhase = when {
         ms < a -> IntroPhase.IGNITE
@@ -88,6 +92,17 @@ fun slam(u: Float): Float = when {
     else -> lerp(1.012f, 1f, IntroEase.SineInOut.transform(((u - .78f) / .22f).coerceIn(0f, 1f)))
 }
 
+/**
+ * [slam] with its overshoot capped at [cap] (at least 1): the line still falls in big, squashes and rebounds, but at its largest
+ * it is no wider than [cap] times its rest width, so a long 核驗通過 never runs into the right gutter.
+ */
+fun slamCapped(u: Float, cap: Float): Float {
+    val s = slam(u)
+    if (s <= 1f) return s
+    val room = (cap.coerceAtLeast(1f) - 1f) / (slam(0f) - 1f)
+    return 1f + (s - 1f) * room.coerceAtMost(1f)
+}
+
 /** The largest scale [sigilScale] reaches (the pulse right after the hit). */
 const val SIGIL_PULSE_MAX = 1.07f
 
@@ -110,8 +125,11 @@ fun flash(ms: Float, hit: Float, peak: Float): Float {
     }
 }
 
-/** An uneven clock: a [step]° jump in [move] s every [every] s, still in between (a mechanism, not a screensaver spin). */
-fun stutter(sec: Float, step: Float = 22.5f, every: Float = 1.6f, move: Float = .18f): Float {
+/**
+ * An uneven clock: a [step]° jump in [move] s every [every] s, still in between (a mechanism, not a screensaver spin). 36° is half
+ * a petal: the rosette rests on the five heavy ticks, then on the five between them, never on a stray angle.
+ */
+fun stutter(sec: Float, step: Float = 36f, every: Float = 1.6f, move: Float = .18f): Float {
     val s = sec.coerceAtLeast(0f)
     return step * (floor(s / every) + IntroEase.CubicInOut.transform(((s % every) / move).coerceAtMost(1f)))
 }

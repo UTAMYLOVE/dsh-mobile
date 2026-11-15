@@ -64,7 +64,8 @@ object Kawaii {
                 out += KawaiiParticle(
                     KawaiiKind.CLOUD, x = hash(i, 1), y = .04f + .3f * hash(i, 2) + if (i % 2 == 1) .55f else 0f,
                     size = 70f + 50f * hash(i, 3), speed = .006f + .006f * hash(i, 4), sway = 0f, spin = 0f, phase = hash(i, 5),
-                    color = Sakura.White.copy(alpha = .55f),
+                    // Nearly opaque: at .55 the halftone dots showed through the cloud body.
+                    color = Sakura.White.copy(alpha = .85f),
                 )
             }
         }
@@ -227,9 +228,10 @@ private fun DrawScope.drawParticle(p: KawaiiParticle, at: FloatArray, petal: Pat
     when (p.kind) {
         KawaiiKind.CLOUD -> withTransform({ translate(x, y); scale(r, r, Offset.Zero) }) {
             drawPath(cloud, p.color.copy(alpha = p.color.alpha * alpha))
-            // A milk-tea band along the flat base and a faint rose-brown rim: the flat-bottomed anime cloud.
+            // A pink band along the flat base and a faint rose-brown rim: the flat-bottomed anime cloud (a milk-tea band read as a
+            // grey-beige shelf).
             val band = 8f * density / r
-            clipPath(cloud) { drawRect(Sakura.MilkTea.copy(alpha = .30f * alpha), Offset(-2f, Kawaii.CLOUD_BASE - band), Size(4f, band)) }
+            clipPath(cloud) { drawRect(Sakura.Primary.copy(alpha = .18f * alpha), Offset(-2f, Kawaii.CLOUD_BASE - band), Size(4f, band)) }
             drawPath(cloud, Sakura.RoseBrown.copy(alpha = .18f * alpha), style = Stroke(1f * density / r))
         }
         else -> withTransform({
@@ -239,7 +241,16 @@ private fun DrawScope.drawParticle(p: KawaiiParticle, at: FloatArray, petal: Pat
             if (p.kind == KawaiiKind.PETAL) scale(.72f * r * at[4], r, Offset.Zero) else scale(r, r, Offset.Zero)
         }) {
             val path = when (p.kind) { KawaiiKind.PETAL -> petal; KawaiiKind.SPARKLE -> sparkle; else -> heart }
-            drawPath(path, p.color.copy(alpha = p.color.alpha * alpha))
+            if (p.kind == KawaiiKind.SPARKLE && p.color.copy(alpha = 1f) == Sakura.Aqua) {
+                // Aqua half-faded over pink turns grey-blue: the sparkle twinkles in white, and its aqua heart (with a white core)
+                // shows only near the top of the twinkle.
+                drawPath(path, Sakura.White.copy(alpha = alpha))
+                val aq = ((alpha - .85f) / .15f).coerceIn(0f, 1f)
+                if (aq > 0f) withTransform({ scale(.6f, .6f, Offset.Zero) }) {
+                    drawPath(path, Sakura.Aqua.copy(alpha = aq))
+                    withTransform({ scale(.45f, .45f, Offset.Zero) }) { drawPath(path, Sakura.White.copy(alpha = aq)) }
+                }
+            } else drawPath(path, p.color.copy(alpha = p.color.alpha * alpha))
         }
     }
 }
