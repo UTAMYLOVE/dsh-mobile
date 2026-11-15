@@ -288,6 +288,27 @@ internal class IntroWebClient(private val requests: IntroWebRequests, private va
     override fun onFormResubmission(view: WebView?, dontResend: Message?, resend: Message?) { dontResend?.sendToTarget() }
 }
 
+/**
+ * The client a let-go WebView keeps until it is destroyed: the page may still run for a moment, so every request still gets
+ * [IntroWebRequests.blocked] and nothing is followed (a plain WebViewClient would send its requests to the network), a renderer
+ * that goes away does not take the app with it (a plain one returns false, which kills the app), and it holds nothing of the
+ * intro.
+ */
+internal object ClosedIntroWebClient : WebViewClient() {
+    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse = IntroWebRequests.blocked()
+
+    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
+
+    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean = true
+
+    @SuppressLint("WebViewClientOnReceivedSslError")
+    override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) { handler?.cancel() }
+
+    override fun onReceivedHttpAuthRequest(view: WebView?, handler: HttpAuthHandler?, host: String?, realm: String?) { handler?.cancel() }
+
+    override fun onReceivedClientCertRequest(view: WebView?, request: ClientCertRequest?) { request?.cancel() }
+}
+
 /** No permission, window, dialog, file picker or console output for a page. */
 internal class IntroWebChrome : WebChromeClient() {
     override fun onPermissionRequest(request: PermissionRequest?) { request?.deny() }
@@ -360,15 +381,16 @@ internal object IntroWebView {
 
     /**
      * Lets [web] go: no client, bridge or listener keeps a reference to the intro, and it is destroyed once it is out of the view
-     * tree (posted, so its AndroidView has detached it first). Safe to call more than once.
+     * tree (posted, so its AndroidView has detached it first). Until then it stays as locked as it was ([ClosedIntroWebClient],
+     * a fresh [IntroWebChrome]). Safe to call more than once.
      */
     fun release(web: WebView) {
         if (!released.add(web)) return
         web.setOnTouchListener(null)
         web.stopLoading()
         web.removeJavascriptInterface(IntroWeb.BRIDGE)
-        web.webChromeClient = null
-        web.webViewClient = WebViewClient()
+        web.webChromeClient = IntroWebChrome()
+        web.webViewClient = ClosedIntroWebClient
         Handler(Looper.getMainLooper()).post {
             (web.parent as? ViewGroup)?.removeView(web)
             web.destroy()

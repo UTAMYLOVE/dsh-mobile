@@ -260,6 +260,15 @@ class WebIntroTest {
         IntroWebView.release(web)
         IntroWebView.release(web) // twice is fine
         assertNull(shadow.getJavascriptInterface(IntroWeb.BRIDGE))
+        // Until it is destroyed the page may still run a moment: it stays locked (a plain client would let its requests reach
+        // the network, and its false from onRenderProcessGone would kill the app).
+        val closed = shadow.webViewClient
+        assertTrue(closed is ClosedIntroWebClient)
+        assertBlocked(closed.shouldInterceptRequest(web, request("${base}sakura/index.html"))!!, "a request after the run")
+        assertBlocked(closed.shouldInterceptRequest(web, request("https://example.com/beacon"))!!, "a beacon after the run")
+        assertTrue(closed.shouldOverrideUrlLoading(web, request("https://example.com/")))
+        assertTrue(closed.onRenderProcessGone(web, null))
+        assertTrue(shadow.webChromeClient is IntroWebChrome)
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(shadow.wasDestroyCalled())
     }
@@ -489,14 +498,70 @@ class WebIntroTest {
             assertTrue("$dir/NOTICE.md names commit ${credit.commit}", read("$dir/NOTICE.md").contains(credit.commit))
             for (f in files.filter { it.endsWith(".html") || it.endsWith(".js") || it.endsWith(".css") }) {
                 val text = read("$dir/$f")
-                for (bad in listOf("http:", "https:", "//cdn", "@import", "fetch(", "XMLHttpRequest", "WebSocket", "sendBeacon", "eval(", "new Function", "localStorage", "indexedDB", "document.cookie")) {
+                for (bad in listOf(
+                    "http:", "https:", "//cdn", "@import", "@font-face", "fetch(", "XMLHttpRequest", "WebSocket", "EventSource", "sendBeacon",
+                    "WebTransport", "RTCPeerConnection", "importScripts", "import(", "Worker(", "serviceWorker", "postMessage", "window.open",
+                    "eval(", "new Function", "setTimeout('", "setTimeout(\"", "localStorage", "sessionStorage.", "indexedDB", "openDatabase",
+                    "caches.", "document.cookie", "navigator.", "AudioContext", "speechSynthesis", "new Audio", "<audio", "<video", "<iframe",
+                    "<object", "<embed", "<base", "<form",
+                )) {
                     assertFalse("$dir/$f has $bad", text.contains(bad))
                 }
+                // No protocol-relative address either (`src="//host/x.js"`, `url(//host/x.png)`).
+                assertFalse("$dir/$f has a //host address", Regex("""(src|href|action)\s*=\s*["'`]?\s*//|url\(\s*["']?\s*//""").containsMatchIn(text))
             }
         }
         // The look that did not pass its review is not shipped.
-        assertFalse(context.assets.list("intro-web")!!.contains("access"))
+        assertTrue("科技檔案授權 (access) is not shipped", assetFiles("intro-web").none { it.startsWith("access/") })
         assertNotNull(OpenSourceLicences.portedLooks.singleOrNull { it.key == "sakura" })
+    }
+
+    /**
+     * The pages are exactly the ones that passed their security review (each NOTICE.md names the source commit and every
+     * change): every file is pinned by its SHA-256 and nothing else is in the folders, so no script, picture, font or sound can
+     * reach the app unreviewed. Changing a page means reviewing it again and updating its hash here with that review.
+     */
+    @Test fun theShippedPagesAreExactlyTheReviewedOnes() {
+        val reviewed = mapOf(
+            "neon/LICENSE" to "b77ef850de9e6c148d68d62e84dc0198d5208ca065d2af7ccb5bf05f9a59a829",
+            "neon/NOTICE.md" to "dfca2e2404fad8305076d445144178e54b9f8f506c4688b479410e57ba2f8d5f",
+            "neon/index.html" to "18013d9e6d922d3f23648bd1ac32992d5f2860573e66d02d5605972cd0b056f7",
+            "neon/neon.css" to "67d843684866e8cfdf6e60a0e8de5b29206b9e5ab84bc8df1041d32399f60652",
+            "neon/neon.js" to "a66284ce14c3ea341850c7548fa61db46ce475f66f19dc783b09941facc209c4",
+            "sakura/LICENSE" to "9df9e9dee7f674175ee6779a546577e34dc8a807ff51df15688f8cd936d075eb",
+            "sakura/NOTICE.md" to "d5dffe7ad097cc34eb164d7d672fea4a78e9016439f74aed205459b29f408d74",
+            "sakura/boot.css" to "204e12727464dc83d6eb00733c57edd8e3c1742e9921f61a1c5c4868b3871e7d",
+            "sakura/boot.js" to "1e5f9a07c50f1e628b1a91cd78eeb53487131734026c514768ca33ce7ebdb885",
+            "sakura/index.html" to "a4c8d82c75a1e8949a090c0cb42193647c5bb33440f88571b3955629c4b7e570",
+            "wave/LICENSE" to "bd4901eabfc18ad33b500c643150a930860076868da232efd36fefe8c0e6fdef",
+            "wave/NOTICE.md" to "69e5d00b56ed00d8ef05ed8dddbc9237300e28fcd5be18ec63b3e122aa9b3b91",
+            "wave/index.html" to "92e5ae25e7020873aeb76ad58fc3a3d74f30a4f155879ce0a3368c1f5bc33098",
+            "wave/wave.css" to "f3a3cf90a71a3a109e647bbd580ab958076f39bb090927b32c5db28e26dae943",
+            "wave/wave.js" to "4c13a4f96d4500c1dfbbb2c6dd8be9943e728455bb8a25ccb03e583be72d4096",
+        )
+        assertEquals(reviewed.keys, assetFiles("intro-web"))
+        for ((path, sha) in reviewed) assertEquals("intro-web/$path is the reviewed file", sha, sha256("intro-web/$path"))
+    }
+
+    /**
+     * Every file under assets/[dir], as a path relative to it. Walked one level at a time, as a phone lists a folder (Robolectric
+     * already gives the whole tree for the top one).
+     */
+    private fun assetFiles(dir: String): Set<String> {
+        val out = sortedSetOf<String>()
+        fun walk(rel: String) {
+            val entries = context.assets.list(if (rel.isEmpty()) dir else "$dir/$rel").orEmpty()
+            if (entries.isEmpty()) out += rel else entries.forEach { walk(if (rel.isEmpty()) it else "$rel/$it") }
+        }
+        walk("")
+        return out
+    }
+
+    /** The file's SHA-256, its line ends read as LF (a checkout that writes CRLF is the same reviewed text). */
+    private fun sha256(path: String): String {
+        val raw = context.assets.open(path).use { it.readBytes() }
+        val lf = String(raw, Charsets.ISO_8859_1).replace("\r\n", "\n").toByteArray(Charsets.ISO_8859_1)
+        return java.security.MessageDigest.getInstance("SHA-256").digest(lf).joinToString("") { "%02x".format(it) }
     }
 
     private fun read(path: String) = context.assets.open(path).use { String(it.readBytes(), Charsets.UTF_8) }
