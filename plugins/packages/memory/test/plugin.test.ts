@@ -184,6 +184,9 @@ describe("plugin shape", () => {
       const note = plugin.phoneNote(runtime);
       expect(note).not.toMatch(/設定 → (代理人|執行方式)/);
       expect(note).toContain("設定 → 模型");
+      // The limits by the labels the owner sees on the page, so the model names them the same way.
+      expect(note).toContain("同時數 = concurrent subagents, 團隊人數 = team size");
+      expect(note).toContain("委派深度 = delegation depth");
       expect(note).toContain("Only point the owner to a setting when a limit really stops the task; do not suggest changing settings otherwise.");
     }
   });

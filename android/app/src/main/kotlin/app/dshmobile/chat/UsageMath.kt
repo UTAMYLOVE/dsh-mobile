@@ -206,16 +206,18 @@ fun replyLine(r: ReplyStats, costUsd: Double?): String = buildList {
  * tool "bash" failed…」 and could not tell what happened. Nothing here promises a retry: whether the model tries again is its call.
  *
  * dsh's subagent limit is ordinary flow control (the model waits for a running child), so it gets one calm sentence and no
- * advice. Only dsh's team-member limit names the app setting (never dsh's own config files, which the app rewrites).
+ * advice. Only dsh's team-member limit names the app setting. The app's own guard's refusals lead with what happened, in
+ * Chinese, instead of the English it wrote for the model.
  */
 fun friendlyToolError(error: String): String {
     val raw = error.trim().let { if (it.startsWith("error:", ignoreCase = true)) it.substring("error:".length).trimStart() else it }
+    guardRefusal(raw)?.let { return it }
     val e = raw.lowercase()
     val lead = when {
         "active child limit" in e || "wait for an existing child" in e -> return SUBAGENTS_BUSY
-        TEAM_MEMBER_LIMIT.containsMatchIn(raw) ->
-            // 代理人 is only on the page with 進階設定 on (off by default): the path says so, or the owner finds nothing.
-            "上限在設定裡：打開「進階設定」，到「代理人」調整並行上限、團隊上限，改完按「套用並重啟」。不要改 dsh 的設定檔，app 會蓋掉。"
+        // 代理人 is only on the page with 進階設定 on (off by default): the path says so, or the owner finds nothing. The names are
+        // the page's own labels (團隊人數 is capped at 同時數 there).
+        TEAM_MEMBER_LIMIT.containsMatchIn(raw) -> TEAM_FULL
         "sandbox" in e || "沙盒" in raw || "bubblewrap" in e || "landlock" in e ->
             "手機上的 dsh 跑在 proot 裡，沒有工作流需要的沙盒，所以 workflow 暫時不能用。請叫它直接做，或派子代理人分工。"
         "auto review of tool" in e && "failed" in e -> "自動審查本身出錯，這個指令沒有執行。"
@@ -227,6 +229,27 @@ fun friendlyToolError(error: String): String {
     }
     return if (lead == null) raw else "$lead\n$raw"
 }
+
+/**
+ * The app's own guard (plugins/packages/guard) refusing a call: its reason starts with English meant for the model, and the
+ * owner's Chinese text comes last. The card leads with what happened and shows the guard's own Chinese text under it.
+ */
+private fun guardRefusal(raw: String): String? {
+    GUARD_REFUSED.matchEntire(raw)?.let { return "這一步一律不允許，沒有執行。\n" + it.groupValues[1].trim() }
+    GUARD_CANNOT_ASK.matchEntire(raw)?.let { return "這個對話目前不能詢問你，這一步沒有執行。\n" + it.groupValues[1].trim() }
+    GUARD_SUBAGENT.matchEntire(raw)?.let { return "子代理人不能詢問你，這一步沒有執行。\n" + it.groupValues[1].trim() }
+    return null
+}
+
+private val GUARD_REFUSED = Regex("""DSH Mobile refused this call \([^)]*\): (.*)""", RegexOption.DOT_MATCHES_ALL)
+private val GUARD_CANNOT_ASK = Regex("""DSH Mobile \([^)]*\): 這個對話目前不能詢問你，這一步沒有執行。.*?tell the owner what was not done and why\. (.*)""", RegexOption.DOT_MATCHES_ALL)
+private val GUARD_SUBAGENT = Regex("""DSH Mobile: this needs the owner's approval \([^)]*\) and a subagent cannot ask\..*?which can ask\. (.*)""", RegexOption.DOT_MATCHES_ALL)
+
+/**
+ * The team-member limit: the existing teammates keep working (dsh never removes one), so this is information, drawn grey. It
+ * names the settings by their labels on the page.
+ */
+const val TEAM_FULL = "團隊人數已滿。要更多成員：在設定打開「進階設定」，到「代理人」調高「團隊人數」（不超過「同時數」），再按「套用並重啟」。"
 
 /** The subagent-limit line: nothing for the owner to do, so the card draws it grey, not red. */
 const val SUBAGENTS_BUSY = "子代理人都在忙（同時最多的數量已滿），dsh 會等前面的做完再派，不用處理。"

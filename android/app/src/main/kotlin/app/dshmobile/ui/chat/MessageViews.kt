@@ -64,6 +64,7 @@ import app.dshmobile.chat.PendingSend
 import app.dshmobile.chat.ToolStatus
 import app.dshmobile.chat.WebSource
 import app.dshmobile.chat.SUBAGENTS_BUSY
+import app.dshmobile.chat.TEAM_FULL
 import app.dshmobile.chat.friendlyToolError
 import app.dshmobile.ui.fog.FogButton
 import app.dshmobile.ui.fog.FogButtonKind
@@ -369,12 +370,11 @@ private fun statusColor(status: ToolStatus): Color = when (status) {
 private val CardShape = RoundedCornerShape(FogDimens.Thumb)
 
 /** The owner's own 已拒絕 / 已略過 / 已停止 on a failed card, else null: it is shown as the status, grey, with no red line. */
-private fun ownerChoice(item: ChatItem.Tool): String? =
-    item.error?.takeIf { item.status == ToolStatus.FAILED && it in ConversationReducer.OWNER_CHOICES }
+private fun ownerChoice(item: ChatItem.Tool): String? = ConversationReducer.ownerChoiceOf(item)
 
 /**
  * A failed card's explanation: the first line (the plain Chinese one when [friendlyToolError] knows the phrase) in error red, dsh's
- * own words under it small and grey, at most two lines. The subagent-limit line needs nothing from the owner, so it is grey too.
+ * own words under it small and grey, at most two lines. The subagent and team limits need nothing from the owner, so they are grey too.
  */
 @Composable
 private fun ToolErrorLines(item: ChatItem.Tool, firstMaxLines: Int) {
@@ -383,7 +383,7 @@ private fun ToolErrorLines(item: ChatItem.Tool, firstMaxLines: Int) {
     val first = friendly.substringBefore('\n')
     val rest = friendly.substringAfter('\n', "").trim()
     Text(
-        first, color = if (friendly == SUBAGENTS_BUSY) Sakura.TextSecondary else MaterialTheme.colorScheme.error,
+        first, color = if (friendly == SUBAGENTS_BUSY || first == TEAM_FULL) Sakura.TextSecondary else MaterialTheme.colorScheme.error,
         fontSize = 12.sp, lineHeight = 17.sp, maxLines = firstMaxLines, overflow = TextOverflow.Ellipsis,
         modifier = Modifier.testTag(Tags.TOOL_ERROR + item.key),
     )

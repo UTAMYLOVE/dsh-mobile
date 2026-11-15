@@ -391,7 +391,7 @@
     <string name="overview_stats_cache">快取命中</string>
     <string name="overview_stats_steps">步驟</string>
     <string name="overview_stats_model_line">%1$d 次 · 入 %2$s · 出 %3$s · 快取 %4$d%%</string>
-    <string name="war_limits">並行上限 %1$d · 團隊上限 %2$d · 委派深度 %3$d（在設定打開「進階設定」，到「代理人」調整）</string>
+    <string name="war_limits">同時數 %1$d · 團隊人數 %2$d · 委派深度 %3$d（在設定打開「進階設定」，到「代理人」調整）</string>
     <string name="set_mcp">MCP 伺服器（每行：名稱 網址）</string>
     <string name="set_mcp_note">例：github https://example.com/mcp。只支援 https 網址（或本機 127.0.0.1），不能填金鑰或標頭。改完按「套用並重啟」。</string>
     <string name="set_mcp_bad">這幾行格式不對，會被略過：%1$s</string>

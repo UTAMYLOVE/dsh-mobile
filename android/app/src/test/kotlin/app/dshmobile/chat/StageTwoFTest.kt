@@ -14,6 +14,10 @@ class StageTwoFTest {
             val text = friendlyToolError(e)
             assertTrue(text, text.contains("打開「進階設定」，到「代理人」"))
             assertFalse(text, text.contains("設定 → 代理人"))
+            // The page's own labels, and nothing meant for the model (dsh's config files).
+            assertEquals(TEAM_FULL, text.substringBefore('\n'))
+            assertTrue(text, "「團隊人數」" in text && "「同時數」" in text)
+            assertFalse(text, "並行上限" in text || "團隊上限" in text || "設定檔" in text)
         }
         assertTrue(friendlyToolError("需要 workspace-write sandbox，這台機器沒有可用的 sandbox").contains("workflow"))
         assertEquals("找不到檔案。\nfile not found", friendlyToolError("file not found"))
@@ -48,6 +52,19 @@ class StageTwoFTest {
         }
         assertEquals("exit code 2", friendlyToolError("Error: exit code 2"))
         assertEquals("permission denied", friendlyToolError("permission denied"))
+    }
+
+    /** The app's own guard: what happened first, in Chinese, then its Chinese text; never its English instruction to the model. */
+    @Test fun theGuardsRefusalsLeadWithWhatHappened() {
+        val text = "不能刪除 /data/user/0/app.dshmobile/files/userdata/dsh-home：那是 DSH 自己的資料。指令：rm -rf x"
+        val refused = friendlyToolError("Error: DSH Mobile refused this call (delete-app): $text")
+        assertEquals("這一步一律不允許，沒有執行。\n$text", refused)
+        val ask = "要寫入工作區以外的檔案 /sdcard/a.txt"
+        val cannotAsk = friendlyToolError("Error: DSH Mobile (outside): 這個對話目前不能詢問你，這一步沒有執行。Do not work around it; tell the owner what was not done and why. $ask")
+        assertEquals("這個對話目前不能詢問你，這一步沒有執行。\n$ask", cannotAsk)
+        val subagent = friendlyToolError("Error: DSH Mobile: this needs the owner's approval (outside) and a subagent cannot ask. Do not work around it; report it to the lead agent, which can ask. $ask")
+        assertEquals("子代理人不能詢問你，這一步沒有執行。\n$ask", subagent)
+        for (t in listOf(refused, cannotAsk, subagent)) assertFalse(t, "DSH Mobile" in t || "Do not work around" in t)
     }
 
     @Test fun workspaceFilesAreNewestFirstAndSkipAppDataAndLinksOut() {
