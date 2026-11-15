@@ -4,6 +4,9 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.ui.util.lerp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
 
 /** The four steps of the startup animation, as callers and older tests know them. */
@@ -114,6 +117,30 @@ fun sigilScale(ms: Float, m: IntroMarks): Float = when {
     else -> lerp(1.07f, 1f, seg(ms, m.hit + 120f * m.pace, 320f * m.pace, IntroEase.SineInOut))
 }
 
+/**
+ * The rosette's twist round 核驗通過 (degrees): it turns back up to 15° while the sigil breathes in (c → hit), then snaps home
+ * with a damped swing (+6°, −2°, settled by hit + 480 ms × pace), so the hit reads as a mechanism clicking into place.
+ * The idea of a wind-up and damped release comes from linshufan21/dsh-boot-compass (MIT); these numbers are our own.
+ */
+fun sigilTwist(ms: Float, m: IntroMarks): Float = when {
+    ms < m.c -> 0f
+    ms < m.hit -> -15f * seg(ms, m.c, m.hit - m.c, IntroEase.CubicIn)
+    else -> {
+        val u = ((ms - m.hit) / (480f * m.pace)).coerceIn(0f, 1f)
+        -15f * exp(-2.6f * u) * cos(3f * PI.toFloat() * u) * (1f - u * u * u * u)
+    }
+}
+
+/**
+ * The hit's one pink/aqua offset flash, 0..0.6, [d] ms after the hit: up in 60 ms, gone by 250 (never paced, once per run).
+ * After the RGB-split accent in 6shenhonghong9/dsh-startup-screen and linshufan21/dsh-boot-compass (both MIT; idea only).
+ */
+fun splitFlash(d: Float): Float = when {
+    d < 0f || d >= 250f -> 0f
+    d < 60f -> .6f * d / 60f
+    else -> .6f * (1f - IntroEase.CubicOut.transform((d - 60f) / 190f))
+}
+
 /** The one flash of a run: 60 ms up, 320 ms down. Never paced, so it is the same at every length (and only one per run). */
 fun flash(ms: Float, hit: Float, peak: Float): Float {
     val d = ms - hit
@@ -148,5 +175,62 @@ object IntroTimeline {
         val words = intro.welcome.trim().ifEmpty { fallback }
         val name = intro.name.trim()
         return if (name.isEmpty()) words else "$words，$name"
+    }
+}
+
+/**
+ * One beat of a look's [IntroPlan]: a [Move] keeps its own length, so motion is never slowed down; a [Hold] waits, and the holds
+ * share whatever time the run has left, by [Hold.weight].
+ */
+sealed class IntroBeat {
+    class Move(val ms: Float) : IntroBeat()
+    class Hold(val weight: Float, val minMs: Float) : IntroBeat()
+
+    companion object {
+        fun move(ms: Float): IntroBeat = Move(ms)
+        fun hold(weight: Float = 1f, minMs: Float = 0f): IntroBeat = Hold(weight, minMs)
+    }
+}
+
+/**
+ * A look's beat marks for one run of [total] ms (the 1.5–8 s setting), the way 櫻紋陣's [IntroMarks] works: the [IntroBeat.Move]s
+ * play at their own speed and the [IntroBeat.Hold]s stretch, so 8 s only waits longer between moves. When the moves do not fit
+ * (a short run), they all tighten by the same [pace] (< 1) and each hold keeps only its minimum.
+ *
+ * [at] is when beat i starts, [end] when it ends ([total] after the last one); [k] is a beat's own progress.
+ */
+class IntroPlan private constructor(private val starts: FloatArray, val total: Float, val pace: Float) {
+    val size: Int get() = starts.size
+    fun at(i: Int): Float = starts[i]
+    fun end(i: Int): Float = if (i + 1 < starts.size) starts[i + 1] else total
+    fun length(i: Int): Float = end(i) - at(i)
+    /** Beat [i]'s progress at [ms], 0..1, eased by [e]. */
+    fun k(ms: Float, i: Int, e: Easing = LinearEasing): Float = seg(ms, at(i), length(i), e)
+    /** The beat [ms] falls in (the last one from its start on). */
+    fun beat(ms: Float): Int {
+        for (i in starts.indices.reversed()) if (ms >= starts[i]) return i
+        return 0
+    }
+
+    companion object {
+        fun of(totalMs: Float, vararg beats: IntroBeat): IntroPlan {
+            val total = totalMs.coerceAtLeast(1f)
+            val moves = beats.sumOf { (it as? IntroBeat.Move)?.ms?.toDouble() ?: 0.0 }.toFloat()
+            val mins = beats.sumOf { (it as? IntroBeat.Hold)?.minMs?.toDouble() ?: 0.0 }.toFloat()
+            val weights = beats.sumOf { (it as? IntroBeat.Hold)?.weight?.toDouble() ?: 0.0 }.toFloat()
+            val pace = if (moves <= 0f) 1f else ((total - mins) / moves).coerceIn(0f, 1f)
+            val spare = (total - mins - moves * pace).coerceAtLeast(0f)
+            val starts = FloatArray(beats.size)
+            var t = 0f
+            for ((i, b) in beats.withIndex()) {
+                starts[i] = t
+                t += when (b) {
+                    is IntroBeat.Move -> b.ms * pace
+                    is IntroBeat.Hold -> b.minMs + if (weights > 0f) spare * b.weight / weights else 0f
+                }
+            }
+            // With no hold to take the spare time, the run still ends on time: the last beat absorbs it.
+            return IntroPlan(starts, total, pace)
+        }
     }
 }

@@ -323,7 +323,6 @@ internal fun DrawScope.drawSigil(sc: IntroScene, ms: Float, amb: Float, pose: Si
     val p = m.pace
     val R = sc.lay.r
     val fl = pose.floor
-    val inh = sc.inhale(ms)
     val kA = seg(ms, m.a, 560f * p, IntroEase.CubicInOut)
     val kB = seg(ms, m.a + 60f * p, 560f * p, IntroEase.CubicInOut)
     if (kA <= 0f) return
@@ -352,17 +351,11 @@ internal fun DrawScope.drawSigil(sc: IntroScene, ms: Float, amb: Float, pose: Si
         val glow = if (ms >= m.hit) .5f * (1f - seg(ms, m.hit + 150f, 350f, IntroEase.SineInOut)) else 0f
         if (glow > 0f) drawCircle(Sakura.White.copy(alpha = glow), 1f, Offset.Zero, style = k.ringAGlow)
         if (kB > 0f) drawArc(Sakura.RoseBrown.copy(alpha = .45f), -90f, 360f * kB, false, Offset(-.91f, -.91f), Size(1.82f, 1.82f), style = k.ringB)
-        // Ticks, revealed behind the comet's head.
-        if (kA >= 1f) {
-            drawTicks(k)
-        } else {
-            val wedge = k.scratch
-            wedge.reset()
-            wedge.moveTo(0f, 0f)
-            wedge.arcTo(Rect(-1.2f, -1.2f, 1.2f, 1.2f), -90f, 360f * kA, false)
-            wedge.close()
-            clipPath(wedge) { drawTicks(k) }
-        }
+        // Ticks light up one by one behind the comet's head: each pops out a little and flashes white as the head passes,
+        // then settles to its rose brown, so the dial is switched on rather than uncovered (the tick wave of
+        // linshufan21/dsh-boot-compass, MIT; idea only). The last ones finish their flash just after the ring closes.
+        val head = 360f * kA + TICK_FLASH_DEG * seg(ms, m.a + 560f * p, 110f * p)
+        if (sc.reduced || head >= 360f + TICK_FLASH_DEG) drawTicks(k) else drawTicksLighting(k, head)
         // The tick runner: one tick lit white, running round at 90°/s while the system half waits.
         if (kA >= 1f && fl < 1f && !sc.reduced) {
             val step = 360f / SigilKit.TICKS
@@ -374,7 +367,8 @@ internal fun DrawScope.drawSigil(sc: IntroScene, ms: Float, amb: Float, pose: Si
         // The rosette group, on its uneven clock.
         val build = m.build
         if (ms >= build) {
-            val g2 = stutter(amb) - 14f * inh
+            // The uneven clock, plus the hit's twist: back while it breathes in, then snapped home with a damped swing.
+            val g2 = stutter(amb) + sigilTwist(ms, m)
             rotate(g2, Offset.Zero) {
                 val kC = seg(ms, build, 300f * p, IntroEase.CubicInOut)
                 if (line > 0f) drawArc(Sakura.RoseBrown.copy(alpha = .60f * line), -90f, 360f * kC, false, Offset(-.62f, -.62f), Size(1.24f, 1.24f), style = k.ringC)
@@ -421,6 +415,30 @@ private fun DrawScope.drawTicks(k: SigilKit) {
     drawPath(k.ticksMinor, Sakura.RoseBrown.copy(alpha = .50f), style = k.tickMinorStroke)
     drawPath(k.ticksMid, Sakura.RoseBrown.copy(alpha = .70f), style = k.tickMidStroke)
     drawPath(k.ticksMajor, Sakura.RoseBrown.copy(alpha = .85f), style = k.tickMajorStroke)
+}
+
+/** How far behind the comet's head (degrees) a tick's white flash lasts. */
+private const val TICK_FLASH_DEG = 40f
+
+/**
+ * The ticks up to [head] degrees (clockwise from the top), one line each: the ones the head just passed reach 3 % further out and
+ * carry a white flash that fades over [TICK_FLASH_DEG].
+ */
+private fun DrawScope.drawTicksLighting(k: SigilKit, head: Float) {
+    val step = 360f / SigilKit.TICKS
+    for (i in 0 until SigilKit.TICKS) {
+        val deg = i * step
+        if (deg > head || deg >= 360f) break
+        val a = rad(deg - 90f)
+        val c = cos(a)
+        val sn = sin(a)
+        val age = ((head - deg) / TICK_FLASH_DEG).coerceIn(0f, 1f)
+        val from = SigilKit.tickFrom(i)
+        val (alpha, stroke) = when (i % 16) { 0 -> .85f to k.tickMajorStroke; 8 -> .70f to k.tickMidStroke; else -> .50f to k.tickMinorStroke }
+        val pop = .03f * (1f - age) * (1f - age)
+        drawLine(Sakura.RoseBrown.copy(alpha = alpha), Offset(c * from, sn * from), Offset(c * (.86f + pop), sn * (.86f + pop)), stroke.width)
+        if (age < 1f) drawLine(Sakura.White.copy(alpha = .95f * (1f - age)), Offset(c * from, sn * from), Offset(c * (.86f + pop), sn * (.86f + pop)), stroke.width)
+    }
 }
 
 /**

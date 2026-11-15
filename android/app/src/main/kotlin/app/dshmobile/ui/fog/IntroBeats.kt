@@ -57,6 +57,12 @@ internal object IntroLatin {
 
 private const val SCRAMBLE = "0123456789ABDEHKMNRSX"
 
+/** The hero lines' tracking (em). */
+private const val HERO_TRACK = .07f
+
+/** A typed label's letters, this many ms apart at pace 1. */
+internal const val TYPE_MS = 22f
+
 /**
  * A HUD text that decodes itself: each letter or digit flickers through three others of its kind before it locks. A [plain] run
  * (the short, compact intro) only fades in with its final text, so the ID is never wrong on screen for a quarter of the run.
@@ -96,116 +102,80 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
 
     private fun scramble(style: androidx.compose.ui.text.TextStyle): Array<TextLayoutResult> = Array(SCRAMBLE.length) { mm.one(SCRAMBLE[it].toString(), style) }
 
-    private val c11b = IntroFonts.chakra(11f, true, tnum = true)
-    private val c11 = IntroFonts.chakra(11f, false, tnum = true)
-    private val c12b = IntroFonts.chakra(12f, true, tnum = true)
+    private val c11b = IntroFonts.latin(11f, FontWeight.Bold)
+    private val c11 = IntroFonts.latin(11f, FontWeight.SemiBold)
+    private val c12b = IntroFonts.latin(12f, FontWeight.Bold)
     private val set11b = scramble(c11b)
     private val plain = compact
 
     val brand = DecodeRun(mm.run(IntroLatin.BRAND, c11b, .28f), set11b, plain)
     val date = DecodeRun(mm.run(words.date, c11, .12f), scramble(c11), plain)
     val time = DecodeRun(mm.run(words.time, c11b, .12f), set11b, plain)
-    val hud2 = mm.run("${IntroLatin.AUTHORIZATION} · ${words.hudSub}", IntroFonts.chakra(10f, false), .20f)
+    // Quicksand's capitals run wider than Chakra Petch's: AUTHORIZATION at .17 em keeps the old width.
+    val hud2 = mm.mixed("${IntroLatin.AUTHORIZATION} · ${words.hudSub}", IntroFonts.latin(10f, FontWeight.SemiBold), IntroFonts.hand(10f), .17f, handScale = 1.4f)
     val index = Array(3) { mm.run("0${it + 1}", c11b, .10f) }
-    val captions = Array(3) { mm.run(IntroLatin.CAPTIONS[it], IntroFonts.chakra(11f, false), .32f) }
+    val captions = Array(3) { mm.run(IntroLatin.CAPTIONS[it], c11, .30f) }
     private val heroMax = lay.colWidth
-    // 52 / 64 / 72 sp: the lines own the lower third, so they are set large enough to fill it.
+    // 52 / 64 / 72 sp: the lines own the lower third, so they are set large enough to fill it. The pen is tracked a little wider
+    // than a gothic would be: its thickening stroke takes some of the gap.
     val heroes: Array<GlyphRun> = arrayOf(
-        mm.fit(words.permission, IntroFonts.sans(52f, FontWeight.Medium), .04f, 52f, 32f, heroMax),
-        mm.fit(words.checking, IntroFonts.sans(64f, FontWeight.Medium), .04f, 64f, 32f, heroMax),
-        mm.fit(words.passed, IntroFonts.sans(72f, FontWeight.Medium), .04f, 72f, 32f, heroMax),
+        mm.fit(words.permission, IntroFonts.hand(52f), HERO_TRACK, 52f, 32f, heroMax),
+        mm.fit(words.checking, IntroFonts.hand(64f), HERO_TRACK, 64f, 32f, heroMax),
+        mm.fit(words.passed, IntroFonts.hand(72f), HERO_TRACK, 72f, 32f, heroMax),
     )
-    val subs = arrayOf(words.permissionSub, words.checkingSub, words.passedSub).map { mm.run(it, IntroFonts.sans(13f, FontWeight.Normal), .08f) }.toTypedArray()
+    val subs = arrayOf(words.permissionSub, words.checkingSub, words.passedSub).map { mm.run(it, IntroFonts.hand(13f, small = true), .06f) }.toTypedArray()
     val authLabel = mm.run(IntroLatin.AUTH, c11b, .12f)
-    /** The settled 100 %, in proportional figures: in a tabular cell the narrow 1 left a hole ("AUTH 1 00%"). */
-    val authDone = mm.run("100%", IntroFonts.chakra(11f, true), .12f)
+    /** The settled 100 %, in proportional figures: in a fixed cell the narrow 1 left a hole ("AUTH 1 00%"). */
+    val authDone = mm.run("100%", c11b, .12f)
     val digits = Array(10) { mm.one(it.toString(), c11b) }
-    val digitW = digits[0].let { it.getLineRight(0) - it.getLineLeft(0) } + .12f * 11f * s * mm.pxPerSp
+    val digitW = (0 until 10).maxOf { d -> digits[d].let { it.getLineRight(0) - it.getLineLeft(0) } } + .12f * 11f * s * mm.pxPerSp
     val percent = mm.one("%", c11b)
-    val hudId = DecodeRun(mm.run("${words.number} · ${words.level}", c12b, .14f), scramble(c12b), plain)
-    val skipCjk = mm.run(words.skip, IntroFonts.sans(12f, FontWeight.Medium), 0f)
-    val skipLatin = mm.run(IntroLatin.SKIP, IntroFonts.chakra(11f, false), .2f)
+    // The number and level are the user's own words (may be Chinese): mixed, so a 見習生 is in the pen, not the system font.
+    val hudId = DecodeRun(mm.mixed("${words.number} · ${words.level}", c12b, IntroFonts.hand(12f), .14f, handScale = 1.3f), scramble(c12b), plain)
+    val skipCjk = mm.run(words.skip, IntroFonts.hand(12f, small = true), .04f)
+    val skipLatin = mm.run(IntroLatin.SKIP, c11, .2f)
 
     /** The data ring's text, one copy; the ring repeats it to fill the circle. */
-    val ring = mm.run(
+    val ring = mm.mixed(
         "${IntroLatin.BRAND} · ${IntroLatin.AUTHORIZATION} · ${words.number} · ${words.level} · ${words.date} · ${words.name.ifBlank { "GUEST" }} · ".uppercase(),
-        IntroFonts.chakra(8f, false), 0f,
+        IntroFonts.latin(8f, FontWeight.SemiBold), IntroFonts.hand(8f), 0f, handScale = 1.35f,
     )
 
     /** The monogram's first grapheme, or null for the sakura mon (no name, or an emoji first). */
     val monogram: GlyphRun? = graphemes(words.name.trim()).firstOrNull()?.takeIf { !isEmoji(it) }?.let {
-        mm.run(if (isLatin(it)) it.uppercase() else it, IntroFonts.sans(52f, FontWeight.Medium), 0f)
+        mm.run(if (isLatin(it)) it.uppercase() else it, IntroFonts.hand(52f), 0f)
     }
 
     // ---- the welcome block ----
     val hasName = words.name.isNotBlank()
-    val verified = mm.run(IntroLatin.VERIFIED, IntroFonts.chakra(10f, true), .32f)
-    val welcomeBack: GlyphRun? = if (words.wordsAreDefault) mm.run(IntroLatin.WELCOME_BACK, IntroFonts.serifItalic(20f), .06f) else null
-    /** The words row: the comma only leads into the serif line; on its own the row ends without one (no dangling 「，」). */
+    val verified = mm.run(IntroLatin.VERIFIED, IntroFonts.latin(10f, FontWeight.Bold), .30f)
+    val welcomeBack: GlyphRun? = if (words.wordsAreDefault) mm.run(IntroLatin.WELCOME_BACK, IntroFonts.latin(20f, FontWeight.Medium), .04f) else null
+    /** The words row: the comma only leads into the Latin line; on its own the row ends without one (no dangling 「，」). */
     val wordsRun: GlyphRun? = if (hasName) {
         val bare = words.words.trimEnd(' ', '，', ',', '、', '。', '.', '!', '！')
-        mm.fit(if (welcomeBack != null) "$bare，" else bare, IntroFonts.sans(28f, FontWeight.Medium), .04f, 28f, 18f, lay.colWidth * .7f)
+        mm.fit(if (welcomeBack != null) "$bare，" else bare, IntroFonts.hand(28f), .06f, 28f, 18f, lay.colWidth * .7f)
     } else null
-    val nameLines: List<GlyphRun>
-    val idNo = mm.run(words.number, c12b, .16f)
-    val idLv = mm.run(words.level, c12b, .16f)
-
-    init {
-        val text = if (hasName) words.name.trim() else words.words
-        // +.02 em for Latin too: at -.01 em the sticker's white outlines of 'oo' and 'wo' fused into one blob.
-        val track = .02f
+    /** The name (or, with no name, the welcome words) as the sticker. */
+    val name: IntroSticker = run {
         val cap = when { lay.split -> 56f; lay.small -> 72f; else -> 88f }
-        val start = if (hasName) cap else min(cap, 72f)
-        val style = IntroFonts.sans(start, FontWeight.Bold)
-        val maxW = lay.colWidth
-        val one = mm.fit(text, style, track, start, 44f, maxW)
-        nameLines = if (one.width <= maxW) listOf(one) else twoLines(text, style, track, maxW)
+        IntroSticker(mm, if (hasName) words.name.trim() else words.words, lay.colWidth, if (hasName) cap else min(cap, 72f), 44f, dp)
     }
+    val nameLines: List<GlyphRun> get() = name.lines
+    val idNo = mm.mixed(words.number, c12b, IntroFonts.hand(12f), .16f, handScale = 1.3f)
+    val idLv = mm.mixed(words.level, c12b, IntroFonts.hand(12f), .16f, handScale = 1.3f)
 
-    /**
-     * [text] on two lines at the floor size. Balanced: the break whose wider line is the narrowest (halving by count split a
-     * surname, 星野夢美子桜 / 庭ひなた); a near tie (within .25 em) keeps the shorter line on top, and a name with spaces breaks only
-     * at a space. When even the best break is too wide, the first line takes what fits and the second ends in an ellipsis.
-     */
-    private fun twoLines(text: String, style: androidx.compose.ui.text.TextStyle, track: Float, maxW: Float): List<GlyphRun> {
-        val g = graphemes(text)
-        val full = mm.run(text, style, track, 44f)
-        val n = g.size
-        fun left(k: Int) = full.x[k - 1] + full.advance[k - 1]
-        fun right(k: Int) = full.x[n - 1] + full.advance[n - 1] - full.x[k]
-        val spaced = g.any { it == " " }
-        val breaks = (1 until n).filter { !spaced || g[it - 1] == " " }
-        val least = breaks.minOfOrNull { max(left(it), right(it)) } ?: Float.MAX_VALUE
-        val best = breaks.firstOrNull { max(left(it), right(it)) <= least + .25f * full.fontPx } ?: -1
-        if (best > 0 && least <= maxW) {
-            return listOf(mm.run(g.take(best).joinToString("").trim(), style, track, 44f), mm.run(g.drop(best).joinToString("").trim(), style, track, 44f))
-        }
-        var k = 1
-        while (k < n - 1 && left(k + 1) <= maxW) k++
-        val first = mm.run(g.take(k).joinToString("").trim(), style, track, 44f)
-        var rest = g.drop(k)
-        var second = mm.run(rest.joinToString("").trim(), style, track, 44f)
-        while (second.width > maxW && rest.size > 1) {
-            rest = rest.dropLast(1)
-            second = mm.run(rest.joinToString("").trim() + "…", style, track, 44f)
-        }
-        return listOf(first, second)
-    }
-
-    val nameFontPx = nameLines[0].fontPx
-    /** Two lines get more air, so their white outlines do not touch. */
-    val nameLh = if (nameLines.size > 1) 1.18f else 1.08f
-    val nameHeight = ((nameLines.size - 1) * nameLh + 1.08f) * nameFontPx
-    val nameStroke = stickerStroke(nameLines[0])
-    val nameInline = Stroke(1.6f * dp, join = StrokeJoin.Round)
-    val nameWidth = nameLines.maxOf { it.width }
+    val nameFontPx = name.fontPx
+    val nameLh = name.lh
+    val nameHeight = name.height
+    val nameWidth = name.width
     val idTop: Float
     val dividerY: Float
     val nameTop: Float
     val wordsBaseline: Float
     val eyebrowBaseline: Float
     val eyebrowTop: Float
-    private val eyebrowPx = 13f * s * mm.pxPerSp
+    // 16 sp, not 13: the pen's 核驗通過 shrunk to 13 sp read as a smudge.
+    private val eyebrowPx = 16f * s * mm.pxPerSp
 
     init {
         val bottom = lay.welcomeBottom
@@ -235,7 +205,7 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
         }
     }
 
-    fun nameBaseline(line: Int): Float = nameTop + line * nameLh * nameFontPx + .92f * nameFontPx
+    fun nameBaseline(line: Int): Float = name.baseline(nameTop, line)
 
     /** The eyebrow group, centred: [✓ 12][6][核驗通過 shrunk][8][VERIFIED]. */
     val eyebrowScale = eyebrowPx / heroes[2].fontPx
@@ -264,9 +234,12 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
 
     /** 核驗通過's lighter sticker: a .08 em white outline over a pink drop at (0, .04 em). */
     val verifiedStroke = stickerStroke(heroes[2], .08f)
+    /** The hit's offset flash: the white round the aqua copy, and the white inline between the copies and the ink. */
+    val splitHalo = Stroke(heroes[2].thickPx + .012f * heroes[2].fontPx, join = StrokeJoin.Round)
+    val splitInline = Stroke(heroes[2].thickPx + .024f * heroes[2].fontPx, join = StrokeJoin.Round)
 
     /**
-     * The giant faded beat numerals 01 / 02 / 03 (Chakra Petch SemiBold up to 140 sp), right-aligned on the gutter with their
+     * The giant faded beat numerals 01 / 02 / 03 (Quicksand Bold up to 140 sp), right-aligned on the gutter with their
      * baseline 20 dp above the progress line, so the band between the beat block and the progress line is not empty halftone.
      * Sized to the room under the widest hero line; none where that room is too small (short, split and landscape screens).
      */
@@ -274,20 +247,14 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
         if (lay.landscape || lay.split) return@run null
         val baseline = lay.progressY - 20f * dp
         val top = (0 until 3).maxOf { barTop(it) + 4f * dp } + 14f * dp
-        // Digits stand .70 em tall in Chakra Petch.
+        // Digits stand .70 em tall in Quicksand.
         val sp = min(140f, (baseline - top) / .70f / (s * mm.pxPerSp))
-        if (sp < 72f) null else Array(3) { mm.run("0${it + 1}", IntroFonts.chakra(140f, true, tnum = true), .02f, sp) }
+        if (sp < 72f) null else Array(3) { mm.run("0${it + 1}", IntroFonts.latin(140f, FontWeight.Bold), .02f, sp) }
     }
 }
 
-/** The paint for the glints' offscreen layer (SrcAtop needs the glyphs alone in a layer). */
-private val LayerPaint = Paint()
-/** The name shadow's layer: drawn opaque inside, faded as one. */
-private val ShadowPaint = Paint()
-/** 核驗通過's pink drop, in its own layer for the same reason. */
+/** 核驗通過's pink drop, in its own layer: drawn opaque inside, faded as one. */
 private val HeroShadowPaint = Paint()
-/** One name glyph while it fades in: outline and fill composed opaque, faded as one. */
-private val GlyphPaint = Paint()
 
 /**
  * When 03's caption, sub, bar and giant numeral start their 120 ms fade: by hit + 480 ms, and always early enough that they are
@@ -298,22 +265,6 @@ internal fun IntroMarks.verifiedOut(): Float = min(hit + 480f * pace, d - 130f *
 
 /** 03's caption and sub show only when they would stay up for 100 ms; at 3 s and below the slam has the beat to itself. */
 internal fun IntroMarks.verifiedCaption(): Boolean = verifiedOut() - (hit + 160f * pace) >= 100f * pace
-
-private fun DrawScope.glint(bounds: Rect, k: Float, body: DrawScope.() -> Unit) {
-    drawIntoCanvas { canvas ->
-        canvas.saveLayer(bounds.inflate(bounds.height * .5f), LayerPaint)
-        body()
-        val bw = bounds.width * .22f
-        val x = lerp(bounds.left - bw * 2f, bounds.right + bw, k)
-        withTransform({ rotate(-20f, Offset(x + bw / 2f, bounds.center.y)) }) {
-            drawRect(
-                Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0f), Color.White.copy(alpha = .40f), Color.White.copy(alpha = 0f)), x, x + bw),
-                Offset(x, bounds.top - bounds.height), Size(bw, bounds.height * 3f), blendMode = BlendMode.SrcAtop,
-            )
-        }
-        canvas.restore()
-    }
-}
 
 /** L11, the HUD: brand, date and time, the second row, the ID, AUTH % and the skip label (its own layer, first out on exit). */
 internal fun DrawScope.drawHud(sc: IntroScene, ms: Float) {
@@ -430,7 +381,12 @@ private fun DrawScope.drawBeat(sc: IntroScene, i: Int, ms: Float, start: Float, 
     val outA = 1f - out
     // The caption (beat 1's swaps to beat 2's in compact mode).
     val swap = if (compactSwap) seg(ms, m.b, 120f * p) else 0f
-    drawCaption(sc, if (swap >= .5f) 1 else i, ms, start + 40f * p, outA * (if (swap > 0f && swap < 1f) kotlin.math.abs(1f - 2f * swap) else 1f), outY)
+    // In compact mode beat 2's label types afresh from b, where it takes over.
+    val capStart = start + 40f * p
+    drawCaption(
+        sc, if (swap >= .5f) 1 else i, ms, capStart, outA * (if (swap > 0f && swap < 1f) kotlin.math.abs(1f - 2f * swap) else 1f), outY,
+        typeFrom = if (swap >= .5f) m.b + 60f * p else capStart + 60f * p,
+    )
     // The hero, glyph by glyph out of the slot.
     val base = t.heroBaseline(i)
     clipRect(top = L.heroTop - 8f * dp, bottom = t.heroBottom(if (compactSwap) 1 else i) + 4f * dp) {
@@ -453,7 +409,7 @@ private fun DrawScope.drawBeat(sc: IntroScene, i: Int, ms: Float, start: Float, 
     drawSub(sc, subIndex, ms, start + 200f * p, outA * (if (swap > 0f && swap < 1f) kotlin.math.abs(1f - 2f * swap) else 1f), outY, lerp(t.subTop(i), t.subTop(1), swap))
 }
 
-private fun DrawScope.drawCaption(sc: IntroScene, i: Int, ms: Float, start: Float, alpha: Float, dy: Float, trackFrom: Float = .80f) {
+private fun DrawScope.drawCaption(sc: IntroScene, i: Int, ms: Float, start: Float, alpha: Float, dy: Float, typeFrom: Float = start + 60f) {
     val t = sc.texts
     val L = sc.lay
     val dp = L.dp
@@ -465,10 +421,8 @@ private fun DrawScope.drawCaption(sc: IntroScene, i: Int, ms: Float, start: Floa
     val cy = top + idx.baseline - .35f * idx.fontPx
     val dash = 14f * dp * IntroEase.ExpoOut.transform(seg(ms, start, 200f))
     if (dash > 0f) drawLine(Sakura.Primary.copy(alpha = alpha), Offset(dashX, cy), Offset(dashX + dash, cy), 1.5f * dp, StrokeCap.Round)
-    val cap = t.captions[i]
-    val k = seg(ms, start, 420f, IntroEase.QuintOut)
-    val spread = (trackFrom - .32f) * cap.fontPx * (1f - k)
-    drawRun(cap, dashX + 14f * dp + 8f * dp, top, Sakura.TextSecondary, alpha * seg(ms, start, 160f), spread)
+    // The English label types itself in behind a pink cursor (it used to track in, which read as a slide, not a terminal).
+    drawTyped(t.captions[i], dashX + 14f * dp + 8f * dp, top, Sakura.TextSecondary, alpha, ms, typeFrom, TYPE_MS * sc.marks.pace, reduced = sc.reduced)
 }
 
 private fun DrawScope.drawSub(sc: IntroScene, i: Int, ms: Float, start: Float, alpha: Float, dy: Float, top0: Float) {
@@ -496,7 +450,7 @@ private fun DrawScope.drawVerified(sc: IntroScene, ms: Float) {
     val capOut = 1f - seg(ms, m.verifiedOut(), 120f * p)
     if (capOut > 0f) {
         if (m.verifiedCaption()) {
-            drawCaption(sc, 2, ms, m.hit + 160f * p, capOut, 0f, trackFrom = 1f)
+            drawCaption(sc, 2, ms, m.hit + 160f * p, capOut, 0f)
             drawSub(sc, 2, ms, m.hit + 160f * p, capOut, 0f, t.subTop(2))
         }
         val bk = IntroEase.ExpoOut.transform(seg(ms, m.hit + 60f * p, 300f * p))
@@ -539,6 +493,26 @@ private fun DrawScope.drawEyebrow(sc: IntroScene, ms: Float) {
                 }
                 for (g in 0 until hero.size) drawGlyph(hero, g, Offset(hero.x[g], -hero.baseline), Sakura.White, st, stroke = t.verifiedStroke)
             }
+            // The slam's one pink/aqua offset flash (once per run): a pink copy .028 em to the left and an aqua one to the right,
+            // inside the white outline. Aqua must never touch pink or ink (both mix to grey), so the aqua copy stands on its own
+            // white silhouette and the ink on a white inline: pink → white → aqua → white → ink.
+            val sp = if (sc.reduced) 0f else splitFlash(ms - m.hit)
+            if (sp > 0f && st > 0f) {
+                val off = .028f * hero.fontPx
+                val y0 = -hero.baseline
+                for (g in 0 until hero.size) drawGlyph(hero, g, Offset(hero.x[g] - off, y0), Sakura.Primary, sp)
+                for (g in 0 until hero.size) {
+                    drawGlyph(hero, g, Offset(hero.x[g] + off, y0), Sakura.White, a)
+                    drawGlyph(hero, g, Offset(hero.x[g] + off, y0), Sakura.White, a, stroke = t.splitHalo)
+                }
+                for (g in 0 until hero.size) drawGlyph(hero, g, Offset(hero.x[g] + off, y0), Sakura.Aqua, sp)
+                // The inline is a whole white silhouette, not only a rim: a pinhole the pen's thickening left inside a closed
+                // counter showed the aqua copy through the ink, as a grey dot.
+                for (g in 0 until hero.size) {
+                    drawGlyph(hero, g, Offset(hero.x[g], y0), Sakura.White, a)
+                    drawGlyph(hero, g, Offset(hero.x[g], y0), Sakura.White, a, stroke = t.splitInline)
+                }
+            }
             for (g in 0 until hero.size) drawGlyph(hero, g, Offset(hero.x[g], -hero.baseline), color, a)
         }
     }
@@ -554,12 +528,8 @@ private fun DrawScope.drawEyebrow(sc: IntroScene, ms: Float) {
         // Ink over the user's picture: a pink check vanished into the pink scrim.
         drawPath(t.scratch, if (sc.backdrop) Sakura.Text else Sakura.Primary, style = t.checkStroke)
     }
-    val vk = if (sc.reduced) 1f else seg(ms, m.d + 420f * p, 220f * p, IntroEase.QuintOut)
-    if (vk > 0f) {
-        val v = t.verified
-        val top = t.eyebrowBaseline - v.baseline
-        drawRun(v, t.verifiedLeft, top, if (sc.backdrop) Sakura.Text else Sakura.TextSecondary, vk, (.8f - .32f) * v.fontPx * (1f - vk))
-    }
+    val v = t.verified
+    drawTyped(v, t.verifiedLeft, t.eyebrowBaseline - v.baseline, if (sc.backdrop) Sakura.Text else Sakura.TextSecondary, 1f, ms, m.d + 420f * p, TYPE_MS * p, reduced = sc.reduced)
 }
 
 /** L11 (welcome): the glow behind the name, the words row, the divider and the ID row. The name has its own layer. */
@@ -596,14 +566,7 @@ internal fun DrawScope.drawWelcome(sc: IntroScene, ms: Float) {
         }
         x += wr.width + gap
     }
-    if (wb != null) {
-        val k = if (sc.reduced) 1f else seg(ms, d + 180f * p, 460f * p, IntroEase.QuintOut)
-        val a = if (sc.reduced) 1f else seg(ms, d + 180f * p, 180f)
-        // Tracks in from .25 em, anchored at its left edge, and never spreads past the gutter (at .6 em it ran to the edge).
-        val room = ((L.w - L.g - (x + wb.width)) / (wb.size - 1).coerceAtLeast(1)).coerceAtLeast(0f)
-        val spread = min((.25f - .06f) * wb.fontPx * (1f - k), room)
-        if (a > 0f) drawRun(wb, x, t.wordsBaseline - wb.baseline, label, a, spread)
-    }
+    if (wb != null) drawTyped(wb, x, t.wordsBaseline - wb.baseline, label, 1f, ms, d + 180f * p, TYPE_MS * p, reduced = sc.reduced)
     // Divider: two pink hairlines out from a diamond.
     val dk = if (sc.reduced) 1f else seg(ms, d + 300f * p, 360f * p, IntroEase.ExpoOut)
     if (dk > 0f) {
@@ -644,79 +607,6 @@ internal fun DrawScope.drawWelcome(sc: IntroScene, ms: Float) {
 
 /** The name: the payoff, 88 sp, a sticker (pink hard shadow, white outline, ink fill), rising glyph by glyph, with its glint. */
 internal fun DrawScope.drawName(sc: IntroScene, ms: Float) {
-    val t = sc.texts
     val m = sc.marks
-    val p = m.pace
-    val L = sc.lay
-    val start = sc.nameStart
-    if (ms < start && !sc.reduced) return
-    val cjk = t.nameLines.none { line -> line.text.all { isLatin(it) } }
-    val stagger = (if (m.compact) 24f else if (cjk) 40f else 20f) * p
-    val total = t.nameLines.sumOf { it.size }
-    val step = if (total > 1) min(stagger, 240f * p / (total - 1)) else 0f
-    val stroke = t.nameStroke
-    val pad = stroke.width + 4f * L.dp
-    val shadowDx = .03f * t.nameFontPx
-    val shadowDy = .07f * t.nameFontPx
-    val block = Rect(L.welcomeCenterX - t.nameWidth / 2f, t.nameTop, L.welcomeCenterX + t.nameWidth / 2f, t.nameTop + t.nameHeight)
-    // Every glyph that has started: its top-left (rising .35 em), alpha (opaque within 60 ms) and scale (1.12 → 1).
-    val glyphs: DrawScope.(each: DrawScope.(GlyphRun, Int, Offset, Float, Float) -> Unit) -> Unit = { each ->
-        var n = 0
-        for ((li, line) in t.nameLines.withIndex()) {
-            val left = L.welcomeCenterX - line.width / 2f
-            val base = t.nameBaseline(li)
-            for (g in 0 until line.size) {
-                val raw = if (sc.reduced) 1f else ((ms - start - step * n) / (420f * p)).coerceIn(0f, 1f)
-                n++
-                if (raw <= 0f) continue
-                val e = IntroEase.ExpoOut.transform(raw)
-                each(line, g, Offset(left + line.x[g], base - line.baseline + .35f * line.fontPx * (1f - e)), (raw / .14f).coerceAtMost(1f), lerp(1.12f, 1f, e))
-            }
-        }
-    }
-    val outline: DrawScope.(GlyphRun, Int, Offset, Float) -> Unit = { line, g, at, k -> drawGlyph(line, g, at, Sakura.White, 1f, k, stroke = stroke, sticker = true) }
-    val fill: DrawScope.(GlyphRun, Int, Offset, Float) -> Unit = { line, g, at, k ->
-        // A thin blush inline between the ink and the white: ink anti-aliased straight onto white made a grey fringe (#E7E3E3).
-        drawGlyph(line, g, at, Sakura.Background, 1f, k, stroke = t.nameInline)
-        drawGlyph(line, g, at, Sakura.Text, 1f, k, sticker = true)
-    }
-    val body: DrawScope.() -> Unit = {
-        // The pink hard shadow is the whole sticker's silhouette (outline and fill), offset down-right, in one layer so the
-        // overlaps stay one even pink: offset by the fill alone, the white outline covered it completely.
-        if (IntroConst.NAME_STICKER) drawIntoCanvas { canvas ->
-            ShadowPaint.alpha = .85f
-            canvas.saveLayer(block.inflate(stroke.width + shadowDy), ShadowPaint)
-            glyphs { line, g, at, a, k ->
-                val o = at + Offset(shadowDx, shadowDy)
-                drawGlyph(line, g, o, Sakura.Primary, a, k, stroke = stroke, sticker = true)
-                drawGlyph(line, g, o, Sakura.Primary, a, k, shadow = true, sticker = true)
-            }
-            canvas.restore()
-        }
-        // Settled glyphs: every outline, then every fill, so no outline ever cuts into a neighbour's ink.
-        glyphs { line, g, at, a, k -> if (a >= 1f) outline(line, g, at, k) }
-        glyphs { line, g, at, a, k -> if (a >= 1f) fill(line, g, at, k) }
-        // A glyph still coming in is composed opaque (outline and fill) in its own layer and faded as one: ink half faded over an
-        // already opaque white outline read as grey frosted plastic.
-        glyphs { line, g, at, a, k ->
-            if (a < 1f) drawIntoCanvas { canvas ->
-                val size = line.glyphs[g].size
-                GlyphPaint.alpha = a
-                canvas.saveLayer(Rect(at.x - .1f * size.width - pad, at.y - .15f * size.height - pad, at.x + 1.1f * size.width + pad, at.y + size.height + pad), GlyphPaint)
-                outline(line, g, at, k)
-                fill(line, g, at, k)
-                canvas.restore()
-            }
-        }
-    }
-    // Glints: first 560 ms after the name starts (when there is time for it), then every 2.4 s while the welcome holds.
-    var gk = 0f
-    if (!sc.reduced) {
-        var at = start + 560f * p
-        if (m.e - at >= 300f) {
-            while (at + 2400f <= ms && m.e - (at + 2400f) > 700f) at += 2400f
-            gk = seg(ms, at, 460f, IntroEase.CubicInOut)
-        }
-    }
-    if (gk > 0f && gk < 1f) glint(block, gk, body) else body()
+    drawSticker(sc.texts.name, sc.lay.welcomeCenterX, sc.texts.nameTop, ms, sc.nameStart, m.pace, m.compact, sc.reduced, m.e)
 }

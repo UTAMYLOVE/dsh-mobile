@@ -33,6 +33,29 @@ enum class BackdropStyle(val id: String) { COSY("cosy"), KAWAII("kawaii") }
 enum class PictureAlign(val id: String, val bias: Float) { TOP("top", -1f), CENTER("center", 0f), BOTTOM("bottom", 1f) }
 
 /**
+ * Which startup look plays (0.8.2, the owner: 「四種新開場」). [SIGIL] is the original and stays the default; each other look
+ * is its own composable (StartupIntro dispatches) in its own file, IntroStardust.kt and so on.
+ */
+enum class IntroStyle(val id: String) {
+    /** 櫻紋陣: the sakura magic circle scans you, 核驗通過, welcome. */
+    SIGIL("sigil"),
+    /** 星屑迎接: your picture slowly pushes in, stardust and rings round your portrait, 歡迎回來 rises. */
+    STARDUST("stardust"),
+    /** 花吹雪聚形: a wave of petals bursts and gathers into the crest and your name. */
+    PETAL_STORM("petal-storm"),
+    /** 櫻花隧道: a tunnel of petal light rushes at you and dives into the app. */
+    TUNNEL("tunnel"),
+    /** 一筆描: the crest is drawn stroke by stroke and glows; the shortest. */
+    ONE_STROKE("one-stroke"),
+    ;
+
+    companion object {
+        /** The stored [id]'s style; anything unknown (an older or newer app's value) is [SIGIL]. */
+        fun of(id: String?): IntroStyle = entries.firstOrNull { it.id == id } ?: SIGIL
+    }
+}
+
+/**
  * The startup animation (off by default): 需要訪問許可 → 身份確認 → 核驗通過 → the welcome line. Blank texts show the app's
  * default wording; [seconds] is the whole animation; with [skippable] a tap ends it.
  */
@@ -46,6 +69,8 @@ data class Intro(
     val skippable: Boolean = true,
     /** The background picture (when there is one) as the round portrait on the welcome card. */
     val portrait: Boolean = true,
+    /** Which look plays. */
+    val style: IntroStyle = IntroStyle.SIGIL,
 ) {
     companion object {
         const val MIN_SECONDS = 1.5f
@@ -167,6 +192,7 @@ class LookStore(private val prefs: SharedPreferences) {
                 seconds = prefs.getFloat(INTRO_SECONDS, di.seconds).let { if (it.isFinite()) it else di.seconds }.coerceIn(Intro.MIN_SECONDS, Intro.MAX_SECONDS),
                 skippable = bool(INTRO_SKIP, di.skippable),
                 portrait = bool(INTRO_PORTRAIT, di.portrait),
+                style = IntroStyle.of(prefs.getString(INTRO_STYLE, null)),
             ),
         )
     }
@@ -183,6 +209,7 @@ class LookStore(private val prefs: SharedPreferences) {
             .putString(INTRO_LEVEL, look.intro.level.take(Intro.MAX_TEXT)).putString(INTRO_WELCOME, look.intro.welcome.take(Intro.MAX_TEXT))
             .putFloat(INTRO_SECONDS, look.intro.seconds.coerceIn(Intro.MIN_SECONDS, Intro.MAX_SECONDS))
             .putBoolean(INTRO_SKIP, look.intro.skippable).putBoolean(INTRO_PORTRAIT, look.intro.portrait)
+            .putString(INTRO_STYLE, look.intro.style.id)
             .apply()
     }
 
@@ -208,6 +235,7 @@ class LookStore(private val prefs: SharedPreferences) {
         private const val INTRO_SECONDS = "look_intro_seconds"
         private const val INTRO_SKIP = "look_intro_skip"
         private const val INTRO_PORTRAIT = "look_intro_portrait"
+        private const val INTRO_STYLE = "look_intro_style"
     }
 }
 

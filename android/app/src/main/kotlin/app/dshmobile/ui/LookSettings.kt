@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -16,6 +18,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -32,12 +35,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.dshmobile.R
 import app.dshmobile.ui.fog.BackdropStyle
 import app.dshmobile.ui.fog.Intro
+import app.dshmobile.ui.fog.IntroStyle
 import app.dshmobile.ui.fog.Look
 import app.dshmobile.ui.fog.LookController
 import app.dshmobile.ui.fog.LookStore
@@ -146,7 +151,37 @@ private fun IntroSettings(controller: LookController, intro: Intro) {
     )
     Toggle(R.string.look_intro_skip_on, intro.skippable, "intro-skip") { v -> set { it.copy(skippable = v) } }
     Toggle(R.string.look_intro_portrait, intro.portrait, "intro-portrait") { v -> set { it.copy(portrait = v) } }
+    // 開場樣式: one row per look, its name and one plain line. Right above 預覽, so a pick can be tried at once.
+    Text(stringResource(R.string.look_intro_style))
+    Column(Modifier.selectableGroup()) {
+        IntroStyle.entries.forEach { style ->
+            val (name, hint) = styleWords(style)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .selectable(selected = intro.style == style, role = Role.RadioButton) { set { it.copy(style = style) } }
+                    .testTag(LookTags.INTRO_STYLE + style.id),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = intro.style == style, onClick = null)
+                Column(Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp)) {
+                    Text(stringResource(name))
+                    Text(stringResource(hint), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
     OutlinedButton(onClick = controller::previewIntro, modifier = Modifier.testTag(LookTags.PREVIEW)) { Text(stringResource(R.string.look_intro_preview)) }
+}
+
+/** A look's name and its one plain line in the picker. */
+private fun styleWords(style: IntroStyle): Pair<Int, Int> = when (style) {
+    IntroStyle.SIGIL -> R.string.look_intro_style_sigil to R.string.look_intro_style_sigil_hint
+    IntroStyle.STARDUST -> R.string.look_intro_style_stardust to R.string.look_intro_style_stardust_hint
+    IntroStyle.PETAL_STORM -> R.string.look_intro_style_petal_storm to R.string.look_intro_style_petal_storm_hint
+    IntroStyle.TUNNEL -> R.string.look_intro_style_tunnel to R.string.look_intro_style_tunnel_hint
+    IntroStyle.ONE_STROKE -> R.string.look_intro_style_one_stroke to R.string.look_intro_style_one_stroke_hint
 }
 
 @Composable
@@ -200,4 +235,6 @@ object LookTags {
     const val REMOVE = "look-remove"
     const val RESTORE = "look-restore"
     const val PREVIEW = "look-preview"
+    /** One per look: look-intro-style-sigil, -stardust, -petal-storm, -tunnel, -one-stroke. */
+    const val INTRO_STYLE = "look-intro-style-"
 }

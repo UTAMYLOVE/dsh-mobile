@@ -784,6 +784,10 @@ fun SettingsScreen(
                 if (!dshRunning) {
                     Button(onClick = { restart() }, enabled = !busy, modifier = Modifier.testTag("restart")) { Text(stringResource(R.string.set_dsh_restart)) }
                 }
+                // The fonts, library and plugins the app uses, with their licences (OFL and MIT want the notice in the app).
+                var licenses by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+                TextButton(onClick = { licenses = true }, modifier = Modifier.testTag(LicensesTags.OPEN)) { Text(stringResource(R.string.set_licenses)) }
+                if (licenses) LicensesDialog(onClose = { licenses = false })
             }
 
             AdvancedSection(advanced, R.string.set_section_phantom, R.string.set_en_system, 7) {

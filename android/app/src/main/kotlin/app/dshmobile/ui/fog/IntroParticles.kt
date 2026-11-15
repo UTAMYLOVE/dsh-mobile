@@ -13,13 +13,15 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/** What the user's own 粉嫩二次元 choices ask of the intro's particles: petals, sparkles, and how many. */
-data class IntroFx(val petals: Boolean = true, val sparkles: Boolean = true, val scale: Float = 1f) {
+/** What the user's own 粉嫩二次元 choices ask of the intro's particles (petals, sparkles, how many), and the season's touch. */
+data class IntroFx(val petals: Boolean = true, val sparkles: Boolean = true, val scale: Float = 1f, val season: IntroSeason = IntroSeason.NONE) {
     companion object {
-        /** From the Look: the KAWAII style's 花瓣 / 星光 / 數量 apply; the cosy style keeps the defaults. */
-        fun of(look: Look): IntroFx =
-            if (look.style != BackdropStyle.KAWAII) IntroFx()
-            else IntroFx(look.petals, look.sparkles, (look.amount / 50f).coerceIn(0f, 1.4f))
+        /** From the Look: the KAWAII style's 花瓣 / 星光 / 數量 apply; the cosy style keeps the defaults. The season is [today]'s. */
+        fun of(look: Look, today: java.time.LocalDate = java.time.LocalDate.now()): IntroFx {
+            val season = IntroSeason.of(today)
+            return if (look.style != BackdropStyle.KAWAII) IntroFx(season = season)
+            else IntroFx(look.petals, look.sparkles, (look.amount / 50f).coerceIn(0f, 1.4f), season)
+        }
     }
 }
 
@@ -65,6 +67,8 @@ internal class IntroParticles(private val sc: IntroScene) {
         else -> 0
     }
     private val motes = if (sc.level == EffectLevel.SAVER || !sc.fx.sparkles) 0 else 8
+    /** The season's few extra blossoms or snowflakes, behind the type like the other petals. */
+    private val season = IntroSeasonFx(L.w, L.h, dp, sc.fx.season, introCount(sc.level, sc.fx, 12, 9, 5, sc.reduced), sc.fx)
     private val burst = when (sc.level) { EffectLevel.FULL -> 18; EffectLevel.BALANCED -> 12; EffectLevel.SAVER -> 8 }
 
     /** How far the wind has carried things by [ms] (seconds at speed 1): slow before the hit, a gust after it, a gust on exit. */
@@ -99,10 +103,12 @@ internal class IntroParticles(private val sc: IntroScene) {
         }
     }
 
-    /** Mid petals, bokeh and (in the welcome) motes; the burst is drawn by [drawBurst]. */
+    /** Mid petals, bokeh, the season's touch and (in the welcome) motes; the burst is drawn by [drawBurst]. */
     fun drawAmbient(scope: DrawScope, ms: Float, amb: Float, exitAt: Float, exitDur: Float) = with(scope) {
         val fade = if (sc.reduced) 1f else seg(ms, 0f, 400f)
         if (fade <= 0f) return@with
+        // Over the user's picture the season stays at the sides' strength (.6), so no snowflake sits on the face.
+        if (season.active) season.draw(this, if (sc.reduced) 7f else 7f + amb, fade * (if (sc.backdrop) .6f else .9f))
         val tr = travel(ms, exitAt, exitDur)
         val inh = sc.inhale(ms)
         val margin = 24f * dp

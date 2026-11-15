@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -12,6 +14,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.dshmobile.ui.fog.BackdropStyle
+import app.dshmobile.ui.fog.IntroStyle
 import app.dshmobile.ui.fog.Look
 import app.dshmobile.ui.fog.LookController
 import app.dshmobile.ui.fog.LookStore
@@ -65,9 +68,26 @@ class LookSettingsTest {
         assertEquals(tick + 1, c.introTick.value)
     }
 
+    @Test fun theIntroStylePickerListsEveryLookAndChoosesOne() {
+        val c = show()
+        // 櫻紋陣 is chosen until another look is picked; each row has its name and one plain line.
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "sigil").performScrollTo().assertIsSelected()
+        for (style in IntroStyle.entries) rule.onNodeWithTag(LookTags.INTRO_STYLE + style.id).performScrollTo()
+        rule.onNodeWithText("星屑迎接").assertExists()
+        rule.onNodeWithText("一筆描").assertExists()
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "tunnel").performScrollTo().performClick()
+        assertEquals(IntroStyle.TUNNEL, c.look.value.intro.style)
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "tunnel").assertIsSelected()
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "sigil").assertIsNotSelected()
+        // The pick is right above 預覽, which plays it.
+        val tick = c.introTick.value
+        rule.onNodeWithTag(LookTags.PREVIEW).performScrollTo().performClick()
+        assertEquals(tick + 1, c.introTick.value)
+    }
+
     @Test fun restoreDefaultsBringsEverythingBack() {
         val c = show()
-        c.update { it.copy(style = BackdropStyle.KAWAII, amount = 5, intro = it.intro.copy(enabled = true)) }
+        c.update { it.copy(style = BackdropStyle.KAWAII, amount = 5, intro = it.intro.copy(enabled = true, style = IntroStyle.ONE_STROKE)) }
         rule.onNodeWithTag(LookTags.RESTORE).performScrollTo().performClick()
         assertEquals(Look(), c.look.value)
     }

@@ -693,6 +693,16 @@ class SettingsScreenTest {
         rule.onNodeWithTag("rollback").assertIsEnabled()
     }
 
+    @Test fun theVersionSectionOpensTheLicencesPage() {
+        show()
+        rule.onNodeWithTag(LicensesTags.PAGE).assertDoesNotExist()
+        click(LicensesTags.OPEN)
+        rule.onNodeWithTag(LicensesTags.PAGE).assertExists()
+        rule.onNodeWithTag(LicensesTags.SHOW + "intro-hand").assertExists()
+        rule.onNodeWithTag(LicensesTags.CLOSE).performClick()
+        rule.onNodeWithTag(LicensesTags.PAGE).assertDoesNotExist()
+    }
+
     @Test fun unreadableVersionLinksDoNotStopTheScreenFromOpening() {
         versions.failReads = true
         show()
