@@ -42,7 +42,7 @@ The owner (宇哥) said: 「你直接做下一版」 ("just build the next versi
   - assistant/message `usage` and stream timing (chunk `time`)
   - request/context {provider, model, contextWindow}
   - projections: tokenUsage, contextPressure, sessionStats
-- Fix the PriceTable: Sonnet 5.5 cache read is US$0.20/M, not 0.10. Re-check every price against the current official list: Haiku 5.5 is 0.10/0.50 (≤100K prompt) and 0.50/2.50 above that; Opus 5.5 is 4/20; Sonnet 5.5 is 2/10; Fable 5.1 is 10/50.
+- Fix the PriceTable: Sonnet 5.5 cache read is US$0.10/M. (Corrected 2026-11-15: this line first said 0.20, which is Sonnet 5's price; the app then overstated every Sonnet 5.5 cost.) Re-check every price against the current official list: Haiku 5.5 is 0.10/0.50 (≤100K prompt) and 0.50/2.50 above that; Opus 5.5 is 4/20; Sonnet 5.5 is 2/10; Fable 5.1 is 10/50.
 
 ## D. Bookshelf and reading mode (spec §5.5, the original stage 2)
 - Character cards: reusable settings cards for characters, world and writing style. The owner writes them, or the AI helps tidy them. Stored in the workspace.

@@ -78,7 +78,8 @@ class PriceTable {
             "claude-fable-5-2" to AnthropicRates(8.0, 40.0, 0.20, 10.0),
             "claude-fable-5-1" to AnthropicRates(10.0, 50.0, 0.25, 12.50),
             "claude-opus-5-5" to AnthropicRates(4.0, 20.0, 0.20, 5.0),
-            "claude-sonnet-5-5" to AnthropicRates(2.0, 10.0, 0.20, 2.50),
+            // Cache reads are 0.10 on Sonnet 5.5; 0.20 is Sonnet 5's price, which the table once carried by mistake.
+            "claude-sonnet-5-5" to AnthropicRates(2.0, 10.0, 0.10, 2.50),
             HAIKU_5_5 to AnthropicRates(0.10, 0.50, 0.01, 0.125),
             "claude-haiku-4-5" to AnthropicRates(1.0, 5.0, 0.10, 1.25),
         )

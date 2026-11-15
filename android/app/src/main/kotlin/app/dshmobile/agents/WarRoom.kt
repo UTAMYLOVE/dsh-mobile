@@ -6,7 +6,6 @@ import app.dshmobile.chat.ReviewRounds
 import app.dshmobile.chat.SessionTreeState
 import app.dshmobile.chat.SessionUsage
 import app.dshmobile.chat.ToolStatus
-import app.dshmobile.chat.teamUsage
 import app.dshmobile.remote.SessionSummary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -187,7 +186,8 @@ object WarRoomBuilder {
             id = id, parentId = null, depth = 0,
             label = c?.title?.takeIf { it.isNotBlank() } ?: m?.title?.takeIf { it.isNotBlank() } ?: "主代理人",
             mood = mood, stage = stage, prop = prop, action = action, waiting = waiting,
-            model = model, effort = effort, usage = teamUsage(tree, id),
+            // Its own usage only: every child has its own row and the totals add the rows up, so the team sum counted each child twice.
+            model = model, effort = effort, usage = SessionUsage.of(p),
             contextFill = c?.context?.fraction ?: fill(p["contextPressure"]),
             activeMs = if (running && startMs != null) (nowMs - startMs).coerceAtLeast(0) else null,
             queued = inbox, lastLine = lastLine,

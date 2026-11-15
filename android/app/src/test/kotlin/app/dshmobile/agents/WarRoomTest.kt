@@ -80,6 +80,24 @@ class WarRoomTest {
         assertEquals("金鑰被拒絕，請到設定重新貼上金鑰", l.error)
     }
 
+    /**
+     * H2: the lead row carried the whole team's usage while each child also had its own row, so 用量 tok and 這次 $ (the sum of
+     * the rows) counted every helper twice.
+     */
+    @Test fun theLeadRowCountsOnlyItsOwnTokensSoTheTotalsCountEachHelperOnce() {
+        fun usage(input: Int) = mapOf(
+            "tokenUsage" to Json.parseToJsonElement("""{"uncachedInputTokens":$input,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0}"""),
+        )
+        val tree = SessionTreeState(
+            summaries = listOf(s("lead"), s("k1", "lead"), s("k2", "lead")).associateBy { it.id },
+            projections = mapOf("lead" to usage(100), "k1" to usage(300), "k2" to usage(300)),
+        )
+        val rows = WarRoomBuilder.build(tree, "lead", null, emptyList(), nowMs = 0, leadStartMs = null)
+        assertEquals(listOf("lead", "k1", "k2"), rows.map { it.id })
+        assertEquals(100L, rows[0].usage.totalTokens)
+        assertEquals(700L, rows.sumOf { it.usage.totalTokens })
+    }
+
     @Test fun pickLeadPrefersTheOpenThenTheRunningThenTheNewest() {
         val tree = SessionTreeState(summaries = listOf(s("a", updated = 5), s("b", running = true, updated = 1), s("c", "a")).associateBy { it.id })
         assertEquals("a", WarRoomBuilder.pickLead(tree, "a"))
