@@ -152,8 +152,8 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
 
     init {
         val text = if (hasName) words.name.trim() else words.words
-        val latin = isLatin(text)
-        val track = if (latin) -.01f else .02f
+        // +.02 em for Latin too: at -.01 em the sticker's white outlines of 'oo' and 'wo' fused into one blob.
+        val track = .02f
         val cap = when { lay.split -> 56f; lay.small -> 72f; else -> 88f }
         val start = if (hasName) cap else min(cap, 72f)
         val style = IntroFonts.sans(start, FontWeight.Bold)
@@ -219,14 +219,14 @@ internal class IntroTexts(private val mm: IntroMeasure, val lay: IntroLayout, va
         wordsBaseline = wordsTop + .95f * wordsPx
         eyebrowTop = wordsTop - 12f * dp - 1.3f * eyebrowPx
         eyebrowBaseline = eyebrowTop + 1.0f * eyebrowPx
-        // The crest stays where the sigil stood; it shrinks (or, with no room at all, is left out) so its halo and orbit keep
-        // clear of the eyebrow.
+        // The crest floats at 0.30H; where the block reaches up to it, it rises and shrinks (or, with no room at all, is left out)
+        // so its halo and orbit keep clear of the eyebrow.
         if (!lay.landscape) {
             // On a short screen the crest rises just enough to clear the block, never into the top HUD.
-            val halo = 31f * dp
+            val halo = IntroLayout.CREST_HALO * dp
             val lowest = eyebrowTop - 14f * dp - halo - lay.crestR
             val highest = lay.hud1Top + 30f * dp + halo + lay.crestR
-            if (lowest < lay.c.y) {
+            if (lowest < lay.crestC.y) {
                 val y = max(lowest, highest)
                 lay.crestR = min(lay.crestR, eyebrowTop - 14f * dp - halo - y)
                 lay.crestC = Offset(lay.c.x, y)
@@ -286,6 +286,8 @@ private val LayerPaint = Paint()
 private val ShadowPaint = Paint()
 /** 核驗通過's pink drop, in its own layer for the same reason. */
 private val HeroShadowPaint = Paint()
+/** One name glyph while it fades in: outline and fill composed opaque, faded as one. */
+private val GlyphPaint = Paint()
 
 /**
  * When 03's caption, sub, bar and giant numeral start their 120 ms fade: by hit + 480 ms, and always early enough that they are
@@ -313,8 +315,8 @@ private fun DrawScope.glint(bounds: Rect, k: Float, body: DrawScope.() -> Unit) 
     }
 }
 
-/** L11 (system half and the morph): the HUD, the three beat blocks and the 核驗通過 line becoming the welcome's eyebrow. */
-internal fun DrawScope.drawHudAndBeats(sc: IntroScene, ms: Float) {
+/** L11, the HUD: brand, date and time, the second row, the ID, AUTH % and the skip label (its own layer, first out on exit). */
+internal fun DrawScope.drawHud(sc: IntroScene, ms: Float) {
     val t = sc.texts
     val m = sc.marks
     val p = m.pace
@@ -368,6 +370,13 @@ internal fun DrawScope.drawHudAndBeats(sc: IntroScene, ms: Float) {
             drawLine(Sakura.Primary.copy(alpha = a), Offset(cx + 5f * dp, cy), Offset(cx, cy + 4f * dp), 1.5f * dp, StrokeCap.Round)
         }
     }
+}
+
+/** L11 (system half and the morph): the three beat blocks and the 核驗通過 line becoming the welcome's eyebrow. */
+internal fun DrawScope.drawBeats(sc: IntroScene, ms: Float) {
+    val t = sc.texts
+    val m = sc.marks
+    val p = m.pace
     if (sc.reduced) { drawEyebrow(sc, ms); return }
     t.numerals?.let { drawNumerals(sc, it, ms) }
     // Beat 1 (and, when compact, the block that cross-fades into beat 2 and stays until c).
@@ -379,22 +388,26 @@ internal fun DrawScope.drawHudAndBeats(sc: IntroScene, ms: Float) {
     if (ms >= m.hit) drawVerified(sc, ms)
 }
 
-/** The giant faded numeral of the current beat, cross-fading at each beat mark. */
+/**
+ * The giant faded numeral of the current beat. At each beat mark the old one fades out over 80 ms and only then the new one rises
+ * 24 dp out of a slot at its own baseline (just above AUTH): cross-faded in place, 01 and 02 overlapped and read as '001'.
+ */
 private fun DrawScope.drawNumerals(sc: IntroScene, nums: Array<GlyphRun>, ms: Float) {
     val m = sc.marks
     val L = sc.lay
-    val out = m.verifiedOut()
-    val alphas = floatArrayOf(
-        seg(ms, m.a, 200f) * (1f - seg(ms, m.b, 160f)),
-        seg(ms, m.b, 160f) * (1f - seg(ms, m.hit, 120f)),
-        seg(ms, m.hit, 120f) * (1f - seg(ms, out, 120f * m.pace)),
-    )
+    val dp = L.dp
     val right = L.colLeft + L.colWidth
-    val baseline = L.progressY - 20f * L.dp
+    val baseline = L.progressY - 20f * dp
     for (i in 0 until 3) {
-        if (alphas[i] <= 0f) continue
+        val enter = when (i) { 0 -> m.a; 1 -> m.b + 80f; else -> m.hit + 80f }
+        val out = when (i) { 0 -> seg(ms, m.b, 80f); 1 -> seg(ms, m.hit, 80f); else -> seg(ms, m.verifiedOut(), 120f * m.pace) }
+        val a = seg(ms, enter, 160f) * (1f - out)
+        if (a <= 0f) continue
+        val rise = 24f * dp * (1f - IntroEase.ExpoOut.transform(seg(ms, enter, 320f)))
         val run = nums[i]
-        drawRun(run, right - run.width, baseline - run.baseline, Sakura.RoseBrown, .10f * alphas[i])
+        clipRect(bottom = baseline + 2f * dp) {
+            drawRun(run, right - run.width, baseline - run.baseline + rise, Sakura.RoseBrown, .10f * a)
+        }
     }
 }
 
@@ -538,7 +551,8 @@ private fun DrawScope.drawEyebrow(sc: IntroScene, ms: Float) {
     if (ck > 0f) {
         t.scratch.reset()
         t.checkMeasure.getSegment(0f, t.checkMeasure.length * ck, t.scratch, true)
-        drawPath(t.scratch, Sakura.Primary, style = t.checkStroke)
+        // Ink over the user's picture: a pink check vanished into the pink scrim.
+        drawPath(t.scratch, if (sc.backdrop) Sakura.Text else Sakura.Primary, style = t.checkStroke)
     }
     val vk = if (sc.reduced) 1f else seg(ms, m.d + 420f * p, 220f * p, IntroEase.QuintOut)
     if (vk > 0f) {
@@ -555,8 +569,9 @@ internal fun DrawScope.drawWelcome(sc: IntroScene, ms: Float) {
     val p = m.pace
     val L = sc.lay
     val dp = L.dp
-    val d = m.d
-    if (ms < d && !sc.reduced) return
+    if (ms < m.d && !sc.reduced) return
+    // The block follows the name, which waits (a little) for the floor circle to sink clear of it.
+    val d = m.d + sc.welcomeDelay
     val cx = L.welcomeCenterX
     val label = if (sc.backdrop) Sakura.Text else Sakura.TextSecondary
     // The name glow (fainter over the user's picture, which it would otherwise bleach).
@@ -633,48 +648,37 @@ internal fun DrawScope.drawName(sc: IntroScene, ms: Float) {
     val m = sc.marks
     val p = m.pace
     val L = sc.lay
-    val d = m.d
-    if (ms < d + 40f * p - 40f && !sc.reduced) return
+    val start = sc.nameStart
+    if (ms < start && !sc.reduced) return
     val cjk = t.nameLines.none { line -> line.text.all { isLatin(it) } }
     val stagger = (if (m.compact) 24f else if (cjk) 40f else 20f) * p
     val total = t.nameLines.sumOf { it.size }
     val step = if (total > 1) min(stagger, 240f * p / (total - 1)) else 0f
     val stroke = t.nameStroke
+    val pad = stroke.width + 4f * L.dp
     val shadowDx = .03f * t.nameFontPx
     val shadowDy = .07f * t.nameFontPx
     val block = Rect(L.welcomeCenterX - t.nameWidth / 2f, t.nameTop, L.welcomeCenterX + t.nameWidth / 2f, t.nameTop + t.nameHeight)
-    val glyphs: DrawScope.(pass: Int, dx: Float, dy: Float) -> Unit = { pass, dx, dy ->
+    // Every glyph that has started: its top-left (rising .35 em), alpha (opaque within 60 ms) and scale (1.12 → 1).
+    val glyphs: DrawScope.(each: DrawScope.(GlyphRun, Int, Offset, Float, Float) -> Unit) -> Unit = { each ->
         var n = 0
         for ((li, line) in t.nameLines.withIndex()) {
             val left = L.welcomeCenterX - line.width / 2f
             val base = t.nameBaseline(li)
             for (g in 0 until line.size) {
-                // The white outline (and the drop under it) leads the ink by 40 ms, so each glyph stamps in: a live blur here
-                // smeared the ink into its outline and drop as a grey-mauve mud.
-                val lead = if (pass < 2) 40f else 0f
-                val raw = if (sc.reduced) 1f else ((ms - d - 40f * p - step * n + lead) / (420f * p)).coerceIn(0f, 1f)
+                val raw = if (sc.reduced) 1f else ((ms - start - step * n) / (420f * p)).coerceIn(0f, 1f)
                 n++
                 if (raw <= 0f) continue
                 val e = IntroEase.ExpoOut.transform(raw)
-                // Opaque within 85 ms: ink half faded in over its white outline reads as a grey mauve.
-                val a = (raw / .2f).coerceAtMost(1f)
-                val at = Offset(left + line.x[g] + dx, base - line.baseline + .35f * line.fontPx * (1f - e) + dy)
-                val sc2 = lerp(1.12f, 1f, e)
-                when (pass) {
-                    0 -> {
-                        drawGlyph(line, g, at, Sakura.Primary, a, sc2, stroke = stroke, sticker = true)
-                        drawGlyph(line, g, at, Sakura.Primary, a, sc2, shadow = true, sticker = true)
-                    }
-                    1 -> drawGlyph(line, g, at, Sakura.White, a, sc2, stroke = stroke, sticker = true)
-                    else -> {
-                        // A thin blush inline between the ink and the white: ink anti-aliased straight onto white made a grey
-                        // fringe (#E7E3E3) round every stroke.
-                        drawGlyph(line, g, at, Sakura.Background, a, sc2, stroke = t.nameInline)
-                        drawGlyph(line, g, at, Sakura.Text, a, sc2, sticker = true)
-                    }
-                }
+                each(line, g, Offset(left + line.x[g], base - line.baseline + .35f * line.fontPx * (1f - e)), (raw / .14f).coerceAtMost(1f), lerp(1.12f, 1f, e))
             }
         }
+    }
+    val outline: DrawScope.(GlyphRun, Int, Offset, Float) -> Unit = { line, g, at, k -> drawGlyph(line, g, at, Sakura.White, 1f, k, stroke = stroke, sticker = true) }
+    val fill: DrawScope.(GlyphRun, Int, Offset, Float) -> Unit = { line, g, at, k ->
+        // A thin blush inline between the ink and the white: ink anti-aliased straight onto white made a grey fringe (#E7E3E3).
+        drawGlyph(line, g, at, Sakura.Background, 1f, k, stroke = t.nameInline)
+        drawGlyph(line, g, at, Sakura.Text, 1f, k, sticker = true)
     }
     val body: DrawScope.() -> Unit = {
         // The pink hard shadow is the whole sticker's silhouette (outline and fill), offset down-right, in one layer so the
@@ -682,19 +686,36 @@ internal fun DrawScope.drawName(sc: IntroScene, ms: Float) {
         if (IntroConst.NAME_STICKER) drawIntoCanvas { canvas ->
             ShadowPaint.alpha = .85f
             canvas.saveLayer(block.inflate(stroke.width + shadowDy), ShadowPaint)
-            glyphs(0, shadowDx, shadowDy)
+            glyphs { line, g, at, a, k ->
+                val o = at + Offset(shadowDx, shadowDy)
+                drawGlyph(line, g, o, Sakura.Primary, a, k, stroke = stroke, sticker = true)
+                drawGlyph(line, g, o, Sakura.Primary, a, k, shadow = true, sticker = true)
+            }
             canvas.restore()
         }
-        glyphs(1, 0f, 0f)
-        glyphs(2, 0f, 0f)
+        // Settled glyphs: every outline, then every fill, so no outline ever cuts into a neighbour's ink.
+        glyphs { line, g, at, a, k -> if (a >= 1f) outline(line, g, at, k) }
+        glyphs { line, g, at, a, k -> if (a >= 1f) fill(line, g, at, k) }
+        // A glyph still coming in is composed opaque (outline and fill) in its own layer and faded as one: ink half faded over an
+        // already opaque white outline read as grey frosted plastic.
+        glyphs { line, g, at, a, k ->
+            if (a < 1f) drawIntoCanvas { canvas ->
+                val size = line.glyphs[g].size
+                GlyphPaint.alpha = a
+                canvas.saveLayer(Rect(at.x - .1f * size.width - pad, at.y - .15f * size.height - pad, at.x + 1.1f * size.width + pad, at.y + size.height + pad), GlyphPaint)
+                outline(line, g, at, k)
+                fill(line, g, at, k)
+                canvas.restore()
+            }
+        }
     }
-    // Glints: first 600 ms in (when there is time for it), then every 2.4 s while the welcome holds.
+    // Glints: first 560 ms after the name starts (when there is time for it), then every 2.4 s while the welcome holds.
     var gk = 0f
     if (!sc.reduced) {
-        var start = d + 600f * p
-        if (m.e - start >= 300f) {
-            while (start + 2400f <= ms && m.e - (start + 2400f) > 700f) start += 2400f
-            gk = seg(ms, start, 460f, IntroEase.CubicInOut)
+        var at = start + 560f * p
+        if (m.e - at >= 300f) {
+            while (at + 2400f <= ms && m.e - (at + 2400f) > 700f) at += 2400f
+            gk = seg(ms, at, 460f, IntroEase.CubicInOut)
         }
     }
     if (gk > 0f && gk < 1f) glint(block, gk, body) else body()

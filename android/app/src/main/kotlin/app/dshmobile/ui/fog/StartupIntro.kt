@@ -304,11 +304,8 @@ fun StartupIntro(
             // L10: the window, which becomes the crest, and the opening circle's rim.
             Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawWindow(scene, ms(), amb()); drawIrisRim(scene, ms()) })
         }
-        Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawHudAndBeats(scene, ms()); drawWelcome(scene, ms()) })
-        // The name has no live blur: it stamps in glyph by glyph (white outline first), see drawName.
-        Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawName(scene, ms()) })
-        // L12: the one flash, over everything, so the light bursts out of the sigil over the type and the HUD too (drawn
-        // behind them it only paled the sky).
+        // L12: the one flash, over the sky, the sigil and the crest but under the type, so it bursts out of the sigil as white
+        // light behind a sharp 核驗通過 (over the type it greyed the slam to about 2.8:1 for 150 ms).
         if (!reducedMotion) {
             val peak = if (level == EffectLevel.SAVER) .35f else .70f
             Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind {
@@ -316,10 +313,18 @@ fun StartupIntro(
                 if (f > 0f) drawRect(scene.flashBrush, alpha = f)
             })
         }
+        // L11: the type. On exit the HUD (brand, date, skip) fades first and the welcome block right after, both within 120 ms,
+        // so the iris wipes only the floor circle and petals: cut by its edge, the date sat on the app's own buttons.
+        Spacer(Modifier.fillMaxSize().graphicsLayer { alpha = typeAlpha(run, 0f) }.drawBehind { drawHud(scene, ms()) })
+        Spacer(Modifier.fillMaxSize().graphicsLayer { alpha = typeAlpha(run, 40f) }.drawBehind { drawBeats(scene, ms()); drawWelcome(scene, ms()) })
+        // The name has no live blur: each glyph stamps in as one opaque sticker, see drawName.
+        Spacer(Modifier.fillMaxSize().graphicsLayer { alpha = typeAlpha(run, 40f) }.drawBehind { drawName(scene, ms()) })
         IntroSemantics(scene, intro, words, phase, reducedMotion, skipLabel)
     }
 }
-
+/** A type layer's alpha on exit: 1, then down to 0 over 80 ms from [delay] ms after the exit starts. */
+private fun typeAlpha(run: IntroRun, delay: Float): Float =
+    if (run.exitAt < 0f) 1f else 1f - ((run.ms.floatValue - run.exitAt - delay) / 80f).coerceIn(0f, 1f)
 
 /**
  * The part of the picture the identity window frames, from the picture's alignment: a typical full-body picture has the face in

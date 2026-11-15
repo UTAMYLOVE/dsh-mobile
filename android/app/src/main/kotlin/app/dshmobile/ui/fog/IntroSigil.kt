@@ -118,6 +118,10 @@ internal class SigilKit(val r: Float, private val dp: Float, burstCount: Int, pr
     val floorCore = Stroke(fw(2f), cap = StrokeCap.Round, join = StrokeJoin.Round)
     val floorGlow = Stroke(fw(6f), cap = StrokeCap.Round, join = StrokeJoin.Round)
     val floorRim = Stroke(fw(1.5f), cap = StrokeCap.Round, join = StrokeJoin.Round)
+    /** The outer ring's white under-glow on the floor (the treatment ring A gets at the hit), so it reads as a lit circle. */
+    val floorUnderGlow = Stroke(fw(4f), cap = StrokeCap.Round, join = StrokeJoin.Round)
+    /** A wide, faint pink halo round the outer ring on the floor. */
+    val floorHalo = Stroke(fw(12f))
 
     /** The petals' fill before the hit: white at the tips, pink at the base (a flat white read as five blobs). */
     val petalFill = Brush.radialGradient(
@@ -182,21 +186,24 @@ internal class SigilKit(val r: Float, private val dp: Float, burstCount: Int, pr
     )
 
     /**
-     * The hit's speed lines (集中線): solid white wedges 6 dp wide at r 1.08, out to about 2.5. Thin pink-edged strips read as
-     * faint sun rays; these read as manga focus lines.
+     * The hit's speed lines (集中線): white wedges, a hair (.5 dp) at the inner end, 6–10 dp at the outer one, starting at 1.15–1.35
+     * and reaching .55–1.0 of the way out to 3.0 (by the hash). Constant-width bars running to the edges read as a sunburst or a
+     * fence; tapered, uneven lines read as manga focus lines.
      */
-    val burst = burstPath(burstCount, 3f * dp / r)
+    val burst = burstPath(burstCount)
 
-    private fun burstPath(count: Int, hw: Float) = Path().apply {
+    private fun burstPath(count: Int) = Path().apply {
+        val inner = .25f * dp / r
         for (i in 0 until count) {
-            val h = ih(i, 41)
-            val a = rad(i * (360f / count) + 4f * (h - .5f))
+            val a = rad(i * (360f / count) + 4f * (ih(i, 41) - .5f))
             val dx = cos(a); val dy = sin(a)
-            val base = 1.08f
-            val apex = 2.4f + .35f * h
-            moveTo(dx * base - dy * hw, dy * base + dx * hw)
-            lineTo(dx * apex, dy * apex)
-            lineTo(dx * base + dy * hw, dy * base - dx * hw)
+            val from = 1.15f + .20f * ih(i, 43)
+            val to = from + (3.0f - from) * (.55f + .45f * ih(i, 47))
+            val outer = (3f + 2f * ih(i, 53)) * dp / r
+            moveTo(dx * from - dy * inner, dy * from + dx * inner)
+            lineTo(dx * to - dy * outer, dy * to + dx * outer)
+            lineTo(dx * to + dy * outer, dy * to - dx * outer)
+            lineTo(dx * from + dy * inner, dy * from - dx * inner)
             close()
         }
     }
@@ -258,7 +265,8 @@ internal fun IntroScene.floorIn(ms: Float): Float = if (reduced) 1f else floorPr
 internal fun floorProgress(ms: Float, m: IntroMarks, limit: Float, early: Boolean = false): Float {
     val p = m.pace
     val raw = if (early) seg(ms, m.hit, 700f * p, IntroEase.EmphDecel) else seg(ms, m.d - 60f * p, 700f * p, IntroEase.EmphDecel)
-    val morph = seg(ms, m.d, 420f * p, IntroEase.EmphDecel)
+    // Released over 340 ms (the eyebrow morph's 420 was slow enough that the name rose through the still-high floor).
+    val morph = seg(ms, m.d, 340f * p, IntroEase.EmphDecel)
     return min(raw, lerp(limit, 1f, morph))
 }
 
@@ -274,6 +282,20 @@ internal fun IntroScene.sigilAlpha(ms: Float): Float {
 /** The hit effects' strength over the user's picture: .35 from hit + 200 ms, so no ribbon whips across the face. 1 without one. */
 internal fun IntroScene.hitFxAlpha(ms: Float): Float =
     if (!backdrop || reduced) 1f else lerp(1f, .35f, seg(ms, marks.hit, 200f * marks.pace, IntroEase.CubicOut))
+
+/**
+ * How far the window has become the crest, 0..1 (always 0 over a picture or where there is no room for a crest). It rises 80 ms
+ * ahead of the floor move, so the two do not stack up at C.
+ */
+internal fun IntroScene.crestK(ms: Float): Float =
+    if (backdrop || !lay.crest) 0f else if (reduced) 1f else seg(ms, marks.d - 140f * marks.pace, 700f * marks.pace, IntroEase.EmphDecel)
+
+/** The window's centre at crest progress [kw]: from C up to the crest's place, bobbing ±4 dp over 3.2 s once it is there. */
+internal fun IntroScene.crestCenter(kw: Float, amb: Float): Offset {
+    val L = lay
+    val bob = if (kw > 0f && !reduced) 4f * L.dp * sin(amb * (2f * PI.toFloat() / 3.2f)) * kw else 0f
+    return Offset(lerp(L.c.x, L.crestC.x, kw), lerp(L.c.y, L.crestC.y, kw) + bob)
+}
 
 internal fun IntroScene.pose(ms: Float, amb: Float, out: SigilPose) {
     val m = marks
@@ -313,14 +335,18 @@ internal fun DrawScope.drawSigil(sc: IntroScene, ms: Float, amb: Float, pose: Si
         scale(pose.sx * R, pose.sy * R, Offset.Zero)
         rotate(pose.disc, Offset.Zero)
     }) {
+        // On the floor the lines are light: a pink glow, a white under-glow on the outer ring and a white core at .95 (at .85
+        // over a pale pink glow the circle read as a printed decal, not a lit summon circle).
         if (fl > 0f) {
-            drawCircle(Sakura.Primary.copy(alpha = .35f * fl), 1f, Offset.Zero, style = k.floorGlow)
-            drawCircle(Sakura.Primary.copy(alpha = .35f * fl), .62f, Offset.Zero, style = k.floorGlow)
+            drawCircle(Sakura.Primary.copy(alpha = .28f * fl), 1f, Offset.Zero, style = k.floorHalo)
+            drawCircle(Sakura.Primary.copy(alpha = .50f * fl), 1f, Offset.Zero, style = k.floorGlow)
+            drawCircle(Sakura.Primary.copy(alpha = .45f * fl), .62f, Offset.Zero, style = k.floorGlow)
+            drawCircle(Sakura.White.copy(alpha = .45f * fl), 1f, Offset.Zero, style = k.floorUnderGlow)
         }
         // Ring A and its inner white line, drawn by the comet.
         if (line > 0f) drawArc(Sakura.RoseBrown.copy(alpha = .80f * line), -90f, 360f * kA, false, unitBox, Size(2f, 2f), style = k.ringA)
         drawArc(Sakura.White.copy(alpha = .70f * line), -90f, 360f * kA, false, Offset(-.988f, -.988f), Size(1.976f, 1.976f), style = k.ringAInner)
-        if (fl > 0f) drawCircle(Sakura.White.copy(alpha = .85f * fl), 1f, Offset.Zero, style = k.floorCore)
+        if (fl > 0f) drawCircle(Sakura.White.copy(alpha = .95f * fl), 1f, Offset.Zero, style = k.floorCore)
         // Ring A lights up at the hit: a white 5 dp glow over it that holds through the flash and fades by +500 ms (under the
         // line it showed only as two hairlines, and only while the flash hid it).
         val glow = if (ms >= m.hit) .5f * (1f - seg(ms, m.hit + 150f, 350f, IntroEase.SineInOut)) else 0f
@@ -352,7 +378,7 @@ internal fun DrawScope.drawSigil(sc: IntroScene, ms: Float, amb: Float, pose: Si
             rotate(g2, Offset.Zero) {
                 val kC = seg(ms, build, 300f * p, IntroEase.CubicInOut)
                 if (line > 0f) drawArc(Sakura.RoseBrown.copy(alpha = .60f * line), -90f, 360f * kC, false, Offset(-.62f, -.62f), Size(1.24f, 1.24f), style = k.ringC)
-                if (fl > 0f) drawCircle(Sakura.White.copy(alpha = .85f * fl), .62f, Offset.Zero, style = k.floorCore)
+                if (fl > 0f) drawCircle(Sakura.White.copy(alpha = .95f * fl), .62f, Offset.Zero, style = k.floorCore)
                 for (i in 0 until 8) {
                     val t = seg(ms, build + (120f + 20f * i) * p, 160f * p)
                     if (t <= 0f) continue
@@ -409,7 +435,13 @@ private fun DrawScope.drawRosette(sc: IntroScene, ms: Float, amb: Float, fl: Flo
     val pink = if (d < 0f) 0f else (d / 60f).coerceAtMost(1f)
     val settle = IntroEase.QuintOut.transform(((d - 200f) / 500f).coerceIn(0f, 1f))
     val breath = if (d > 700f) .05f * sin((amb - m.hit / 1000f) * (2f * PI.toFloat() / 1.6f)) else 0f
-    val pinkA = lerp(lerp(1f, .60f, settle) + breath * settle, .45f, fl)
+    // On the floor the fill keeps breathing .55 ↔ .65 (at .45 the lying rosette read as pale stickers).
+    var pinkA = lerp(lerp(1f, .60f, settle) + breath * settle, .60f + breath, fl)
+    // Over the user's picture the upright flood swung across the subject as three round pink blobs (censor patches): until
+    // the circle lies on the floor its fill stays at .20 and its outline at .85.
+    val veiled = sc.backdrop && !sc.reduced && d >= 30f * p
+    if (veiled) pinkA = lerp(min(pinkA, .20f), pinkA, fl * fl)
+    val outline = if (veiled) lerp(.85f, 1f, fl * fl) else 1f
     val line = 1f - fl
     // The heart band that joins the petals at their base.
     val heartK = seg(ms, m.build + 40f * p, 240f * p, IntroEase.CubicOut)
@@ -421,9 +453,9 @@ private fun DrawScope.drawRosette(sc: IntroScene, ms: Float, amb: Float, fl: Flo
         if (pink < 1f) drawPath(k.petals[i], k.petalFill, alpha = grow * (1f - pink))
         if (pink > 0f) drawPath(k.petals[i], Sakura.Primary.copy(alpha = pinkA * pink * grow))
         if (t >= 1f) {
-            if (line > 0f) drawPath(k.petals[i], Sakura.RoseBrown.copy(alpha = .80f * line), style = k.petalLine)
+            if (line > 0f) drawPath(k.petals[i], Sakura.RoseBrown.copy(alpha = .80f * line * outline), style = k.petalLine)
             if (fl > 0f) {
-                drawPath(k.petals[i], Sakura.Primary.copy(alpha = .35f * fl), style = k.floorGlow)
+                drawPath(k.petals[i], Sakura.Primary.copy(alpha = .45f * fl), style = k.floorGlow)
                 drawPath(k.petals[i], Sakura.White.copy(alpha = fl), style = k.floorRim)
             }
         } else {
@@ -514,12 +546,14 @@ internal fun DrawScope.drawHitFx(sc: IntroScene, ms: Float) {
     val s2 = seg(ms, m.hit + 60f * p, 480f * p, IntroEase.QuintOut)
     if (ms >= m.hit + 60f * p && s2 < 1f) drawCircle(Sakura.Primary.copy(alpha = .7f * (1f - s2)), R * lerp(1f, 1.45f, s2), c, style = Stroke(1.5f * dp))
     if (sc.level == EffectLevel.SAVER) return
-    // The lines fly out fast (QuintOut) but stay solid until late (CubicIn): faded on the same QuintOut they were gone before the
-    // flash cleared, so nobody saw them.
+    // The lines fly out fast (QuintOut), hold through the flash peak and are gone by hit + 380 ms: held solid until late they
+    // were still strong at +300, on an already busy frame. They stay below the top hairline, clear of the brand and the date.
     val b = seg(ms, m.hit, 380f * p, IntroEase.QuintOut)
-    val ba = .90f * (1f - seg(ms, m.hit, 380f * p, IntroEase.CubicIn))
-    if (ba > 0f) withTransform({ translate(c.x, c.y); scale(R * lerp(1f, 1.45f, b), R * lerp(1f, 1.45f, b), Offset.Zero) }) {
-        drawPath(k.burst, Sakura.White.copy(alpha = ba))
+    val ba = .90f * (1f - seg(ms, m.hit + 40f * p, 340f * p, IntroEase.CubicOut))
+    if (ba > 0f) clipRect(top = L.topLine) {
+        withTransform({ translate(c.x, c.y); scale(R * lerp(1f, 1.45f, b), R * lerp(1f, 1.45f, b), Offset.Zero) }) {
+            drawPath(k.burst, Sakura.White.copy(alpha = ba))
+        }
     }
     withTransform({ translate(c.x, c.y); scale(R, R, Offset.Zero) }) {
         for (i in 0 until 3) {
@@ -611,17 +645,15 @@ internal fun DrawScope.drawWindow(sc: IntroScene, ms: Float, amb: Float) {
     val appear = seg(ms, m.build + 40f * p, 260f * p, IntroEase.CubicOut)
     if (plate <= 0f && appear <= 0f) return
     val pulse = sigilScale(ms, m)
-    // The crest rises 80 ms ahead of the floor move, so the two do not stack up at C.
-    val kw = if (sc.backdrop || !L.crest) 0f else if (sc.reduced) 1f else seg(ms, m.d - 140f * p, 700f * p, IntroEase.EmphDecel)
+    val kw = sc.crestK(ms)
     // Over a picture the window's rings go with its content (a stray white ring sat on the face for 200 ms).
     val gone = if (sc.backdrop) seg(ms, m.hit + 30f * p, 60f * p) else if (!L.crest) seg(ms, m.d - 60f * p, 300f * p) else 0f
     val alpha = 1f - gone
     if (alpha <= 0f) return
-    val bob = if (kw > 0f && !sc.reduced) 4f * dp * sin(amb * (2f * PI.toFloat() / 3.2f)) * kw else 0f
-    val cx = lerp(L.c.x, L.crestC.x, kw)
-    val cy = lerp(L.c.y, L.crestC.y, kw) + bob
+    val center = sc.crestCenter(kw, amb)
+    val cx = center.x
+    val cy = center.y
     val rw = lerp(.30f * R * pulse, L.crestR, kw)
-    val center = Offset(cx, cy)
     val crest = (kw / .6f).coerceIn(0f, 1f)
     val contentGone = sc.backdrop && ms >= m.hit + 30f * p && sc.irisRadius(sc.irisK(ms)) > 1.1f * .30f * R * pulse
     // Plate and content, clipped to the window.
@@ -637,8 +669,8 @@ internal fun DrawScope.drawWindow(sc: IntroScene, ms: Float, amb: Float) {
             if (scanY > -1e6f) clipRect(top = 0f, bottom = scanY) { sc.drawPictureAt(this, sc.windowPlacement, alpha) }
         } else {
             drawCircle(Sakura.MilkTea.copy(alpha = .22f * alpha * plate), rw, center)
-            // The monogram grows from 52 sp in the window to 68 sp on the crest (less where a short screen shrinks the crest).
-            val atCrest = (68f / 52f) * (L.crestR / (66f * L.s * dp)).coerceIn(.6f, 1.4f)
+            // The monogram grows from 52 sp in the window to 84 sp on the crest (less where a short screen shrinks the crest).
+            val atCrest = (84f / 52f) * (L.crestR / (IntroLayout.CREST_DP * L.s * dp)).coerceIn(.6f, 1.4f)
             sc.drawMonogram(this, center, rw, lerp(pulse, atCrest, kw), ghost * alpha, scanY, alpha, crest)
         }
         // Scanlines inside the window while scanning.
@@ -652,18 +684,20 @@ internal fun DrawScope.drawWindow(sc: IntroScene, ms: Float, amb: Float) {
     drawArc(Sakura.White.copy(alpha = alpha), -90f, 360f * appear, false, Offset(cx - rw, cy - rw), Size(2 * rw, 2 * rw), style = Stroke(2f * dp))
     val ro = lerp(rw * (.335f / .30f), rw + 5f * dp, kw)
     drawArc(Sakura.RoseBrown.copy(alpha = .60f * alpha), -90f, 360f * appear, false, Offset(cx - ro, cy - ro), Size(2 * ro, 2 * ro), style = Stroke(1f * dp))
-    // The crest halo and its orbit sparkles.
+    // The crest halo: a rose-brown ring with 24 ticks, a pink outer ring, and two orbit sparkles.
     if (kw > 0f) {
         val hk = if (sc.reduced) 1f else seg(ms, m.d + 200f * p, 360f * p, IntroEase.CubicOut)
         if (hk > 0f) {
-            val hr = L.crestR + 11f * dp
+            val hr = L.crestR + 10f * dp
             drawArc(Sakura.RoseBrown.copy(alpha = .6f), -90f, 360f * hk, false, Offset(cx - hr, cy - hr), Size(2 * hr, 2 * hr), style = Stroke(1f * dp))
             val ticks = (24 * hk).toInt()
             for (i in 0 until ticks) {
                 val a = rad(i * 15f - 90f)
-                drawLine(Sakura.RoseBrown.copy(alpha = .6f), Offset(cx + cos(a) * (L.crestR + 15f * dp), cy + sin(a) * (L.crestR + 15f * dp)), Offset(cx + cos(a) * (L.crestR + 20f * dp), cy + sin(a) * (L.crestR + 20f * dp)), 1f * dp)
+                drawLine(Sakura.RoseBrown.copy(alpha = .6f), Offset(cx + cos(a) * (L.crestR + 14f * dp), cy + sin(a) * (L.crestR + 14f * dp)), Offset(cx + cos(a) * (L.crestR + 19f * dp), cy + sin(a) * (L.crestR + 19f * dp)), 1f * dp)
             }
-            val orbit = L.crestR + 27f * dp
+            val or = L.crestR + 30f * dp
+            drawArc(Sakura.Primary.copy(alpha = .35f), 90f, 360f * hk, false, Offset(cx - or, cy - or), Size(2 * or, 2 * or), style = Stroke(1f * dp))
+            val orbit = L.crestR + 26f * dp
             val spin = 24f * max(0f, amb - (m.d + 200f * p) / 1000f)
             for (j in 0 until 2) {
                 val a = rad(-60f + 180f * j + spin)

@@ -81,7 +81,7 @@ internal class IntroLayout(val w: Float, val h: Float, val dp: Float, val iT: Fl
             ry = .28f * rx
             cf = Offset(.62f * w, floorBottom - ry)
             welcomeCenterX = cf.x
-            welcomeBottom = cf.y - ry - 10f * dp
+            welcomeBottom = cf.y - ry - WELCOME_GAP * dp
             crestR = .17f * h
         } else {
             // The system half sits low enough that the beat block fills the lower third: at .36H / .66H a band of empty sky sat
@@ -95,9 +95,10 @@ internal class IntroLayout(val w: Float, val h: Float, val dp: Float, val iT: Fl
             ry = .28f * rx
             cf = Offset(w / 2f, min(h - iB - .115f * h, floorBottom - ry))
             welcomeCenterX = w / 2f
-            welcomeBottom = cf.y - ry - 10f * dp
-            // 66 dp: at 80 the crest was the biggest coloured mass on screen and outweighed the 88 sp name.
-            crestR = 66f * s * dp
+            welcomeBottom = cf.y - ry - WELCOME_GAP * dp
+            // 80 dp at 0.30H, on its own bloom: at 66 dp and 0.385H the top quarter of the welcome was empty sky and the payoff
+            // frame was quieter than the scan.
+            crestR = CREST_DP * s * dp
         }
     }
 
@@ -116,10 +117,19 @@ internal class IntroLayout(val w: Float, val h: Float, val dp: Float, val iT: Fl
     val ruler = !landscape
     val halftone = !small
     /**
-     * The crest sits where the sigil stood, so the window only grows into it; only a short screen, where the welcome block
-     * reaches up to it, lifts it (see [IntroTexts]).
+     * The crest floats up from where the sigil stood to 0.30H (never into the top HUD); a short screen, where the welcome block
+     * reaches up to it, lifts or shrinks it (see [IntroTexts]). In landscape it stays where the sigil stood, beside the block.
      */
-    var crestC = c
+    var crestC = if (landscape) c else Offset(w / 2f, max(.30f * h, hud1Top + 30f * dp + CREST_HALO * dp + crestR))
+
+    companion object {
+        /** The crest's radius on the reference phone, in dp (times `s`). */
+        const val CREST_DP = 80f
+        /** How far the crest's decoration reaches past its radius: the orbit sparkles at +26 and the outer ring at +30, in dp. */
+        const val CREST_HALO = 31f
+        /** The ID row's bottom keeps this far above the floor ellipse's top (dp), so the row never sits on the data ring's text. */
+        const val WELCOME_GAP = 20f
+    }
 }
 
 /** A picture placement: drawn at (ox, oy) scaled by k. */
@@ -174,6 +184,11 @@ internal fun irisPlacement(iw: Float, ih: Float, lay: IntroLayout, fx: Float, fy
     out.ox = clampTo(ax - px * out.k, right - iw * out.k, left)
     out.oy = clampTo(ay - py * out.k, bottom - ih * out.k, top)
 }
+
+/** The welcome's seven light pillars: x from the floor's centre (in rx), widths (dp) and heights (H above the floor's centre). */
+internal val PILLAR_X = floatArrayOf(-.56f, -.34f, -.17f, 0f, .17f, .34f, .56f)
+internal val PILLAR_W = floatArrayOf(10f, 4f, 22f, 36f, 18f, 5f, 12f)
+internal val PILLAR_H = floatArrayOf(.34f, .42f, .48f, .55f, .46f, .40f, .32f)
 
 /** The fixed choices the spec leaves to settings; the owner asked for no new settings, so they are constants at their defaults. */
 internal object IntroConst {
@@ -238,10 +253,25 @@ internal class IntroScene(
     )
     /** Over the user's picture the brand and date need 4.5:1 against busy key art: blush .80 at the top, gone by .16H. */
     val topScrim = Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .80f), Sakura.Background.copy(alpha = 0f)), 0f, .16f * h)
-    val bottomScrim = Brush.verticalGradient(
-        0f to Sakura.Background.copy(alpha = 0f), (.52f - .42f) / .58f to Sakura.Background.copy(alpha = .85f),
-        (.58f - .42f) / .58f to Sakura.Background.copy(alpha = .92f), 1f to Sakura.Background.copy(alpha = .92f), startY = .42f * h, endY = h,
-    )
+    /**
+     * Blush .90 only where the welcome block's type sits (eyebrow top − 16 dp to the ID row's bottom + 16 dp), easing in over
+     * .10H above it, down to .70 by .85H under the floor circle and back to .80 behind the skip label (#5E4445 stays above 4.5:1
+     * there even over rose brown). A flat .92 from .58H to the bottom turned the lower half of the art to milk.
+     */
+    val bottomScrim: Brush = run {
+        val full = texts.eyebrowTop - 16f * dp
+        val held = max(full, texts.idTop + texts.idNo.height + 16f * dp)
+        val from = max(0f, full - .10f * h)
+        val low = min(h, max(.85f * h, held + 24f * dp))
+        val skip = min(h, max(lay.hudBottomTop - 8f * dp, low + 8f * dp))
+        val span = (h - from).coerceAtLeast(1f)
+        fun at(y: Float) = ((y - from) / span).coerceIn(0f, 1f)
+        val b = Sakura.Background
+        Brush.verticalGradient(
+            0f to b.copy(alpha = 0f), at(full) to b.copy(alpha = .90f), at(held) to b.copy(alpha = .90f), at(low) to b.copy(alpha = .70f),
+            at(skip) to b.copy(alpha = .80f), 1f to b.copy(alpha = .80f), startY = from, endY = h,
+        )
+    }
 
     /** White halftone dots in the lower-left corner, larger toward the corner: a few hundred circles in one path. */
     val halftone = Kawaii.halftone(w, h, 9f * dp, 3f * dp, .4f * dp)
@@ -250,6 +280,19 @@ internal class IntroScene(
     val floorBloom = Brush.radialGradient(
         listOf(Color.White.copy(alpha = .45f), Color.White.copy(alpha = .20f), Color.White.copy(alpha = 0f)), lay.cf, .6f * lay.rx,
     )
+
+    /** The base of the seven light pillars (where they fade out, just below the floor's centre) and each one's own gradient. */
+    val pillarBase = lay.cf.y + .2f * lay.ry
+    val pillarTop = FloatArray(7) { lay.cf.y - PILLAR_H[it] * h }
+    val pillars: Array<Brush> = Array(7) { pillarBrush(it, Color.White) }
+    val pillarHalos: Array<Brush> = Array(7) { pillarBrush(it, Sakura.Primary) }
+
+    /** Pillar [i]'s vertical gradient in [c]: 0 at its top, full just above the floor's centre, 0 again at its base. */
+    private fun pillarBrush(i: Int, c: Color): Brush {
+        val top = pillarTop[i]
+        val peak = ((lay.cf.y - .15f * lay.ry - top) / (pillarBase - top)).coerceIn(.01f, .99f)
+        return Brush.verticalGradient(0f to c.copy(alpha = 0f), peak to c, 1f to c.copy(alpha = 0f), startY = top, endY = pillarBase)
+    }
 
     // ---- the picture ----
     val windowPlacement = Placement()
@@ -373,6 +416,29 @@ internal class IntroScene(
     /** The exit's origin: the tap point, else the crest, or the upper third over a backdrop. */
     fun exitOrigin(): Offset = if (backdrop || !lay.crest) Offset(w / 2f, .30f * h) else lay.crestC
 
+    /**
+     * When the name starts to stamp in: at d + 40 ms, or once the floor circle sinking under it has its top 24 dp below the name's
+     * last baseline (its first glyph rose through the data ring's text and the petals), but at most 120 ms later (40 at 1.5 s,
+     * where the welcome is short).
+     */
+    val nameStart: Float = run {
+        val m = marks
+        val first = m.d + 40f * m.pace
+        if (reduced) return@run first
+        val clear = texts.nameBaseline(texts.nameLines.size - 1) + 24f * dp
+        val last = first + (if (m.compact) 40f else 120f) * m.pace
+        var t = first
+        while (t < last) {
+            val k = floorIn(t)
+            if (lerp(lay.c.y, lay.cf.y, k) - lerp(lay.r, lay.ry, k) * sigilScale(t, m) >= clear) break
+            t += 4f
+        }
+        min(t, last)
+    }
+
+    /** How much later than d + 40 ms the name starts; the welcome words, divider and ID row follow it by as much. */
+    val welcomeDelay: Float get() = nameStart - (marks.d + 40f * marks.pace)
+
     // ---- particles ----
     val parts = IntroParticles(this)
 }
@@ -458,10 +524,59 @@ internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: P
         drawRect(sc.floorBloom, alpha = fl)
         withTransform({ translate(L.cf.x, L.cf.y); scale(L.rx * .8f, L.ry * .8f, Offset.Zero) }) { drawCircle(sc.unitBloom, 1f, Offset.Zero, alpha = .50f * fl) }
     }
+    drawPillars(sc, ms, amb)
     if (!sc.backdrop && L.crest) {
         val a = ray * fm
         withTransform({ translate(L.crestC.x, L.crestC.y); scale(R, R, Offset.Zero); rotate(rot + if (sc.reduced) 0f else 2f * amb, Offset.Zero) }) {
             drawPath(sc.kit.rays, sc.kit.rayBrush, alpha = a.coerceAtMost(1f))
+        }
+        // The crest's own light: a white bloom of 2.2 crest radii, breathing .55 ↔ .65, so the payoff glows instead of sitting
+        // on empty sky.
+        val kw = sc.crestK(ms)
+        if (kw > 0f) {
+            val at = sc.crestCenter(kw, amb)
+            val br = 2.2f * L.crestR
+            withTransform({ translate(at.x, at.y); scale(br, br, Offset.Zero) }) {
+                drawCircle(sc.unitBloom, 1f, Offset.Zero, alpha = (.55f + .10f * breathe) * kw)
+            }
+        }
+    }
+}
+
+/**
+ * The welcome's seven light pillars rising from the floor circle (§6.1): each grows upward from the floor over 520 ms from
+ * hit + 360, 40 ms apart from the centre out, and breathes on its own rhythm. White alone on the light blush does not show (at .26,
+ * and even at .40, a row scan moved by 2 to 7 levels), so each is a white core with a hotter centre line in a pink halo 2.6 times
+ * as wide: light on the pink, the way a summon circle's pillars are drawn. Softer over the user's picture.
+ */
+private fun DrawScope.drawPillars(sc: IntroScene, ms: Float, amb: Float) {
+    val m = sc.marks
+    val L = sc.lay
+    val halo = if (sc.backdrop) .10f else .22f
+    val core = if (sc.backdrop) .30f else .70f
+    val base = sc.pillarBase
+    // They stand on the floor circle wherever it is: while it is still sinking they rise from it, not from below it.
+    val k = sc.floorIn(ms)
+    val dx = lerp(L.c.x, L.cf.x, k) - L.cf.x
+    val dy = lerp(L.c.y, L.cf.y, k) - L.cf.y
+    val spread = lerp(L.r, L.rx, k) / L.rx
+    // From hit + 360 ms, but never before the circle has started to lie down (at 8 s the sigil stands upright until d, and the
+    // pillars rose behind 核驗通過 from an empty floor).
+    val start = if (sc.backdrop) m.hit + 360f * m.pace else max(m.hit + 360f * m.pace, m.d + 60f * m.pace)
+    for (i in 0 until 7) {
+        val g = if (sc.reduced) 1f else seg(ms, start + 40f * kotlin.math.abs(i - 3) * m.pace, 520f * m.pace, IntroEase.ExpoOut)
+        if (g <= 0f) continue
+        val hh = ih(i, 61)
+        // Faded in over their first third, so a pillar squashed to a few pixels never shows as a block.
+        val breath = (if (sc.reduced) .8f else .75f + .25f * sin(amb * (.9f + .4f * hh) + 6.28f * hh)) * (g / .35f).coerceAtMost(1f)
+        val x = L.cf.x + PILLAR_X[i] * L.rx * spread
+        val pw = PILLAR_W[i] * L.dp * L.s
+        val top = sc.pillarTop[i]
+        val tall = base - top
+        withTransform({ translate(dx, dy); scale(1f, g, Offset(x, base)) }) {
+            drawRect(sc.pillarHalos[i], Offset(x - 1.3f * pw, top), Size(2.6f * pw, tall), alpha = halo * breath)
+            drawRect(sc.pillars[i], Offset(x - pw / 2f, top), Size(pw, tall), alpha = core * breath)
+            drawRect(sc.pillars[i], Offset(x - .15f * pw, top), Size(.3f * pw, tall), alpha = .55f * core * breath)
         }
     }
 }

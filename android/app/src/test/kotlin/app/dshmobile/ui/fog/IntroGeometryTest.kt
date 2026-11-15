@@ -1,5 +1,6 @@
 package app.dshmobile.ui.fog
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.util.lerp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -80,10 +81,21 @@ class IntroGeometryTest {
         }
     }
 
-    @Test fun theCrestStandsWhereTheSigilStood() {
+    @Test fun theCrestFloatsUpIntoTheUpperThird() {
+        // At 0.385H with 66 dp the top quarter of the welcome was empty sky: the crest rises to 0.30H at 80 dp.
         val L = IntroLayout(412f * dp, 915f * dp, dp, 32f * dp, 24f * dp)
-        assertEquals(L.c, L.crestC)
-        assertEquals(66f * dp, L.crestR, .01f)
+        assertEquals(Offset(L.w / 2f, .30f * L.h), L.crestC)
+        assertEquals(80f * dp, L.crestR, .01f)
+        // Never into the top HUD, whatever the screen; in landscape it stays where the sigil stood, beside the block.
+        for (lay in layouts()) {
+            if (lay.landscape) assertEquals(lay.c, lay.crestC)
+            else assertTrue("${lay.wDp}x${lay.hDp}", lay.crestC.y - lay.crestR - IntroLayout.CREST_HALO * dp >= lay.hud1Top + 30f * dp - .5f)
+        }
+    }
+
+    @Test fun theIdRowKeepsClearOfTheFloorCircle() {
+        // 20 dp between the ID row's bottom and the floor ellipse's top: at 10 the row sat on the data ring's own text.
+        for (L in layouts()) assertTrue("${L.wDp}x${L.hDp}", L.welcomeBottom <= L.cf.y - L.ry - 20f * dp + .01f)
     }
 
     @Test fun theHeavyTicksSitOnThePetals() {

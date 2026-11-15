@@ -74,10 +74,26 @@ class IntroShotsTest {
         // The flash frame is bright but still in the palette: never more than a white veil over blush.
         val flash = frames[1]
         assertTrue(flash.count(0, 0, flash.width, flash.height) { red, g, bl -> red < 200 && g < 200 && bl < 200 && maxOf(red, g, bl) - minOf(red, g, bl) < 6 } == 0)
-        // The flash is over everything: at its peak even the monogram's ink (#5E4445) at C is washed most of the way to white.
+        // The flash is over the sigil: at its peak even the monogram's ink (#5E4445) at C is washed most of the way to white.
         // Drawn behind the sigil it only paled the sky and the ink stayed dark.
         val dark = flash.count(372, 674, 452, 754) { red, g, bl -> red + g + bl < 3 * 150 }
         assertEquals("dark monogram pixels at the flash peak", 0, dark)
+        // ...but under the type: 核驗通過 lands as sharp ink over the white burst (over it, the slam greyed to #A49596).
+        val slam = flash.count(56, 1300, 780, 1480) { red, g, bl -> red < 0x70 && g < 0x58 && bl < 0x58 }
+        assertTrue("sharp ink pixels in the slam at the flash peak: $slam", slam > 3000)
+    }
+
+    @Test fun theTypeIsGoneBeforeTheIrisReachesIt() {
+        // From the exit (2620 ms at 3 s) the brand, date and skip label fade first and the welcome block right after, so the
+        // iris never cuts the type in half or leaves the date over the app's own buttons.
+        val frames = play(Intro(enabled = true, name = "小雨", seconds = 3f), 2500, 2800)
+        // Dark type (ink, or the brand at .75): nothing else in these bands is this dark.
+        fun type(b: Bitmap, top: Int, bottom: Int) = b.count(0, top, b.width, bottom) { red, g, bl -> red < 0x90 && g < 0x78 && bl < 0x78 }
+        // The HUD strip, and the welcome block between the crest and the floor circle (the crest's own monogram is wiped by the
+        // iris itself, and the floor's data ring is not type).
+        assertTrue(type(frames[0], 0, 80) > 100 && type(frames[0], 900, 1400) > 2000)
+        assertEquals(0, type(frames[1], 0, 80))
+        assertEquals(0, type(frames[1], 900, 1400))
     }
 
     @Test fun overAPictureTheBrandStaysFullInk() {
