@@ -22,10 +22,11 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
- * 「星屑迎接」 ([IntroStyle.STARDUST]): its beats (moves keep their length, holds stretch), the portrait's pop, the greeting's
- * rhythm, the camera that settles on the home screen's crop, the particle counts per effect level and the layout; then drawn for
- * real (native graphics, PixelCopy): no grey over the blush sky, the welcome in ink inside white, the portrait framing the
- * picture's face, and the last frame before the iris being exactly the home screen's picture.
+ * 「星屑迎接」 ([IntroStyle.STARDUST]): its beats (each at the same share of the run, moves stretching at most 1.6×, middle beats
+ * from 4 s), the portrait's pop, the exit's bloom and iris, the camera that settles on the home screen's crop, the particle
+ * counts per effect level and the layout; then drawn for real (native graphics, PixelCopy): no grey over the blush sky, the
+ * welcome in ink inside white, a status line in ink, the portrait framing the picture's face, the sky held still through the
+ * hit's nudge, and a wide screen showing the face instead of the chest.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w412dp-h915dp-port-xhdpi")
@@ -35,51 +36,95 @@ class IntroStardustTest {
 
     // ---- the beats ----
 
-    @Test fun movesKeepTheirLengthAndOnlyTheHoldsStretch() {
+    @Test fun everyBeatSitsAtTheSameShareOfTheRun() {
+        val t15 = StardustTimeline.of(1500f)
         val t3 = StardustTimeline.of(3000f)
         val t8 = StardustTimeline.of(8000f)
-        for (t in listOf(t3, t8)) {
-            assertEquals(1f, t.pace, 0f)
-            assertEquals(280f, t.plan.length(StardustTimeline.ARRIVE), .01f)
-            assertEquals(340f, t.plan.length(StardustTimeline.GREET), .01f)
-            assertEquals(340f, t.plan.length(StardustTimeline.NAME), .01f)
-            assertEquals(360f, t.plan.length(StardustTimeline.SETTLE), .01f)
-            assertEquals(300f, t.plan.length(StardustTimeline.EXIT), .01f)
-            assertEquals(t.total, t.plan.end(StardustTimeline.EXIT), .01f)
-            // The pop, the greeting and the name come in exactly as fast at 8 s as at 3 s...
-            assertEquals(280f, t.hit, .01f)
-            assertEquals(560f, t.popMs, .01f)
-            assertEquals(620f, t.greetMs, .01f)
+        // 1.5 s is the 3 s run in half the time: the same shares, the exit iris at 77 %.
+        for (t in listOf(t15, t3)) {
+            assertEquals(.77f, t.exit / t.total, .001f)
+            assertEquals(.10f, t.hit / t.total, .001f)
+            assertEquals(.16f, t.greetStart / t.total, .001f)
+            assertEquals(.30f, t.nameStart / t.total, .001f)
+            assertEquals(.40f, t.lineStart / t.total, .001f)
         }
-        // ...and 8 s only waits longer: the welcome holds, and the name follows the greeting a little later.
-        assertTrue(t8.plan.length(StardustTimeline.HOLD) > t3.plan.length(StardustTimeline.HOLD) + 4000f)
-        assertTrue(t8.nameStart > t3.nameStart)
-        assertTrue(t8.nameStart - t3.nameStart < 1000f)
+        // 8 s tells the same story spread over the whole run: the greeting is not in by 0.6 s and the name not by 1.2 s.
+        assertEquals(.15f, t8.greetStart / t8.total, .001f)
+        assertEquals(.28f, t8.nameStart / t8.total, .001f)
+        assertEquals(.35f, t8.lineStart / t8.total, .001f)
+        assertEquals(.44f, t8.statusIn / t8.total, .001f)
+        assertTrue(t8.greetStart > 1000f && t8.nameStart > 2000f)
+        // The beats come in the same order at every length.
+        for (t in listOf(t15, t3, StardustTimeline.of(5000f), t8)) {
+            assertTrue(t.popStart >= 0f)
+            assertTrue(t.hit < t.greetStart && t.greetStart < t.nameStart && t.nameStart < t.lineStart && t.lineStart < t.statusIn)
+            assertTrue(t.statusIn < t.bloomStart && t.bloomStart < t.exit && t.exit < t.total)
+        }
     }
 
-    @Test fun theShortestRunTightensTheMovesAndStillSettlesBeforeTheIris() {
-        val t = StardustTimeline.of(1500f)
-        assertEquals(.80f, t.pace, .01f)
-        assertEquals(1500f, t.plan.end(StardustTimeline.EXIT), .01f)
-        assertEquals(200f, t.plan.length(StardustTimeline.HOLD), .01f)
-        assertTrue(t.compact)
+    @Test fun movesStretchWithTheRunButAtMostOnePointSixFold() {
+        val t3 = StardustTimeline.of(3000f)
+        val t8 = StardustTimeline.of(8000f)
+        assertEquals(1f, t3.str, 0f)
+        assertEquals(1.6f, t8.str, 0f)
+        assertEquals(.6f, StardustTimeline.of(1500f).str, 0f)
+        assertEquals(620f * 1.6f, t8.greetMs, .01f)
+        assertEquals(520f * 1.6f, t8.lineMs, .01f)
+        // The impacts stretch even less, and the 8 s iris is 1.6 x the 3 s one, not 2.7 x: it opens at 86 % there.
+        assertTrue(t8.popMs <= 1.15f * t3.popMs + .01f)
+        assertEquals(1.6f * t3.exitMs, t8.exitMs, .01f)
+        assertEquals(.862f, t8.exit / t8.total, .001f)
+    }
+
+    @Test fun aLongRunAddsMiddleBeatsAndTheBarIsFullWhenTheExitStarts() {
+        val t3 = StardustTimeline.of(3000f)
+        val t8 = StardustTimeline.of(8000f)
+        // From 4 s: the name's sheen at 55 % and a pulse of shooting stars and sparks at 70 %; at 3 s no pulse.
+        assertEquals(.55f, t8.sheen / t8.total, .001f)
+        assertEquals(.70f, t8.pulse / t8.total, .001f)
+        assertEquals(2, t8.streaks.count { it >= t8.pulse })
+        assertEquals(-1f, t3.pulse, 0f)
+        assertTrue(t3.sheen > 0f && t3.sheen + t3.sheenMs <= t3.bloomStart)
+        // No sheen at 1.5 s: it would run into the bloom.
+        assertEquals(-1f, StardustTimeline.of(1500f).sheen, 0f)
+        // Every shooting star has landed before the exit.
+        for (t in listOf(t3, t8)) for (at in t.streaks) assertTrue(at + t.streakMs <= t.exit)
+        // The bar: empty when the pill arrives, still filling at 75 % of an 8 s run, full exactly when the exit starts.
+        for (t in listOf(t3, t8)) {
+            assertEquals(0f, t.barFill(t.statusIn), 0f)
+            assertTrue(t.barFill(t.exit - 50f) < 1f)
+            assertEquals(1f, t.barFill(t.exit), 0f)
+        }
+        assertTrue("at 6 s: ${t8.barFill(6000f)}", t8.barFill(6000f) < .9f)
         // No time to read the status line at 1.5 s; at 3 s there is.
-        assertTrue(!t.showsStatus)
-        assertTrue(StardustTimeline.of(3000f).showsStatus)
-        // The name has stamped in (two glyphs: 40 ms apart, 420 ms each, × pace) before the settle starts.
-        assertTrue(t.nameStart + (40f + 420f) * t.pace <= t.settle)
+        assertTrue(!StardustTimeline.of(1500f).showsStatus)
+        assertTrue(t3.showsStatus)
     }
 
-    @Test fun thePortraitPopsPastFullSizeAtTheHitAndRests() {
-        val t = StardustTimeline.of(3000f)
-        assertEquals(0f, t.popScale(t.popStart - 1f), 0f)
-        assertEquals(1.10f, t.popScale(t.hit), .001f)
-        var most = 0f
-        var ms = t.popStart
-        while (ms < t.popStart + t.popMs) { most = maxOf(most, t.popScale(ms)); ms += 4f }
-        assertTrue("never bigger than 1.10: $most", most <= 1.1001f)
-        assertTrue(t.popScale(t.hit + 100f) < 1.10f)
-        assertEquals(1f, t.popScale(t.popStart + t.popMs + 1f), 0f)
+    @Test fun thePortraitPopsFromPointSixAndIsLargestOnTheHitsFrame() {
+        for (seconds in listOf(1.5f, 3f, 8f)) {
+            val t = StardustTimeline.of(seconds * 1000f)
+            assertEquals(0f, t.popScale(t.popStart - 1f), 0f)
+            assertEquals(StardustTimeline.POP_FROM, t.popScale(t.popStart), .001f)
+            var most = 0f
+            var at = 0f
+            var ms = t.popStart
+            while (ms <= t.popStart + t.popMs) {
+                if (t.popScale(ms) > most) { most = t.popScale(ms); at = ms }
+                ms += 2f
+            }
+            assertEquals("$seconds s: the peak is on the hit", t.hit, at, 6f)
+            assertTrue("a light overshoot: $most", most in 1.02f..1.05f)
+            assertEquals(1f, t.popScale(t.popStart + t.popMs + 1f), 0f)
+            // Whole well before the flash: the flash rings round a face, never over a ghost.
+            assertEquals(1f, t.popAlpha(t.hit - 1f), 0f)
+            assertTrue(t.popAlpha(t.popStart + 10f) < .5f)
+        }
+        // At 3 s the pop peaks at 300 ms, and at 150 ms the portrait is still small (no fade-in before the pop).
+        val t3 = StardustTimeline.of(3000f)
+        assertEquals(300f, t3.hit, .01f)
+        assertTrue(t3.popScale(150f) < .9f)
+        assertTrue(t3.ringsIn < t3.hit && t3.ringsIn > t3.popStart)
     }
 
     @Test fun theGreetingRisesEightyMsApartAndALongOneStillWithinAThird() {
@@ -93,29 +138,51 @@ class IntroStardustTest {
         assertTrue(t.announce < 2500f)
     }
 
-    @Test fun theCameraPushesInThenSettlesExactlyOnTheHomeCrop() {
+    @Test fun theExitBloomsFromThePortraitThenTheIrisOpensFromIt() {
+        val t = StardustTimeline.of(3000f)
+        // The bloom rises over 180 ms to the iris and is gone in the iris's first half.
+        assertEquals(0f, t.bloom(t.bloomStart - 1f), 0f)
+        assertEquals(180f, t.bloomMs, .01f)
+        assertEquals(1f, t.bloom(t.exit), .001f)
+        assertEquals(0f, t.bloom(t.exit + .5f * t.exitMs + 1f), 0f)
+        // At 2.76 s (92 %) the iris (the host's own easing) is well over half open.
+        assertTrue(IntroEase.CubicInOut.transform((2760f - t.exit) / t.exitMs) >= .5f)
+        // A tap before the bloom gets a quick one from the tap.
+        assertTrue(t.bloom(1060f, exitAt = 1000f) > .9f)
+        assertEquals(0f, t.bloom(1300f, exitAt = 1000f), 0f)
+        // The words fade in the iris's first 120 ms (× the stretch), not before it.
+        assertEquals(120f, t.textFadeMs, .01f)
+    }
+
+    @Test fun theCameraPushesInThenSettlesOnTheHomeCropInsideTheIris() {
         val t = StardustTimeline.of(3000f)
         val early = t.zoom(200f, 0f, reduced = false)
-        val late = t.zoom(t.settle - 1f, 0f, reduced = false)
+        val late = t.zoom(t.exit - 1f, 0f, reduced = false)
         assertTrue("it starts a little in: $early", early > 1f)
-        assertTrue("and pushes further in: $early → $late", late > early + .03f)
-        // Handed over (the settle done, or a tap's iris), it is the home screen's crop: zoom 1.
-        assertEquals(1f, t.zoom(t.exit, t.handK(t.exit, 0f), reduced = false), 1e-4f)
-        assertEquals(1f, t.zoom(1000f, t.handK(1000f, 1f), reduced = false), 0f)
+        assertTrue("and pushes further in until the exit: $early → $late", late > early + .03f)
+        // Handed over (the iris open), it is the home screen's crop: zoom 1 and the home's own focus.
+        assertEquals(1f, t.zoom(t.total, t.handK(1f), reduced = false), 1e-4f)
         assertEquals(1f, t.zoom(1000f, 0f, reduced = true), 0f)
-        // The stage has left and the type has faded by then; the bloom peaks once, early in the settle.
-        assertEquals(1f, t.stageOut(t.exit), 0f)
-        assertEquals(1f, t.textOut(t.exit), 0f)
-        assertEquals(StardustTimeline.BLOOM, t.bloom(t.settle + .22f * 380f), .001f)
-        assertEquals(0f, t.bloom(t.settle - 1f), 0f)
+        val upright = stardustFocus(wide = false, faceY = .29f, homeY = .5f, hk = 1f)
+        assertEquals(.5f, upright.fy, 0f)
+        assertEquals(.5f, upright.ty, 0f)
+        // Before it, upright, the push holds the face where it is.
+        val start = stardustFocus(wide = false, faceY = .29f, homeY = .5f, hk = 0f)
+        assertEquals(start.fy, start.ty, 0f)
+        // On a wide screen the face (not the chest) is at the screen's middle, and stays there.
+        for (hk in listOf(0f, .5f, 1f)) {
+            val wide = stardustFocus(wide = true, faceY = .29f, homeY = .5f, hk = hk)
+            assertEquals(.29f, wide.fy, 0f)
+            assertEquals(.5f, wide.ty, 0f)
+        }
     }
 
     @Test fun theStillFrameIsTheSettledWelcome() {
         for (seconds in listOf(1.5f, 3f, 8f)) {
             val t = StardustTimeline.of(seconds * 1000f)
-            assertTrue(t.still >= t.holdStart)
-            assertTrue(t.still < t.settle)
-            assertEquals(0f, t.stageOut(t.still), 0f)
+            assertTrue(t.still >= t.lineStart)
+            assertTrue(t.still < t.bloomStart)
+            assertEquals(0f, t.bloom(t.still), 0f)
         }
     }
 
@@ -143,19 +210,31 @@ class IntroStardustTest {
         val none = StardustCounts.of(EffectLevel.FULL, IntroFx(scale = 0f), false)
         assertEquals(0, none.stars + none.motes + none.petals + none.season)
         assertEquals(10, none.sparks)
+        // Winter's snow is twice the shared count (soft flakes in two depths), spring's petals half again.
+        assertEquals(20, StardustCounts.of(EffectLevel.FULL, IntroFx(season = IntroSeason.SNOW), false).season)
+        assertEquals(14, StardustCounts.of(EffectLevel.FULL, IntroFx(season = IntroSeason.SAKURA), false).season)
+        assertEquals(0, full.season)
     }
 
-    @Test fun theLayoutKeepsThePortraitTheRingsAndTheTypeOnScreen() {
+    @Test fun theStackSitsLowerWithTheGreetingGroupedWithTheName() {
         val dp = 2f
         for ((w, h) in listOf(412f to 915f, 360f to 640f, 600f to 960f)) {
             val lay = StardustLayout(w * dp, h * dp, dp, 24f * dp, 16f * dp)
             assertTrue(!lay.wide)
             assertTrue("$w×$h: the outer ring fits across", lay.c.x - lay.ring2 > 0f && lay.c.x + lay.ring2 < lay.w)
             assertTrue("$w×$h: the outer ring is below the status bar", lay.c.y - lay.ring2 > lay.top)
-            // The type starts under the outer ring, with room for the greeting and a big name above the bottom.
-            assertTrue(lay.textTop(0f) > lay.c.y + lay.ring2)
-            assertTrue("$w×$h", lay.textTop(0f) + 150f * dp * lay.s < lay.bottom - 60f * dp)
+            // The name's baseline at 60 % and the pill at 75 % of the usable height.
+            assertEquals(.60f, (lay.nameBase - lay.top) / lay.usable, .001f)
+            assertEquals(.75f, (lay.pillMid - lay.top) / lay.usable, .001f)
+            // From the outer ring to the greeting's ink is gap1; from the greeting's ink to the name's .6 of it.
+            val greetInkTop = lay.greetInkBottom - (StardustLayout.INK_TOP + StardustLayout.INK_BOTTOM) * lay.greetSp * lay.s * dp
+            assertEquals(lay.gap1, greetInkTop - (lay.c.y + lay.ring2), .5f)
+            assertEquals(.6f * lay.gap1, lay.nameBase - StardustLayout.NAME_INK * lay.nameSp * lay.s * dp - lay.greetInkBottom, .5f)
         }
+        // No name: the greeting alone sits a little higher, still under the rings.
+        val alone = StardustLayout(412f * dp, 915f * dp, dp, 24f * dp, 16f * dp, hasName = false)
+        assertTrue(alone.greetInkBottom < StardustLayout(412f * dp, 915f * dp, dp, 24f * dp, 16f * dp).nameBase)
+        assertTrue(alone.c.y + alone.ring2 < alone.greetInkBottom - 30f * dp)
         val wide = StardustLayout(915f * dp, 412f * dp, dp, 24f * dp, 0f)
         assertTrue(wide.wide)
         // On a wide screen the portrait stands on the left, the type's column on the right, apart.
@@ -214,25 +293,36 @@ class IntroStardustTest {
         return n
     }
 
-    @Test fun noGreyOverTheBlushSkyFromThePopToTheSettle() {
-        // The pop and its flash (280–450), sparks flying (600), the welcome (1300, 1900), the settle (2450, 2600).
-        val frames = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 300, 450, 700, 1300, 1900, 2450, 2600)
+    /** The phone's layout as the scene builds it (Robolectric's window has no insets). */
+    private val phone = StardustLayout(824f, 1830f, 2f, 0f, 0f)
+
+    @Test fun noGreyOverTheBlushSkyFromThePopToTheIris() {
+        // The pop and its flash (240–450), sparks flying (700), the welcome (1300, 1900), the bloom (2200) and the iris (2400, 2600).
+        val frames = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 240, 300, 450, 700, 1300, 1900, 2200, 2400, 2600)
         frames.forEachIndexed { i, f -> assertEquals("grey pixels in frame $i", 0, f.greys()) }
     }
 
     @Test fun inWinterTheSnowLeavesNoGreyEither() {
         val frames = play(
-            Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 900, 1900,
+            Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 300, 900, 1900, 2450,
             fx = IntroFx(season = IntroSeason.SNOW),
+        )
+        frames.forEachIndexed { i, f -> assertEquals("grey pixels in frame $i", 0, f.greys()) }
+    }
+
+    @Test fun inSpringThePetalsLeaveNoGrey() {
+        val frames = play(
+            Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 450, 1300, 1900,
+            fx = IntroFx(season = IntroSeason.SAKURA),
         )
         frames.forEachIndexed { i, f -> assertEquals("grey pixels in frame $i", 0, f.greys()) }
     }
 
     @Test fun theWelcomeIsInkInsideWhite() {
         val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 1900).single()
-        // The type's band: under the outer ring (ring bottom ≈ 0.335 × 915 + 106 dp) down to about 640 dp, at xhdpi × 2.
-        val top = ((.335f * 915f + 106f) * 2f).toInt()
-        val bottom = 640 * 2
+        // The type's band: under the outer ring down to just under the name's baseline.
+        val top = (phone.c.y + phone.ring2).toInt()
+        val bottom = (phone.nameBase + 40f).toInt()
         val ink = frame.count(0, top, frame.width, bottom) { r, g, b -> abs(r - 0x5E) <= 6 && abs(g - 0x44) <= 6 && abs(b - 0x45) <= 6 }
         val white = frame.count(0, top, frame.width, bottom) { r, g, b -> r >= 252 && g >= 250 && b >= 250 }
         assertTrue("ink pixels: $ink", ink > 4000)
@@ -240,51 +330,61 @@ class IntroStardustTest {
         rule.onNodeWithText("歡迎回來，小雨").assertExists()
     }
 
+    @Test fun theStatusLineIsInkAndLargeEnoughToRead() {
+        val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 1900).single()
+        // Around the pill at 75 %: dark ink (the main text colour), not the lighter brown.
+        val y = phone.pillMid.toInt()
+        val ink = frame.count(0, y - 60, frame.width, y + 60) { r, g, b -> abs(r - 0x5E) <= 8 && abs(g - 0x44) <= 8 && abs(b - 0x45) <= 8 }
+        assertTrue("status ink pixels: $ink", ink > 600)
+    }
+
     @Test fun thePortraitFramesThePicturesFace() {
-        // An invented portrait picture: blush, with a green dot where a face would be (50 %, 35 %).
+        // An invented portrait picture: blush, with a green dot where a face would be (50 %, 29 %).
         val bmp = Bitmap.createBitmap(500, 800, Bitmap.Config.ARGB_8888).apply {
             eraseColor(0xFFFEDFE1.toInt())
-            for (y in 0 until 800) for (x in 0 until 500) if ((x - 250) * (x - 250) + (y - 280) * (y - 280) <= 12 * 12) setPixel(x, y, 0xFF00C800.toInt())
+            for (y in 0 until 800) for (x in 0 until 500) if ((x - 250) * (x - 250) + (y - 232) * (y - 232) <= 12 * 12) setPixel(x, y, 0xFF00C800.toInt())
         }
-        val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 2100, picture = bmp.asImageBitmap()).single()
-        // Green in the portrait only (the full-screen backdrop's own dot is blended with the blush at 80 %, never this pure).
+        val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 2000, picture = bmp.asImageBitmap()).single()
+        // Green in the portrait only (the full-screen backdrop's own dot is blended with the blush and softened, never this pure).
         var sx = 0L; var sy = 0L; var n = 0
         for (y in 0 until frame.height) for (x in 0 until frame.width) {
             val c = frame.getPixel(x, y)
             if ((c shr 16) and 255 < 40 && (c shr 8) and 255 > 170 && c and 255 < 40) { sx += x; sy += y; n++ }
         }
         assertTrue("the dot shows in the portrait: $n", n > 20)
-        // The portrait's centre: (206, 0.335 × 915) dp, within 6 dp (it bobs ±2 dp).
-        val dx = sx / n.toFloat() / 2f - 206f
-        val dy = sy / n.toFloat() / 2f - .335f * 915f
+        // The portrait's centre, within 6 dp (it bobs ±2 dp).
+        val dx = (sx / n.toFloat() - phone.c.x) / 2f
+        val dy = (sy / n.toFloat() - phone.c.y) / 2f
         assertTrue("the face lands ${hypot(dx, dy)} dp from the portrait's centre", hypot(dx, dy) <= 6f)
     }
 
-    @Test fun justBeforeTheIrisTheBackdropIsTheHomeScreensPicture() {
-        // An invented picture, pink on the left half and aqua on the right. The home screen draws it cropped (ContentScale.Crop,
-        // centred) at the 透明度 setting (80) over the blush: the settled backdrop must be exactly that, with nothing left on it.
-        val bmp = Bitmap.createBitmap(400, 800, Bitmap.Config.ARGB_8888).apply {
-            for (y in 0 until 800) for (x in 0 until 400) setPixel(x, y, if (x < 200) 0xFFDC9FB4.toInt() else 0xFFA5DEE4.toInt())
-        }
+    @Test fun theSkyHoldsStillThroughTheHitsNudge() {
+        // At the hit the host nudges the screen 2 dp down; the sky is held still, so no strip of what is underneath opens at the
+        // top edge (it showed as a light band).
         val t = StardustTimeline.of(3000f)
-        val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), t.exit.toLong() - 4, picture = bmp.asImageBitmap()).single()
-        fun expect(c: Int, bg: Int) = (.8f * c + .2f * bg)
-        val y = frame.height / 2
-        for ((x, rgb) in listOf(200 to Triple(0xDC, 0x9F, 0xB4), 620 to Triple(0xA5, 0xDE, 0xE4))) {
-            val c = frame.getPixel(x, y)
-            val r = (c shr 16) and 255; val g = (c shr 8) and 255; val b = c and 255
-            assertEquals("red at $x", expect(rgb.first, 0xFE), r.toFloat(), 4f)
-            assertEquals("green at $x", expect(rgb.second, 0xDF), g.toFloat(), 4f)
-            assertEquals("blue at $x", expect(rgb.third, 0xE1), b.toFloat(), 4f)
+        val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), t.hit.toLong() + 40).single()
+        val mid = frame.width / 2
+        val off = frame.count(mid - 120, 0, mid + 120, 6) { r, g, _ -> r - g < 20 }
+        assertEquals("non-blush pixels along the top edge", 0, off)
+    }
+
+    @Config(qualifiers = "w915dp-h412dp-land-xhdpi")
+    @Test fun landscapeKeepsTheFaceNotTheChestInFrame() {
+        // An invented tall picture: blush, a green face at 29 % of its height and a red band (the chest) at 52–60 %.
+        val bmp = Bitmap.createBitmap(500, 800, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(0xFFFEDFE1.toInt())
+            for (y in 0 until 800) for (x in 0 until 500) {
+                if ((x - 250) * (x - 250) + (y - 232) * (y - 232) <= 40 * 40) setPixel(x, y, 0xFF00C800.toInt())
+                if (y in 416..480) setPixel(x, y, 0xFFFF0000.toInt())
+            }
         }
-        // And the middle band is clean: no type, rings or glow left anywhere across it.
-        val off = frame.count(0, y - 200, frame.width, y + 200) { r, g, b ->
-            val pink = abs(r - expect(0xDC, 0xFE)) <= 6 && abs(g - expect(0x9F, 0xDF)) <= 6 && abs(b - expect(0xB4, 0xE1)) <= 6
-            val aqua = abs(r - expect(0xA5, 0xFE)) <= 6 && abs(g - expect(0xDE, 0xDF)) <= 6 && abs(b - expect(0xE4, 0xE1)) <= 6
-            !pink && !aqua
-        }
-        // Only the seam between the halves may differ (a pixel or two wide).
-        assertTrue("pixels off the home picture: $off", off <= 400 * 4)
+        val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 1500, picture = bmp.asImageBitmap()).single()
+        val cx = frame.width / 2
+        val cy = frame.height / 2
+        val green = frame.count(cx - 30, cy - 30, cx + 30, cy + 30) { r, g, _ -> g > r + 30 }
+        assertTrue("the face at the screen's middle: $green of 3600", green > 3000)
+        val red = frame.count(0, 0, frame.width, frame.height) { r, g, b -> r > g + 80 && r > b + 80 }
+        assertEquals("the chest is out of frame", 0, red)
     }
 
     @Test fun onSaverWithSakuraItStillPlays() {
