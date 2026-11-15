@@ -287,6 +287,9 @@ fun SettingsScreen(
 
     /** The Claude key was stored or removed: save what the page shows, then restart dsh unless work runs; true = restarted. */
     fun restartForClaudeKey(): Boolean {
+        // While work runs dsh is not restarted, and then nothing is saved either: the page's unsaved switches stay a draft for
+        // 套用並重啟, as before. Stored without a restart they read as applied while the running dsh kept the old ones.
+        if (runCatching { env.workRunning() }.getOrDefault(false)) return false
         val saved = saveShown()
         val restarted = env.onClaudeKeyChanged()
         if (restarted) draft.appliedLeadModel = saved.leadModel

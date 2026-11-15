@@ -1032,6 +1032,20 @@ class SettingsScreenTest {
         assertFalse(savedAtClaudeRestart.single().autoReview)
     }
 
+    /** While work runs the key change restarts nothing, so the page's unsaved switches are not stored behind the running dsh. */
+    @Test fun aClaudeKeySavedWhileWorkRunsLeavesTheUnsavedSwitchesUnsaved() {
+        store.save(AgentSettings.defaults(PhantomState.ENABLED, false).copy(autoReview = true))
+        working = true
+        show()
+        click("switch-auto-review")
+        click("replace-claude")
+        rule.onNode(isKeyField).performTextInput(claudeKey)
+        clickAndWait("save-key")
+        waitForText(str(R.string.set_key_claude_pending))
+        assertTrue("the switch was stored without a restart", store.load(phantom, true).autoReview)
+        assertEquals(0, claudeRestarts)
+    }
+
     /** The stored Claude lead stays stored while the key is away (dsh runs DeepSeek meanwhile) and is back with the key. */
     @Test fun clearingAndReAddingTheClaudeKeyKeepsTheClaudeLeadChoice() {
         vault.keys[Provider.ANTHROPIC] = claudeKey
