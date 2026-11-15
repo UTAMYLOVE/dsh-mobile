@@ -560,7 +560,7 @@
     <string name="look_intro_style_tunnel">櫻花隧道</string>
     <string name="look_intro_style_tunnel_hint">花瓣光柱衝向你，一路衝進 App。</string>
     <string name="look_intro_style_one_stroke">一筆描</string>
-    <string name="look_intro_style_one_stroke_hint">櫻紋一筆一筆畫出來，最短也最省電。</string>
+    <string name="look_intro_style_one_stroke_hint">一筆畫出櫻紋，再寫上你的名字；約 2 秒，最短也最省電。</string>
     <string name="look_restore">外觀恢復預設</string>
     <string name="look_restore_hint">恢復預設不會刪掉你選的圖片。</string>
     <string name="intro_permission">需要訪問許可</string>

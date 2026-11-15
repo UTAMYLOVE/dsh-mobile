@@ -80,7 +80,7 @@ internal object OpenSourceLicences {
         OpenSourceCredit("dsh-boot-compass", "linshufan21", "https://github.com/linshufan21/dsh-boot-compass", "Copyright (c) 2026 linshufan21", "櫻紋陣：花陣回彈、刻度一格一格亮"),
         OpenSourceCredit("dsh-startup-screen", "沈宏宏", "https://github.com/6shenhonghong9/dsh-startup-screen", "Copyright (c) 2026 沈宏宏", "櫻紋陣：英文副標逐字打出、粉藍錯位閃光"),
         OpenSourceCredit("dsh-550c-boot", "Ziyang Song", "https://github.com/yannicksong0106/dsh-550c-boot", "Copyright (c) 2026 Ziyang Song", "一筆描"),
-        OpenSourceCredit("dsh-apple-liquid-glass", "CTY", "https://github.com/tianyuec11-design/dsh-apple-liquid-glass", "Copyright (c) 2026 CTY", "花吹雪聚形（光點的畫法）"),
+        OpenSourceCredit("dsh-apple-liquid-glass", "CTY", "https://github.com/tianyuec11-design/dsh-apple-liquid-glass", "Copyright (c) 2026 CTY", "一筆描（名字一筆一筆寫出來）"),
     )
     const val MIT_ASSET = "licenses/startup-plugins-MIT.txt"
 }
