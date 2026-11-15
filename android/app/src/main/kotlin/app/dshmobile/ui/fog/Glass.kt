@@ -259,11 +259,13 @@ private class GlassCache(
         .6f to Color.White.copy(alpha = .16f + lift),
         1f to Color.White.copy(alpha = .28f + lift),
     )
+    // White to pink and back to a lighter pink: an aqua end (even after a white stop) blended with the pink behind the thin
+    // rim's soft edge into a grey (#D3D5D8).
     val rim: Brush = cssLinear(
         140f, size,
         0f to Color.White.copy(alpha = .95f),
         .5f to Sakura.Primary.copy(alpha = .75f),
-        1f to Sakura.Aqua.copy(alpha = .90f),
+        1f to Sakura.Primary.copy(alpha = .50f),
     )
     val rimStroke = Stroke(1.2f * density)
     // Lit corner: radial, centred on the top-left corner, 120% x 70% of the box (a circle drawn through a vertical squash).

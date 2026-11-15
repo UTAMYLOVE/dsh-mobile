@@ -19,7 +19,9 @@ import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Where everything sits, from the screen size and the system bars (all in px). The reference is a 412 × 915 dp portrait phone;
@@ -49,49 +51,71 @@ internal class IntroLayout(val w: Float, val h: Float, val dp: Float, val iT: Fl
     val welcomeCenterX: Float
     val welcomeBottom: Float
     /** False on split screens: no crest there, the welcome block alone (landscape has room for it beside the block). */
-    val crest: Boolean = landscape || !split
-    val crestR: Float
+    var crest: Boolean = landscape || !split
+    /** The crest's radius; capped once the welcome block is measured, so the crest and its halo never touch the eyebrow. */
+    var crestR: Float
 
-    init {
-        if (landscape) {
-            c = Offset(.30f * w, .50f * h)
-            r = min(.36f * h, .22f * w)
-            colLeft = .56f * w
-            colWidth = w - colLeft - g
-            captionTop = .34f * h
-            // The block stands on the floor circle in the right column; the crest floats in the left one.
-            cf = Offset(.72f * w, .90f * h)
-            rx = .26f * w
-            welcomeCenterX = cf.x
-            welcomeBottom = cf.y - .28f * rx - 10f * dp
-            crestR = .14f * h
-        } else {
-            c = Offset(w / 2f, .36f * h)
-            r = if (split) .19f * h else min(.40f * wc, .19f * h)
-            colLeft = (w - wc) / 2f + g
-            colWidth = wc - 2f * g
-            captionTop = if (split) c.y + r + 24f * dp else max(.645f * h, c.y + r + 40f * dp)
-            cf = Offset(w / 2f, h - iB - .115f * h)
-            rx = if (wide) .78f * wc else .62f * w
-            welcomeCenterX = w / 2f
-            welcomeBottom = cf.y - .28f * rx - 10f * dp
-            crestR = (if (small) 56f else 66f) * s * dp
-        }
-        ry = .28f * rx
-    }
-
-    val heroTop = captionTop + 22f * s * dp
     val hud1Top = iT + 14f * dp
     val hud2Top = iT + 32f * dp
     val hud2 = !small
     val topLine = iT + 54f * dp
     val progressY = h - iB - 52f * dp
     val hudBottomTop = progressY + 10f * dp
+    /** The skip label's baseline (12 sp text on the bottom HUD row). */
+    val skipBaseline = hudBottomTop + 13f * s * dp
+
+    init {
+        // The floor circle, data ring included, keeps 28 dp above the skip label's baseline, so 跳過 never sits on its lines.
+        val floorBottom = skipBaseline - 28f * dp
+        if (landscape) {
+            // Centred between the two chrome lines, with at least 16 dp between ring A and each (the status bar may take the
+            // top of a landscape screen).
+            c = Offset(.30f * w, (topLine + progressY) / 2f)
+            r = minOf(.32f * h, .22f * w, (progressY - topLine) / 2f - 16f * dp)
+            colLeft = .56f * w
+            colWidth = w - colLeft - g
+            captionTop = .34f * h
+            // The block stands on the floor circle in the right column; the crest floats in the left one, where the sigil was.
+            rx = .24f * w
+            ry = .28f * rx
+            cf = Offset(.62f * w, floorBottom - ry)
+            welcomeCenterX = cf.x
+            welcomeBottom = cf.y - ry - 10f * dp
+            crestR = .17f * h
+        } else {
+            c = Offset(w / 2f, .36f * h)
+            r = if (split) .19f * h else min(.40f * wc, .19f * h)
+            colLeft = (w - wc) / 2f + g
+            colWidth = wc - 2f * g
+            captionTop = if (split) c.y + r + 24f * dp else max(.66f * h, c.y + r + 48f * dp)
+            rx = if (wide) .78f * wc else .62f * w
+            ry = .28f * rx
+            cf = Offset(w / 2f, min(h - iB - .115f * h, floorBottom - ry))
+            welcomeCenterX = w / 2f
+            welcomeBottom = cf.y - ry - 10f * dp
+            crestR = (if (small) 64f else 80f) * s * dp
+        }
+    }
+
+    val heroTop = captionTop + 22f * s * dp
     val rulerX = w - 14f * dp
+
+    /**
+     * How far the sigil may lie down before the eyebrow morph clears the hero's slot: its bottom edge (its right edge in
+     * landscape, where the beat block stands beside it), at the hit's largest pulse, stops 8 dp short of the beat block.
+     */
+    val floorLimit: Float = run {
+        val p = SIGIL_PULSE_MAX
+        if (landscape) ((colLeft - 8f * dp - c.x - p * r) / (cf.x - c.x - p * r + p * rx)).coerceIn(0f, 1f)
+        else ((captionTop - 8f * dp - c.y - p * r) / (cf.y - c.y - p * r + p * ry)).coerceIn(0f, 1f)
+    }
     val ruler = !landscape
     val halftone = !small
-    /** The crest's centre; set once the welcome block is measured (it sits above the eyebrow). */
-    var crestC = Offset(w / 2f, .32f * h)
+    /**
+     * The crest sits where the sigil stood, so the window only grows into it; only a short screen, where the welcome block
+     * reaches up to it, lifts it (see [IntroTexts]).
+     */
+    var crestC = c
 }
 
 /** A picture placement: drawn at (ox, oy) scaled by k. */
@@ -107,8 +131,44 @@ internal class Placement(var ox: Float = 0f, var oy: Float = 0f, var k: Float = 
 internal fun cover(iw: Float, ih: Float, w: Float, h: Float, z: Float, fx: Float, fy: Float, tx: Float, ty: Float, out: Placement) {
     val k = max(w / iw, h / ih) * z
     out.k = k
-    out.ox = (tx - fx * iw * k).coerceIn(w - iw * k, 0f)
-    out.oy = (ty - fy * ih * k).coerceIn(h - ih * k, 0f)
+    out.ox = clampTo(tx - fx * iw * k, w - iw * k, 0f)
+    out.oy = clampTo(ty - fy * ih * k, h - ih * k, 0f)
+}
+
+/** [v] within [lo]..[hi]; when rounding leaves the range a hair inverted (a picture that fits exactly), its middle. */
+private fun clampTo(v: Float, lo: Float, hi: Float): Float = if (lo > hi) (lo + hi) / 2f else v.coerceIn(lo, hi)
+
+/**
+ * The identity window's crop: the picture covering the window's own square box (2 × 0.30 R) round C, with the focus [fx], [fy]
+ * as near the window's centre as the crop allows. A full-screen crop seen through the hole showed whatever part of the picture
+ * fell behind it (on a wide screen a hair ornament, not the face).
+ */
+internal fun windowCrop(iw: Float, ih: Float, lay: IntroLayout, fx: Float, fy: Float, out: Placement) {
+    val side = 2f * .30f * lay.r
+    cover(iw, ih, side, side, 1f, fx, fy, side / 2f, side / 2f, out)
+    out.ox += lay.c.x - side / 2f
+    out.oy += lay.c.y - side / 2f
+}
+
+/**
+ * The picture's placement while the window bursts open (iris-in progress [ki], circle radius [r] round C): the face point
+ * travels on a straight line from the window's crop ([from]) to the full-screen crop ([to]) while the scale grows
+ * geometrically, so the face stays steady (a plain lerp of offset and scale makes it swim). It is never smaller than the
+ * circle's visible box and is shifted only as far as keeps that box covered, so no picture edge shows inside the circle; at the
+ * end that box is the screen and this meets [to].
+ */
+internal fun irisPlacement(iw: Float, ih: Float, lay: IntroLayout, fx: Float, fy: Float, from: Placement, to: Placement, ki: Float, r: Float, out: Placement) {
+    val px = fx * iw
+    val py = fy * ih
+    val ax = lerp(from.ox + px * from.k, to.ox + px * to.k, ki)
+    val ay = lerp(from.oy + py * from.k, to.oy + py * to.k, ki)
+    val left = max(0f, lay.c.x - r)
+    val top = max(0f, lay.c.y - r)
+    val right = min(lay.w, lay.c.x + r)
+    val bottom = min(lay.h, lay.c.y + r)
+    out.k = max(from.k * (to.k / from.k).pow(ki), max((right - left) / iw, (bottom - top) / ih))
+    out.ox = clampTo(ax - px * out.k, right - iw * out.k, left)
+    out.oy = clampTo(ay - py * out.k, bottom - ih * out.k, top)
 }
 
 /** The fixed choices the spec leaves to settings; the owner asked for no new settings, so they are constants at their defaults. */
@@ -131,9 +191,11 @@ internal class IntroScene(
     val level: EffectLevel,
     val picture: ImageBitmap?,
     portrait: Boolean,
-    /** The focus inside the picture (0..1), from the picture's own alignment setting. */
+    /** The focus inside the picture (0..1), from the picture's own alignment setting: where the home screen's crop holds it. */
     val focusX: Float,
     val focusY: Float,
+    /** The part of the picture the identity window shows (0..1): a face sits higher than the middle of a full-body picture. */
+    val windowFocusY: Float,
     val fx: IntroFx,
     val reduced: Boolean,
     val texts: IntroTexts,
@@ -141,7 +203,7 @@ internal class IntroScene(
 ) {
     val backdrop = picture != null && IntroConst.BACKDROP
     val windowPicture = picture != null && portrait
-    val kit = SigilKit(lay.r, lay.dp, if (level == EffectLevel.FULL) 28 else 18)
+    val kit = SigilKit(lay.r, lay.dp, if (level == EffectLevel.FULL) 28 else 18, sqrt(lay.rx * lay.ry) / lay.r)
     private val dp = lay.dp
     private val w = lay.w
     private val h = lay.h
@@ -159,7 +221,8 @@ internal class IntroScene(
     val softGlow = Brush.radialGradient(listOf(Color.White, Color.White.copy(alpha = 0f)), Offset.Zero, 12f * dp)
     val cometTail = Brush.sweepGradient(0f to Color.White.copy(alpha = 0f), (310f / 360f) to Color.White.copy(alpha = 0f), 1f to Color.White.copy(alpha = .9f), center = Offset.Zero)
     val scanWhite = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0f), Color.White.copy(alpha = .55f)), -44f * dp, 0f)
-    val scanAqua = Brush.verticalGradient(listOf(Sakura.Aqua.copy(alpha = 0f), Sakura.Aqua.copy(alpha = .28f)), -18f * dp, 0f)
+    // Pink under the white, never aqua: aqua over the pink field measured as a grey-blue band (#DFE3E4).
+    val scanPink = Brush.verticalGradient(listOf(Sakura.Primary.copy(alpha = 0f), Sakura.Primary.copy(alpha = .35f)), -18f * dp, 0f)
     val ringDisc = Path().apply { addOval(Rect(lay.c, lay.r)) }
     val flashBrush = Brush.radialGradient(listOf(Color.White, Color.White.copy(alpha = .55f)), lay.c, hypot(w, h))
     val topScrim = Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .60f), Sakura.Background.copy(alpha = 0f)), 0f, .14f * h)
@@ -171,26 +234,10 @@ internal class IntroScene(
     /** White halftone dots in the lower-left corner, larger toward the corner: a few hundred circles in one path. */
     val halftone = Kawaii.halftone(w, h, 9f * dp, 3f * dp, .4f * dp)
 
-    /** The seven light pillars of the welcome: x offsets (× rx), widths (dp) and heights (× H), each with its own gradient. */
-    private val pillarX = floatArrayOf(-.56f, -.34f, -.17f, 0f, .17f, .34f, .56f)
-    private val pillarW = floatArrayOf(10f, 4f, 22f, 36f, 18f, 5f, 12f)
-    private val pillarH = floatArrayOf(.34f, .42f, .48f, .55f, .46f, .40f, .32f)
-    /** Pillars grow from the centre out, 40 ms apart. */
-    val pillarOrder = IntArray(7) { kotlin.math.abs(it - 3) }
-    val pillarRects: Array<Rect> = Array(7) { i ->
-        val cx = lay.cf.x + pillarX[i] * lay.rx
-        val half = pillarW[i] * dp * lay.s / 2f
-        Rect(cx - half, lay.cf.y - pillarH[i] * h, cx + half, lay.cf.y + .2f * lay.ry)
-    }
-    val pillarBrushes: Array<Brush> = Array(7) { i ->
-        val r = pillarRects[i]
-        val peak = if (backdrop) .22f else .26f
-        Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0f),
-            ((lay.cf.y - .15f * lay.ry - r.top) / r.height).coerceIn(0f, 1f) to Color.White.copy(alpha = peak),
-            1f to Color.White.copy(alpha = 0f), startY = r.top, endY = r.bottom,
-        )
-    }
+    /** The floor's own light: a round white bloom over the lying circle, so it reads as a lit summon circle, not a print. */
+    val floorBloom = Brush.radialGradient(
+        listOf(Color.White.copy(alpha = .45f), Color.White.copy(alpha = .20f), Color.White.copy(alpha = 0f)), lay.cf, .6f * lay.rx,
+    )
 
     // ---- the picture ----
     val windowPlacement = Placement()
@@ -204,7 +251,7 @@ internal class IntroScene(
     init {
         picture?.let { p ->
             runCatching { p.prepareToDraw() }
-            cover(p.width.toFloat(), p.height.toFloat(), w, h, 1f, focusX, focusY, lay.c.x, lay.c.y, windowPlacement)
+            windowCrop(p.width.toFloat(), p.height.toFloat(), lay, focusX, windowFocusY, windowPlacement)
         }
     }
 
@@ -228,16 +275,21 @@ internal class IntroScene(
         val kbStart = m.hit + 590f * p
         val z = if (ms <= kbStart || reduced) (if (reduced) 1f else 1.06f) else lerp(1.06f, 1f, seg(ms, kbStart, m.e - kbStart, IntroEase.SineInOut))
         welcomeAt(z, tmpPlacement)
-        if (ki >= 1f || reduced) { out.set(tmpPlacement); return }
-        out.ox = lerp(windowPlacement.ox, tmpPlacement.ox, ki)
-        out.oy = lerp(windowPlacement.oy, tmpPlacement.oy, ki)
-        out.k = lerp(windowPlacement.k, tmpPlacement.k, ki)
+        val pic = picture
+        if (ki >= 1f || reduced || pic == null) { out.set(tmpPlacement); return }
+        irisPlacement(pic.width.toFloat(), pic.height.toFloat(), lay, focusX, windowFocusY, windowPlacement, tmpPlacement, ki, irisRadius(ki), out)
     }
 
-    /** The monogram (or, with no name or an emoji first, the sakura mon), ghosted below the scan line and solid above it. */
+    /** The opening circle's radius at iris-in progress [ki]. */
+    fun irisRadius(ki: Float): Float = lerp(.30f * lay.r, rMax, ki)
+
+    /**
+     * The monogram (or, with no name or an emoji first, the sakura mon), ghosted below the scan line and solid above it. The ghost
+     * is rose brown, not faded ink: ink at a fifth of its strength over the white plate reads as grey.
+     */
     fun drawMonogram(scope: DrawScope, center: Offset, scale: Float, ghost: Float, scanY: Float, alpha: Float) = with(scope) {
         val run = texts.monogram
-        val draw: DrawScope.(Float) -> Unit = { a ->
+        val draw: DrawScope.(Float, Color) -> Unit = { a, ink ->
             withTransform({ scale(scale, scale, center) }) {
                 if (run == null) {
                     val r = .22f * lay.r
@@ -248,20 +300,52 @@ internal class IntroScene(
                     drawCircle(Sakura.White.copy(alpha = a), 3f * dp, center)
                 } else {
                     val base = center.y + .36f * run.fontPx
-                    drawGlyph(run, 0, Offset(center.x - run.advance[0] / 2f, base - run.baseline), Sakura.Text, a)
+                    drawGlyph(run, 0, Offset(center.x - run.advance[0] / 2f, base - run.baseline), ink, a)
                 }
             }
         }
-        draw(ghost)
-        if (scanY > -1e6f) clipRect(top = 0f, bottom = scanY.coerceAtMost(h * 4f)) { draw(alpha) }
+        draw((ghost * 1.6f).coerceAtMost(alpha), Sakura.RoseBrown)
+        if (scanY > -1e6f) clipRect(top = 0f, bottom = scanY.coerceAtMost(h * 4f)) { draw(alpha, Sakura.Text) }
     }
 
     val sakura: Path = sakuraSilhouette()
+
+    /**
+     * The crest's sakura mon (no picture): a white disc, the flower at .78 of the crest's radius in pink with a white rim and a
+     * fine rose-brown outline, and a white centre. It replaces the monogram, which only repeated the name's first character.
+     */
+    fun drawMon(scope: DrawScope, center: Offset, rc: Float, alpha: Float) = with(scope) {
+        if (alpha <= 0f) return@with
+        drawCircle(Sakura.White.copy(alpha = .85f * alpha), rc, center)
+        val r = .78f * rc
+        withTransform({ translate(center.x, center.y); scale(r, r, Offset.Zero) }) {
+            drawPath(sakura, Sakura.RoseBrown.copy(alpha = alpha), style = Stroke((2.5f + 1.5f) * dp / r, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+            drawPath(sakura, Sakura.White.copy(alpha = alpha), style = Stroke(2.5f * dp / r, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+            drawPath(sakura, Sakura.Primary.copy(alpha = .90f * alpha))
+            drawPath(monVeins, Sakura.White.copy(alpha = .55f * alpha), style = Stroke(1.25f * dp / r, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+        drawCircle(Sakura.White.copy(alpha = alpha), 3f * dp * (rc / (80f * lay.s * dp)).coerceIn(.8f, 1.2f), center)
+    }
+
+    /** Five short white lines from the mon's centre toward its petal notches: the flower's stamens, so it reads as sakura. */
+    private val monVeins = Path().apply {
+        for (i in 0 until 5) {
+            val a = Math.toRadians(-90.0 + 72.0 * i)
+            moveTo((kotlin.math.cos(a) * .16).toFloat(), (kotlin.math.sin(a) * .16).toFloat())
+            lineTo((kotlin.math.cos(a) * .52).toFloat(), (kotlin.math.sin(a) * .52).toFloat())
+        }
+    }
     private val sparkle: Path = Kawaii.sparklePath()
 
     fun drawSparkle(scope: DrawScope, at: Offset, r: Float, color: Color, alpha: Float, rot: Float = 0f) = with(scope) {
         if (alpha <= 0f || r <= 0f) return@with
-        withTransform({ translate(at.x, at.y); rotate(rot, Offset.Zero); scale(r, r, Offset.Zero) }) { drawPath(sparkle, color.copy(alpha = color.alpha * alpha)) }
+        withTransform({ translate(at.x, at.y); rotate(rot, Offset.Zero); scale(r, r, Offset.Zero) }) {
+            // Aqua always sits on a white halo: its soft edge straight over pink mixes to grey.
+            if (color.copy(alpha = 1f) == Sakura.Aqua) withTransform({ scale(1.6f, 1.6f, Offset.Zero) }) {
+                drawPath(sparkle, Color.White.copy(alpha = (1.6f * alpha).coerceAtMost(1f)))
+            }
+            drawPath(sparkle, color.copy(alpha = color.alpha * alpha))
+        }
     }
 
     /** The exit's origin: the tap point, else the crest, or the upper third over a backdrop. */
@@ -302,7 +386,7 @@ internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: P
     if (sc.backdrop && ms >= m.hit + 30f * p) {
         sc.backdropPlacement(ms, place)
         val ki = if (sc.reduced) 1f else seg(ms, m.hit + 30f * p, 560f * p, IntroEase.ExpoOut)
-        val r = lerp(.30f * R, sc.rMax, ki)
+        val r = sc.irisRadius(ki)
         if (ki < 1f) {
             val clip = sc.kit.scratch
             clip.reset()
@@ -319,9 +403,9 @@ internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: P
         drawRect(sc.topScrim, alpha = scrim)
         drawRect(sc.bottomScrim, alpha = scrim)
     }
-    // L3: halftone.
+    // L3: halftone (stronger in the system half, so the space under the beat lines has some structure).
     if (L.halftone) {
-        val sys = .60f * seg(ms, 80f, 400f)
+        val sys = .80f * seg(ms, 80f, 400f)
         val a = lerp(sys, if (sc.backdrop) 0f else .80f, fm)
         if (a > 0f) drawPath(sc.halftone, Sakura.White.copy(alpha = .55f * a))
     }
@@ -340,13 +424,19 @@ internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: P
         drawPath(sc.kit.rays, sc.kit.rayBrush, alpha = raysAtC.coerceAtMost(1f))
     }
     if (fm <= 0f) return
-    // The magic half: a top bloom, the floor's shadow and bloom, the pillars, and rays behind the crest (none over a picture).
+    // The magic half: a top bloom, the floor's shadow and its light, and rays behind the crest (none over a picture). Over the
+    // user's picture the blooms stay faint: at full strength they bleached the key art exactly when it should star.
     val breathe = if (sc.reduced) 0f else .5f + .5f * sin(amb * (2f * PI.toFloat() / 4f))
+    val top = if (sc.backdrop) .12f + .03f * breathe else .55f + .10f * breathe
     withTransform({ translate(L.w / 2f, -.1f * L.h); scale(.85f * L.h, .85f * L.h, Offset.Zero) }) {
-        drawCircle(sc.unitBloom, 1f, Offset.Zero, alpha = (.55f + .10f * breathe) * fm)
+        drawCircle(sc.unitBloom, 1f, Offset.Zero, alpha = top * fm)
     }
-    withTransform({ translate(L.cf.x, L.cf.y); scale(L.rx * 1.1f, L.ry * 1.1f, Offset.Zero) }) { drawCircle(sc.unitShadow, 1f, Offset.Zero, alpha = fm) }
-    withTransform({ translate(L.cf.x, L.cf.y); scale(L.rx * .8f, L.ry * .8f, Offset.Zero) }) { drawCircle(sc.unitBloom, 1f, Offset.Zero, alpha = .50f * fm) }
+    val fl = fm * sc.floorIn(ms)
+    if (fl > 0f) {
+        withTransform({ translate(L.cf.x, L.cf.y); scale(L.rx * 1.1f, L.ry * 1.1f, Offset.Zero) }) { drawCircle(sc.unitShadow, 1f, Offset.Zero, alpha = .6f * fl) }
+        drawRect(sc.floorBloom, alpha = fl)
+        withTransform({ translate(L.cf.x, L.cf.y); scale(L.rx * .8f, L.ry * .8f, Offset.Zero) }) { drawCircle(sc.unitBloom, 1f, Offset.Zero, alpha = .50f * fl) }
+    }
     if (!sc.backdrop && L.crest) {
         val a = ray * fm
         withTransform({ translate(L.crestC.x, L.crestC.y); scale(R, R, Offset.Zero); rotate(rot + if (sc.reduced) 0f else 2f * amb, Offset.Zero) }) {
@@ -357,15 +447,6 @@ internal fun DrawScope.drawField(sc: IntroScene, ms: Float, amb: Float, place: P
         if (a > 0f) withTransform({ translate(L.c.x, L.c.y); scale(R, R, Offset.Zero); rotate(rot, Offset.Zero) }) {
             drawPath(sc.kit.rays, sc.kit.rayBrush, alpha = a.coerceAtMost(1f))
         }
-    }
-    for (i in 0 until 7) {
-        val k = if (sc.reduced) .8f else IntroEase.ExpoOut.transform(((ms - m.hit - (360f + 40f * sc.pillarOrder[i]) * p) / (520f * p)).coerceIn(0f, 1f))
-        if (k <= 0f) continue
-        val h = ih(i, 71)
-        val b = if (sc.reduced) 1f else .75f + .25f * sin(amb * (.9f + .4f * h) + 6.28f * h)
-        val r = sc.pillarRects[i]
-        val top = r.bottom - r.height * k
-        drawRect(sc.pillarBrushes[i], Offset(r.left, top), Size(r.width, r.bottom - top), alpha = b)
     }
 }
 

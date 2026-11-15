@@ -88,6 +88,9 @@ fun slam(u: Float): Float = when {
     else -> lerp(1.012f, 1f, IntroEase.SineInOut.transform(((u - .78f) / .22f).coerceIn(0f, 1f)))
 }
 
+/** The largest scale [sigilScale] reaches (the pulse right after the hit). */
+const val SIGIL_PULSE_MAX = 1.07f
+
 /** The sigil breathes in before the hit (to .95), pulses to 1.07 right after it and settles by +440 ms. */
 fun sigilScale(ms: Float, m: IntroMarks): Float = when {
     ms < m.c -> 1f

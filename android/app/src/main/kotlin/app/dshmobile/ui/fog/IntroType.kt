@@ -128,11 +128,12 @@ internal class IntroMeasure(private val measurer: TextMeasurer, density: Float, 
 
 /** One paint for every emoji silhouette: an emoji drawn into a layer with this paint comes out in the hero text colour. */
 private val EmojiInk = Paint().apply { colorFilter = ColorFilter.tint(Sakura.Text, BlendMode.SrcIn) }
-private val EmojiShadow = Paint().apply { colorFilter = ColorFilter.tint(Sakura.Primary.copy(alpha = .5f), BlendMode.SrcIn) }
+private val EmojiShadow = Paint().apply { colorFilter = ColorFilter.tint(Sakura.Primary, BlendMode.SrcIn) }
 
 /**
  * Draws glyph [i] of [run] with its top-left at [at], [scale] about its own bottom centre and [alpha]. Emoji become ink
- * silhouettes; [stroke] (a sticker outline) skips them, since a colour bitmap has no outline to stroke.
+ * silhouettes, a little smaller and lighter than the letters (a full-size solid one outweighed the name); [stroke] (a sticker
+ * outline) skips them, since a colour bitmap has no outline to stroke.
  */
 internal fun DrawScope.drawGlyph(
     run: GlyphRun, i: Int, at: Offset, color: Color, alpha: Float, scale: Float = 1f, stroke: Stroke? = null, shadow: Boolean = false,
@@ -144,12 +145,14 @@ internal fun DrawScope.drawGlyph(
         if (scale != 1f) scale(scale, scale, Offset(run.advance[i] / 2f, run.baseline))
     }) {
         if (run.emoji[i]) {
-            if (stroke == null) drawIntoCanvas { canvas ->
-                val paint = if (shadow) EmojiShadow else EmojiInk
-                paint.alpha = alpha
-                canvas.saveLayer(androidx.compose.ui.geometry.Rect(0f, 0f, layout.size.width.toFloat(), layout.size.height.toFloat()), paint)
-                drawText(layout, topLeft = Offset.Zero, drawStyle = Fill)
-                canvas.restore()
+            if (stroke == null) withTransform({ scale(.80f, .80f, Offset(run.advance[i] / 2f, run.baseline * .62f)) }) {
+                drawIntoCanvas { canvas ->
+                    val paint = if (shadow) EmojiShadow else EmojiInk
+                    paint.alpha = alpha * (if (shadow) 1f else .70f)
+                    canvas.saveLayer(androidx.compose.ui.geometry.Rect(0f, 0f, layout.size.width.toFloat(), layout.size.height.toFloat()), paint)
+                    drawText(layout, topLeft = Offset.Zero, drawStyle = Fill)
+                    canvas.restore()
+                }
             }
         } else {
             // Always pass the style: a text paint keeps the last one it was given, so a fill after a stroke would stay stroked.

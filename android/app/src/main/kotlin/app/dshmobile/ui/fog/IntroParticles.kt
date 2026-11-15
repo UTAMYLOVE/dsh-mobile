@@ -93,7 +93,8 @@ internal class IntroParticles(private val sc: IntroScene) {
         for (i in 0 until stars) {
             val h = ih(i, 4)
             val tw = if (sc.reduced) .6f else .15f + .85f * (.5f + .5f * sin(amb * (1.1f + 1.6f * h) + 6.28f * h)).pow(6)
-            val color = if (i < 3) Sakura.White.copy(alpha = .95f) else Sakura.Aqua.copy(alpha = .85f)
+            // All white: a tiny aqua star twinkling over the pink sky blurs into grey at its thin tips.
+            val color = Sakura.White.copy(alpha = .95f)
             sc.drawSparkle(scope, Offset(starX[i], starY[i]), starR[i], color, a * tw)
         }
     }
@@ -157,8 +158,10 @@ internal class IntroParticles(private val sc: IntroScene) {
                 val rr = ih(i, 83)
                 val x = L.cf.x + cos(ang) * L.rx * .8f * rr + 4f * dp * sin(amb * 2f + 6.28f * h)
                 val y = L.cf.y + sin(ang) * L.ry * .8f * rr - travelled
-                val color = if (i < 6) Sakura.White else Sakura.Aqua
-                drawCircle(color.copy(alpha = .8f * a * seg(ms, start, 300f)), (1.2f + 1.3f * ih(i, 84)) * dp, Offset(x, y))
+                val ma = .8f * a * seg(ms, start, 300f)
+                val mr = (1.2f + 1.3f * ih(i, 84)) * dp
+                if (i >= 6) drawCircle(Sakura.White.copy(alpha = ma), mr + 1.25f * dp, Offset(x, y))
+                drawCircle((if (i < 6) Sakura.White else Sakura.Aqua).copy(alpha = ma), mr, Offset(x, y))
             }
         }
     }

@@ -255,9 +255,10 @@ fun StartupIntro(
         val scene = remember(w, h, density, insetTop, insetBottom, words, level, pic, fx, reducedMotion, intro.portrait, intro.skippable, look.align) {
             val lay = IntroLayout(w, h, density.density, insetTop, insetBottom)
             val mm = IntroMeasure(measurer, density.density, density.fontScale, lay.s)
-            val texts = IntroTexts(mm, lay, words)
+            val texts = IntroTexts(mm, lay, words, compact = marks.compact)
             IntroScene(
-                lay, marks, level, pic, intro.portrait, .5f, (1f + look.align.bias) / 2f, fx, reducedMotion, texts, intro.skippable,
+                lay, marks, level, pic, intro.portrait, .5f, (1f + look.align.bias) / 2f, windowFocus(look.align), fx, reducedMotion, texts,
+                intro.skippable,
             )
         }
         run.sceneOrigin = scene.exitOrigin()
@@ -276,6 +277,15 @@ fun StartupIntro(
             val place = remember(scene) { Placement() }
             Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawField(scene, ms(), amb(), place) })
             Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawChrome(scene, ms(), amb()) })
+            // The one flash whites out the sky behind the sigil. Over everything it fogged 核驗通過 to grey for its whole slam
+            // and washed the pink flood and the burst out; behind them, the transformation reads in full colour against light.
+            if (!reducedMotion) {
+                val peak = if (level == EffectLevel.SAVER) .35f else .70f
+                Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind {
+                    val f = flash(ms(), marks.hit, peak)
+                    if (f > 0f) drawRect(scene.flashBrush, alpha = f)
+                })
+            }
             Spacer(
                 Modifier.fillMaxSize().graphicsLayer { }.drawWithCache {
                     val ring = recordRing(scene, obtainGraphicsLayer())
@@ -297,6 +307,7 @@ fun StartupIntro(
                 },
             )
         }
+        if (!reducedMotion) Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawHitFx(scene, ms()) })
         Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind { drawHudAndBeats(scene, ms()); drawWelcome(scene, ms()) })
         Spacer(
             Modifier.fillMaxSize()
@@ -308,17 +319,20 @@ fun StartupIntro(
                 }
                 .drawBehind { drawName(scene, ms()) },
         )
-        if (!reducedMotion) {
-            val peak = if (level == EffectLevel.SAVER) .35f else .70f
-            Spacer(Modifier.fillMaxSize().graphicsLayer { }.drawBehind {
-                val f = flash(ms(), marks.hit, peak)
-                if (f > 0f) drawRect(scene.flashBrush, alpha = f)
-            })
-        }
         IntroSemantics(scene, intro, words, phase, reducedMotion, skipLabel)
     }
 }
 
+
+/**
+ * The part of the picture the identity window frames, from the picture's alignment: a typical full-body picture has the face in
+ * its upper third, so the centred default looks at 35 % of its height, not the middle.
+ */
+private fun windowFocus(align: PictureAlign): Float = when (align) {
+    PictureAlign.TOP -> .25f
+    PictureAlign.CENTER -> .35f
+    PictureAlign.BOTTOM -> .65f
+}
 
 /** The data ring's text written once round its circle into a layer, which the sigil then turns as a whole. */
 private fun androidx.compose.ui.draw.CacheDrawScope.recordRing(sc: IntroScene, layer: GraphicsLayer): GraphicsLayer {
@@ -396,7 +410,7 @@ private fun IntroSemantics(sc: IntroScene, intro: Intro, words: IntroWords, phas
     if (phase >= IntroPhase.WELCOME || reducedMotion) {
         val line = IntroTimeline.welcome(intro, words.words)
         Box(
-            Modifier.at(L.welcomeCenterX - L.colWidth / 2f, sc.texts.nameTop, L.colWidth, sc.texts.nameLines.size * 1.08f * sc.texts.nameFontPx)
+            Modifier.at(L.welcomeCenterX - L.colWidth / 2f, sc.texts.nameTop, L.colWidth, sc.texts.nameHeight)
                 .semantics { text = AnnotatedString(line); liveRegion = LiveRegionMode.Polite },
         )
     }
