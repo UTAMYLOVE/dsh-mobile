@@ -64,5 +64,22 @@ for t in git rg bash; do
   [ -n "$p" ] && [ "${p#/}" != "$p" ] && ok "$t -> $p" || bad "$t not found: $p"
 done
 
+# Every load-time change the app makes to dsh's Auto review (android/app/src/main/assets/dshn/review-json.mjs) must still apply to
+# the pinned dsh: a patch whose anchor moved is skipped without a sound, and its fix (a reviewer slip asks instead of failing,
+# the conversation's own effort, the reason in Traditional Chinese) would be gone with every test still green.
+sudo cp "$HERE/../android/app/src/main/assets/dshn/review-json.mjs" "$DIR/tmp/dshm-review-json.mjs"
+sudo tee "$DIR/tmp/dshm-patch-check.mjs" > /dev/null <<'JS'
+import { readFileSync } from 'node:fs'
+import { PATCHES, patchAutoReview } from '/tmp/dshm-review-json.mjs'
+const lib = '/opt/dsh/current/node_modules/@deepseek-ai/dsh-experimental-auto-review/lib/index.js'
+let source
+try { source = readFileSync(lib, 'utf8') } catch { console.log('no auto-review plugin at ' + lib); process.exit(0) }
+const out = patchAutoReview(source)
+const missing = PATCHES.filter((p) => !out.includes(p.to)).map((p) => p.name)
+console.log(missing.length === 0 ? 'all ' + PATCHES.length : 'missing ' + missing.join(','))
+JS
+pc="$(run node /tmp/dshm-patch-check.mjs 2>&1 | tail -n1)"
+case "$pc" in all\ *) ok "Auto review patches apply to dsh $DSH_PINNED_VERSION ($pc)";; *) bad "Auto review patches: $pc";; esac
+
 [ "$fail" = 0 ] && echo "SMOKE OK" || echo "SMOKE FAILED"
 exit "$fail"
