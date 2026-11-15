@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * listens on 127.0.0.1 inside the test process. Request bodies are kept for assertions but never logged.
  */
 class FakeModel {
-    enum class Kind { DREAM, SEARCH_BACKEND, TOOL_USE, FOLLOW_UP, HELLO, SLOW, LONG, SEARCH, APPROVE, ASK, SUB, CHILD, FILE, FOLLOWUPS, TODOS, PRESENT, PLAN, SCHEDULE, TOOL, OTHER }
+    enum class Kind { DREAM, SEARCH_BACKEND, REVIEW, TOOL_USE, FOLLOW_UP, HELLO, SLOW, LONG, SEARCH, APPROVE, ASK, SUB, CHILD, FILE, FOLLOWUPS, TODOS, PRESENT, PLAN, SCHEDULE, TOOL, OTHER }
 
     /** One request the model got. [body] is for assertions only: [toString] leaves it out, so failure logs never carry it. */
     data class Seen(
@@ -77,6 +77,9 @@ class FakeModel {
         return when (kind) {
             Kind.DREAM -> sse(listOf(Block.Text(DREAM_REPLY)), "end_turn")
             Kind.SEARCH_BACKEND -> searchBackend()
+            // dsh's Auto review asks the conversation's model for a verdict. Answered the way Claude answered on the owner's phone
+            // (2026-11-15): a sentence first, then the JSON — which failed every command before review-json.mjs.
+            Kind.REVIEW -> sse(listOf(Block.Text(REVIEW_REPLY)), "end_turn")
             Kind.TOOL_USE -> sse(listOf(toolUse("e2e", "memory_write", JSONObject().put("target", "daily").put("text", MEMORY_MARK))), "tool_use")
             Kind.FOLLOW_UP -> followUp(parsed)
             Kind.HELLO -> sse(
@@ -322,6 +325,9 @@ class FakeModel {
 
         /** The first line of the memory plugin's dream prompt (plugins/packages/memory/src/dream.ts, DREAM_INSTRUCTIONS). */
         const val DREAM_MARKER = "You maintain a personal assistant's long-term memory."
+        /** dsh-experimental-auto-review's reviewer policy (lib/index.js REVIEW_POLICY). */
+        const val REVIEW_MARKER = "You are the final authorization reviewer for exactly one pending tool call"
+        const val REVIEW_REPLY = "The pending action only writes a small file inside the workspace.\n{\"risk\":\"low\",\"decision\":\"allow\"}"
         /** dsh-web-search-deepseek's request text (lib/index.js). */
         const val SEARCH_BACKEND_MARKER = "Perform a web search for the query:"
         private const val DREAM_REPLY = """{"promote":[],"remind":[{"title":"$REMIND_TITLE","body":"from e2e"}]}"""
@@ -329,6 +335,7 @@ class FakeModel {
         fun classify(body: String): Kind {
             if (body.contains(DREAM_MARKER)) return Kind.DREAM
             if (body.contains(SEARCH_BACKEND_MARKER)) return Kind.SEARCH_BACKEND
+            if (body.contains(REVIEW_MARKER)) return Kind.REVIEW
             val request = runCatching { JSONObject(body) }.getOrNull() ?: return Kind.OTHER
             if (lastToolResult(request) != null) return Kind.FOLLOW_UP
             val text = lastUserText(request)

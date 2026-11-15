@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.DshLayout
 import app.dshmobile.runtime.PermissionLevel
+import app.dshmobile.system.PhantomState
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.json.JSONArray
@@ -44,6 +45,7 @@ class ToolBatteryE2eTest {
     }
 
     @After fun tearDown() {
+        app.agentSettingsStore.save(app.agentSettingsStore.load(PhantomState.ENABLED, false).copy(autoReview = false))
         app.runtimeMode.setPermission(PermissionLevel.SMART)
         app.runtimeMode.set(false)
         app.controller.stop()
@@ -131,6 +133,31 @@ class ToolBatteryE2eTest {
         record("known-gap:./script", direct != null && !direct.text.contains("direct-ok"), "files in the app's data cannot be executed directly (sh s.sh works): ${direct?.text?.take(120)}")
 
         report("native")
+    }
+
+    /**
+     * 權限自動審查 on (the owner's phone, 2026-11-15: every bash card 失敗 with "Auto review of tool "bash" failed; its body was not
+     * executed: Unexpected token 'T', "The pendin"... is not valid JSON"). The reviewer here answers the way Claude did, a sentence
+     * and then the verdict; the review must run, and the command must run after it.
+     */
+    @Test fun withAutoReviewOnACommandRunsWhenTheReviewerAddsASentence() {
+        assumeTrue("this APK has no native runtime", app.nativeRunner.available)
+        app.runtimeMode.set(true)
+        app.runtimeMode.setPermission(PermissionLevel.SMART)
+        app.agentSettingsStore.save(app.agentSettingsStore.load(PhantomState.ENABLED, false).copy(autoReview = true))
+        val running = runBlocking { app.controller.ensureRunning() }
+        val client = DshClient(http, running.launch).also { runBlocking { it.login() } }
+        val dir = File(app.appPaths.workspace, DIR).apply { deleteRecursively(); mkdirs() }
+        val proof = File(dir, "reviewed.txt")
+        val session = newSession(client)
+        // What the app does before a conversation's first message when Auto review is on (ShellSession.ensurePreset).
+        rpc(client, "commands/execute", JSONObject().put("agentId", session).put("line", "/permission auto").put("submittedAttachments", JSONArray()))
+        val from = FakeModel.instance.seen.size
+        val result = call(client, "bash", JSONObject().put("description", "Reviewed write").put("command", "echo reviewed-ok > $DIR/reviewed.txt && cat $DIR/reviewed.txt"), session = session)
+        val reviews = FakeModel.instance.since(from).count { it.kind == FakeModel.Kind.REVIEW }
+        record("auto-review-ran", reviews >= 1, "reviewer requests: $reviews")
+        record("auto-review-bash", result != null && !result.isError && result.text.contains("reviewed-ok") && proof.isFile, result?.let { (if (it.isError) "[error] " else "") + it.text.take(300) } ?: "no result within the time")
+        report("auto-review")
     }
 
     /**
