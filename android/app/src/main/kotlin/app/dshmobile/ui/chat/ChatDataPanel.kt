@@ -71,9 +71,12 @@ fun ChatDataPanel(
         Text("工具決策（新的在上）", style = War.lab, modifier = Modifier.padding(top = 2.dp))
         if (decisions.isEmpty()) Text("這個對話還沒用過工具", style = War.mono.copy(color = War.ink2))
         decisions.forEach { d ->
-            val col = when (d.kind) { Decision.Kind.ALLOWED -> War.aqua; Decision.Kind.WAITING, Decision.Kind.BLOCKED -> War.pink; Decision.Kind.FAILED -> War.rose }
+            val col = when (d.kind) {
+                Decision.Kind.ALLOWED -> War.aqua; Decision.Kind.WAITING, Decision.Kind.BLOCKED -> War.pink; Decision.Kind.FAILED -> War.rose
+                Decision.Kind.CHOSEN -> War.milk
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Chip(d.kind.label, col)
+                Chip(d.badge, col)
                 Column(Modifier.weight(1f)) {
                     Text(d.text, style = War.mono.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(d.why, style = War.mono.copy(fontSize = 7.5.sp, color = War.ink2), maxLines = 1, overflow = TextOverflow.Ellipsis)

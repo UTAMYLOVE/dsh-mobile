@@ -1,11 +1,18 @@
 package app.dshmobile.agents
 
 import app.dshmobile.chat.ChatItem
+import app.dshmobile.chat.ConversationReducer
 import app.dshmobile.chat.ToolStatus
 
-/** One row of the decision stack: what the auto review (or the owner) decided about one tool call. */
-data class Decision(val kind: Kind, val text: String, val why: String, val risk: Float) {
-    enum class Kind(val label: String) { BLOCKED("擋下"), WAITING("等你"), ALLOWED("放行"), FAILED("錯誤") }
+/**
+ * One row of the decision stack: what the auto review (or the owner) decided about one tool call. [badgeText] replaces the
+ * kind's label (the owner's own 已停止 / 已拒絕 / 已略過).
+ */
+data class Decision(val kind: Kind, val text: String, val why: String, val risk: Float, val badgeText: String? = null) {
+    /** CHOSEN: the owner stopped, rejected or skipped the call himself; not an error, drawn in a neutral colour. */
+    enum class Kind(val label: String) { BLOCKED("擋下"), WAITING("等你"), ALLOWED("放行"), FAILED("錯誤"), CHOSEN("你決定") }
+
+    val badge: String get() = badgeText ?: kind.label
 }
 
 /** How many of each action the lead's tools took (the six-way tree). */
@@ -21,8 +28,9 @@ data class SpeedLine(val id: String, val label: String, val values: List<Float?>
 object WarDerive {
     private val DENIED = listOf("denied", "deny", "rejected", "blocked", "not allowed", "拒", "擋")
 
+    /** A call something else refused. The owner's own 已拒絕 (it contains 拒) is his choice, not a block. */
     fun isBlocked(t: ChatItem.Tool): Boolean =
-        t.status == ToolStatus.FAILED && t.error?.lowercase()?.let { e -> DENIED.any { it in e } } == true
+        t.status == ToolStatus.FAILED && ConversationReducer.ownerChoiceOf(t) == null && t.error?.lowercase()?.let { e -> DENIED.any { it in e } } == true
 
     /** The newest [max] tool calls, newest first, as decisions with a rough risk score for the bar. */
     fun decisions(tools: List<ChatItem.Tool>, max: Int = 7): List<Decision> = tools.asReversed().take(max).map { t ->
@@ -35,6 +43,7 @@ object WarDerive {
         }
         when {
             t.status == ToolStatus.WAITING_APPROVAL -> Decision(Decision.Kind.WAITING, line, "要你允許才會做", base.coerceAtLeast(.5f))
+            ConversationReducer.ownerChoiceOf(t) != null -> Decision(Decision.Kind.CHOSEN, line, "你自己決定的，不是錯誤", base, badgeText = t.error)
             isBlocked(t) -> Decision(Decision.Kind.BLOCKED, line, t.error?.lineSequence()?.firstOrNull()?.take(50) ?: "自動審查拒絕", .96f)
             t.status == ToolStatus.FAILED -> Decision(Decision.Kind.FAILED, line, t.error?.lineSequence()?.firstOrNull()?.take(50) ?: "失敗", .8f)
             else -> Decision(Decision.Kind.ALLOWED, line, if (base < .1f) "唯讀 · 自動放行" else "工作區內 · 放行", base)

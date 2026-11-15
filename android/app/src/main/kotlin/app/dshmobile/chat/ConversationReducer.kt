@@ -30,6 +30,9 @@ object ConversationReducer {
     const val SKIPPED = "已略過"
     val OWNER_CHOICES = setOf(STOPPED, REJECTED, SKIPPED)
 
+    /** The owner's own 已停止 / 已拒絕 / 已略過 on a failed tool card, else null: shown as the word, never as an error. */
+    fun ownerChoiceOf(t: ChatItem.Tool): String? = t.error?.takeIf { t.status == ToolStatus.FAILED && it in OWNER_CHOICES }
+
     /** dsh had nobody to ask (no screen was connected): a real failure, said in Chinese. */
     const val NO_ASK_CHANNEL = "沒有可以詢問你的連線"
 

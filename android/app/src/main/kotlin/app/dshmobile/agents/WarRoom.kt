@@ -1,6 +1,7 @@
 package app.dshmobile.agents
 
 import app.dshmobile.chat.ChatItem
+import app.dshmobile.chat.ConversationReducer
 import app.dshmobile.chat.ConversationState
 import app.dshmobile.chat.ReviewRounds
 import app.dshmobile.chat.SessionTreeState
@@ -142,7 +143,8 @@ object WarRoomBuilder {
         val running = c?.running ?: m?.running ?: false
         val tools = c?.items.orEmpty().filterIsInstance<ChatItem.Tool>()
         val active = tools.lastOrNull { it.status == ToolStatus.RUNNING || it.status == ToolStatus.WAITING_APPROVAL }
-        val failed = c?.items?.lastOrNull()?.let { (it as? ChatItem.Tool)?.takeIf { t -> t.status == ToolStatus.FAILED } }
+        // The owner's own 已停止 / 已拒絕 / 已略過 is not 出錯了.
+        val failed = c?.items?.lastOrNull()?.let { (it as? ChatItem.Tool)?.takeIf { t -> t.status == ToolStatus.FAILED && ConversationReducer.ownerChoiceOf(t) == null } }
         val notice = (c?.items?.lastOrNull() as? ChatItem.Notice)?.takeIf { it.kind == app.dshmobile.chat.NoticeKind.ERROR }
         val stage: Stage
         var prop = Prop.NONE
@@ -176,7 +178,7 @@ object WarRoomBuilder {
             val (_, _, line) = stageOf(t.name, t.summary)
             line + when (t.status) {
                 ToolStatus.DONE -> " ✓"
-                ToolStatus.FAILED -> " ✗"
+                ToolStatus.FAILED -> ConversationReducer.ownerChoiceOf(t)?.let { " ($it)" } ?: " ✗"
                 ToolStatus.WAITING_APPROVAL -> " ⏸"
                 ToolStatus.RUNNING -> " …"
             }
@@ -295,7 +297,8 @@ class WarRoomRecorder(private val clock: () -> Long = System::currentTimeMillis)
                 ToolStatus.RUNNING -> "工具"
                 ToolStatus.WAITING_APPROVAL -> "待批"
                 ToolStatus.DONE -> "完成"
-                ToolStatus.FAILED -> "錯誤"
+                // The owner's own choice shows as the word (a neutral colour in the timeline), not as 錯誤.
+                ToolStatus.FAILED -> ConversationReducer.ownerChoiceOf(t) ?: "錯誤"
             }
             add(now, badge, line, toolWhy(t))
         }
@@ -325,7 +328,7 @@ class WarRoomRecorder(private val clock: () -> Long = System::currentTimeMillis)
         ToolStatus.RUNNING -> if (stageOf(t.name, null).first == Stage.SEARCH) "唯讀 · 自動放行" else "已放行 · 執行中"
         ToolStatus.WAITING_APPROVAL -> "要你允許才會做"
         ToolStatus.DONE -> "完成"
-        ToolStatus.FAILED -> t.error?.lineSequence()?.firstOrNull()?.take(60) ?: "失敗"
+        ToolStatus.FAILED -> if (ConversationReducer.ownerChoiceOf(t) != null) "你自己決定的" else t.error?.lineSequence()?.firstOrNull()?.take(60) ?: "失敗"
     }
 
     @Synchronized fun note(badge: String, text: String) = add(clock(), badge, text)

@@ -216,7 +216,7 @@ enum class TimelineFilter(val zh: String) { ALL("全部"), ALLOWED("放行"), BL
 
 /** Decisions (newest tool calls) first, then the log, newest first; one list. */
 fun timelineRows(decisions: List<Decision>, log: List<WarLogRow>): List<TimelineRow> =
-    decisions.map { TimelineRow(null, it.kind, it.kind.label, it.text, it.why) } +
+    decisions.map { TimelineRow(null, it.kind, it.badge, it.text, it.why) } +
         log.asReversed().map { r ->
             val k = when (r.badge) { "擋下" -> Decision.Kind.BLOCKED; "錯誤", "失敗" -> Decision.Kind.FAILED; "等你" -> Decision.Kind.WAITING; else -> null }
             TimelineRow(r.atMs, k, r.badge, r.text, r.why)
@@ -255,7 +255,7 @@ internal fun Timeline(decisions: List<Decision>, log: List<WarLogRow>) {
             shown.forEachIndexed { i, r ->
                 val color = when (r.kind) {
                     Decision.Kind.BLOCKED -> War.rose; Decision.Kind.FAILED -> War.rose; Decision.Kind.WAITING -> War.pink
-                    Decision.Kind.ALLOWED -> War.aqua; null -> War.milk
+                    Decision.Kind.ALLOWED -> War.aqua; Decision.Kind.CHOSEN, null -> War.milk
                 }
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .6f)).testTag(WarOpsTags.ROW + i)

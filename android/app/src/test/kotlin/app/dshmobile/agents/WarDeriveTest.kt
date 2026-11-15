@@ -34,6 +34,19 @@ class WarDeriveTest {
         assertTrue(d[2].risk > .9f)
     }
 
+    /** The owner's own 已停止 / 已拒絕 / 已略過 are his choices: neither 錯誤 nor 擋下 (已拒絕 contains 拒). */
+    @Test fun theOwnersOwnChoicesAreNotErrorsOrBlocks() {
+        val tools = listOf("已停止", "已拒絕", "已略過").mapIndexed { i, w -> tool("$i", "bash", ToolStatus.FAILED, error = w) }
+        val d = WarDerive.decisions(tools)
+        assertEquals(List(3) { Decision.Kind.CHOSEN }, d.map { it.kind })
+        assertEquals(listOf("已略過", "已拒絕", "已停止"), d.map { it.badge })
+        assertTrue(tools.none { WarDerive.isBlocked(it) })
+        assertEquals(0, WarDerive.counts(tools, emptyList()).blocked)
+        // A real refusal is still a block, and a real failure still an error.
+        assertTrue(WarDerive.isBlocked(tool("x", "bash", ToolStatus.FAILED, error = "Auto review rejected tool \"bash\"")))
+        assertEquals("錯誤", WarDerive.decisions(listOf(tool("y", "write", ToolStatus.FAILED, error = "disk full"))).single().badge)
+    }
+
     @Test fun countsSplitSearchReadWriteAndDispatches() {
         val c = WarDerive.counts(
             listOf(tool("1", "web_search", ToolStatus.DONE), tool("2", "read", ToolStatus.DONE), tool("3", "write", ToolStatus.DONE), tool("4", "bash", ToolStatus.FAILED, "denied")),

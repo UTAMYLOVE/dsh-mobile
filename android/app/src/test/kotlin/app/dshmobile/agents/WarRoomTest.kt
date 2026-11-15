@@ -134,4 +134,15 @@ class WarRoomTest {
         )
         assertEquals("搜尋「x」", rec.log.value.single().text)
     }
+
+    @Test fun theOwnersOwnStopIsLoggedAsTheWordNotAsAnError() {
+        val rec = WarRoomRecorder { 1 }
+        rec.observeConversation(ConversationState("c"))
+        rec.observeConversation(ConversationState("c", items = listOf(ChatItem.Tool("t", "bash", "ls", ToolStatus.FAILED, error = "已停止"))))
+        val row = rec.log.value.single()
+        assertEquals("已停止", row.badge)
+        assertEquals(null, app.dshmobile.ui.agents.timelineRows(emptyList(), listOf(row)).single().kind)
+        rec.observeConversation(ConversationState("c", items = listOf(ChatItem.Tool("u", "bash", "x", ToolStatus.FAILED, error = "exit code 1"))))
+        assertEquals("錯誤", rec.log.value.first().badge)
+    }
 }
