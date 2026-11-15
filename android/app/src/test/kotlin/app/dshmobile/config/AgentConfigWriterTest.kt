@@ -271,14 +271,30 @@ class AgentConfigWriterTest {
         assertEquals(listOf("@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", bundle), bundles())
     }
 
-    /** 全部放行 means nothing reviews: the Auto review switch only loads its bundle at the other levels (the owner: 「我全開欸」). */
-    @Test fun autoReviewIsNotLoadedAtTheFullLevel() {
-        profile()
+    /**
+     * The Auto review bundle is always loaded, whatever the level and the switch: dsh cannot reopen a conversation saved on "auto"
+     * without it, and an earlier build put the owner's conversations on "auto" at 全部放行 too. Whether anything is reviewed is
+     * ShellSession's and the guard's decision (nothing at 全部放行), not the bundle's.
+     */
+    @Test fun autoReviewBundleIsAlwaysLoadedSoConversationsOnAutoStillOpen() {
+        val auto = AgentConfigWriter.AUTO_REVIEW_BUNDLE
         val store = AgentSettingsStore(InMemorySharedPreferences())
-        store.save(AgentSettings(maxConcurrent = 6, leadModel = "deepseek-flash", autoReview = true))
-        AgentPatchProvider(Vault(), store, writer, { PhantomState.ENABLED }, permission = { app.dshmobile.runtime.PermissionLevel.FULL })(base)
-        assertFalse(bundles().contains(AgentConfigWriter.AUTO_REVIEW_BUNDLE))
-        AgentPatchProvider(Vault(), store, writer, { PhantomState.ENABLED }, permission = { app.dshmobile.runtime.PermissionLevel.SMART })(base)
-        assertTrue(bundles().contains(AgentConfigWriter.AUTO_REVIEW_BUNDLE))
+        fun start(level: app.dshmobile.runtime.PermissionLevel, autoReview: Boolean) {
+            store.save(AgentSettings(maxConcurrent = 6, leadModel = "deepseek-flash", autoReview = autoReview))
+            AgentPatchProvider(Vault(), store, writer, { PhantomState.ENABLED }, permission = { level })(base)
+        }
+        profile()
+        start(app.dshmobile.runtime.PermissionLevel.FULL, autoReview = true) // the owner's settings
+        assertTrue("全部放行 + switch on", bundles().contains(auto))
+        start(app.dshmobile.runtime.PermissionLevel.SMART, autoReview = false)
+        assertTrue("一般 + switch off", bundles().contains(auto))
+        start(app.dshmobile.runtime.PermissionLevel.ASK, autoReview = false)
+        assertTrue("每次都問 + switch off", bundles().contains(auto))
+        assertEquals("added once", 1, bundles().count { it == auto })
+        // A profile an earlier build took the bundle out of (全部放行, or the switch turned off) gets it back.
+        profile()
+        assertFalse(bundles().contains(auto))
+        start(app.dshmobile.runtime.PermissionLevel.FULL, autoReview = false)
+        assertTrue("restored", bundles().contains(auto))
     }
 }

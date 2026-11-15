@@ -134,9 +134,12 @@ class AgentPatchProvider(
         val settings = store.load(phantom(), hasClaudeKey)
         // dsh warns "entry not found" for an agent-team row whose bundle is not loaded: write the row only when the bundle is in place.
         val teamsActive = writer.ensureAgentTeamsBundle(settings.agentTeams)
-        // 全部放行 means nothing reviews or asks: the Auto review switch only applies at the other levels (the owner, 2026-11-15:
-        // 「我全開欸」 while every command still went through the reviewer and failed).
-        writer.ensureAutoReviewBundle(settings.autoReview && permission() != app.dshmobile.runtime.PermissionLevel.FULL)
+        // Never removed: dsh cannot reopen a conversation saved on "auto" without this bundle ("cannot restore preset "auto"
+        // without its active integration"), and an earlier build put every conversation on "auto" while the switch was on. Whether
+        // anything is reviewed is decided only by ShellSession (DshMobileApp's autoReview lambda, nothing at 全部放行) and the
+        // guard; the bundle does nothing to conversations that are not on "auto". Unconditional, so a profile an earlier build
+        // already took it out of gets it back.
+        writer.ensureAutoReviewBundle(true)
         writer.installSkills()
         val section = writer.patchSection(settings.copy(agentTeams = settings.agentTeams && teamsActive), hasClaudeKey)
         val lay = layout()

@@ -17,13 +17,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShellSessionHolderTest {
-    private class FakeRemote : ShellRemote {
+    private class FakeRemote(
+        /** What `session/control` sends (each time it is opened); none by default. */
+        private val controlFrames: List<kotlinx.serialization.json.JsonElement> = emptyList(),
+    ) : ShellRemote {
         override suspend fun listSessions(): List<app.dshmobile.remote.SessionSummary> = emptyList()
         override suspend fun searchSessions(query: String): List<app.dshmobile.remote.SearchHit> = emptyList()
         override suspend fun createSession(workspaceId: String?): String = ""
         override suspend fun rename(sessionId: String, title: String): String = title
         override suspend fun archive(sessionId: String) = Unit
-        override fun control(): kotlinx.coroutines.flow.Flow<app.dshmobile.remote.StreamSignal> = kotlinx.coroutines.flow.emptyFlow()
+        override fun control(): kotlinx.coroutines.flow.Flow<app.dshmobile.remote.StreamSignal> =
+            kotlinx.coroutines.flow.flowOf(*controlFrames.map { app.dshmobile.remote.StreamSignal.Value(it) }.toTypedArray())
         override fun workspaces(): kotlinx.coroutines.flow.Flow<app.dshmobile.remote.StreamSignal> = kotlinx.coroutines.flow.emptyFlow()
         override val hostEvents: kotlinx.coroutines.flow.Flow<app.dshmobile.remote.HostEvent> = kotlinx.coroutines.flow.emptyFlow()
         override val muxState: StateFlow<MuxState> = MutableStateFlow(MuxState.CONNECTING)
@@ -36,13 +40,15 @@ class ShellSessionHolderTest {
             try { kotlinx.coroutines.awaitCancellation() } finally { following -= sessionId }
         }
         override suspend fun interruptSubagent(childSessionId: String, parentSessionId: String) = Unit
-        override suspend fun prompt(sessionId: String, requestId: String, parts: List<app.dshmobile.remote.PromptPart>) = Unit
+        /** Commands and prompts in the order dsh got them. */
+        val calls = java.util.concurrent.CopyOnWriteArrayList<String>()
+        override suspend fun prompt(sessionId: String, requestId: String, parts: List<app.dshmobile.remote.PromptPart>) { calls += "prompt $sessionId" }
         override suspend fun cancel(sessionId: String) = Unit
         override suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): kotlinx.serialization.json.JsonElement = kotlinx.serialization.json.JsonNull
         override suspend fun selectModel(sessionId: String, provider: String, model: String) = Unit
         override suspend fun upload(sessionId: String, name: String, bytes: ByteArray): String = ""
         val commands = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
-        override suspend fun runCommand(sessionId: String, line: String) { commands += sessionId to line }
+        override suspend fun runCommand(sessionId: String, line: String) { commands += sessionId to line; calls += "$line $sessionId" }
     }
 
     private val made = mutableListOf<Pair<RunningDsh, FakeRemote>>()
@@ -186,5 +192,33 @@ class ShellSessionHolderTest {
         session.conversation("s9").send(parts, "hi", emptyList())
         assertEquals("no level: nothing is switched", 3, remote.commands.size)
         session.close()
+    }
+
+    /**
+     * The owner's case (2026-11-15): 全部放行 with the Auto review switch on, and conversations an earlier build put on "auto".
+     * Nothing reviews at 全部放行, so such a conversation is moved to the level's preset before its next message goes out.
+     */
+    @Test fun aConversationOnAutoIsMovedOffItAtTheFullLevelBeforeThePrompt() = kotlinx.coroutines.runBlocking {
+        val baseline = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"type":"baseline","value":{"projections":{"s1":{"values":{"permissions":{"currentValue":"auto"}}}}}}""",
+        )
+        val remote = FakeRemote(controlFrames = listOf(baseline))
+        val level = app.dshmobile.runtime.PermissionLevel.FULL
+        val session = ShellSession(remote, events = null, scope = CoroutineScope(Job()), autoReview = { level.autoReviews(true) }, levelPreset = { level.preset })
+        try {
+            waitFor { session.tree.state.value.projections["s1"] != null }
+            session.conversation("s1").send(listOf(app.dshmobile.remote.PromptPart.Text("hi")), "hi", emptyList())
+            waitFor { remote.calls.any { it.startsWith("prompt") } }
+            assertEquals(listOf("/permission danger-full-access s1", "prompt s1"), remote.calls.toList())
+        } finally {
+            session.close()
+        }
+    }
+
+    @Test fun autoReviewNeverAppliesAtTheFullLevel() {
+        assertFalse(app.dshmobile.runtime.PermissionLevel.FULL.autoReviews(true))
+        assertTrue(app.dshmobile.runtime.PermissionLevel.SMART.autoReviews(true))
+        assertTrue(app.dshmobile.runtime.PermissionLevel.ASK.autoReviews(true))
+        assertFalse(app.dshmobile.runtime.PermissionLevel.SMART.autoReviews(false))
     }
 }

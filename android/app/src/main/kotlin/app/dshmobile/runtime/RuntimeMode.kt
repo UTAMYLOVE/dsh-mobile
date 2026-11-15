@@ -69,6 +69,13 @@ enum class PermissionLevel(val id: String, val preset: String) {
     /** Never asks. */
     FULL("full", "danger-full-access");
 
+    /**
+     * Whether conversations run under dsh's Auto review at this level with the owner's switch at [switchOn]: never at 全部放行,
+     * where nothing reviews or asks (the owner, 2026-11-15: 「我全開欸」). The one rule ShellSession (before each send) and the
+     * guard plugin (at every tool call, through DSHM_AUTO_REVIEW) both follow, so they never pull a conversation two ways.
+     */
+    fun autoReviews(switchOn: Boolean): Boolean = this != FULL && switchOn
+
     companion object {
         fun of(id: String?): PermissionLevel? = entries.firstOrNull { it.id == id }
     }
