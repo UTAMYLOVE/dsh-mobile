@@ -175,6 +175,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     // JankStats: frame timing that feeds the auto-degrade of effects (ui/fog/JankGovernor.kt).
     implementation(libs.androidx.metrics.performance)
+    // WebViewAssetLoader: the community startup looks (assets/intro-web/) play in a locked-down WebView (ui/fog/WebIntro.kt).
+    implementation(libs.androidx.webkit)
 
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)

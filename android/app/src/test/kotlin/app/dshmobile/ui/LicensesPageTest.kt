@@ -1,8 +1,10 @@
 package app.dshmobile.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -56,6 +58,27 @@ class LicensesPageTest {
         credits.forEach { mit.assertTextContains(it.copyright, substring = true) }
     }
 
+    @Test fun theDshCommunityLooksAreCreditedWithCommitLicenceAndChanges() {
+        show()
+        val ported = OpenSourceLicences.portedLooks
+        assertEquals(listOf("sakura", "neon", "wave"), ported.map { it.key })
+        for (p in ported) {
+            rule.onNodeWithText("原作：${p.project} · ${p.author}").performScrollTo()
+            rule.onNodeWithText("版本：${p.commit}").performScrollTo()
+            rule.onNodeWithText("連結：${p.url}").performScrollTo()
+            rule.onNodeWithText("授權：MIT License, ${p.copyright}").performScrollTo()
+            assertTrue(p.url, p.url.startsWith("https://github.com/"))
+            assertTrue(p.commit, Regex("[0-9a-f]{40}").matches(p.commit))
+            rule.onNodeWithTag(LicensesTags.SHOW + "ported-" + p.key).performScrollTo().performClick()
+            val text = rule.onNodeWithTag(LicensesTags.TEXT + "ported-" + p.key).performScrollTo()
+            text.assertTextContains("Permission is hereby granted, free of charge", substring = true)
+            text.assertTextContains(p.copyright, substring = true)
+        }
+        rule.onNodeWithTag(LicensesTags.PORTED + "sakura").performScrollTo()
+        rule.onAllNodesWithText("櫻花動漫風（dsh 社群作品）").assertCountEquals(1)
+        rule.onAllNodesWithText("我們改了什麼：", substring = true).assertCountEquals(3)
+    }
+
     @Test fun theLibraryLicenceIsThereAndClosingWorks() {
         show()
         rule.onNodeWithTag(LicensesTags.SHOW + "commonmark").performScrollTo().performClick()
@@ -66,7 +89,8 @@ class LicensesPageTest {
 
     @Test fun everyListedAssetExists() {
         val assets = ApplicationProvider.getApplicationContext<android.content.Context>().assets
-        val files = (OpenSourceLicences.introFonts + OpenSourceLicences.otherFonts + OpenSourceLicences.libraries).map { it.asset } + OpenSourceLicences.MIT_ASSET
+        val files = (OpenSourceLicences.introFonts + OpenSourceLicences.otherFonts + OpenSourceLicences.libraries).map { it.asset } + OpenSourceLicences.MIT_ASSET +
+            OpenSourceLicences.portedLooks.map { it.licence }
         files.forEach { f -> assertTrue(f, assets.open(f).use { it.readBytes().size } > 500) }
     }
 }

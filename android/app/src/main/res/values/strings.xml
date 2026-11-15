@@ -561,6 +561,13 @@
     <string name="look_intro_style_tunnel_hint">花瓣光柱衝向你，一路衝進 App。</string>
     <string name="look_intro_style_one_stroke">一筆描</string>
     <string name="look_intro_style_one_stroke_hint">一筆畫出櫻紋，再寫上你的名字；約 2 秒，最短也最省電。</string>
+    <!-- dsh community startup looks, played as their authors made them (a locked-down web page inside the app). -->
+    <string name="look_intro_style_web_sakura">櫻花動漫風（dsh 社群作品）</string>
+    <string name="look_intro_style_web_sakura_hint">照原作播放：粉白畫面，你的圖當背景和頭像，歡迎詞一個字一個字浮上來。</string>
+    <string name="look_intro_style_web_neon">粉色霓虹敘事（dsh 社群作品）</string>
+    <string name="look_intro_style_web_neon_hint">照原作播放：粉色霓虹的開機、登入小故事，最後歡迎你；最短約 4 秒。</string>
+    <string name="look_intro_style_web_wave">光點聚形波浪（dsh 社群作品）</string>
+    <string name="look_intro_style_web_wave_hint">照原作播放：一道光點浪打過來，聚成你的圖，再說歡迎回來。</string>
     <string name="look_restore">外觀恢復預設</string>
     <string name="look_restore_hint">恢復預設不會刪掉你選的圖片。</string>
     <string name="intro_permission">需要訪問許可</string>
@@ -576,7 +583,7 @@
     <string name="intro_passed_sub">權限已開啟</string>
     <string name="set_licenses">開放原始碼授權</string>
     <string name="licenses_title">開放原始碼授權</string>
-    <string name="licenses_intro">這個 App 用到的字型、程式庫和參考過的外掛，以及它們的授權。</string>
+    <string name="licenses_intro">這個 App 用到的字型、程式庫、照原作播放的開場動畫和參考過的外掛，以及它們的授權。</string>
     <string name="licenses_fonts_intro">開場動畫的字型</string>
     <string name="licenses_fonts_other">App 裡的其他字型</string>
     <string name="licenses_ideas">開場動畫參考的外掛</string>
@@ -587,6 +594,16 @@
     <string name="licenses_orbitron">Orbitron、Chakra Petch：App 裡的英文標題和數字。</string>
     <string name="licenses_commonmark">commonmark-java：把回覆裡的 Markdown 排成文字。</string>
     <string name="licenses_used_for">用在：%1$s</string>
+    <string name="licenses_ported">開場動畫：dsh 社群作品（照原作播放）</string>
+    <string name="licenses_ported_note">這三段開場是作者的原始程式碼，MIT 授權，在 App 裡用不連網的網頁畫面播放。原作的圖、角色、標誌、聲音都沒有放進 App，換成你的圖和你的名字。</string>
+    <string name="licenses_ported_by">原作：%1$s · %2$s</string>
+    <string name="licenses_ported_link">連結：%1$s</string>
+    <string name="licenses_ported_commit">版本：%1$s</string>
+    <string name="licenses_ported_licence">授權：MIT License, %1$s</string>
+    <string name="licenses_ported_changes">我們改了什麼：%1$s</string>
+    <string name="licenses_ported_sakura_changes">原作的兩張動漫角色圖換成你的背景圖（沒有圖時用程式畫的底和名字第一個字）；角色的招呼語拿掉，歡迎詞和名字用你的；簡體字改成繁體；長度跟著設定；拿掉和 dsh 綁在一起的部分（注入網頁、記住播過沒）。</string>
+    <string name="licenses_ported_neon_changes">背景圖和桌面寵物換成你的圖；真人語音和音效拿掉，動畫不出聲；作者的名字換成你的名字和歡迎詞，DeepSeek 的名稱換成 DSH Mobile；從 React 改寫成一般網頁；長度跟著設定（最短約 4 秒）；拿掉存檔、設定頁和 dsh 專用的部分；手機直放橫放都排得下。</string>
+    <string name="licenses_ported_wave_changes">DeepSeek 鯨魚標誌換成你的圖（沒有圖時是程式畫的圓和名字第一個字）；語音和配樂拿掉，動畫不出聲；「指揮員」換成你的名字和歡迎詞，簡體字改成繁體；預設播短版，長度跟著設定；拿掉設定頁和存檔。</string>
     <string name="licenses_mit_text">MIT 授權全文</string>
     <string name="licenses_show">看授權全文</string>
     <string name="licenses_hide">收起授權全文</string>

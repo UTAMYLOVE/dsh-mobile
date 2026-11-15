@@ -34,9 +34,10 @@ enum class PictureAlign(val id: String, val bias: Float) { TOP("top", -1f), CENT
 
 /**
  * Which startup look plays (0.8.2, the owner: 「四種新開場」). [SIGIL] is the original and stays the default; each other look
- * is its own composable (StartupIntro dispatches) in its own file, IntroStardust.kt and so on.
+ * is its own composable (StartupIntro dispatches) in its own file, IntroStardust.kt and so on. The looks with a [web] page are
+ * dsh community startup animations played as they are, from assets/intro-web/, in a locked-down WebView (WebIntro.kt).
  */
-enum class IntroStyle(val id: String) {
+enum class IntroStyle(val id: String, val web: WebLook? = null) {
     /** 櫻紋陣: the sakura magic circle scans you, 核驗通過, welcome. */
     SIGIL("sigil"),
     /** 星屑迎接: your picture slowly pushes in, stardust and rings round your portrait, 歡迎回來 rises. */
@@ -47,6 +48,12 @@ enum class IntroStyle(val id: String) {
     TUNNEL("tunnel"),
     /** 一筆描: the crest is drawn stroke by stroke and glows; the shortest. */
     ONE_STROKE("one-stroke"),
+    /** 櫻花動漫風 (KylinQ01/dsh-startup-animation): a pastel splash, your picture as the ground and the avatar, the welcome rises. */
+    WEB_SAKURA("web-sakura", WebLook.SAKURA),
+    /** 粉色霓虹敘事 (wsy304450907-boop/Z1ro2): a pink neon boot, login and welcome story. */
+    WEB_NEON("web-neon", WebLook.NEON),
+    /** 光點聚形波浪 (bigfatorangecatjohn/opening-free-0.21.0): a wave of light dots gathers into your picture and the welcome. */
+    WEB_WAVE("web-wave", WebLook.WAVE),
     ;
 
     companion object {

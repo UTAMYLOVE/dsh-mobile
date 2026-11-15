@@ -221,10 +221,12 @@ jobs:
           disable-animations: true
           working-directory: android
           # The APKs are built already: this Gradle only installs and drives the tests, so it runs on a smaller heap.
+          # IntroWebLooksTest copies its screenshots to /data/local/tmp/intro-shots (the app's own files go with its uninstall
+          # after the run); they are pulled on the same line, pass or fail, while the emulator is still up.
           script: |
             adb logcat -c
             adb logcat -v threadtime > "$GITHUB_WORKSPACE/logcat.txt" 2>&1 < /dev/null &
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pdshm.nativeDir=$NATIVE_DIR" "-Pandroid.testInstrumentationRunnerArguments.plainBackground=$PLAIN_BACKGROUND"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pdshm.nativeDir=$NATIVE_DIR" "-Pandroid.testInstrumentationRunnerArguments.plainBackground=$PLAIN_BACKGROUND"; status=$?; adb pull /data/local/tmp/intro-shots "$GITHUB_WORKSPACE/intro-shots" || true; exit $status
       # Names, times and pass/fail only (failure messages stay in the uploaded report), so a green job shows what ran.
       - name: List the instrumentation test results
         if: always()
@@ -266,6 +268,15 @@ jobs:
           sudo dmesg 2>/dev/null | grep -iE "killed process|out of memory|oom-kill|oom_reaper" | tail -n 20 || true
           echo "=== logcat: crashes, ANRs, low-memory kills, test runner"
           grep -E "FATAL EXCEPTION|AndroidRuntime|ANR in|lowmemorykiller|Low on memory|TestRunner|app\.dshmobile" logcat.txt | grep -vE "token=|Authorization|api[_-]?key" | tail -n 200 || true
+      # The dsh community startup looks as the emulator's WebView drew them (IntroWebLooksTest), on every run, for the owner.
+      - name: Upload the startup look screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intro-shots
+          path: intro-shots
+          if-no-files-found: warn
+          retention-days: 14
       - name: Upload test reports and logcat
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4

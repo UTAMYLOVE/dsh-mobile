@@ -85,6 +85,23 @@ class LookSettingsTest {
         assertEquals(tick + 1, c.introTick.value)
     }
 
+    @Test fun theDshCommunityLooksAreListedAfterTheDrawnOnesAndChosenTheSameWay() {
+        val c = show()
+        for ((id, name) in listOf(
+            "web-sakura" to "櫻花動漫風（dsh 社群作品）",
+            "web-neon" to "粉色霓虹敘事（dsh 社群作品）",
+            "web-wave" to "光點聚形波浪（dsh 社群作品）",
+        )) {
+            rule.onNodeWithTag(LookTags.INTRO_STYLE + id).performScrollTo().assertIsNotSelected()
+            rule.onNodeWithText(name).assertExists()
+        }
+        rule.onNodeWithText("照原作播放：粉白畫面，你的圖當背景和頭像，歡迎詞一個字一個字浮上來。").assertExists()
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "web-wave").performScrollTo().performClick()
+        assertEquals(IntroStyle.WEB_WAVE, c.look.value.intro.style)
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "web-wave").assertIsSelected()
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "one-stroke").assertIsNotSelected()
+    }
+
     @Test fun restoreDefaultsBringsEverythingBack() {
         val c = show()
         c.update { it.copy(style = BackdropStyle.KAWAII, amount = 5, intro = it.intro.copy(enabled = true, style = IntroStyle.ONE_STROKE)) }

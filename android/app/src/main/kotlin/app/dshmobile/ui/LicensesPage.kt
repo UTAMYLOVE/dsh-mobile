@@ -39,6 +39,17 @@ import app.dshmobile.ui.theme.Sakura
 /** One open-source project the app's startup looks learned from: shown with its author, link and MIT copyright line. */
 internal class OpenSourceCredit(val project: String, val author: String, val url: String, val copyright: String, val usedFor: String)
 
+/**
+ * One dsh community startup look whose own code ships in the app (assets/intro-web/<[key]>/, with its LICENSE and NOTICE.md):
+ * the project, its author, link, the commit it was taken from, its MIT copyright line and what was changed.
+ */
+internal class PortedLook(
+    val key: String, val project: String, val author: String, val url: String, val commit: String, val copyright: String,
+    val look: Int, val changes: Int,
+) {
+    val licence: String get() = "intro-web/$key/LICENSE"
+}
+
 /** One licence text bundled in assets/licenses/, with what it covers. */
 internal class BundledLicence(val id: String, val what: Int, val copyrights: List<String>, val asset: String)
 
@@ -83,6 +94,25 @@ internal object OpenSourceLicences {
         OpenSourceCredit("dsh-apple-liquid-glass", "CTY", "https://github.com/tianyuec11-design/dsh-apple-liquid-glass", "Copyright (c) 2026 CTY", "一筆描（名字一筆一筆寫出來）"),
     )
     const val MIT_ASSET = "licenses/startup-plugins-MIT.txt"
+
+    /** The community looks played as they are (in the picker as 「…（dsh 社群作品）」); each NOTICE.md lists every change. */
+    val portedLooks = listOf(
+        PortedLook(
+            "sakura", "dsh-startup-animation", "KylinQ01", "https://github.com/KylinQ01/dsh-startup-animation",
+            "3a8c57a8fe2113b81ff861e9fc4589ad9bae6460", "Copyright (c) 2026 KylinQ01",
+            R.string.look_intro_style_web_sakura, R.string.licenses_ported_sakura_changes,
+        ),
+        PortedLook(
+            "neon", "dsh-neon-splash-v3", "Z1ro2", "https://github.com/wsy304450907-boop/Z1ro2",
+            "397742bb37c976d6f4531689f2854f8cc6e2392b", "Copyright (c) 2026 Z1ro2",
+            R.string.look_intro_style_web_neon, R.string.licenses_ported_neon_changes,
+        ),
+        PortedLook(
+            "wave", "dsh-opening-free", "bigfatorangecatjohn", "https://github.com/bigfatorangecatjohn/opening-free-0.21.0",
+            "b75f3e3e5346b48156c2193ca1c11ec3a78a60af", "Copyright (c) 2026 bigfatorangecatjohn",
+            R.string.look_intro_style_web_wave, R.string.licenses_ported_wave_changes,
+        ),
+    )
 }
 
 object LicensesTags {
@@ -91,6 +121,7 @@ object LicensesTags {
     const val SHOW = "licenses-show-"
     const val TEXT = "licenses-text-"
     const val OPEN = "open-licenses"
+    const val PORTED = "licenses-ported-"
 }
 
 /** The 開放原始碼授權 page over the settings, full screen; back or 關閉 closes it. */
@@ -125,6 +156,10 @@ internal fun LicensesPage(onClose: () -> Unit) {
             Text(stringResource(R.string.licenses_ideas_note), style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
             OpenSourceLicences.startupPlugins.forEach { Credit(it) }
             FullText("mit", R.string.licenses_mit_text, OpenSourceLicences.MIT_ASSET)
+
+            Heading(R.string.licenses_ported)
+            Text(stringResource(R.string.licenses_ported_note), style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
+            OpenSourceLicences.portedLooks.forEach { Ported(it) }
         }
     }
 }
@@ -151,6 +186,19 @@ private fun Credit(c: OpenSourceCredit) {
         Text(c.url, style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
         Text("MIT License, ${c.copyright}", style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
         Text(stringResource(R.string.licenses_used_for, c.usedFor), style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
+    }
+}
+
+@Composable
+private fun Ported(p: PortedLook) {
+    Column(Modifier.fillMaxWidth().testTag(LicensesTags.PORTED + p.key), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(stringResource(p.look), style = MaterialTheme.typography.bodyMedium, color = Sakura.Text)
+        Text(stringResource(R.string.licenses_ported_by, p.project, p.author), style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
+        Text(stringResource(R.string.licenses_ported_link, p.url), style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
+        Text(stringResource(R.string.licenses_ported_commit, p.commit), style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
+        Text(stringResource(R.string.licenses_ported_licence, p.copyright), style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
+        Text(stringResource(R.string.licenses_ported_changes, stringResource(p.changes)), style = MaterialTheme.typography.bodySmall, color = Sakura.TextSecondary)
+        FullText("ported-" + p.key, null, p.licence)
     }
 }
 

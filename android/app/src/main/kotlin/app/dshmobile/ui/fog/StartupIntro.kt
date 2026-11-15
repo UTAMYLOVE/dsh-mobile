@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
@@ -44,7 +46,7 @@ import kotlin.math.roundToInt
  * The optional startup animation, in the look the user picked ([Intro.style]); 「櫻紋陣」 is the default. Every look plays in
  * [IntroHost], which gives it the same clock, skip, exit iris, reduced-motion still and screen-reader behaviour. [onOpaqueChange]
  * says when the screen underneath may be hidden (true while the intro covers it); [onDone] is called exactly once. Only the six
- * colours (and #5E4445 / #7D5F60 for text).
+ * colours (and #5E4445 / #7D5F60 for text), except the dsh community looks ([IntroStyle.web]), which keep their authors' own.
  */
 @Composable
 fun StartupIntro(
@@ -62,7 +64,30 @@ fun StartupIntro(
         IntroStyle.PETAL_STORM -> PetalStormIntro(intro, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
         IntroStyle.TUNNEL -> TunnelIntro(intro, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
         IntroStyle.ONE_STROKE -> OneStrokeIntro(intro, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
+        IntroStyle.WEB_SAKURA -> CommunityIntro(intro, WebLook.SAKURA, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
+        IntroStyle.WEB_NEON -> CommunityIntro(intro, WebLook.NEON, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
+        IntroStyle.WEB_WAVE -> CommunityIntro(intro, WebLook.WAVE, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
     }
+}
+
+/**
+ * A dsh community look, played as its author made it in a locked-down WebView ([WebIntro]). One that cannot be made, loaded or
+ * shown gives way to 櫻紋陣 at once, with nothing said: the user still gets a startup animation.
+ */
+@Composable
+private fun CommunityIntro(
+    intro: Intro,
+    look: WebLook,
+    picture: ImageBitmap?,
+    reducedMotion: Boolean,
+    pictureExpected: Boolean,
+    fx: IntroFx,
+    onOpaqueChange: (Boolean) -> Unit,
+    onDone: () -> Unit,
+) {
+    var fallback by remember { mutableStateOf(false) }
+    if (fallback) SigilIntro(intro, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
+    else WebIntro(intro, look, reducedMotion, onOpaqueChange, onDone, onFail = { fallback = true })
 }
 
 /**

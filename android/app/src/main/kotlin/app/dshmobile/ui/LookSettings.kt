@@ -182,6 +182,9 @@ private fun styleWords(style: IntroStyle): Pair<Int, Int> = when (style) {
     IntroStyle.PETAL_STORM -> R.string.look_intro_style_petal_storm to R.string.look_intro_style_petal_storm_hint
     IntroStyle.TUNNEL -> R.string.look_intro_style_tunnel to R.string.look_intro_style_tunnel_hint
     IntroStyle.ONE_STROKE -> R.string.look_intro_style_one_stroke to R.string.look_intro_style_one_stroke_hint
+    IntroStyle.WEB_SAKURA -> R.string.look_intro_style_web_sakura to R.string.look_intro_style_web_sakura_hint
+    IntroStyle.WEB_NEON -> R.string.look_intro_style_web_neon to R.string.look_intro_style_web_neon_hint
+    IntroStyle.WEB_WAVE -> R.string.look_intro_style_web_wave to R.string.look_intro_style_web_wave_hint
 }
 
 @Composable

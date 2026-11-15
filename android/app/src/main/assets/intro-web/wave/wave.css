@@ -1,0 +1,212 @@
+/*
+ * 光點聚形波浪: styles of the boot cut.
+ *
+ * [DSH Mobile] Adapted from bigfatorangecatjohn/opening-free-0.21.0 @ b75f3e3e5346b48156c2193ca1c11ec3a78a60af,
+ * plugin/dsh-opening/client.src.js (the `CSS` string the client injected as a <style> element). MIT License,
+ * Copyright (c) 2026 bigfatorangecatjohn: see LICENSE and NOTICE.md. Only the rules the cut uses are kept; rules for
+ * the unused older `Stage` cut, the Settings preview layer and the en/ru/ja salutes are left out. Changes are marked
+ * [DSH Mobile]; everything else is the original's.
+ */
+
+/* [DSH Mobile] A page of its own: no margins, no scrolling, no tap highlight or text selection. The background is the
+ * stage colour until the exit starts, then clears so a see-through WebView shows the app through the fade. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #f7f8fa;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+html.is-leaving,
+html.is-leaving body {
+  background: transparent;
+}
+
+.dshop-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 58% 52% at 50% 46%, rgba(255, 255, 255, 0.92) 0%, rgba(247, 248, 250, 0) 62%),
+    var(--dshop-stage);
+  color: var(--dshop-ink);
+  font-family: "Segoe UI", "Microsoft YaHei", -apple-system, system-ui, sans-serif;
+  opacity: 1;
+  transition:
+    opacity var(--dshop-fade) cubic-bezier(0.4, 0, 0.2, 1),
+    transform var(--dshop-fade) cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-font-smoothing: antialiased;
+}
+.dshop-root.is-leaving { opacity: 0; transform: scale(1.012); }
+
+.dshop-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---- short cut: stream, mark, rings, salute ------------------------- */
+
+.dshop-cyber-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, 0);
+  text-align: center;
+  pointer-events: none;
+  will-change: transform;
+  /* [DSH Mobile] as wide as its longest line, so a long name stays centred on a narrow phone */
+  width: max-content;
+}
+
+.dshop-cyber-lead {
+  padding-left: 0.62em;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: clamp(15.75px, 1.86vmin, 22.5px);
+  letter-spacing: 0.62em;
+  color: var(--dshop-dim);
+  opacity: 0;
+  text-shadow: 0 0 14px rgba(77, 107, 254, 0.42);
+  will-change: opacity, letter-spacing;
+  white-space: nowrap; /* [DSH Mobile] one line; the script shrinks it to fit instead */
+}
+
+.dshop-cyber-namewrap {
+  opacity: 0;
+  will-change: opacity;
+}
+
+.dshop-cyber-rule {
+  width: 0;
+  height: 1px;
+  margin: 12px auto 0;
+  opacity: 0;
+  background: linear-gradient(
+    to right,
+    rgba(77, 107, 254, 0) 0%,
+    rgba(77, 107, 254, 0.92) 50%,
+    rgba(77, 107, 254, 0) 100%
+  );
+  box-shadow: 0 0 14px rgba(77, 107, 254, 0.6);
+}
+
+.dshop-cyber-name {
+  margin-top: 11px;
+  margin-bottom: 0; /* [DSH Mobile] the dsh page reset <h1> margins; this page has no reset */
+  padding-left: 0.26em;
+  font-size: clamp(37.5px, 6.9vmin, 87px);
+  font-weight: 600;
+  line-height: 1.16;
+  letter-spacing: 0.26em;
+  color: var(--dshop-ink);
+  will-change: opacity, transform, letter-spacing, text-shadow;
+  white-space: nowrap; /* [DSH Mobile] one line; the script shrinks it to fit instead */
+}
+
+/* The Chinese address sits closest to the ring: its block is tall enough to be clamped upward by the progress bar.
+   Tighten the stack so the lead clears the circle and the two lines read as one salute, not two. */
+.dshop-root.is-zh .dshop-cyber-lead {
+  line-height: 1.12;
+}
+
+.dshop-root.is-zh .dshop-cyber-rule {
+  margin-top: 4px;
+}
+
+.dshop-root.is-zh .dshop-cyber-name {
+  margin-top: 4px;
+  line-height: 1.04;
+}
+
+.dshop-cyber-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  pointer-events: none;
+}
+
+.dshop-cyber-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 17px;
+}
+
+.dshop-cyber-tick {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--dshop-accent);
+  opacity: 0.12;
+  box-shadow: 0 0 7px rgba(77, 107, 254, 0.7);
+  will-change: opacity;
+}
+
+.dshop-cyber-pct {
+  min-width: 3.6em;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.16em;
+  color: var(--dshop-accent);
+  text-shadow: 0 0 11px rgba(77, 107, 254, 0.55);
+}
+
+/* The long sequence narrates five access steps. The plate is five rows tall but every row dissolves into the same
+   spot -- the middle one -- so the words land in place instead of walking down the screen. */
+.dshop-cyber-steps {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: calc(6em + 48px);
+  font-size: clamp(15px, 2.05vmin, 28px);
+  pointer-events: none;
+  transform: translateY(0);
+  will-change: transform;
+}
+
+.dshop-cyber-step {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: inherit;
+  letter-spacing: 0.12em;
+  color: var(--dshop-dim);
+  text-shadow: 0 0 18px rgba(77, 107, 254, 0.16);
+  white-space: nowrap;
+  will-change: opacity, transform;
+}
+
+@media (max-width: 900px) {
+  .dshop-cyber-steps {
+    font-size: clamp(14px, 3.1vmin, 22px);
+    height: calc(6em + 40px);
+  }
+  .dshop-cyber-step { letter-spacing: 0.08em; }
+}
+
+/* [DSH Mobile] The original's `@media (prefers-reduced-motion: reduce)` block, keyed on html.is-calm, which the script
+ * sets from reduced=1 (or, without the parameter, from the same media query). The still frame also drops the exit's
+ * 1.2 % zoom, which this rule would otherwise make jump. */
+html.is-calm .dshop-root,
+html.is-calm .dshop-root * { animation: none !important; transition: opacity 0.2s linear !important; }
+html.is-calm .dshop-root.is-leaving { transform: none; }

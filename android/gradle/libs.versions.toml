@@ -15,6 +15,7 @@ slf4j = "2.0.17"
 composeBom = "2026.01.01"
 activityCompose = "1.12.4"
 metricsPerformance = "1.0.0"
+webkit = "1.15.0"
 espresso = "3.7.0"
 uiautomator = "2.3.0"
 androidxTestRunner = "1.7.0"
@@ -47,6 +48,7 @@ androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 androidx-metrics-performance = { module = "androidx.metrics:metrics-performance", version.ref = "metricsPerformance" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
 androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
 androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
 junit = { module = "junit:junit", version.ref = "junit" }
