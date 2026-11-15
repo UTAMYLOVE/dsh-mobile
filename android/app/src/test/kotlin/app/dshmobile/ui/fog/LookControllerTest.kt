@@ -56,6 +56,16 @@ class LookControllerTest {
         return jpeg.copyOfRange(0, 2) + app1 + jpeg.copyOfRange(2, jpeg.size)
     }
 
+    /**
+     * MainActivity provides [LookController.pictureFile] as a static composition local each time the screen's root recomposes;
+     * a value unequal to the last one would recompose the whole shell. A new File on each call is fine: File compares paths.
+     */
+    @Test fun thePictureFileIsTheSameValueOnEveryCall() {
+        val c = LookController(LookStore(InMemorySharedPreferences()), tmp.newFolder("look"))
+        assertEquals(c.pictureFile, c.pictureFile)
+        assertEquals(c.pictureFile.hashCode(), c.pictureFile.hashCode())
+    }
+
     @Test fun aPictureIsKeptScaledDownAndCanBeRemoved() = runBlocking {
         val prefs = InMemorySharedPreferences()
         val dir = tmp.newFolder("look")

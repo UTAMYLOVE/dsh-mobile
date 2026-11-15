@@ -20,6 +20,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performSemanticsAction
 import app.dshmobile.ui.shell.Tags
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.config.AgentSettings
@@ -941,6 +942,86 @@ class MainActivityTest {
         waitUntil { called("session/cancel").isNotEmpty() }
         assertTrue(called("session/cancel").single().second.contains("\"sessionId\":\"s1\""))
         assertTrue(called("session/prompt").isEmpty())
+    }
+
+    // --- the dock as an accessibility service drives it (PerfGateTest's UiAutomator on the CI emulator) ---
+
+    /** Compose's own semantics node id of the node tagged [tag]: also its virtual view id for accessibility. */
+    private fun idOf(tag: String) = compose.onNodeWithTag(tag).fetchSemanticsNode().id
+
+    /** Lets the shell's frames and Compose's accessibility loop (it waits 100 ms between batches) run for [ms]. */
+    private fun settle(ms: Long = 2_000) {
+        repeat((ms / 200).toInt()) {
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200))
+            compose.mainClock.advanceTimeBy(200)
+        }
+    }
+
+    /**
+     * UiAutomator types with ACTION_SET_TEXT on the field's accessibility node: no focus, no keyboard (Compose's own test input
+     * focuses the field first). Through that path too the text reaches the dock and the microphone gives way to send, at the
+     * app's default effect level. (PerfGateTest timed out waiting for send on the emulator; the app was not the cause, see
+     * [withAnAccessibilityServiceOnTheDockSaysItsButtonChanged].)
+     */
+    @Test fun textSetThroughAccessibilityTurnsTheMicrophoneIntoSend() {
+        completeSetup()
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        activity.navForTest.openSession("s1")
+        compose.waitForIdle()
+        compose.onNodeWithTag(Tags.VOICE).assertExists()
+        val view = activity.window.decorView.let(::composeView)
+        val args = android.os.Bundle().apply {
+            putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "E2E_LONG")
+        }
+        val provider = view.accessibilityNodeProvider
+        assertNotNull("the shell answers accessibility services", provider)
+        assertTrue(provider!!.performAction(idOf(Tags.COMPOSER_INPUT), android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, args))
+        compose.waitForIdle()
+        assertEquals("E2E_LONG", composerText())
+        compose.onNodeWithTag(Tags.SEND).assertIsEnabled()
+        assertTrue(compose.onAllNodesWithTag(Tags.VOICE).fetchSemanticsNodes().isEmpty())
+    }
+
+    /**
+     * With an accessibility service on, the shell tells it that the dock changed when the microphone becomes send (a subtree
+     * change for the dock), so the service's copy of the screen shows send. The CI emulator runs no accessibility service, so
+     * Compose sends no such event there and UiAutomator kept the old copy for seconds: PerfGateTest reads the screen afresh.
+     */
+    @Test fun withAnAccessibilityServiceOnTheDockSaysItsButtonChanged() {
+        val manager = shadowOf(app.getSystemService(android.view.accessibility.AccessibilityManager::class.java))
+        manager.setEnabled(true)
+        manager.setEnabledAccessibilityServiceList(listOf(android.accessibilityservice.AccessibilityServiceInfo()))
+        completeSetup()
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        activity.navForTest.openSession("s1")
+        compose.waitForIdle()
+        settle()
+        compose.onNodeWithTag(Tags.VOICE).assertExists()
+        val dock = idOf(Tags.DOCK)
+        val before = manager.sentAccessibilityEvents.size
+        compose.onNodeWithTag(Tags.COMPOSER_INPUT).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetText) {
+            it(androidx.compose.ui.text.AnnotatedString("E2E_LONG"))
+        }
+        compose.waitForIdle()
+        settle()
+        compose.onNodeWithTag(Tags.SEND).assertIsEnabled()
+        val sourceOf = android.view.accessibility.AccessibilityRecord::class.java.getDeclaredMethod("getSourceNodeId").apply { isAccessible = true }
+        val dockChanged = manager.sentAccessibilityEvents.drop(before).any { e ->
+            e.eventType == android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+                e.contentChangeTypes and android.view.accessibility.AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE != 0 &&
+                ((sourceOf.invoke(e) as Long) ushr 32).toInt() == dock
+        }
+        assertTrue("a subtree change for the dock was sent", dockChanged)
+    }
+
+    private fun composeView(view: android.view.View): android.view.View {
+        if (view is androidx.compose.ui.node.RootForTest) return view
+        if (view is android.view.ViewGroup) for (i in 0 until view.childCount) runCatching { return composeView(view.getChildAt(i)) }
+        throw AssertionError("no Compose view")
     }
 
     @Test fun sendIsDisabledWhileDshIsNotReady() {
