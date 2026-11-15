@@ -8,7 +8,7 @@
 //   帳本/YYYY-MM.csv         日期,時間,類型,金額,分類,帳戶,桶,內容,備註,來源,id
 //   熱量/YYYY-MM.csv         日期,時間,餐別,內容,熱量下限,熱量上限,蛋白質,脂肪,碳水,來源,id
 //   健身/YYYY-MM.csv         日期,動作,組數,次數或秒數,備註,id
-//   體重.csv                 日期,體重,體脂,備註   (no id column: a row's id is t<YYMMDD>[-n])
+//   體重.csv                 日期,體重,體脂,備註   (no id column: a row's id is t<YYMMDD>-<hash of its values>, see weightBaseId)
 //   我的食物庫.csv           名稱,份量,熱量,蛋白質,脂肪,碳水
 // Files an older skill wrote with other headers (in 生活/ or in <workspace>/帳本, <workspace>/熱量) are read by header name and
 // never rewritten, except by `migrate --yes`.
@@ -457,13 +457,30 @@ function readTableFile(src, table, ctx) {
       r.cents = Math.abs(r.rawCents);
     }
   }
-  if (table === "體重") {
-    const seen = new Map();
-    for (const r of res.rows) { const n = (seen.get(r.date) ?? 0) + 1; seen.set(r.date, n); r.id = weightId(r.date, n); }
-  }
+  if (table === "體重") giveWeightIds(res.rows);
   return res;
 }
-const weightId = (date, n) => `t${date.replace(/-/g, "").slice(2)}${n > 1 ? `-${n}` : ""}`;
+
+/**
+ * 體重.csv has no id column (adding one would turn every existing file into an old-format file that needs `migrate --yes`),
+ * so a weighing's id is computed from what the row says: t<YYMMDD>-<4 base36 of a hash of weight|fat|note>. An id from the
+ * row's position within the day (the earlier t<YYMMDD>-2) named another row once one was deleted: a repeated `undo` (a
+ * retried tool call, or the model reusing the id) then deleted the other weighing of that day. A content id stops naming
+ * anything once its row is gone or changed. The hash is over the cells as written, so the id read back is the one handed out.
+ */
+function weightBaseId(r) {
+  const h = crypto.createHash("sha256").update(`${numCell(r.weight)}|${numCell(r.fat)}|${r.note ?? ""}`).digest();
+  return `t${r.date.replace(/-/g, "").slice(2)}-${h.readUInt32BE(0).toString(36).padStart(4, "0").slice(-4)}`;
+}
+/** Gives [rows] (in file order) their ids; only rows with the same id base (identical rows) get -2, -3 ... [seen] counts bases already given. */
+function giveWeightIds(rows, seen = new Map()) {
+  for (const r of rows) {
+    const base = weightBaseId(r), n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    r.id = n > 1 ? `${base}-${n}` : base;
+  }
+  return seen;
+}
 
 /** All files and rows of a table (cached for the run). */
 function data(ctx, table) {
@@ -979,7 +996,9 @@ function ledgerCard(ctx, rows) {
   const total = L.reduce((a, r) => a + (r.type === "收入" ? r.cents : -r.cents), 0);
   const title = L.length === 1 ? L[0].content || L[0].category : `${L[0].content || L[0].category}等 ${L.length} 筆`;
   const sign = total > 0 ? "+" : "";
-  return ["<!--dshm-card ledger", `項目: ${title.slice(0, 40)}`, `金額: ${sign}${fmtMoney(total)}`, ...(L.length === 1 ? [`類別: ${L[0].category}`] : []), `本月支出: -${fmtMoney(monthExpense)}`, "-->"].join("\n");
+  // The total is of the entry's month: a back-dated entry from last month is named by its month, not 本月.
+  const label = month === monthOf(ctx.now.date) ? "本月支出" : `${Number(month.slice(5))}月支出`;
+  return ["<!--dshm-card ledger", `項目: ${title.slice(0, 40)}`, `金額: ${sign}${fmtMoney(total)}`, ...(L.length === 1 ? [`類別: ${L[0].category}`] : []), `${label}: ${monthExpense > 0 ? "-" : ""}${fmtMoney(monthExpense)}`, "-->"].join("\n");
 }
 
 // ───────────────────────── commands ─────────────────────────
@@ -1048,9 +1067,10 @@ function cmdAdd(ctx, args) {
   }
   for (const [file, g] of byFile) {
     if (g.table === "體重") {
-      const count = new Map();
-      for (const x of rowsOf(ctx, "體重")) count.set(x.date, (count.get(x.date) ?? 0) + 1);
-      for (const r of g.rows) { const n = (count.get(r.date) ?? 0) + 1; count.set(r.date, n); r.id = weightId(r.date, n); }
+      // New rows go after the file's rows, so they are counted after them, as the next read will.
+      const seen = new Map();
+      for (const x of rowsOf(ctx, "體重")) { const b = weightBaseId(x); seen.set(b, (seen.get(b) ?? 0) + 1); }
+      giveWeightIds(g.rows, seen);
     } else {
       const taken = new Set(rowsOf(ctx, g.table).map((x) => x.id).filter(Boolean));
       for (const r of g.rows) r.id = newId(g.table, r.date, taken);
@@ -1100,7 +1120,7 @@ function rowJson(ctx, r) {
 const TABLE_BY_PREFIX = { b: "帳", k: "熱量", w: "健身", t: "體重" };
 function findById(ctx, id) {
   const table = TABLE_BY_PREFIX[id[0]];
-  if (!table || !/^[bkwt]\d{6}(-[0-9a-z]+)?$/.test(id)) return null;
+  if (!table || !/^[bkwt]\d{6}(-[0-9a-z]+){0,2}$/.test(id)) return null;
   const f = data(ctx, table).files.find((x) => x.rows.some((r) => r.id === id));
   if (!f) return null;
   return { table, file: f, row: f.rows.find((r) => r.id === id) };
@@ -1150,7 +1170,12 @@ function cmdEdit(ctx, args) {
   const { row, notes } = rowFromItem(ctx, merged, x.table);
   row.id = x.row.id; // keeps the first date when the date changes: undo and edit look the id up in every file
   const target = targetFile(ctx.p, x.table, row.date);
-  if (target === x.file.file) rewriteFile(ctx, x.table, x.file, x.file.rows.map((r) => (r.id === id ? row : r)));
+  if (x.table === "體重") {
+    // A weighing's id is its date and values (weightBaseId), so the edited row gets the id the next read will give it.
+    const rows = x.file.rows.map((r) => (r.id === id ? row : r));
+    giveWeightIds(rows);
+    rewriteFile(ctx, x.table, x.file, rows);
+  } else if (target === x.file.file) rewriteFile(ctx, x.table, x.file, x.file.rows.map((r) => (r.id === id ? row : r)));
   else {
     const other = data(ctx, x.table).files.find((f) => f.file === target);
     if (other && other.kind !== "new" && other.kind !== "empty") throw new UserError(`${path.relative(ctx.p.ws, target)} 是舊格式的檔案，先 migrate --yes`);

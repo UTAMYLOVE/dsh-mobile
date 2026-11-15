@@ -62,8 +62,8 @@ test("one call records several items, food in both the ledger and the calories, 
   assert.equal(confirm.length, 5);
   assert.match(confirm[0], /^・支出 45 元｜早餐｜蛋餅｜現金　11\/14 08:10　編號 b261114-[0-9a-z]{4}$/);
   assert.match(confirm[2], /熱量 700–850 大卡｜午餐｜雞腿便當（蛋白質 35 g）/);
-  assert.match(confirm[4], /體重 70\.5 kg（體脂 22%）.*編號 t261114$/);
-  assert.match(r.out, /打錯的話：undo b261114-\S+ b261114-\S+ k261114-\S+ w261114-\S+ t261114/);
+  assert.match(confirm[4], /體重 70\.5 kg（體脂 22%）.*編號 t261114-[0-9a-z]{4}$/);
+  assert.match(r.out, /打錯的話：undo b261114-\S+ b261114-\S+ k261114-\S+ w261114-\S+ t261114-\S+/);
   assert.match(r.out, /今天到目前：支出 165 元；熱量 700–850 \/ 2,000 大卡/);
   // The ledger card the app shows, with the month's spending from the script.
   assert.match(r.out, /<!--dshm-card ledger\n項目: 蛋餅等 2 筆\n金額: -165\n本月支出: -165\n-->/);
@@ -173,6 +173,65 @@ test("edit changes a row in place, and moves it to another month's file when the
   assert.match(lines(dir, "生活/帳本/2026-10.csv")[1], new RegExp(`^2026-10-31,12:30,支出,150,.*,${id}$`));
   assert.equal(life(dir, ["undo", id]).code, 0);
   assert.equal(lines(dir, "生活/帳本/2026-10.csv").length, 1);
+});
+
+// A weighing's id came from its order within the day, so after one undo the same id named the other weighing.
+test("a weighing's id names that weighing: a repeated undo finds nothing and the other weighing of the day stays", () => {
+  const dir = workspace();
+  const morning = lifeJson(dir, ["add", JSON.stringify({ 表: "體重", 體重: 60.2, 備註: "早上" })]).data.rows[0].id;
+  const evening = lifeJson(dir, ["add", JSON.stringify({ 表: "體重", 體重: 61, 備註: "晚上" })]).data.rows[0].id;
+  assert.match(morning, /^t261114-[0-9a-z]{4}$/);
+  assert.match(evening, /^t261114-[0-9a-z]{4}$/);
+  assert.notEqual(morning, evening);
+  // The id read back from the file is the one handed out.
+  assert.deepEqual(lifeJson(dir, ["recent", "--表", "體重"]).data.rows.map((x) => x.id).sort(), [morning, evening].sort());
+  assert.equal(life(dir, ["undo", morning]).code, 0);
+  const again = life(dir, ["undo", morning]);
+  assert.equal(again.code, 2, again.out);
+  assert.match(again.out, /找不到/);
+  assert.deepEqual(lines(dir, "生活/體重.csv"), ["日期,體重,體脂,備註", "2026-11-14,61,,晚上"]);
+  assert.equal(life(dir, ["undo", evening]).code, 0);
+  assert.deepEqual(lines(dir, "生活/體重.csv"), ["日期,體重,體脂,備註"]);
+});
+
+test("identical weighings on one day get their own ids; an edit gives a weighing a fresh id", () => {
+  const dir = workspace();
+  const w = { 表: "體重", 體重: 70, 備註: "早上" };
+  const first = lifeJson(dir, ["add", JSON.stringify(w)]).data.rows[0].id;
+  const second = lifeJson(dir, ["add", "--force", JSON.stringify(w)]).data.rows[0].id;
+  assert.equal(second, `${first}-2`);
+  assert.equal(life(dir, ["undo", second]).code, 0);
+  assert.equal(lines(dir, "生活/體重.csv").length, 2);
+
+  // Moved to the day before: a new id, and the old one no longer names anything.
+  const r = lifeJson(dir, ["edit", first, '{"日期":"昨天"}']);
+  assert.equal(r.code, 0, r.out);
+  const moved = r.data.after.id;
+  assert.match(moved, /^t261113-[0-9a-z]{4}$/);
+  assert.notEqual(moved, first);
+  assert.deepEqual(lines(dir, "生活/體重.csv"), ["日期,體重,體脂,備註", "2026-11-13,70,,早上"]);
+  assert.match(life(dir, ["edit", first, '{"體重":71}']).out, /找不到/);
+  assert.equal(lifeJson(dir, ["recent", "--表", "體重"]).data.rows[0].id, moved);
+  // A changed value is a new id too, the one the text shows.
+  const changed = life(dir, ["edit", moved, '{"體重":69.5}']);
+  assert.equal(changed.code, 0, changed.out);
+  const now = lifeJson(dir, ["recent", "--表", "體重"]).data.rows[0].id;
+  assert.notEqual(now, moved);
+  assert.match(changed.out, new RegExp(`現在 體重 69\\.5 kg.*編號 ${now}$`, "m"));
+  assert.equal(life(dir, ["undo", now]).code, 0);
+  assert.deepEqual(lines(dir, "生活/體重.csv"), ["日期,體重,體脂,備註"]);
+});
+
+// The card's month total named 本月 even for last month's entry, and printed "-0" when nothing was spent.
+test("the ledger card names the entry's month and prints no minus for nothing spent", () => {
+  const dir = workspace();
+  const now = "2026-11-01 09:00";
+  const back = add(dir, { 表: "帳", 金額: 120, 分類: "午餐", 內容: "便當", 日期: "昨天" }, { now });
+  assert.equal(back.code, 0, back.out);
+  assert.match(back.out, /<!--dshm-card ledger\n項目: 便當\n金額: -120\n類別: 午餐\n10月支出: -120\n-->/);
+  const income = add(dir, { 表: "帳", 類型: "收入", 金額: 500, 分類: "其他收入", 內容: "賣二手書" }, { now });
+  assert.equal(income.code, 0, income.out);
+  assert.match(income.out, /<!--dshm-card ledger\n項目: 賣二手書\n金額: \+500\n類別: 其他收入\n本月支出: 0\n-->/);
 });
 
 test("today: spending by category, budget left per day, calories and macros against the targets, workouts", () => {
