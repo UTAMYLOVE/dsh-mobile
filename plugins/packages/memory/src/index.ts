@@ -241,9 +241,10 @@ function registerRoutes(ctx: PluginCtx, store: MemoryStore): void {
 /**
  * What the agent must know about running inside the DSH Mobile app (stage 2 §I.2/§I.3): limits and permissions are app
  * settings, dsh's own config is regenerated, and what the shell has depends on how dsh runs (`DSHM_RUNTIME`: `native` on
- * Android's own programs, `proot` in a Debian rootfs).
+ * Android's own programs, `proot` in a Debian rootfs). In native mode Python is set up on every start and left off PATH when
+ * that fails (a nearly full phone cannot unpack it); `DSHM_PYTHON=0` says so, and the note then does not promise python3.
  */
-export function phoneNote(runtime: string | undefined): string {
+export function phoneNote(runtime: string | undefined, python = process.env.DSHM_PYTHON !== "0"): string {
   const lines = [
     "# Running inside the DSH Mobile Android app",
     // The paths name 進階設定: with it off (the default, and it closes again when the screen is rebuilt) the 代理人 and 執行方式
@@ -255,9 +256,11 @@ export function phoneNote(runtime: string | undefined): string {
   ];
   if (runtime === "native") {
     lines.push(
-      "- Commands run on Android's own programs, not Linux: bash, node, python3, git, rg, curl, jq, sqlite3, zip, unzip and Android's toybox (ls, cat, cp, mv, sed, grep, find, sort, tar, gzip, diff ...). There is no npm, apt, make or compiler. If a task truly needs Linux packages, tell the owner it works in 設定 → 打開「進階設定」→ 執行方式，關掉「用安卓原生方式跑 dsh」（相容模式）.",
-      "- Python packages: `python3 -m pip install <package>` (there is no pip command; packages go to the user site). Pure-Python packages work; most packages with C extensions cannot be installed. Run an installed tool as `python3 -m <module>`. No venv is needed; if one is wanted, `python3 -m venv --without-pip --system-site-packages DIR`, then `DIR/bin/python -m pip`.",
-      "- There is no /tmp: use $TMPDIR. Files in the workspace cannot be executed directly (./run.sh and ./file.py fail): run them with bash run.sh, node run.js or python3 file.py.",
+      `- Commands run on Android's own programs, not Linux: bash, node, ${python ? "python3, " : ""}git, rg, curl, jq, sqlite3, zip, unzip and Android's toybox (ls, cat, cp, mv, sed, grep, find, sort, tar, gzip, diff ...). There is no npm, apt, make or compiler. If a task truly needs Linux packages, tell the owner it works in 設定 → 打開「進階設定」→ 執行方式，關掉「用安卓原生方式跑 dsh」（相容模式）.`,
+      python
+        ? "- Python packages: `python3 -m pip install <package>` (there is no pip command; packages go to the user site). Pure-Python packages work; most packages with C extensions cannot be installed. Run an installed tool as `python3 -m <module>`. No venv is needed; if one is wanted, `python3 -m venv --without-pip --system-site-packages DIR`, then `DIR/bin/python -m pip`."
+        : "- python3 is not available right now (the phone may be low on storage). If a task needs it, tell the owner to free some storage space on the phone and restart DSH; DSH sets Python up again on every start. Otherwise do the task with node or bash.",
+      `- There is no /tmp: use $TMPDIR. Files in the workspace cannot be executed directly (./run.sh${python ? " and ./file.py fail" : " fails"}): run them with bash run.sh${python ? ", node run.js or python3 file.py" : " or node run.js"}.`,
     );
   } else if (runtime === "proot") {
     lines.push("- Commands run in a Debian Linux (相容模式): the usual Linux tools are there, and apt can install more.");

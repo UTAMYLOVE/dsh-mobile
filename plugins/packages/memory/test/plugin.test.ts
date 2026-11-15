@@ -145,6 +145,39 @@ describe("plugin shape", () => {
     expect(plugin.phoneNote("native")).toContain('memory_write target "user"');
   });
 
+  // A Python that could not be set up (a nearly full phone) is off PATH; the note promised python3 and pip all the same.
+  it("without Python (DSHM_PYTHON=0) the native note does not promise python3, pip or venv and says what to tell the owner", () => {
+    const note = plugin.phoneNote("native", false);
+    expect(note).not.toContain("pip install");
+    expect(note).not.toContain("venv");
+    expect(note).not.toContain("python3 file.py");
+    expect(note).not.toContain("bash, node, python3");
+    expect(note).toContain("python3 is not available right now (the phone may be low on storage)");
+    expect(note).toContain("tell the owner to free some storage space on the phone and restart DSH");
+    expect(note).toContain("run them with bash run.sh or node run.js");
+    expect(note).toContain("$TMPDIR");
+    const ready = plugin.phoneNote("native", true);
+    expect(ready).toContain("bash, node, python3, git");
+    expect(ready).toContain("python3 -m pip install");
+    expect(ready).not.toContain("not available right now");
+    // Proot's Debian has its own python; the flag only shapes the native note.
+    expect(plugin.phoneNote("proot", false)).toBe(plugin.phoneNote("proot", true));
+  });
+
+  it("the phone note reads DSHM_PYTHON from the environment dsh was started with", () => {
+    const saved = process.env.DSHM_PYTHON;
+    try {
+      process.env.DSHM_PYTHON = "0";
+      expect(plugin.phoneNote("native")).not.toContain("pip install");
+      process.env.DSHM_PYTHON = "1";
+      expect(plugin.phoneNote("native")).toContain("python3 -m pip install");
+      delete process.env.DSHM_PYTHON;
+      expect(plugin.phoneNote("native")).toContain("python3 -m pip install");
+    } finally {
+      if (saved === undefined) delete process.env.DSHM_PYTHON; else process.env.DSHM_PYTHON = saved;
+    }
+  });
+
   // 代理人 and 執行方式 are only on the settings page with 進階設定 on; the owner was sent to paths he could not see.
   it("every settings path in the phone note goes through 進階設定, except 模型, and settings are suggested only when a limit stops the task", () => {
     for (const runtime of ["native", "proot", undefined]) {

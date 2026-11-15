@@ -56,6 +56,13 @@ class NativeRunner(
 
     fun program(name: String): File = File(nativeLibDir, requireNotNull(manifest?.bins?.get(name)) { "no $name in the native runtime" })
 
+    /**
+     * Whether the last [prepare] set Python up. A Python that failed (a nearly full phone cannot unpack it) is left off PATH,
+     * and [command] tells dsh (DSHM_PYTHON) so the phone note does not promise python3 to the model.
+     */
+    @Volatile var pythonReady: Boolean = false
+        private set
+
     /** bash for dsh's terminal-bash shell. */
     val shellPath: String get() = File(binDir, "bash").path
 
@@ -74,7 +81,7 @@ class NativeRunner(
         copyAsset("dshn/require-builtin.cjs", File(baseDir, "require-builtin.cjs"))
         copyAsset(DshLayout.REVIEW_JSON_ASSET, File(baseDir, "review-json.mjs"))
         copyAsset("native/ca-bundle.crt", cert)
-        val py = m.python ?: return
+        val py = m.python ?: run { pythonReady = false; return }
         val ready = try {
             preparePython(py)
             true
@@ -86,6 +93,7 @@ class NativeRunner(
             val at = File(binDir, name)
             if (ready) link(at, File(nativeLibDir, m.bins.getValue(name))) else Files.deleteIfExists(at.toPath())
         }
+        pythonReady = ready
     }
 
     private fun preparePython(py: Manifest.Python) {
@@ -196,6 +204,8 @@ class NativeRunner(
                 put("PIP_CERT", cert.path)
                 put("PIP_DISABLE_PIP_VERSION_CHECK", "1")
             }
+            // The memory plugin's phone note mentions python3 and pip only when they are on PATH.
+            put("DSHM_PYTHON", if (manifest?.python != null && pythonReady) "1" else "0")
             if (remap.isNotEmpty()) put("DSHN_REMAP", remap.joinToString(";") { (guest, host) -> "$guest=${host.path}" })
             putAll(env)
         }

@@ -177,6 +177,32 @@ class NativePythonTest {
         assertTrue(exists(File(base, "bin/python3")))
     }
 
+    // A Python that failed to unpack was off PATH while the phone note still told the model to use python3 and pip.
+    @Test fun commandTellsDshWhetherPythonIsReady() {
+        val good = archive("lib/python3.14/os.py" to "# os")
+        val ws = File(tmp.root, "ws")
+        val r = runner(good)
+        assertFalse("nothing is set up before prepare", r.pythonReady)
+        r.prepare()
+        assertTrue(r.pythonReady)
+        assertEquals("1", r.command(r.node(), emptyMap(), ws).environment()["DSHM_PYTHON"])
+
+        val broken = runner(good.copyOf(good.size / 2))
+        broken.prepare()
+        assertFalse(broken.pythonReady)
+        assertEquals("0", broken.command(broken.node(), emptyMap(), ws).environment()["DSHM_PYTHON"])
+
+        // The next start retries, and a good archive brings it back.
+        r.prepare()
+        assertEquals("1", r.command(r.node(), emptyMap(), ws).environment()["DSHM_PYTHON"])
+
+        val noPython = """{"bins":{"node":"libdshn_bin_node.so","bash":"libdshn_bin_bash.so"},"libs":{},"flock":"libdshn_flock.so"}"""
+        val assets = mapOf("native/manifest.json" to noPython, "dshn/shim.mjs" to "//", "dshn/require-builtin.cjs" to "//", "dshn/review-json.mjs" to "//", "native/ca-bundle.crt" to "C")
+        val old = NativeRunner(libDir, File(tmp.root, "native-old"), home, File(tmp.root, "tmp"), assets = { assets[it]?.byteInputStream() }, niceBinary = null)
+        old.prepare()
+        assertEquals("a runtime built without Python", "0", old.command(old.node(), emptyMap(), ws).environment()["DSHM_PYTHON"])
+    }
+
     @Test fun commandGivesPythonItsHomeAndPipItsCertificatesAndUserSite() {
         val r = runner(archive("lib/python3.14/os.py" to "# os"))
         r.prepare()
