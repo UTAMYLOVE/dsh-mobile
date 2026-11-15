@@ -961,7 +961,7 @@ class MainActivityTest {
      * UiAutomator types with ACTION_SET_TEXT on the field's accessibility node: no focus, no keyboard (Compose's own test input
      * focuses the field first). Through that path too the text reaches the dock and the microphone gives way to send, at the
      * app's default effect level. (PerfGateTest timed out waiting for send on the emulator; the app was not the cause, see
-     * [withAccessibilityOnButNoServiceListedTheDockChangeIsNotAnnounced].)
+     * [withAnAccessibilityServiceOnTheDockSaysItsButtonChanged].)
      */
     @Test fun textSetThroughAccessibilityTurnsTheMicrophoneIntoSend() {
         completeSetup()
@@ -987,25 +987,22 @@ class MainActivityTest {
     /**
      * With an accessibility service on, the shell tells it that the dock changed when the microphone becomes send (a subtree
      * change for the dock), so the service's copy of the screen shows send.
+     *
+     * Why PerfGateTest failed on the CI emulator: UiAutomation turns accessibility on, but it is not a listed accessibility
+     * service, and the Compose version in use sends its accessibility events only while one is listed. So the dock's change was
+     * not announced and UiAutomator's copy of the screen kept the microphone for seconds; PerfGateTest reads the screen afresh
+     * instead. That is Compose's behaviour, not the app's, so no test pins it: a Compose update that announces more must not
+     * turn this suite red.
      */
     @Test fun withAnAccessibilityServiceOnTheDockSaysItsButtonChanged() {
-        assertTrue("a subtree change for the dock was sent", dockChangeAnnounced(serviceListed = true))
+        assertTrue("a subtree change for the dock was sent", dockChangeAnnounced())
     }
 
-    /**
-     * Why PerfGateTest failed on the CI emulator: UiAutomation turns accessibility on, but it is not a listed accessibility
-     * service, and Compose sends its accessibility events only while one is listed. So the dock's change is never announced and
-     * UiAutomator's copy of the screen kept the microphone for seconds; PerfGateTest reads the screen afresh instead.
-     */
-    @Test fun withAccessibilityOnButNoServiceListedTheDockChangeIsNotAnnounced() {
-        assertFalse(dockChangeAnnounced(serviceListed = false))
-    }
-
-    /** Types into the dock with accessibility on; whether a subtree change for the dock was sent once send showed. */
-    private fun dockChangeAnnounced(serviceListed: Boolean): Boolean {
+    /** Types into the dock with an accessibility service on; whether a subtree change for the dock was sent once send showed. */
+    private fun dockChangeAnnounced(): Boolean {
         val manager = shadowOf(app.getSystemService(android.view.accessibility.AccessibilityManager::class.java))
         manager.setEnabled(true)
-        manager.setEnabledAccessibilityServiceList(if (serviceListed) listOf(android.accessibilityservice.AccessibilityServiceInfo()) else emptyList())
+        manager.setEnabledAccessibilityServiceList(listOf(android.accessibilityservice.AccessibilityServiceInfo()))
         completeSetup()
         answerChatRpc()
         val activity = build().create().start().resume().visible().get()
