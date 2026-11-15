@@ -38,6 +38,11 @@ class ShellSession(
     private val autoReview: () -> Boolean = { false },
     /** The dsh permission preset of the owner's permission level (PermissionLevel.preset); null leaves conversations as they are. */
     private val levelPreset: () -> String? = { null },
+    /**
+     * Each conversation's chat choices, owned by the application so they outlive this dsh (the default keeps them for this
+     * session only, for tests).
+     */
+    private val keptChoices: KeptChoices = KeptChoices(),
 ) {
     /** Conversations this session's dsh already has on the wanted preset (by conversation id). */
     private val presetSet = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -103,12 +108,11 @@ class ShellSession(
      */
     @Volatile var openId: String? = null
 
-    /** A conversation's own choices (思考強度, 審查輪數, when it was last condensed) outlive its evicted store. Under `stores`. */
-    private val keptChoices = HashMap<String, Triple<String?, Int, Long>>()
-
     private fun open(id: String): Open = synchronized(stores) {
         stores[id] ?: Open(ConversationStore(remote, id, scope, runningHint = { tree.state.value.summaries[id]?.running }, beforeSend = { ensurePreset(id) }, decorate = { parts -> app.dshmobile.chat.ReviewRounds.decorate(synchronized(stores) { stores[id] }?.ui?.reviewRounds ?: 0, parts) }), ChatUiCache().also { ui ->
-            keptChoices.remove(id)?.let { (effort, rounds, compacted) -> ui.effort = effort; ui.reviewRounds = rounds; ui.compactedAt = compacted }
+            // A conversation's own choices (思考強度, 審查輪數, when it was last condensed) outlive its evicted store and this dsh.
+            keptChoices.restore(id, ui)
+            ui.seedEffort(tree.state.value.projections[id]?.get("modelSelection"))
         }).also { fresh ->
             stores[id] = fresh
             if (stores.size > MAX_STORES) {
@@ -116,7 +120,7 @@ class ShellSession(
                 val evictable = stores.entries.filter { it.key != id && it.key != shown && it.value.store.pending.value.isEmpty() }
                 evictable.take(stores.size - MAX_STORES).forEach { (key, old) ->
                     stores.remove(key)
-                    keptChoices[key] = Triple(old.ui.effort, old.ui.reviewRounds, old.ui.compactedAt)
+                    keptChoices.keep(key, old.ui)
                     old.store.close()
                 }
             }
@@ -127,7 +131,11 @@ class ShellSession(
         if (closed) return
         closed = true
         synchronized(stores) {
-            stores.values.forEach { it.store.close() }
+            // dsh stopped (or a new dsh replaces it): the next session's caches start from these.
+            stores.forEach { (id, open) ->
+                keptChoices.keep(id, open.ui)
+                open.store.close()
+            }
             stores.clear()
         }
         remote.close()

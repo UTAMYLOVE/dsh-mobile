@@ -410,9 +410,13 @@ class DshMobileApp : Application(), Configuration.Provider {
      */
     val shellSessions: ShellSessionHolder by lazy {
         val loopback = loopbackHttp
+        // One for the process, shared by every dsh instance's session: a restart no longer drops 審查輪數 and the rest.
+        val kept = app.dshmobile.ui.shell.KeptChoices(uiPrefs)
         val holder = ShellSessionHolder { running ->
             val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
-            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope, autoReview = ::autoReviewWanted, levelPreset = { runtimeMode.permission.value.preset }) }
+            DshRemote(DshClient(loopback, running.launch), scope).let {
+                ShellSession(it, it.events, scope, autoReview = ::autoReviewWanted, levelPreset = { runtimeMode.permission.value.preset }, keptChoices = kept)
+            }
         }
         applicationScope.launch(Dispatchers.Main) {
             controller.isRunning.collect { running -> if (!running) holder.detach() }

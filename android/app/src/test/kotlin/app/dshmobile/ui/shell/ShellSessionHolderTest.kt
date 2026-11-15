@@ -155,6 +155,60 @@ class ShellSessionHolderTest {
         }
     }
 
+    /** 審查 2 輪 (and the rest) survives a dsh restart, i.e. a new ShellSession; 審查輪數 survives the app process too. */
+    @Test fun aConversationsChoicesOutliveItsDshAndTheProcess() {
+        val prefs = app.dshmobile.ui.fog.UiPrefs(app.dshmobile.gateway.InMemorySharedPreferences())
+        val kept = KeptChoices(prefs)
+        val first = ShellSession(FakeRemote(), events = null, scope = CoroutineScope(Job()), keptChoices = kept)
+        first.chatUi("s1").apply { reviewRounds = 2; effort = "max"; compactedAt = 150_000 }
+        first.close()
+        val second = ShellSession(FakeRemote(), events = null, scope = CoroutineScope(Job()), keptChoices = kept)
+        second.chatUi("s1").let {
+            assertEquals(2, it.reviewRounds)
+            assertEquals("max", it.effort)
+            assertEquals(150_000L, it.compactedAt)
+        }
+        assertEquals("another conversation has its own", 0, second.chatUi("s2").reviewRounds)
+        second.close()
+        // The process died: a new KeptChoices, only the stored 審查輪數 is left (the rest comes back from dsh).
+        val third = ShellSession(FakeRemote(), events = null, scope = CoroutineScope(Job()), keptChoices = KeptChoices(prefs))
+        assertEquals(2, third.chatUi("s1").reviewRounds)
+        third.chatUi("s1").reviewRounds = 0 // back to 不審: nothing stored any more
+        third.close()
+        assertEquals(0, KeptChoices(prefs).let { k -> app.dshmobile.ui.chat.ChatUiCache().also { k.restore("s1", it) }.reviewRounds })
+    }
+
+    /** An evicted conversation's choices come back when it is opened again, as before. */
+    @Test fun anEvictedConversationGetsItsChoicesBack() {
+        val session = ShellSession(FakeRemote(), events = null, scope = CoroutineScope(Job() + kotlinx.coroutines.Dispatchers.Default))
+        try {
+            session.chatUi("a").apply { reviewRounds = 3; effort = "low" }
+            session.conversation("b"); session.conversation("c"); session.conversation("d") // a is evicted
+            session.chatUi("a").let {
+                assertEquals(3, it.reviewRounds)
+                assertEquals("low", it.effort)
+            }
+        } finally {
+            session.close()
+        }
+    }
+
+    /** After the app process died, 思考強度 comes from dsh's modelSelection projection for the conversation. */
+    @Test fun aNewCacheTakesDshsThinkingStrength() {
+        val baseline = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"type":"baseline","value":{"projections":{"s1":{"values":{"modelSelection":{"lastUsed":null,
+               "next":{"provider":"deepseek-official","model":"deepseek-flash","reasoningEffort":"max"}}}}}}}""",
+        )
+        val session = ShellSession(FakeRemote(controlFrames = listOf(baseline)), events = null, scope = CoroutineScope(Job()))
+        try {
+            waitFor { session.tree.state.value.projections["s1"] != null }
+            assertEquals("max", session.chatUi("s1").effort)
+            assertNull(session.chatUi("s2").effort)
+        } finally {
+            session.close()
+        }
+    }
+
     @Test fun autoReviewSwitchesEachConversationOnceBeforeItsFirstSend() = kotlinx.coroutines.runBlocking {
         var enabled = true
         val remote = FakeRemote()

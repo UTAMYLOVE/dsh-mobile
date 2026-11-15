@@ -109,9 +109,16 @@ object ConversationReducer {
         )
     }
 
-    /** dsh's own `contextPressure` projection `{pressureTokens, contextWindow}`; null when empty. */
+    /**
+     * dsh's own `contextPressure` projection `{pressureTokens, projectedTokens, contextWindow}`; null when empty.
+     * `projectedTokens` (what the next request's prompt will be, dsh-token-meter) wins over `pressureTokens` (the last request's):
+     * only a request reports usage, so after a `/compact` `pressureTokens` still says the old size until the next reply. After
+     * a dsh restart the app then saw a condensed conversation as still over [AutoCompact.TOKENS] and sent `/compact` again,
+     * and the context bar looked full.
+     */
     fun pressure(p: JsonObject?): ContextFill? {
-        val tokens = p?.num("pressureTokens") ?: return null
+        if (p == null) return null
+        val tokens = p.num("projectedTokens") ?: p.num("pressureTokens") ?: return null
         return ContextFill(tokens, p.num("contextWindow"))
     }
 

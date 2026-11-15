@@ -59,7 +59,17 @@ class ReplyStatsTest {
                    "projections":{"values":{"contextPressure":{"pressureTokens":50000,"projectedTokens":51000,"contextWindow":200000}}}}""",
             ),
         )
-        assertEquals(0.25f, s.context!!.fraction!!, 0.001f)
+        // projectedTokens (the next request's prompt) wins over pressureTokens (the last request's)
+        assertEquals(51_000L, s.context!!.tokens)
+        assertEquals(0.255f, s.context!!.fraction!!, 0.001f)
+    }
+
+    @Test fun withoutAProjectionDshsLastPromptSizeIsUsed() {
+        val s = ConversationReducer.reduce(
+            ConversationState("s1"),
+            j("""{"type":"snapshot","cursor":1,"records":[],"projections":{"values":{"contextPressure":{"pressureTokens":50000,"contextWindow":200000}}}}"""),
+        )
+        assertEquals(ContextFill(50_000, 200_000), s.context)
     }
 
     @Test fun aRunningTurnHasNoStatsYet() {

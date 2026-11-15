@@ -130,6 +130,8 @@ data class ChatUiState(
  * provider row says so for Claude).
  */
 val CLAUDE_EFFORTS = listOf("low", "medium", "high", "xhigh", "max")
+/** The strength dsh uses when none is chosen, for every app model: DshPatch's `reasoning: high` (Claude) and dsh-llm-deepseek's own default. */
+const val DEFAULT_EFFORT = "high"
 val DEEPSEEK_EFFORTS = listOf("off", "low", "high", "max")
 fun effortsFor(modelId: String?): List<String> =
     if (modelId?.let { app.dshmobile.config.AgentModels.find(it)?.isClaude } == true) CLAUDE_EFFORTS else DEEPSEEK_EFFORTS
@@ -573,10 +575,50 @@ private fun rememberLiveEntry(live: LiveReply?, cache: BlockCache): BlockCache.E
  */
 @Stable
 class ChatUiCache {
-    /** This conversation's thinking strength (dsh reasoningEffort: off/low/high/max); null = the model's default. */
-    var effort by mutableStateOf<String?>(null)
+    private var chosenEffort by mutableStateOf<String?>(null)
+    /**
+     * This conversation's thinking strength (dsh reasoningEffort: off/low/high/max); null = the model's default. Any write is a
+     * choice (the owner's, a model switch that drops a strength, or one kept from before), and dsh's is never seeded over it.
+     */
+    var effort: String?
+        get() = chosenEffort
+        set(value) {
+            chosenEffort = value
+            effortKnown = true
+        }
+    /** Whether [effort] is this conversation's own (chosen, kept or seeded from dsh), so [seedEffort] leaves it alone. */
+    var effortKnown = false
+        private set
+
+    /**
+     * A cache that has no strength of its own yet takes the one dsh will use next for this conversation (`modelSelection.next`,
+     * else `lastUsed`), when that model offers it. dsh keeps it with the conversation, so it comes back after the app process
+     * died, which this cache does not survive; before, 思考 showed 預設 again while dsh went on with the old strength.
+     *
+     * Only the first projection seen counts (a new conversation's empty one included), so the label never changes by itself
+     * later. dsh also records the adapter's own default there when nothing was chosen; that default is [DEFAULT_EFFORT] for
+     * every app model, so it stays 預設 rather than turning into 高 for conversations where the owner never picked one.
+     */
+    fun seedEffort(modelSelection: kotlinx.serialization.json.JsonElement?) {
+        if (effortKnown) return
+        val sel = modelSelection as? kotlinx.serialization.json.JsonObject ?: return
+        effortKnown = true
+        val pick = (sel["next"] as? kotlinx.serialization.json.JsonObject) ?: (sel["lastUsed"] as? kotlinx.serialization.json.JsonObject) ?: return
+        fun str(k: String) = (pick[k] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        chosenEffort = str("reasoningEffort")?.takeIf { it != DEFAULT_EFFORT && it in effortsFor(str("model")) }
+    }
+
+    private var rounds by mutableIntStateOf(0)
     /** How many independent reviewer rounds each reply gets (0..[app.dshmobile.chat.ReviewRounds.MAX]). */
-    var reviewRounds by mutableIntStateOf(0)
+    var reviewRounds: Int
+        get() = rounds
+        set(value) {
+            if (value == rounds) return
+            rounds = value
+            onReviewRounds?.invoke(value)
+        }
+    /** Told when [reviewRounds] changes: the shell keeps it per conversation past dsh restarts and the app process. */
+    var onReviewRounds: ((Int) -> Unit)? = null
     /** The prompt size at which the app last asked dsh to condense this conversation ([app.dshmobile.chat.AutoCompact]); 0 = never. */
     var compactedAt by androidx.compose.runtime.mutableLongStateOf(0L)
     /** Whether the pull-out data panel is open. */

@@ -444,6 +444,11 @@ private fun ConversationPage(
 ) {
     val store = remember(session, id) { session.conversation(id) }
     val ui = remember(session, id) { session.chatUi(id) }
+    // dsh's own thinking strength for this conversation, for a cache with none of its own yet (after the app process died the
+    // projection can arrive after the page opened). Seeded once; the owner's own picks always win.
+    val selection = remember(session, id) { session.tree.state.map { it.projections[id]?.get("modelSelection") }.distinctUntilChanged() }
+        .collectAsState(null).value
+    LaunchedEffect(selection) { ui.seedEffort(selection) }
     val conversation by store.state.collectAsState()
     val pending by store.pending.collectAsState()
     val sendError by store.sendError.collectAsState()
