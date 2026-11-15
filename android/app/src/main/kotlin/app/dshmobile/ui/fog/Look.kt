@@ -82,7 +82,11 @@ val LocalLook: ProvidableCompositionLocal<Look> = staticCompositionLocalOf { Loo
 /** Where the background picture is kept ([LookController.pictureFile]); null shows none (tests, previews). */
 val LocalLookPicture: ProvidableCompositionLocal<File?> = staticCompositionLocalOf { null }
 
-/** The background picture recoloured at [Look.six], one at a time: the background and the startup card share it. */
+/**
+ * The background picture recoloured at [Look.six], one at a time: the background and the startup animation share it. The
+ * recoloured copy is also kept next to the picture (one file, for the current picture and strengths), so a cold start decodes
+ * it in a moment instead of recolouring for up to a second: the startup animation waits only 400 ms for the picture.
+ */
 object LookPictures {
     private val lock = Mutex()
     private var key: List<Any>? = null
@@ -92,13 +96,33 @@ object LookPictures {
         val want = listOf(file.path, version, six, aqua)
         if (key == want) return@withLock cached
         val made = withContext(Dispatchers.Default) {
+            if (six > 0) {
+                val copy = recolouredFile(file, version, six, aqua)
+                runCatching { BitmapFactory.decodeFile(copy.path) }.getOrNull()?.let { return@withContext it.asImageBitmap() }
+            }
             val source = runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull() ?: return@withContext null
             if (six <= 0) return@withContext source.asImageBitmap()
-            SixColour.recolour(source, six / 100f, aqua / 100f).also { source.recycle() }.asImageBitmap()
+            SixColour.recolour(source, six / 100f, aqua / 100f).also { source.recycle(); keep(file, it, recolouredFile(file, version, six, aqua)) }.asImageBitmap()
         }
         key = want
         cached = made
         made
+    }
+
+    private fun recolouredFile(file: File, version: Long, six: Int, aqua: Int) = File(file.parentFile, "${file.name}.six-$version-$six-$aqua.jpg")
+
+    /** Every recoloured copy of [file] (removed with the picture, and replaced when the picture or its strengths change). */
+    fun copies(file: File): List<File> = file.parentFile?.listFiles { f -> f.name.startsWith("${file.name}.six-") }?.toList().orEmpty()
+
+    /** True when [file] holds a PNG: the picture was kept as PNG because it has transparent parts (LookController.setPicture). */
+    private fun isPng(file: File) = runCatching { file.inputStream().use { it.read() == 0x89 } }.getOrDefault(false)
+
+    private fun keep(file: File, bitmap: Bitmap, to: File) = runCatching {
+        copies(file).forEach { it.delete() }
+        val tmp = File(to.path + ".tmp")
+        // A cut-out picture's recoloured copy stays PNG too, or its transparent parts come back as a dark block.
+        tmp.outputStream().use { bitmap.compress(if (isPng(file)) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it) }
+        if (!tmp.renameTo(to)) tmp.delete()
     }
 }
 
@@ -237,6 +261,7 @@ class LookController(private val store: LookStore, private val dir: File, privat
 
     suspend fun removePicture() = withContext(Dispatchers.IO) {
         pictureFile.delete()
+        LookPictures.copies(pictureFile).forEach { it.delete() }
         update { it.copy(picture = 0L) }
     }
 

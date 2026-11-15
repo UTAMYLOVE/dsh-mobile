@@ -132,6 +132,21 @@ class LookControllerTest {
         assertEquals(80, plain.width)
     }
 
+    @Test fun theRecolouredCopyIsKeptForTheNextStartAndGoesWithThePicture() = runBlocking {
+        val dir = tmp.newFolder("look")
+        val c = LookController(LookStore(InMemorySharedPreferences()), dir)
+        val bytes = png(40, 80)
+        c.setPicture { ByteArrayInputStream(bytes) }
+        val v = c.look.value.picture
+        assertTrue(LookPictures.load(c.pictureFile, v, 100, 55) != null)
+        assertEquals(1, LookPictures.copies(c.pictureFile).size)
+        // Another strength replaces the copy instead of piling up files.
+        LookPictures.load(c.pictureFile, v, 60, 55)
+        assertEquals(listOf("picture.jpg.six-$v-60-55.jpg"), LookPictures.copies(c.pictureFile).map { it.name })
+        c.removePicture()
+        assertEquals(emptyList<java.io.File>(), LookPictures.copies(c.pictureFile))
+    }
+
     @Test fun somethingThatIsNotAPictureChangesNothing() = runBlocking {
         val c = LookController(LookStore(InMemorySharedPreferences()), tmp.newFolder("look"))
         assertFalse(c.setPicture { ByteArrayInputStream("not a picture".toByteArray()) })
@@ -160,5 +175,19 @@ class LookControllerTest {
         val before = c.introTick.value
         c.previewIntro()
         assertEquals(before + 1, c.introTick.value)
+    }
+
+    // The recoloured copy kept for the next start must not lose a cut-out picture's transparency either.
+    @Test fun theRecolouredCopyOfATransparentPictureKeepsItsTransparency() = runBlocking {
+        val c = LookController(LookStore(InMemorySharedPreferences()), tmp.newFolder("look"))
+        val source = Bitmap.createBitmap(40, 80, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.rgb(240, 120, 160))
+            for (x in 0 until 10) for (y in 0 until 10) setPixel(x, y, Color.TRANSPARENT)
+        }
+        val bytes = ByteArrayOutputStream().also { source.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        assertTrue(c.setPicture { ByteArrayInputStream(bytes) })
+        assertTrue(LookPictures.load(c.pictureFile, c.look.value.picture, 100, 55) != null)
+        val copy = LookPictures.copies(c.pictureFile).single()
+        assertEquals(0, Color.alpha(BitmapFactory.decodeFile(copy.path).getPixel(2, 2)))
     }
 }

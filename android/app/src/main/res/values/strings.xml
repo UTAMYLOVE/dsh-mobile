@@ -553,18 +553,14 @@
     <string name="look_restore">外觀恢復預設</string>
     <string name="look_restore_hint">恢復預設不會刪掉你選的圖片。</string>
     <string name="intro_permission">需要訪問許可</string>
-    <string name="intro_checking">身份確認中…</string>
-    <string name="intro_passed">核驗通過 ♡</string>
+    <string name="intro_checking">身份確認</string>
+    <string name="intro_passed">核驗通過</string>
     <string name="intro_welcome_default">歡迎回來</string>
     <string name="intro_number_default">No.0001</string>
     <string name="intro_level_default">Lv.1</string>
-    <string name="intro_skip">點一下跳過</string>
+    <string name="intro_skip">跳過</string>
+    <string name="intro_hud_sub">認證程序</string>
     <string name="intro_permission_sub">正在請求進入權限</string>
     <string name="intro_checking_sub">比對身份資料中</string>
     <string name="intro_passed_sub">權限已開啟</string>
-    <string name="intro_step_permission">許可</string>
-    <string name="intro_step_checking">確認</string>
-    <string name="intro_step_passed">通過</string>
-    <string name="intro_step_welcome">歡迎</string>
-    <string name="intro_stamp">核驗\n通過</string>
 </resources>

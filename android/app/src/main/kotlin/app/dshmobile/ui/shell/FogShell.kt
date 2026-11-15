@@ -137,9 +137,9 @@ private val DockFade = 24.dp
 /** Gap between a page's last control and the top of the floating dock: the fade band plus a little air. */
 private val DockGap = DockFade + 6.dp
 /** The fade at the top of the page viewport, under the header (the mockup's `#stage::after`). */
-private val TopFade = 12.dp
+private val TopFade = 16.dp
 private val PageSide = 16.dp
-private val PageTop = 8.dp
+private val PageTop = 12.dp
 private val Round = RoundedCornerShape(50)
 
 /** Where the floating stack's top and the page viewport's top are, in root pixels. Read only while drawing (never composition). */
@@ -203,7 +203,8 @@ fun FogShell(
 
     // Real blur on (the backdrop is provided for every glass surface); pages animate only while current and the screen is started;
     // after eight quiet seconds the ambient motion slows down.
-    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides started, LocalIdle provides idle.state) {
+    // An outer "not active" (the startup animation covering the screen) pauses the pages too.
+    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides (started && LocalPageActive.current), LocalIdle provides idle.state) {
     Box(
         Modifier
             .fillMaxSize()
@@ -246,12 +247,6 @@ fun FogShell(
                     }
                 }
                 PageSweep(nav.tab)
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(TopFade)
-                        .background(Brush.verticalGradient(listOf(Sakura.Background.copy(alpha = .9f), Sakura.Background.copy(alpha = 0f)))),
-                )
             }
         }
         // The ＋ menu folds on a tap anywhere outside it (the owner: 「按空白處介面不會縮回去」).
@@ -348,41 +343,42 @@ private fun rememberIdle(started: Boolean): IdleWatch {
 }
 
 /**
- * Fades the content out over [DockFade] ending at the floating stack's top, transparent below it. The content is recorded once
- * into a layer: above the band it is drawn as is, and only the band itself goes through an offscreen save-layer for the mask
- * (destination-in), so it works the same with or without blur without a full-screen offscreen layer. The positions are read
- * here, at draw time, so the keyboard's animation only redraws; the mask's brush is rebuilt only when the band moves.
+ * Fades the content in over [TopFade] under the header and out over [DockFade] ending at the floating stack's top, transparent
+ * below it. The content is recorded once into a layer: between the bands it is drawn as is, and only the bands themselves go
+ * through an offscreen save-layer for the mask (destination-in), so it works the same with or without blur without a
+ * full-screen offscreen layer. The top band masks the content itself rather than painting blush over it: a blush band cut the
+ * pink glow behind the header with a hard line. The positions are read here, at draw time, so the keyboard's animation only
+ * redraws; the bottom mask's brush is rebuilt only when the band moves.
  */
 private fun Modifier.fadeAbove(edge: FloatingEdge): Modifier = this.drawWithCache {
     val content = obtainGraphicsLayer()
     var brushFor = Float.NaN
     var brush: Brush = SolidColor(Color.Black)
+    val top = TopFade.toPx()
+    val topBrush = Brush.verticalGradient(listOf(Color.Transparent, Color.Black), startY = 0f, endY = top)
     val maskPaint = Paint()
+    fun DrawScope.masked(band: Rect, mask: Brush) {
+        if (band.isEmpty) return
+        drawContext.canvas.saveLayer(band, maskPaint)
+        clipRect(band.left, band.top, band.right, band.bottom) {
+            drawLayer(content)
+            drawRect(mask, topLeft = band.topLeft, size = band.size, blendMode = BlendMode.DstIn)
+        }
+        drawContext.canvas.restore()
+    }
     onDrawWithContent {
         val stackTop = edge.stackTop
-        if (stackTop.isNaN()) {
-            drawContent()
-            return@onDrawWithContent
-        }
-        val end = stackTop - edge.stageTop
+        val end = if (stackTop.isNaN()) Float.POSITIVE_INFINITY else stackTop - edge.stageTop
         val start = end - DockFade.toPx()
-        if (start != brushFor) {
+        if (!stackTop.isNaN() && start != brushFor) {
             brushFor = start
             brush = Brush.verticalGradient(listOf(Color.Black, Color.Transparent), startY = start, endY = end)
         }
         content.record { this@onDrawWithContent.drawContent() }
-        clipRect(bottom = start.coerceAtLeast(0f)) { drawLayer(content) }
-        if (end > 0f) {
-            val band = Rect(0f, start.coerceAtLeast(0f), size.width, end.coerceAtMost(size.height))
-            if (!band.isEmpty) {
-                drawContext.canvas.saveLayer(band, maskPaint)
-                clipRect(band.left, band.top, band.right, band.bottom) {
-                    drawLayer(content)
-                    drawRect(brush, topLeft = band.topLeft, size = band.size, blendMode = BlendMode.DstIn)
-                }
-                drawContext.canvas.restore()
-            }
-        }
+        val midBottom = start.coerceAtMost(size.height)
+        if (midBottom > top) clipRect(top = top, bottom = midBottom) { drawLayer(content) }
+        masked(Rect(0f, 0f, size.width, top.coerceAtMost(midBottom.coerceAtLeast(0f))), topBrush)
+        if (end > 0f && end.isFinite()) masked(Rect(0f, start.coerceAtLeast(top), size.width, end.coerceAtMost(size.height)), brush)
     }
 }
 
@@ -603,7 +599,10 @@ private fun BarButton(label: String, tag: String, pink: Boolean = false, onClick
             .testTag(tag)
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = if (pink) Color.White else Sakura.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1) }
+    ) {
+        // Ink on the pink button too: white on pink measured 2.1:1, #5E4445 is 4.2:1.
+        Text(label, color = Sakura.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+    }
 }
 
 /** "DSH MOBILE" and the time on the left; the page's name and five dots (the current one long and glowing) on the right. */
