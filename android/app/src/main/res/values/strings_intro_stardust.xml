@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The stardust startup look's own words (Traditional Chinese, short and plain). Every string here is drawn in the intro's
-     handwriting font: after changing one, rerun tools/fonts/subset_intro_font.py so none falls back to the system font. -->
+<!-- The stardust startup look's own words (Traditional Chinese, short and plain). Keep every string covered by the intro's
+     handwriting font (after changing one, rerun tools/fonts/subset_intro_font.py). -->
 <resources>
+    <!-- Under the welcome while the app gets ready, with three blinking dots after it (drawn, not typed). Set in the thickened
+         handwriting like the rest of the welcome, so its characters are simple ones that stay clear in the pen at 18 sp. -->
+    <string name="intro_stardust_status">馬上就好</string>
 </resources>
