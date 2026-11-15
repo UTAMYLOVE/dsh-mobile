@@ -173,10 +173,24 @@ class SettingsScreenTest {
             onEffectLevel = { effectCalls += it; effects.set(it) },
             effectiveLevel = effects.effective,
             workRunning = { working },
-            onClaudeKeyChanged = { claudeRestarts++; !working },
+            onClaudeKeyChanged = { claudeRestarts++; savedAtClaudeRestart += store.load(phantom, vault.keys[Provider.ANTHROPIC] != null); !working },
+            nativeMode = app.dshmobile.runtime.NativeModeControl(
+                available = true, enabled = nativeOn,
+                // Like the app: the stored value changes, then dsh restarts (here: recorded, with what the store held then).
+                set = { on -> nativeSets += on; savedAtRestart += store.load(phantom, false); nativeOn.value = on },
+                permission = level,
+                setPermission = { l -> permissionSets += l; savedAtRestart += store.load(phantom, false); level.value = l },
+            ),
         )
     }
     private var claudeRestarts = 0
+    private val savedAtClaudeRestart = CopyOnWriteArrayList<AgentSettings>()
+    private val nativeOn = MutableStateFlow(true)
+    private val level = MutableStateFlow(app.dshmobile.runtime.PermissionLevel.SMART)
+    private val nativeSets = CopyOnWriteArrayList<Boolean>()
+    private val permissionSets = CopyOnWriteArrayList<app.dshmobile.runtime.PermissionLevel>()
+    /** The agent settings stored at the moment the native switch or 權限 restarted dsh (the restart reads them). */
+    private val savedAtRestart = CopyOnWriteArrayList<AgentSettings>()
 
     private fun show(onClose: (() -> Unit)? = { closed++ }) = rule.setContent {
         SakuraTheme { SettingsScreen(env, onClose = onClose, advancedOpen = true) }
@@ -908,6 +922,159 @@ class SettingsScreenTest {
         waitFor { "ensureRunning" in runtime.events }
         rule.waitForIdle()
         assertFalse(hasTag(Tags.LEAD_UNAPPLIED))
+    }
+
+    // ---------- 2026-11-15: 權限 and the native switch ask while work runs, and every restart saves what the page shows ----------
+
+    private fun cards() = rule.onAllNodesWithTag(Tags.CONFIRM_CARD, useUnmergedTree = true).fetchSemanticsNodes().size
+
+    @Test fun aPermissionChangeWhileWorkRunsAsksFirstAndWaitingChangesNothing() {
+        working = true
+        val draft = SettingsDraft.from(env)
+        rule.setContent { SakuraTheme { SettingsScreen(env, draft = draft, advancedOpen = true) } }
+        click("permission-full")
+        rule.waitForIdle()
+        assertEquals("one card, in the 執行方式 section only (not also under the version)", 1, cards())
+        rule.onNodeWithText(str(R.string.set_confirm_restart)).assertExists()
+        rule.onNodeWithText(str(R.string.set_confirm_restart_go)).assertExists()
+        assertTrue("nothing changed yet", permissionSets.isEmpty())
+        assertTrue("the radio still shows the level in effect", isSelected("permission-smart"))
+        click(Tags.CONFIRM_WAIT)
+        rule.waitForIdle()
+        assertEquals(0, cards())
+        Thread.sleep(100)
+        assertTrue(permissionSets.isEmpty())
+        assertNull("the waiting change is dropped", draft.pendingRestart)
+        assertTrue(isSelected("permission-smart"))
+    }
+
+    @Test fun aPermissionChangeAnywayRestartsWithIt() {
+        working = true
+        show()
+        click("permission-full")
+        click(Tags.CONFIRM_GO)
+        waitFor { permissionSets.isNotEmpty() }
+        assertEquals(listOf(app.dshmobile.runtime.PermissionLevel.FULL), permissionSets.toList())
+        rule.waitForIdle()
+        assertEquals(0, cards())
+        assertTrue(isSelected("permission-full"))
+    }
+
+    @Test fun theNativeSwitchWhileWorkRunsAsksFirst() {
+        working = true
+        show()
+        click("switch-native")
+        rule.waitForIdle()
+        assertEquals(1, cards())
+        assertTrue(nativeSets.isEmpty())
+        rule.onNodeWithTag("switch-native").assertIsOn()
+        click(Tags.CONFIRM_GO)
+        waitFor { nativeSets.isNotEmpty() }
+        assertEquals(listOf(false), nativeSets.toList())
+        rule.waitForIdle()
+        rule.onNodeWithTag("switch-native").assertIsOff()
+    }
+
+    @Test fun withNoWorkRunningPermissionAndTheNativeSwitchApplyAtOnce() {
+        show()
+        click("permission-ask")
+        rule.waitForIdle()
+        assertEquals(0, cards())
+        assertEquals(listOf(app.dshmobile.runtime.PermissionLevel.ASK), permissionSets.toList())
+        click("switch-native")
+        rule.waitForIdle()
+        assertEquals(0, cards())
+        assertEquals(listOf(false), nativeSets.toList())
+    }
+
+    @Test fun tappingTheLevelAlreadyChosenAsksAndRestartsNothing() {
+        working = true
+        show()
+        click("permission-smart")
+        rule.waitForIdle()
+        assertEquals(0, cards())
+        assertTrue(permissionSets.isEmpty())
+    }
+
+    /** The owner's case: Auto review switched off, then 一般 tapped (which restarts dsh) and the page left without 套用. */
+    @Test fun aPermissionRestartSavesTheAgentSwitchesThePageShows() {
+        store.save(AgentSettings.defaults(PhantomState.ENABLED, false).copy(autoReview = true))
+        level.value = app.dshmobile.runtime.PermissionLevel.FULL
+        show()
+        click("switch-auto-review") // on -> off, not saved yet
+        assertTrue(store.load(phantom, false).autoReview)
+        click("permission-smart")
+        waitFor { permissionSets.isNotEmpty() }
+        assertFalse("saved before the restart read it", savedAtRestart.single().autoReview)
+        assertFalse(store.load(phantom, false).autoReview)
+    }
+
+    @Test fun theNativeSwitchRestartSavesTheChosenLeadModelAndItCountsAsApplied() {
+        show()
+        click("model-deepseek-v4-pro")
+        rule.waitForIdle()
+        assertTrue(hasTag(Tags.LEAD_UNAPPLIED))
+        click("switch-native")
+        waitFor { nativeSets.isNotEmpty() }
+        assertEquals("deepseek-v4-pro", savedAtRestart.single().leadModel)
+        rule.waitForIdle()
+        assertFalse(hasTag(Tags.LEAD_UNAPPLIED))
+    }
+
+    @Test fun aClaudeKeyRestartSavesWhatThePageShows() {
+        store.save(AgentSettings.defaults(PhantomState.ENABLED, false).copy(autoReview = true))
+        show()
+        click("switch-auto-review")
+        click("replace-claude")
+        rule.onNode(isKeyField).performTextInput(claudeKey)
+        clickAndWait("save-key")
+        waitFor { claudeRestarts == 1 }
+        assertFalse(savedAtClaudeRestart.single().autoReview)
+    }
+
+    /** The stored Claude lead stays stored while the key is away (dsh runs DeepSeek meanwhile) and is back with the key. */
+    @Test fun clearingAndReAddingTheClaudeKeyKeepsTheClaudeLeadChoice() {
+        vault.keys[Provider.ANTHROPIC] = claudeKey
+        store.save(AgentSettings(maxConcurrent = 6, leadModel = "claude-opus-5-5"))
+        show()
+        clickAndWait("clear-claude")
+        waitFor { claudeRestarts == 1 }
+        assertTrue("the page shows what dsh runs", isSelected("model-deepseek-flash"))
+        click("replace-claude")
+        rule.onNode(isKeyField).performTextInput(claudeKey)
+        clickAndWait("save-key")
+        waitFor { claudeRestarts == 2 }
+        assertTrue(isSelected("model-claude-opus-5-5"))
+        assertEquals("claude-opus-5-5", store.load(phantom, true).leadModel)
+    }
+
+    @Test fun removingTheClaudeKeyWhileWorkRunsSaysClaudeWorkStopsNow() {
+        vault.keys[Provider.ANTHROPIC] = claudeKey
+        working = true
+        show()
+        clickAndWait("clear-claude")
+        waitFor { vault.keys[Provider.ANTHROPIC] == null }
+        waitForText(str(R.string.set_key_claude_removed_running))
+        assertNeverShown(str(R.string.set_key_claude_pending))
+    }
+
+    @Test fun addingTheClaudeKeyWhileWorkRunsSaysItComesAfterTheNextStart() {
+        working = true
+        show()
+        click("replace-claude")
+        rule.onNode(isKeyField).performTextInput(claudeKey)
+        clickAndWait("save-key")
+        waitForText(str(R.string.set_key_claude_pending))
+        assertNeverShown(str(R.string.set_key_claude_removed_running))
+    }
+
+    @Test fun withNoWorkRunningAKeyChangeSaysNothingExtra() {
+        vault.keys[Provider.ANTHROPIC] = claudeKey
+        show()
+        clickAndWait("clear-claude")
+        waitFor { claudeRestarts == 1 }
+        assertNeverShown(str(R.string.set_key_claude_removed_running))
+        assertNeverShown(str(R.string.set_key_claude_pending))
     }
 
     /** Residual review: up to date, an update stops nothing, so it asks nothing even while work runs. */

@@ -121,7 +121,7 @@ describe("plugin shape", () => {
     expect([...fake.routes.keys()].sort()).toEqual(["/dshm/health/memory", "/dshm/heartbeat"]);
     expect(fake.contexts).toHaveLength(2);
     expect(fake.contexts[0]).toMatchObject({ name: "dshm-phone", order: 8990, interpolate: false });
-    expect(fake.contexts[0]!.text()).toContain("設定 → 代理人");
+    expect(fake.contexts[0]!.text()).toContain("設定 → 打開「進階設定」→ 代理人");
     expect(fake.contexts[1]).toMatchObject({ name: "dshm-memory", order: 9000, interpolate: false });
     writeNote("2026-11-04", "- yesterday");
     expect(fake.contexts[1]!.text()).toContain("## memory/2026-11-04.md");
@@ -135,13 +135,24 @@ describe("plugin shape", () => {
     expect(native).toContain("most packages with C extensions cannot be installed");
     expect(native).not.toContain("no python");
     expect(native).toContain("相容模式");
-    expect(native).toContain("設定 → 執行方式 → 權限");
+    expect(native).toContain("設定 → 打開「進階設定」→ 執行方式 → 權限");
+    expect(native).toContain("設定 → 打開「進階設定」→ 執行方式，關掉「用安卓原生方式跑 dsh」（相容模式）");
     expect(native).not.toContain("Debian");
     const proot = plugin.phoneNote("proot");
     expect(proot).toContain("Debian");
     expect(proot).not.toContain("$TMPDIR");
-    expect(plugin.phoneNote(undefined)).toContain("設定 → 代理人");
+    expect(plugin.phoneNote(undefined)).toContain("設定 → 打開「進階設定」→ 代理人");
     expect(plugin.phoneNote("native")).toContain('memory_write target "user"');
+  });
+
+  // 代理人 and 執行方式 are only on the settings page with 進階設定 on; the owner was sent to paths he could not see.
+  it("every settings path in the phone note goes through 進階設定, except 模型, and settings are suggested only when a limit stops the task", () => {
+    for (const runtime of ["native", "proot", undefined]) {
+      const note = plugin.phoneNote(runtime);
+      expect(note).not.toMatch(/設定 → (代理人|執行方式)/);
+      expect(note).toContain("設定 → 模型");
+      expect(note).toContain("Only point the owner to a setting when a limit really stops the task; do not suggest changing settings otherwise.");
+    }
   });
 
   it("without webServer the tools still register and no route is attempted", () => {

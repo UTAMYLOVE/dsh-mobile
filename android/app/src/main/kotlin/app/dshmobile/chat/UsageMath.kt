@@ -149,7 +149,8 @@ fun friendlyToolError(error: String): String {
     val lead = when {
         "active child limit" in e || "wait for an existing child" in e -> return SUBAGENTS_BUSY
         TEAM_MEMBER_LIMIT.containsMatchIn(raw) ->
-            "上限在 app 的「設定 → 代理人」（並行上限、團隊上限）調整，改完按「套用並重啟」。不要改 dsh 的設定檔，app 會蓋掉。"
+            // 代理人 is only on the page with 進階設定 on (off by default): the path says so, or the owner finds nothing.
+            "上限在設定裡：打開「進階設定」，到「代理人」調整並行上限、團隊上限，改完按「套用並重啟」。不要改 dsh 的設定檔，app 會蓋掉。"
         "sandbox" in e || "沙盒" in raw || "bubblewrap" in e || "landlock" in e ->
             "手機上的 dsh 跑在 proot 裡，沒有工作流需要的沙盒，所以 workflow 暫時不能用。請叫它直接做，或派子代理人分工。"
         "auto review of tool" in e && "failed" in e -> "自動審查本身出錯，這個指令沒有執行。"

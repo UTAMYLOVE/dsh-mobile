@@ -9,8 +9,12 @@ import org.junit.Test
 
 class StageTwoFTest {
     @Test fun limitAndSandboxErrorsSayWhatToDo() {
-        assertTrue(friendlyToolError("Team member limit 8 reached").contains("設定 → 代理人"))
-        assertTrue(friendlyToolError("Error: Team member limit 8 reached").contains("設定 → 代理人"))
+        // 代理人 is behind 進階設定 (off by default): the hint says to open it first.
+        for (e in listOf("Team member limit 8 reached", "Error: Team member limit 8 reached")) {
+            val text = friendlyToolError(e)
+            assertTrue(text, text.contains("打開「進階設定」，到「代理人」"))
+            assertFalse(text, text.contains("設定 → 代理人"))
+        }
         assertTrue(friendlyToolError("需要 workspace-write sandbox，這台機器沒有可用的 sandbox").contains("workflow"))
         assertEquals("找不到檔案。\nfile not found", friendlyToolError("file not found"))
     }

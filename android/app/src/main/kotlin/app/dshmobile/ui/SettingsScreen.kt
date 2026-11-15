@@ -161,6 +161,11 @@ class SettingsDraft(
     var appliedLeadModel by mutableStateOf(agent.leadModel)
     /** The action waiting for the owner's yes because a conversation runs (final review B2-I4); null when nothing asks. */
     internal var confirming by mutableStateOf<StopAction?>(null)
+    /**
+     * The 權限 or native-switch change that waits behind a [StopAction.RESTART] question: it runs on 「仍要改」 and is dropped on
+     * 「等做完」. Nothing reads it while composing, so it is a plain field.
+     */
+    internal var pendingRestart: (() -> Unit)? = null
 
     companion object {
         /** The stored values, as the screen shows them when nothing was edited yet (a presence check for the Claude key, no decrypt). */
@@ -178,8 +183,9 @@ private const val MAX_REASON_CHARS = 300
 /**
  * Keys, agent settings, budget, heartbeat, dsh versions, the phantom-process limit, exports and "apply and restart". Anything
  * slow (vault, restart, update, export) runs off the main thread; while one runs every action is disabled and a progress bar
- * shows. Agent settings are only saved by [apply]; budget and heartbeat have their own save/step actions. Keys are only ever in
- * a password field and the vault, and never shown.
+ * shows. Agent settings are saved by [apply] and by every other action that restarts dsh (權限, the native switch, a Claude
+ * key), never on their own; budget and heartbeat have their own save/step actions. Keys are only ever in a password field and
+ * the vault, and never shown.
  *
  * With [onClose] it is a screen of its own (opaque, clear of the system bars, a close button); without it, it is embedded in
  * the shell's settings tab: transparent over the shell's background, no close button, laid out with [contentPadding] (the
@@ -207,8 +213,10 @@ fun SettingsScreen(
     // Presence checks only (no decrypt); everything that can block runs on IO.
     var hasDeepseek by remember { mutableStateOf(env.vault.has(Provider.DEEPSEEK)) }
     var hasClaude by remember { mutableStateOf(env.vault.has(Provider.ANTHROPIC)) }
-    // The Claude key changed while work was running: dsh restarts with it later (shown under the key rows).
-    var claudePending by remember { mutableStateOf(false) }
+    // The Claude key changed while work was running, so dsh did not restart now: what that means, under the key rows. Adding
+    // and removing say different things: an added key waits for dsh's next start, a removed one stops working at once (the
+    // gateway refuses the next Claude request), so "Claude will appear later" would be wrong after a removal.
+    var claudeNote by remember { mutableStateOf<Int?>(null) }
     var editing by draft::editing
     var keyInput by draft::keyInput
     var keyError by draft::keyError
@@ -264,6 +272,27 @@ fun SettingsScreen(
         }
     }
 
+    /**
+     * Saves the agent settings the page shows, for a restart that is not 「套用並重啟」 (權限, the native switch, a Claude key).
+     * dsh reads them at every start (AgentPatchProvider), so after such a restart the switches the owner sees are the ones in
+     * effect. Before, those restarts kept the old stored values while the page went on showing the new ones: Auto review
+     * switched off still reviewed after tapping 一般. The lead model is stored as chosen: without a Claude key the page shows
+     * (and dsh runs, AgentConfigWriter resolves it) DeepSeek, and a Claude choice comes back with the key.
+     */
+    fun saveShown(): AgentSettings {
+        val s = settings
+        env.store.save(s)
+        return s
+    }
+
+    /** The Claude key was stored or removed: save what the page shows, then restart dsh unless work runs; true = restarted. */
+    fun restartForClaudeKey(): Boolean {
+        val saved = saveShown()
+        val restarted = env.onClaudeKeyChanged()
+        if (restarted) draft.appliedLeadModel = saved.leadModel
+        return restarted
+    }
+
     fun saveKey(provider: Provider) = launchBusy {
         val key = keyInput.trim()
         val ok = try {
@@ -279,7 +308,7 @@ fun SettingsScreen(
             keyError = false
             editing = null
             if (provider == Provider.DEEPSEEK) hasDeepseek = true else hasClaude = true
-            if (provider == Provider.ANTHROPIC) claudePending = !env.onClaudeKeyChanged()
+            if (provider == Provider.ANTHROPIC) claudeNote = if (restartForClaudeKey()) null else R.string.set_key_claude_pending
         } else {
             keyError = true
         }
@@ -296,7 +325,7 @@ fun SettingsScreen(
         }
         if (editing == provider) { editing = null; keyInput = "" }
         if (provider == Provider.DEEPSEEK) hasDeepseek = false else hasClaude = false
-        if (provider == Provider.ANTHROPIC) claudePending = !env.onClaudeKeyChanged()
+        if (provider == Provider.ANTHROPIC) claudeNote = if (restartForClaudeKey()) null else R.string.set_key_claude_removed_running
     }
 
     /** After an update or rollback: dsh that is up again goes back under DshService (clears a give-up); a dsh that is down stays as it is. */
@@ -413,12 +442,43 @@ fun SettingsScreen(
         if (target == null) checkUpdate() else askOrRun(StopAction.UPDATE, ::checkUpdate)
     }
 
+    /** Runs the waiting 權限 / native-switch change once and forgets it. */
+    fun runPendingRestart() {
+        val change = draft.pendingRestart
+        draft.pendingRestart = null
+        change?.invoke()
+    }
+
+    /**
+     * 權限 and the native switch restart dsh at once (the guard and the runtime read them only when dsh starts), which cut off a
+     * running reply and its subagents without a word. Now, while work runs, they ask first like 套用; the controls keep showing
+     * the old value (they read the stored state) until the owner says 「仍要改」. The page's other unsaved agent settings are
+     * saved with the change, because the restart applies whatever is stored.
+     */
+    fun askToRestart(change: () -> Unit) {
+        if (busy) return
+        draft.pendingRestart = {
+            val saved = saveShown()
+            draft.appliedLeadModel = saved.leadModel
+            change()
+        }
+        askOrRun(StopAction.RESTART, ::runPendingRestart)
+    }
+
+    /** 「等做完」: nothing happens, and a waiting 權限 / native change is dropped with the question. */
+    fun waitForWork() {
+        confirming = null
+        draft.pendingRestart = null
+    }
+
     fun confirmed(action: StopAction) {
         confirming = null
+        if (action != StopAction.RESTART) draft.pendingRestart = null
         when (action) {
             StopAction.APPLY -> apply()
             StopAction.UPDATE -> checkUpdate()
             StopAction.ROLLBACK -> rollback()
+            StopAction.RESTART -> runPendingRestart()
         }
     }
 
@@ -523,7 +583,7 @@ fun SettingsScreen(
                     }
                 }
                 if (keyError) Text(stringResource(R.string.set_key_error), color = MaterialTheme.colorScheme.error)
-                if (claudePending) Text(stringResource(R.string.set_key_claude_pending), style = MaterialTheme.typography.bodySmall)
+                claudeNote?.let { Text(stringResource(it), style = MaterialTheme.typography.bodySmall) }
                 // 0.5.0: the CWA open-data key for the weather analysis; only the app's own weather request uses it, never dsh.
                 var hasCwa by remember { mutableStateOf(env.vault.hasNamed(app.dshmobile.security.KeyVault.CWA)) }
                 var cwaEditing by remember { mutableStateOf(false) }
@@ -714,7 +774,7 @@ fun SettingsScreen(
                     Button(onClick = { askToUpdate() }, enabled = !busy, modifier = Modifier.testTag("check-update")) { Text(stringResource(R.string.set_version_check)) }
                     OutlinedButton(onClick = { askOrRun(StopAction.ROLLBACK, ::rollback) }, enabled = !busy && previousVersion != null, modifier = Modifier.testTag("rollback")) { Text(stringResource(R.string.set_version_rollback)) }
                 }
-                confirming?.takeIf { it != StopAction.APPLY }?.let { action -> StopConfirmCard(action, { confirming = null }) { confirmed(action) } }
+                confirming?.takeIf { it == StopAction.UPDATE || it == StopAction.ROLLBACK }?.let { action -> StopConfirmCard(action, ::waitForWork) { confirmed(action) } }
                 versionMessage?.let { Text(it) }
                 // Whatever the result was, say whether dsh is up: a failed switch back leaves it stopped.
                 Text(stringResource(if (dshRunning) R.string.set_dsh_running else R.string.set_dsh_stopped), color = if (dshRunning) Sakura.Text else MaterialTheme.colorScheme.error)
@@ -752,7 +812,7 @@ fun SettingsScreen(
                         Text(stringResource(R.string.set_native_switch), modifier = Modifier.weight(1f))
                         Switch(
                             checked = on && native.available,
-                            onCheckedChange = { native.set(it) },
+                            onCheckedChange = { v -> askToRestart { native.set(v) } },
                             enabled = !busy && native.available,
                             modifier = Modifier.testTag("switch-native"),
                         )
@@ -768,6 +828,8 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.testTag("native-state"),
                     )
+                    // Between the native switch and the 權限 rows: next to whichever of them asked.
+                    if (confirming == StopAction.RESTART) StopConfirmCard(StopAction.RESTART, ::waitForWork) { confirmed(StopAction.RESTART) }
                     // 權限 (both modes): how much the agent may do without a question.
                     val level by native.permission.collectAsState()
                     Text(stringResource(R.string.set_permission_title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
@@ -778,7 +840,10 @@ fun SettingsScreen(
                     )) {
                         Row(
                             Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                .selectable(selected = option == level, enabled = !busy, role = Role.RadioButton) { native.setPermission(option) }
+                                .selectable(selected = option == level, enabled = !busy, role = Role.RadioButton) {
+                                    // The level already chosen restarts nothing, so it asks nothing.
+                                    if (option != level) askToRestart { native.setPermission(option) }
+                                }
                                 .testTag("permission-" + option.id),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -796,7 +861,7 @@ fun SettingsScreen(
             Section(R.string.set_apply, R.string.set_en_apply, 10) {
                 Text(stringResource(R.string.set_apply_note), style = MaterialTheme.typography.bodySmall)
                 Button(onClick = { askOrRun(StopAction.APPLY, ::apply) }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("apply")) { Text(stringResource(R.string.set_apply)) }
-                if (confirming == StopAction.APPLY) StopConfirmCard(StopAction.APPLY, { confirming = null }) { confirmed(StopAction.APPLY) }
+                if (confirming == StopAction.APPLY) StopConfirmCard(StopAction.APPLY, ::waitForWork) { confirmed(StopAction.APPLY) }
                 applyMessage?.let { Text(it) }
             }
         }
@@ -810,6 +875,8 @@ internal enum class StopAction(val question: Int, val go: Int) {
     APPLY(R.string.set_confirm_apply, R.string.set_confirm_apply_go),
     UPDATE(R.string.set_confirm_update, R.string.set_confirm_update_go),
     ROLLBACK(R.string.set_confirm_rollback, R.string.set_confirm_rollback_go),
+    /** 權限 or the native switch: shown in the 執行方式 section. */
+    RESTART(R.string.set_confirm_restart, R.string.set_confirm_restart_go),
 }
 
 /**

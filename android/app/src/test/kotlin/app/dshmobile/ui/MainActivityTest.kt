@@ -22,6 +22,7 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import app.dshmobile.ui.shell.Tags
 import androidx.test.core.app.ApplicationProvider
+import app.dshmobile.config.AgentSettings
 import app.dshmobile.config.DshPatch
 import app.dshmobile.BuildConfig
 import app.dshmobile.DshMobileApp
@@ -1064,6 +1065,36 @@ class MainActivityTest {
             """{"type":"projection","sessionId":"s1","key":"modelSelection","value":{"lastUsed":{"provider":"deepseek-official","model":"deepseek-flash"},"next":{"provider":"deepseek-official","model":"deepseek-v4-pro"}},"seq":5}""",
         )
         waitUntil { compose.onAllNodes(androidx.compose.ui.test.hasTestTag(Tags.MODEL_CHIP) and androidx.compose.ui.test.hasText("DEEPSEEK PRO")).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** The Claude key was removed after Claude Opus became the lead: dsh leads with DeepSeek Flash, and the chat says so. */
+    @Test fun withoutAClaudeKeyAStoredClaudeLeadShowsAsDeepseekFlashWithDeepseeksStrengths() {
+        completeSetup()
+        swap("keyVault", object : KeyVault {
+            override fun get(p: Provider): String? = if (p == Provider.ANTHROPIC) null else "sk-test-key-0123456789"
+            override fun put(p: Provider, key: String) = Unit
+            override fun clear(p: Provider) = Unit
+        })
+        app.agentSettingsStore.save(AgentSettings(maxConcurrent = 3, leadModel = "claude-opus-5-5"))
+        answerChatRpc()
+        val activity = build().create().start().resume().visible().get()
+        waitForShellOn(0, activity)
+        activity.navForTest.openSession("s1")
+        waitUntil { muxes[0].opened("session/control").isNotEmpty() && called("session/list").isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithTag(Tags.MODEL_CHIP).assertTextEquals("DEEPSEEK FLASH")
+        compose.onNodeWithTag(Tags.MODEL_CHIP).performClick()
+        compose.waitForIdle()
+        val selected = compose.onNodeWithTag(Tags.MODEL_OPTION + "deepseek-flash").fetchSemanticsNode().config
+            .getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Selected)
+        assertEquals("the model in use is the one marked", true, selected)
+        compose.onNodeWithTag(Tags.EFFORT_OPTION + "off").assertExists() // DeepSeek has 關
+        assertTrue("no Claude strength", compose.onAllNodesWithTag(Tags.EFFORT_OPTION + "xhigh").fetchSemanticsNodes().isEmpty())
+        // 思考 on the status line steps through DeepSeek's strengths, for DeepSeek Flash
+        activity.runOnUiThread { activity.navForTest.onStatus("effort") }
+        waitUntil { called("session/selectModel").isNotEmpty() }
+        val body = called("session/selectModel").single().second
+        assertTrue(body, body.contains("\"model\":\"deepseek-flash\"") && body.contains("\"reasoningEffort\":\"off\""))
     }
 
     @Test fun rollbackAsksBeforeDoingAnything() {

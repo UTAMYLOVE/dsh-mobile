@@ -72,6 +72,29 @@ class LibraryScreenTest {
         rule.onNodeWithTag(Tags.LIB_WRITE_NEXT).assertIsNotEnabled()
     }
 
+    /** No Claude key: the stored novel model (Sonnet by default) is not on offer, so the book starts on what is. */
+    @Test fun withoutAClaudeKeyANewBookStartsOnADeepseekModelAndRecordsIt() {
+        val models = mutableListOf<String?>()
+        val d = LibraryDsh(
+            startBook = { model, opening -> models += model; sent += "new" to opening; "s1" },
+            conversation = { conv }, send = { _, _ -> }, openChat = {},
+        )
+        val stored = app.dshmobile.config.AgentSettingsStore(app.dshmobile.gateway.InMemorySharedPreferences()).novelModel
+        assertEquals("claude-sonnet-5-5", stored)
+        val default = bookDefaultModel(stored, hasClaudeKey = false)
+        assertEquals("deepseek-flash", default)
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) { LibraryScreen(store, d, bookModels(false), default) }
+        }
+        rule.onNodeWithTag(Tags.LIB_NEW).performClick()
+        rule.onNodeWithTag(Tags.LIB_CREATE).performClick()
+        rule.waitUntil(5_000) { store.state.value.books.isNotEmpty() }
+        assertEquals(listOf<String?>("deepseek-flash"), models)
+        assertEquals("deepseek-flash", store.state.value.books.single().model)
+        // with the key the stored choice stands
+        assertEquals("claude-sonnet-5-5", bookDefaultModel(stored, hasClaudeKey = true))
+    }
+
     @Test fun withoutDshTheShelfStillShowsStoredBooks() {
         store.addBook("舊書", "s7", null, null)
         show(null)

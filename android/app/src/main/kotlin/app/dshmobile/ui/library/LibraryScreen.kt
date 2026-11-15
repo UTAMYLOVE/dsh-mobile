@@ -397,3 +397,10 @@ private fun Cards(cards: List<CharacterCard>, store: LibraryStore, onBack: () ->
 /** The models a book can be written with, as (id, label). */
 fun bookModels(hasClaudeKey: Boolean): List<Pair<String, String>> =
     AgentModels.available(hasClaudeKey).map { it.id to (AgentModels.displayName(it.id) ?: it.id) }
+
+/**
+ * The 寫作模型 a new book starts with: the stored choice (Settings → 模型 → 小說) as the settings page shows it. Without a Claude
+ * key the stored default is Claude Sonnet, which [bookModels] does not offer: no chip was preselected, and the book was stored
+ * as Sonnet while DeepSeek wrote it.
+ */
+fun bookDefaultModel(stored: String, hasClaudeKey: Boolean): String = AgentModels.resolve(stored, hasClaudeKey).id

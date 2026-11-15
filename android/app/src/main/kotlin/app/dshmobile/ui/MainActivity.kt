@@ -56,6 +56,7 @@ import app.dshmobile.ui.library.LibraryDsh
 import app.dshmobile.config.AgentModels
 import app.dshmobile.remote.PromptPart
 import app.dshmobile.ui.library.LibraryScreen
+import app.dshmobile.ui.library.bookDefaultModel
 import app.dshmobile.ui.library.bookModels
 import app.dshmobile.ui.agents.rememberWarAgents
 import app.dshmobile.gateway.Provider
@@ -528,7 +529,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
-                    LibraryScreen(app.libraryStore, dsh, bookModels(hasClaude), remember { app.agentSettingsStore.novelModel }, ::openWorkspaceFile, ::shareWorkspaceFile)
+                    val novelModel = remember(hasClaude) { bookDefaultModel(app.agentSettingsStore.novelModel, hasClaude) }
+                    LibraryScreen(app.libraryStore, dsh, bookModels(hasClaude), novelModel, ::openWorkspaceFile, ::shareWorkspaceFile)
                 }
                 else -> EmptyPage(tab)
             }
@@ -540,8 +542,10 @@ class MainActivity : ComponentActivity() {
     private fun ChatTab(session: ShellSession) {
         val tab = nav.tab
         val hasClaude = remember(tab) { app.keyVault.has(Provider.ANTHROPIC) }
+        // The model dsh really leads with: a stored Claude choice stays stored while the key is away (it comes back with the
+        // key), but dsh then runs DeepSeek (AgentConfigWriter resolves it the same way), so the chat must not say Claude.
         val lead = remember(tab, hasClaude) {
-            app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).leadModel
+            AgentModels.resolve(app.agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), hasClaude).leadModel, hasClaude).id
         }
         ChatPage(
             session, nav, hasClaude, lead, onLink = ::openLink, onShare = ::shareWorkspaceFile, onMessage = ::toast, onRestartDsh = ::restartDsh, onOpenFile = ::openWorkspaceFile,

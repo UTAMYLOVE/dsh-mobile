@@ -348,6 +348,9 @@
     <string name="set_confirm_apply_go">仍要套用</string>
     <string name="set_confirm_update_go">仍要更新</string>
     <string name="set_confirm_rollback_go">仍要退版</string>
+    <!-- 2026-11-15: 權限 and the native switch restart dsh too, so they ask like 套用 -->
+    <string name="set_confirm_restart">有對話正在進行，改了會中斷它</string>
+    <string name="set_confirm_restart_go">仍要改</string>
     <string name="set_model_unapplied">未套用</string>
     <string name="dsh_phase_stopping">停止中</string>
     <string name="dsh_phase_sweeping">清除殘留 dsh</string>
@@ -388,7 +391,7 @@
     <string name="overview_stats_cache">快取命中</string>
     <string name="overview_stats_steps">步驟</string>
     <string name="overview_stats_model_line">%1$d 次 · 入 %2$s · 出 %3$s · 快取 %4$d%%</string>
-    <string name="war_limits">並行上限 %1$d · 團隊上限 %2$d · 委派深度 %3$d（在「設定 → 代理人」調整）</string>
+    <string name="war_limits">並行上限 %1$d · 團隊上限 %2$d · 委派深度 %3$d（在設定打開「進階設定」，到「代理人」調整）</string>
     <string name="set_mcp">MCP 伺服器（每行：名稱 網址）</string>
     <string name="set_mcp_note">例：github https://example.com/mcp。只支援 https 網址（或本機 127.0.0.1），不能填金鑰或標頭。改完按「套用並重啟」。</string>
     <string name="set_mcp_bad">這幾行格式不對，會被略過：%1$s</string>
@@ -500,7 +503,7 @@
     <string name="set_image_bad">這不是位址。要像 http://192.168.1.20:8188 這樣。</string>
     <string name="set_image_save">套用位址</string>
     <string name="set_advanced">進階設定</string>
-    <string name="set_advanced_note">小幫手數量、特效、花費上限、匯出這些平常用不到的設定。</string>
+    <string name="set_advanced_note">權限、執行方式、代理人、小幫手數量、特效、花費上限、匯出這些平常用不到的設定。</string>
     <string name="set_more">顯示更多功能</string>
     <string name="set_more_note">把總覽、書架、專案、小幫手和聊天框狀態列放回畫面上。</string>
     <string name="set_section_status">聊天框狀態列</string>
@@ -509,6 +512,7 @@
     <string name="set_key_cwa">氣象署開放資料金鑰</string>
     <string name="set_key_cwa_note">天氣分析用來拿附近測站的實測值做校正（到 opendata.cwa.gov.tw 免費申請）。只有 App 自己查天氣時用，不會交給 dsh。沒有也能用，只是不校正。</string>
     <string name="set_key_claude_pending">現在有工作在跑，Claude 會在 dsh 下次重開後出現（可以按最下面的「套用」）。</string>
+    <string name="set_key_claude_removed_running">Claude 金鑰已移除；正在跑的 Claude 工作接下來會停下來，DeepSeek 不受影響。</string>
     <!-- 外觀主題 (2026-11-15) -->
     <string name="set_section_look">外觀主題</string>
     <string name="set_en_look">THEME</string>

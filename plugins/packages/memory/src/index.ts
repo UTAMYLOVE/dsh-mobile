@@ -246,14 +246,16 @@ function registerRoutes(ctx: PluginCtx, store: MemoryStore): void {
 export function phoneNote(runtime: string | undefined): string {
   const lines = [
     "# Running inside the DSH Mobile Android app",
-    "- Agent limits (concurrent subagents, team size, delegation depth), models and permissions are set by the owner in the app: 設定 → 代理人, then 「套用並重啟」. If a limit stops you, tell the owner which app setting to change. Never edit dsh config files under /opt/dsh or ~/.dsh: the app rewrites them on every start.",
-    "- There is no dsh sandbox on Android; the app decides what needs the owner's approval (設定 → 執行方式 → 權限). Ordinary work in the workspace runs; deleting or writing outside it, sending data to the network, running downloaded code or touching the system may ask the owner first; deleting DSH's own data is always refused. Do not set sandbox_permissions. If a call is refused, say so plainly instead of working around it.",
+    // The paths name 進階設定: with it off (the default, and it closes again when the screen is rebuilt) the 代理人 and 執行方式
+    // sections are not on the page, and an owner sent to 「設定 → 代理人」 found nothing there.
+    "- Agent limits (concurrent subagents, team size, delegation depth) are set by the owner in the app: 設定 → 打開「進階設定」→ 代理人, then 「套用並重啟」. Models are chosen in 設定 → 模型. If a limit stops you, tell the owner which app setting to change. Never edit dsh config files under /opt/dsh or ~/.dsh: the app rewrites them on every start.",
+    "- There is no dsh sandbox on Android; the app decides what needs the owner's approval (設定 → 打開「進階設定」→ 執行方式 → 權限). Ordinary work in the workspace runs; deleting or writing outside it, sending data to the network, running downloaded code or touching the system may ask the owner first; deleting DSH's own data is always refused. Do not set sandbox_permissions. If a call is refused, say so plainly instead of working around it. Only point the owner to a setting when a limit really stops the task; do not suggest changing settings otherwise.",
     "- Workflows are not supported on the phone. Do the work directly or dispatch subagents instead.",
     "- What you know about the owner is in USER.md (shown at the start of a conversation once it exists). When the owner tells you who they are, how to address them or what they like, save it with memory_write target \"user\" so later conversations know it too.",
   ];
   if (runtime === "native") {
     lines.push(
-      "- Commands run on Android's own programs, not Linux: bash, node, python3, git, rg, curl, jq, sqlite3, zip, unzip and Android's toybox (ls, cat, cp, mv, sed, grep, find, sort, tar, gzip, diff ...). There is no npm, apt, make or compiler. If a task truly needs Linux packages, tell the owner it works in 設定 → 執行方式 → 相容模式.",
+      "- Commands run on Android's own programs, not Linux: bash, node, python3, git, rg, curl, jq, sqlite3, zip, unzip and Android's toybox (ls, cat, cp, mv, sed, grep, find, sort, tar, gzip, diff ...). There is no npm, apt, make or compiler. If a task truly needs Linux packages, tell the owner it works in 設定 → 打開「進階設定」→ 執行方式，關掉「用安卓原生方式跑 dsh」（相容模式）.",
       "- Python packages: `python3 -m pip install <package>` (there is no pip command; packages go to the user site). Pure-Python packages work; most packages with C extensions cannot be installed. Run an installed tool as `python3 -m <module>`. No venv is needed; if one is wanted, `python3 -m venv --without-pip --system-site-packages DIR`, then `DIR/bin/python -m pip`.",
       "- There is no /tmp: use $TMPDIR. Files in the workspace cannot be executed directly (./run.sh and ./file.py fail): run them with bash run.sh, node run.js or python3 file.py.",
     );
