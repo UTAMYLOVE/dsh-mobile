@@ -37,6 +37,8 @@ import app.dshmobile.ui.fog.LocalLook
 import app.dshmobile.ui.fog.LocalLookPicture
 import app.dshmobile.ui.fog.Look
 import app.dshmobile.ui.fog.StartupIntro
+import app.dshmobile.ui.fog.IntroFx
+import app.dshmobile.ui.fog.LocalPageActive
 import app.dshmobile.ui.fog.rememberLookPicture
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -83,6 +85,7 @@ import android.webkit.MimeTypeMap
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asImageBitmap
 import app.dshmobile.ui.agents.AgentsTab
 import app.dshmobile.ui.fog.FogPanel
@@ -207,6 +210,8 @@ class MainActivity : ComponentActivity() {
     }
     /** The system "remove animations" setting; read again at every resume, since it is changed in the system settings. */
     private var reducedMotion by mutableStateOf(false)
+    /** True while the startup animation covers the whole screen: the shell underneath is then neither drawn nor animated. */
+    private var introOpaque by mutableStateOf(false)
     private var jankStats: JankStats? = null
     /** The governor's frame and janky counts when this screen was last started: its stop logs the difference. */
     private var framesAtStart = 0L
@@ -246,7 +251,11 @@ class MainActivity : ComponentActivity() {
                     LocalUnlocker provides unlocker, LocalPickFiles provides ::pickFiles,
                     LocalLook provides look, LocalLookPicture provides app.look.pictureFile,
                 ) {
-                    Shell()
+                    // HWUI has no occlusion culling: without this the shell's glows, glass and lists render under an opaque intro
+                    // every frame, while dsh is also starting. It comes back as soon as the intro's exit opens.
+                    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (introOpaque) 0f else 1f }) {
+                        androidx.compose.runtime.CompositionLocalProvider(LocalPageActive provides !introOpaque) { Shell() }
+                    }
                     Intro(look, playIntro)
                 }
             }
@@ -386,6 +395,11 @@ class MainActivity : ComponentActivity() {
         if (seen == tick) return
         StartupIntro(
             look.intro, rememberLookPicture(look), reducedMotion,
+            // The picture is recoloured off the main thread at a cold start; the intro waits a moment for it rather than swapping
+            // it in mid-beat. The user's own petal / sparkle / amount choices apply in the 粉嫩 style.
+            pictureExpected = look.hasPicture,
+            fx = IntroFx.of(look),
+            onOpaqueChange = { introOpaque = it },
             onDone = { seen = tick },
         )
     }

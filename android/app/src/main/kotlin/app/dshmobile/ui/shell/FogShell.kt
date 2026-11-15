@@ -203,7 +203,8 @@ fun FogShell(
 
     // Real blur on (the backdrop is provided for every glass surface); pages animate only while current and the screen is started;
     // after eight quiet seconds the ambient motion slows down.
-    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides started, LocalIdle provides idle.state) {
+    // An outer "not active" (the startup animation covering the screen) pauses the pages too.
+    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides (started && LocalPageActive.current), LocalIdle provides idle.state) {
     Box(
         Modifier
             .fillMaxSize()

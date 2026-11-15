@@ -134,18 +134,23 @@ fun FogBackground(backdrop: Backdrop, modifier: Modifier = Modifier) {
     ) {
         Box(Modifier.fillMaxSize().background(Sakura.Background))
         if (!plain) {
-            Box(Modifier.fillMaxSize().fogGlows(clock))
+            val look = LocalLook.current
+            Box(Modifier.fillMaxSize().fogGlows(clock, kawaii = look.style == BackdropStyle.KAWAII))
             // 0.8.0 (the owner: 「不要科技感了，來一個舒服的感覺」): the perspective grids are gone; the soft glows stay.
             // 外觀主題 (2026-11-15): the user's own picture over the glows, then the 粉嫩二次元 floating things.
-            val look = LocalLook.current
-            rememberLookPicture(look)?.let { picture ->
+            val picture = rememberLookPicture(look)
+            picture?.let {
                 Image(
-                    picture, contentDescription = null, contentScale = ContentScale.Crop, alignment = BiasAlignment(0f, look.align.bias),
+                    it, contentDescription = null, contentScale = ContentScale.Crop, alignment = BiasAlignment(0f, look.align.bias),
                     alpha = look.opacity / 100f, modifier = Modifier.fillMaxSize().semantics { set(FogSemantics.Picture, true) },
                 )
+                // Blush scrims where the header and the dock sit, so their text and pills stay readable over busy art.
+                Box(Modifier.fillMaxSize().background(PictureScrim))
             }
             val particles = remember(look) { Kawaii.particles(look) }
-            if (particles.isNotEmpty()) Box(Modifier.fillMaxSize().kawaii(clock, particles, Kawaii.pace(look.speed)).semantics { set(FogSemantics.Kawaii, particles.size) })
+            if (particles.isNotEmpty()) {
+                Box(Modifier.fillMaxSize().kawaii(clock, particles, Kawaii.pace(look.speed), sides = picture != null).semantics { set(FogSemantics.Kawaii, particles.size) })
+            }
         }
     }
 }
@@ -162,19 +167,29 @@ private class GlowSpec(
     val oneWay: Float,
 )
 
-private fun buildGlow(color: Color, sizeDp: Float, left: Float, top: Float, drift: Offset, scaleTo: Float, oneWay: Float, density: Float): GlowSpec {
+private fun buildGlow(color: Color, sizeDp: Float, left: Float, top: Float, drift: Offset, scaleTo: Float, oneWay: Float, density: Float, peak: Float = .75f): GlowSpec {
     val r = sizeDp * density / 2f
     val c = Offset(r, r)
     return GlowSpec(
         Brush.radialGradient(
-            0f to color.copy(alpha = .75f), .55f to color.copy(alpha = .38f), 1f to color.copy(alpha = 0f), center = c, radius = r,
+            0f to color.copy(alpha = peak), .55f to color.copy(alpha = peak * .507f), 1f to color.copy(alpha = 0f), center = c, radius = r,
         ),
         r, left, top, drift.x * density, drift.y * density, scaleTo, oneWay,
     )
 }
 
-/** The three glows live in their own layer, so a clock tick redraws only this layer, not the chat list or dock above it. */
-private fun Modifier.fogGlows(clock: State<Float>): Modifier = this
+private val PictureScrim = Brush.verticalGradient(
+    0f to Sakura.Background.copy(alpha = .55f), .14f to Sakura.Background.copy(alpha = 0f),
+    .80f to Sakura.Background.copy(alpha = 0f), 1f to Sakura.Background.copy(alpha = .65f),
+)
+
+/**
+ * The three glows live in their own layer, so a clock tick redraws only this layer, not the chat list or dock above it. In the
+ * 粉嫩 style ([kawaii]) the light is clean: aqua over blush measured as a grey-cyan stain and milk tea as a dusty smudge, so those
+ * two become a white and a soft pink glow, and a pink halftone corner (the startup animation's motif) gives the empty chat some
+ * structure.
+ */
+private fun Modifier.fogGlows(clock: State<Float>, kawaii: Boolean = false): Modifier = this
     .graphicsLayer { }
     .drawWithCache {
         FogDebug.count("background.glows")
@@ -183,11 +198,15 @@ private fun Modifier.fogGlows(clock: State<Float>): Modifier = this
         val h = size.height
         val glows = arrayOf(
             buildGlow(Sakura.Primary, 300f, w + 90f * d - 300f * d, -60f * d, Offset(-70f, 80f), 1.12f, 18f, d),
-            buildGlow(Sakura.Aqua, 260f, -110f * d, h - 120f * d - 260f * d, Offset(90f, -60f), .9f, 22f, d),
-            buildGlow(Sakura.MilkTea, 240f, w + 70f * d - 240f * d, h * .42f, Offset(-80f, -40f), 1.15f, 26f, d),
+            if (kawaii) buildGlow(Sakura.White, 260f, -110f * d, h - 120f * d - 260f * d, Offset(90f, -60f), .9f, 22f, d)
+            else buildGlow(Sakura.Aqua, 260f, -110f * d, h - 120f * d - 260f * d, Offset(90f, -60f), .9f, 22f, d),
+            if (kawaii) buildGlow(Sakura.Primary, 240f, w + 70f * d - 240f * d, h * .42f, Offset(-80f, -40f), 1.15f, 26f, d, peak = .30f)
+            else buildGlow(Sakura.MilkTea, 240f, w + 70f * d - 240f * d, h * .42f, Offset(-80f, -40f), 1.15f, 26f, d),
         )
+        val halftone = if (kawaii) Kawaii.halftone(w, h, 9f * d, 3f * d, .4f * d) else null
         onDrawBehind {
             FogDebug.count("background.glows.draw")
+            halftone?.let { drawPath(it, Sakura.Primary.copy(alpha = .22f)) }
             val t = clock.value
             for (g in glows) {
                 val p = alternate(t, g.oneWay)

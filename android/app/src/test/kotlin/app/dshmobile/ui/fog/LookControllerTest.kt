@@ -44,6 +44,21 @@ class LookControllerTest {
         assertFalse(c.pictureFile.exists())
     }
 
+    @Test fun theRecolouredCopyIsKeptForTheNextStartAndGoesWithThePicture() = runBlocking {
+        val dir = tmp.newFolder("look")
+        val c = LookController(LookStore(InMemorySharedPreferences()), dir)
+        val bytes = png(40, 80)
+        c.setPicture { ByteArrayInputStream(bytes) }
+        val v = c.look.value.picture
+        assertTrue(LookPictures.load(c.pictureFile, v, 100, 55) != null)
+        assertEquals(1, LookPictures.copies(c.pictureFile).size)
+        // Another strength replaces the copy instead of piling up files.
+        LookPictures.load(c.pictureFile, v, 60, 55)
+        assertEquals(listOf("picture.jpg.six-$v-60-55.jpg"), LookPictures.copies(c.pictureFile).map { it.name })
+        c.removePicture()
+        assertEquals(emptyList<java.io.File>(), LookPictures.copies(c.pictureFile))
+    }
+
     @Test fun somethingThatIsNotAPictureChangesNothing() = runBlocking {
         val c = LookController(LookStore(InMemorySharedPreferences()), tmp.newFolder("look"))
         assertFalse(c.setPicture { ByteArrayInputStream("not a picture".toByteArray()) })
