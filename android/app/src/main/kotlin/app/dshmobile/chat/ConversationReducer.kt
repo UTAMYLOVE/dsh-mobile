@@ -341,6 +341,7 @@ object ConversationReducer {
             decodeMs = acc.decodeMs + decode,
             steps = acc.steps + 1,
             lastAssistant = seq?.let { "e$it" } ?: acc.lastAssistant,
+            maxPrompt = maxOf(acc.maxPrompt, input + cacheRead + cacheWrite),
         )
         return state.copy(turn = next, context = ContextFill(input + cacheRead + cacheWrite, acc.window ?: state.context?.window))
     }
@@ -360,6 +361,8 @@ object ConversationReducer {
             durationMs = if (time != null && acc.startMs != null) (time - acc.startMs).coerceAtLeast(0) else null,
             steps = acc.steps,
             cacheWriteTokens = acc.cacheWrite,
+            maxPrompt = acc.maxPrompt,
+            endedAtMs = time,
         )
         return state.copy(turn = null, replyStats = state.replyStats + (key to stats))
     }

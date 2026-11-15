@@ -73,18 +73,22 @@ data class SessionUsage(
 }
 
 /** [rootId] and every session below it (subagents, their subagents, teammates), summed. */
-fun teamUsage(tree: SessionTreeState, rootId: String): SessionUsage {
+fun teamUsage(tree: SessionTreeState, rootId: String): SessionUsage =
+    teamIds(tree, rootId).fold(SessionUsage()) { sum, id -> sum + SessionUsage.of(tree.projections[id]) }
+
+/** [rootId] first, then every session below it, each once (a cycle in a broken tree cannot loop). */
+private fun teamIds(tree: SessionTreeState, rootId: String): List<String> {
     val children = tree.summaries.values.groupBy { it.parentId }
-    var sum = SessionUsage()
+    val out = ArrayList<String>()
     val seen = HashSet<String>()
     val queue = ArrayDeque(listOf(rootId))
     while (queue.isNotEmpty()) {
         val id = queue.removeFirst()
         if (!seen.add(id)) continue
-        sum += SessionUsage.of(tree.projections[id])
+        out += id
         children[id]?.forEach { queue.add(it.id) }
     }
-    return sum
+    return out
 }
 
 /** Every session dsh has in memory, summed (the overview's live numbers). */
@@ -101,11 +105,72 @@ fun providerOf(name: String?): Provider? {
     }
 }
 
-/** The app's own estimate of one reply's cost; null when the provider is unknown. */
-fun replyCostUsd(prices: PriceTable, r: ReplyStats, at: Instant): Double? {
+/**
+ * The app's own estimate of one reply's cost; null when the provider is unknown. DeepSeek's peak price follows when the reply
+ * ended ([ReplyStats.endedAtMs]), so an off-peak reply does not double when looked at during peak hours; [now] is only for a reply
+ * without that time. Haiku 5.5's tier follows the turn's largest single request, not the steps summed.
+ */
+fun replyCostUsd(prices: PriceTable, r: ReplyStats, now: Instant): Double? {
     val p = providerOf(r.provider) ?: return null
-    return prices.costUsd(p, r.model.orEmpty(), Usage(r.inputTokens, r.outputTokens, r.cacheReadTokens, r.cacheWriteTokens), at)
+    val at = r.endedAtMs?.let(Instant::ofEpochMilli) ?: now
+    val u = Usage(r.inputTokens, r.outputTokens, r.cacheReadTokens, r.cacheWriteTokens)
+    return prices.costUsd(p, r.model.orEmpty(), u, at, maxPromptTokens = r.maxPrompt.takeIf { it > 0 }, requests = r.steps.toLong())
 }
+
+/**
+ * 本對話花費: the conversation [rootId] and every helper under it (subagents, teammates). Before, only the lead's loaded replies
+ * counted, so with helpers doing the work the number was a small fraction of the spend while 本對話 tok counted the whole team.
+ * Each helper is priced at the model it used; the lead as [ownCostUsd]. Still an estimate: Auto review's own requests are not in
+ * dsh's session counts and only show in today's total (the gateway meters every request). Null when nothing could be priced.
+ */
+fun teamCostUsd(tree: SessionTreeState, rootId: String, prices: PriceTable, loaded: Collection<ReplyStats>, now: Instant): Double? =
+    teamIds(tree, rootId).fold(null as Double?) { sum, id ->
+        val cost = if (id == rootId) ownCostUsd(tree, id, prices, loaded, now) else sessionCostUsd(tree, id, prices, now)
+        if (cost == null) sum else (sum ?: 0.0) + cost
+    }
+
+/**
+ * One conversation's own cost, without its helpers: each [loaded] reply at its own model and end time, plus what dsh's
+ * `tokenUsage` counted beyond those replies (pages not loaded, and failed attempts that were retried, which are billed too) at
+ * the model it last used. So a conversation that switched models is not priced wholly at the last one. Without dsh's
+ * `tokenUsage` it is the loaded replies alone.
+ */
+fun ownCostUsd(tree: SessionTreeState, id: String, prices: PriceTable, loaded: Collection<ReplyStats>, now: Instant): Double? {
+    val replies = loaded.mapNotNull { replyCostUsd(prices, it, now) }.takeIf { it.isNotEmpty() }?.sum()
+    val projections = tree.projections[id]
+    if (projections?.get("tokenUsage") == null) return replies
+    val own = SessionUsage.of(projections)
+    // dsh's buckets and the replies' are the same disjoint counts, so the difference is what the loaded replies do not cover.
+    val rest = Usage(
+        inputTokens = (own.inputTokens - loaded.sumOf { it.inputTokens }).coerceAtLeast(0),
+        outputTokens = (own.outputTokens - loaded.sumOf { it.outputTokens }).coerceAtLeast(0),
+        cacheReadTokens = (own.cacheReadTokens - loaded.sumOf { it.cacheReadTokens }).coerceAtLeast(0),
+        cacheWriteTokens = (own.cacheWriteTokens - loaded.sumOf { it.cacheWriteTokens }).coerceAtLeast(0),
+    )
+    val restCost = if (rest == Usage(0, 0)) null else usedModel(tree, id)?.let { (provider, model) ->
+        prices.costUsd(provider, model, rest, now, requests = (own.steps - loaded.sumOf { it.steps.toLong() }).coerceAtLeast(1))
+    }
+    return if (replies == null && restCost == null) null else (replies ?: 0.0) + (restCost ?: 0.0)
+}
+
+/** A helper's cost: all of dsh's counted tokens at the model it used; null with no tokens or no known model. */
+private fun sessionCostUsd(tree: SessionTreeState, id: String, prices: PriceTable, now: Instant): Double? {
+    val u = SessionUsage.of(tree.projections[id])
+    if (u.totalTokens == 0L) return null
+    val (provider, model) = usedModel(tree, id) ?: return null
+    return prices.costUsd(provider, model, Usage(u.inputTokens, u.outputTokens, u.cacheReadTokens, u.cacheWriteTokens), now, requests = u.steps)
+}
+
+/** The provider and model a session's requests went to: dsh's `modelSelection.lastUsed`, else its next pick, else the list row's. */
+private fun usedModel(tree: SessionTreeState, id: String): Pair<Provider, String>? {
+    val selection = tree.projections[id]?.get("modelSelection") as? JsonObject
+    val used = (selection?.get("lastUsed") as? JsonObject) ?: (selection?.get("next") as? JsonObject)
+    val model = used?.text("model") ?: tree.summaries[id]?.model ?: return null
+    val provider = providerOf(used?.text("provider")) ?: if (model.startsWith("claude")) Provider.ANTHROPIC else Provider.DEEPSEEK
+    return provider to model
+}
+
+private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
 
 /** Short token count: 950, 12.3K, 1.2M. */
 fun shortTokens(n: Long): String = when {

@@ -13,9 +13,15 @@ class PriceTable {
 
     private class AnthropicRates(val input: Double, val output: Double, val cacheRead: Double, val cacheWrite: Double)
 
-    fun costUsd(p: Provider, model: String, u: Usage, at: Instant): Double = when (p) {
+    /**
+     * The cost of [u] on [model]. [u] may be one request (the gateway's meter) or many summed (a turn, a whole session): Haiku
+     * 5.5's long-context rates apply per request, so a sum must say how big its prompts were. [maxPromptTokens] is the largest
+     * single prompt in the sum when known; otherwise the average over [requests] decides. Without either, a five-step turn of
+     * 25K-token prompts (125K summed) was priced at the >100K rates, five times too much.
+     */
+    fun costUsd(p: Provider, model: String, u: Usage, at: Instant, maxPromptTokens: Long? = null, requests: Long = 1): Double = when (p) {
         Provider.DEEPSEEK -> deepseekCost(model, u, at)
-        Provider.ANTHROPIC -> anthropicCost(model, u)
+        Provider.ANTHROPIC -> anthropicCost(model, u, maxPromptTokens, requests)
     }
 
     private fun deepseekCost(model: String, u: Usage, at: Instant): Double {
@@ -28,11 +34,11 @@ class PriceTable {
         return tokens / MILLION + u.webSearchRequests * DEEPSEEK_SEARCH_USD
     }
 
-    private fun anthropicCost(model: String, u: Usage): Double {
+    private fun anthropicCost(model: String, u: Usage, maxPromptTokens: Long?, requests: Long): Double {
         val key = stripDate(model)
-        val totalInput = u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens
+        val prompt = maxPromptTokens ?: ((u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens) / requests.coerceAtLeast(1))
         val rates = when {
-            key == HAIKU_5_5 && totalInput > HAIKU_5_5_TIER_LIMIT -> haiku55LongContext
+            key == HAIKU_5_5 && prompt > HAIKU_5_5_TIER_LIMIT -> haiku55LongContext
             else -> anthropic[key] ?: anthropic.getValue(CONSERVATIVE_ANTHROPIC)
         }
         val tokens = u.inputTokens * rates.input +

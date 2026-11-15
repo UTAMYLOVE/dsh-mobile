@@ -63,7 +63,7 @@ fun ChatDataPanel(
             MiniTile("◇ 上下文", contextFill?.let { "${(it * 100).toInt()}%" } ?: "—", "模型記憶", War.aqua, Modifier.weight(1f))
             MiniTile("◆ 快取", cacheHit?.let { "${(it * 100).toInt()}%" } ?: "—", "省錢比例", War.milk, Modifier.weight(1f))
             MiniTile("● 速度", speeds.lastOrNull()?.let { String.format(Locale.US, "%.0f", it) } ?: "—", "tok/s 最新", War.pink, Modifier.weight(1f))
-            MiniTile("▲ 花費", costUsd?.let { shortUsd(it) } ?: "—", "已載入回覆", War.milk, Modifier.weight(1f))
+            MiniTile("▲ 花費", costUsd?.let { shortUsd(it) } ?: "—", "含助手", War.milk, Modifier.weight(1f))
         }
         if (team.isNotEmpty()) SpiritFlow(team, onTap = {}, height = 150.dp, compact = true)
         Text("每則回覆速度 tok/s", style = War.lab)

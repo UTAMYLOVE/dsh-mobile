@@ -74,6 +74,21 @@ class PriceTableTest {
         assertEquals((60_000 * 0.50 + 20_000 * 0.05 + 20_001 * 0.625 + 1_000_000 * 2.50) / 1e6, high, 1e-9)
     }
 
+    /** H4: Haiku 5.5's long-context tier is per request; a sum of requests says how big its prompts were. */
+    @Test fun haiku55TierFollowsTheRequestsNotTheirSum() {
+        val at = Instant.EPOCH
+        // Five requests of 25K prompts each, summed: 125K of prompt.
+        val turn = Usage(inputTokens = 25_000, outputTokens = 5_000, cacheReadTokens = 100_000)
+        val low = (25_000 * 0.10 + 100_000 * 0.01 + 5_000 * 0.50) / 1e6
+        val high = (25_000 * 0.50 + 100_000 * 0.05 + 5_000 * 2.50) / 1e6
+        assertEquals(low, prices.costUsd(Provider.ANTHROPIC, "claude-haiku-5-5", turn, at, requests = 5), 1e-12)
+        assertEquals(low, prices.costUsd(Provider.ANTHROPIC, "claude-haiku-5-5", turn, at, maxPromptTokens = 25_000), 1e-12)
+        // The largest single prompt wins over the average when it is known.
+        assertEquals(high, prices.costUsd(Provider.ANTHROPIC, "claude-haiku-5-5", turn, at, maxPromptTokens = 100_001, requests = 5), 1e-12)
+        // One request (the gateway's meter) is unchanged.
+        assertEquals(high, prices.costUsd(Provider.ANTHROPIC, "claude-haiku-5-5", turn, at), 1e-12)
+    }
+
     @Test fun anthropicSearchCostsOneCentEach() {
         val u = Usage(inputTokens = 0, outputTokens = 0, webSearchRequests = 3)
         assertEquals(0.03, prices.costUsd(Provider.ANTHROPIC, "claude-sonnet-5-5", u, Instant.EPOCH), 1e-12)

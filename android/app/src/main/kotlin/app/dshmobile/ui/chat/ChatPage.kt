@@ -3,6 +3,7 @@ package app.dshmobile.ui.chat
 import app.dshmobile.chat.ContextFill
 import app.dshmobile.chat.SessionUsage
 import app.dshmobile.chat.replyCostUsd
+import app.dshmobile.chat.teamCostUsd
 import app.dshmobile.chat.replyLine
 import app.dshmobile.chat.shortTokens
 import app.dshmobile.chat.teamUsage
@@ -470,6 +471,7 @@ private fun ConversationPage(
     val title = conversation.title?.takeIf { it.isNotBlank() } ?: row?.title?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_untitled)
 
     val prices = remember { PriceTable() }
+    // Each reply is priced at the time it ended (DeepSeek's peak hours), so a reply's cost does not change with the viewing time.
     val replyLines = remember(conversation.replyStats) {
         val now = Instant.now()
         conversation.replyStats.mapValues { (_, r) -> replyLine(r, replyCostUsd(prices, r, now)) }
@@ -499,10 +501,14 @@ private fun ConversationPage(
     val speeds = remember(conversation.replyStats, conversation.items) {
         conversation.items.mapNotNull { (it as? app.dshmobile.chat.ChatItem.Assistant)?.let { a -> conversation.replyStats[a.key]?.tokensPerSecond } }
     }
-    val loadedCost = remember(conversation.replyStats) {
-        val now = Instant.now()
-        conversation.replyStats.values.mapNotNull { replyCostUsd(prices, it, now) }.takeIf { it.isNotEmpty() }?.sum()
+    // 本對話花費: the lead and its helpers, retried attempts and pages not loaded included, as 本對話 tok counts them. Only the
+    // loaded replies counted before, which with helpers doing the work was a small part of the spend.
+    val costFlow = remember(session, id) {
+        kotlinx.coroutines.flow.combine(session.tree.state, store.state.map { it.replyStats }.distinctUntilChanged()) { t, r ->
+            teamCostUsd(t, id, prices, r.values, Instant.now())
+        }.distinctUntilChanged()
     }
+    val teamCost by costFlow.collectAsState(remember(session, id) { teamCostUsd(session.tree.state.value, id, prices, store.state.value.replyStats.values, Instant.now()) })
 
     // The long-press menu (0.5.0): branches go through dsh's session/fork; 朗讀 through the app's Speaker.
     val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext as? app.dshmobile.DshMobileApp
@@ -544,8 +550,8 @@ private fun ConversationPage(
     // The dock's status line (0.5.0): model ▶ 思考 ▶ 審查 ▶ 上下文 ▶ tok/s ▶ 花費, in the owner's order; values only change when
     // a reply ends, so the shell is not recomposed while one streams.
     val statusConfig = appCtx?.statusLineConfig?.collectAsState()?.value ?: app.dshmobile.ui.shell.StatusLineConfig()
-    val segs = remember(statusConfig, activity, current, ui.effort, ui.reviewRounds, conversation.context, speeds, usage, loadedCost) {
-        statusConfig.apply(statusSegments(activity, AgentModels.displayName(current), ui.effort, ui.reviewRounds, conversation.context, speeds.lastOrNull(), usage.totalTokens.takeIf { !usage.isEmpty }, loadedCost))
+    val segs = remember(statusConfig, activity, current, ui.effort, ui.reviewRounds, conversation.context, speeds, usage, teamCost) {
+        statusConfig.apply(statusSegments(activity, AgentModels.displayName(current), ui.effort, ui.reviewRounds, conversation.context, speeds.lastOrNull(), usage.totalTokens.takeIf { !usage.isEmpty }, teamCost))
     }
     LaunchedEffect(segs) { if (nav.statusLine != segs) nav.statusLine = segs }
     val latestCurrent by androidx.compose.runtime.rememberUpdatedState(current)
@@ -631,7 +637,7 @@ private fun ConversationPage(
                 value = if (root == null) emptyList() else kotlinx.coroutines.withContext(Dispatchers.IO) { app.dshmobile.chat.WorkspaceFiles.list(root) }
             }
             ChatDataPanel(
-                team, speeds, loadedCost, conversation.context?.fraction, usage.cacheHit,
+                team, speeds, teamCost, conversation.context?.fraction, usage.cacheHit,
                 conversation.items.filterIsInstance<app.dshmobile.chat.ChatItem.Tool>(),
                 files, onShare,
             )

@@ -140,6 +140,45 @@ class ReplyStatsTest {
         assertNull(providerOf("openai"))
     }
 
+    private fun turn(model: String, provider: String, endMs: Long, vararg steps: Triple<Long, Long, Long>): ReplyStats {
+        var seq = 2L
+        val events = mutableListOf(
+            e("turn/start", 1, 1_000),
+            e("request/context", 2, 1_050, """{"provider":"$provider","model":"$model","contextWindow":1000000}"""),
+        )
+        steps.forEach { (input, cache, output) -> events += reply(++seq, 2_000, firstChunk = 1_500, input = input, output = output, cache = cache) }
+        events += e("turn/end", ++seq, endMs, """{"turn":1,"reason":{"kind":"completed"}}""")
+        return ConversationReducer.reduce(ConversationState("s1"), snap(*events.toTypedArray())).replyStats.values.single()
+    }
+
+    /**
+     * H4: a turn sums its steps, but Haiku 5.5's long-context price is per request. A five-step turn of 25K prompts (125K summed)
+     * was priced at the >100K rates, five times too much; a turn with one 140K request does pay them.
+     */
+    @Test fun aHaikuTurnIsPricedByItsLargestRequestNotItsSum() {
+        val small = turn("claude-haiku-5-5", "anthropic", 3_000, *Array(5) { Triple(5_000L, 20_000L, 1_000L) })
+        assertEquals(25_000L, small.maxPrompt)
+        assertEquals(5, small.steps)
+        val low = (25_000 * 0.10 + 100_000 * 0.01 + 5_000 * 0.50) / 1e6
+        assertEquals(low, replyCostUsd(PriceTable(), small, Instant.EPOCH)!!, 1e-12)
+
+        val big = turn("claude-haiku-5-5", "anthropic", 3_000, Triple(40_000L, 100_000L, 1_000L), Triple(5_000L, 5_000L, 1_000L))
+        assertEquals(140_000L, big.maxPrompt)
+        val high = (45_000 * 0.50 + 105_000 * 0.05 + 2_000 * 2.50) / 1e6
+        assertEquals(high, replyCostUsd(PriceTable(), big, Instant.EPOCH)!!, 1e-12)
+    }
+
+    /** H5: DeepSeek's peak price follows when the reply ran; looking at an off-peak reply during peak hours does not double it. */
+    @Test fun anOffPeakReplyViewedAtPeakTimeKeepsItsOffPeakCost() {
+        val offPeakEnd = Instant.parse("2026-11-02T05:00:00Z") // Monday, between the two peak windows
+        val peakNow = Instant.parse("2026-11-02T07:00:00Z")
+        val r = turn("deepseek-flash", "deepseek-official", offPeakEnd.toEpochMilli(), Triple(1_000_000L, 0L, 1_000_000L))
+        assertEquals(offPeakEnd.toEpochMilli(), r.endedAtMs)
+        assertEquals(0.15 + 0.60, replyCostUsd(PriceTable(), r, peakNow)!!, 1e-9)
+        // A reply without an end time (older state) still prices at the time given.
+        assertEquals(0.30 + 1.20, replyCostUsd(PriceTable(), r.copy(endedAtMs = null), peakNow)!!, 1e-9)
+    }
+
     @Test fun shortFormats() {
         assertEquals("950", shortTokens(950))
         assertEquals("12.3K", shortTokens(12_340))

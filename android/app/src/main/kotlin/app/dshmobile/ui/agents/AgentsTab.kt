@@ -27,6 +27,8 @@ import app.dshmobile.agents.WarRoomRecorder
 import app.dshmobile.chat.ConversationState
 import app.dshmobile.chat.SessionRows
 import app.dshmobile.chat.SessionTree
+import app.dshmobile.chat.SessionTreeState
+import app.dshmobile.chat.ownCostUsd
 import app.dshmobile.chat.providerOf
 import app.dshmobile.gateway.PriceTable
 import app.dshmobile.gateway.Provider
@@ -43,14 +45,24 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
-/** The app's estimate for an agent: its model's price (Claude models by name, else DeepSeek) times its tokens. */
+/**
+ * The app's estimate for an agent: its model's price (Claude models by name, else DeepSeek) times its tokens, at today's DeepSeek
+ * hours. Its request count keeps Haiku 5.5's long-context tier per request, not on the session's summed prompts.
+ */
 internal fun agentCostUsd(prices: PriceTable, a: AgentStatus): Double? {
     val model = a.model ?: return null
     val p = providerOf(if (model.startsWith("claude")) "anthropic" else "deepseek") ?: Provider.DEEPSEEK
     val u = a.usage
     if (u.totalTokens == 0L) return null
-    return prices.costUsd(p, model, Usage(u.inputTokens, u.outputTokens, u.cacheReadTokens, u.cacheWriteTokens), Instant.now())
+    return prices.costUsd(p, model, Usage(u.inputTokens, u.outputTokens, u.cacheReadTokens, u.cacheWriteTokens), Instant.now(), requests = u.steps)
 }
+
+/**
+ * The war room's cost of [a]: the open lead's as the chat counts it ([ownCostUsd]: its loaded replies at their own model and end
+ * time, the rest of dsh's count at the last model), every other agent as [agentCostUsd].
+ */
+internal fun warCostUsd(prices: PriceTable, tree: SessionTreeState, lead: ConversationState?, a: AgentStatus): Double? =
+    if (a.isLead && lead?.sessionId == a.id) ownCostUsd(tree, a.id, prices, lead.replyStats.values, Instant.now()) else agentCostUsd(prices, a)
 
 /** The agents of the war room for [openId] (the open conversation, or the busiest), rebuilt every second while shown. */
 @Composable
@@ -156,7 +168,7 @@ fun AgentsTab(
                 todayUsd = todayUsd, alertUsd = alertUsd, limit = limit, team = team, nowMs = System.currentTimeMillis(),
             ),
             expanded = expanded, onExpand = { expanded = it },
-            costOf = { agentCostUsd(prices, it) },
+            costOf = { warCostUsd(prices, state, leadState?.takeIf { l -> l.sessionId == leadId }, it) },
             stopping = stopping,
             onStop = { a -> rows.firstOrNull { it.childId == a.id }?.let { r: AgentRow -> sessionScope.launch { agents.stop(r) } } },
             onOpen = { a -> onOpenParent(if (a.isLead) a.id else a.parentId ?: a.id) },

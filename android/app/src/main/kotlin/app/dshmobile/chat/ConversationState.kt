@@ -55,6 +55,13 @@ data class ReplyStats(
     val steps: Int,
     /** Prompt tokens written to the provider's cache (dsh's counts are disjoint: billed input = input + cache read + cache write). */
     val cacheWriteTokens: Long = 0,
+    /**
+     * The largest single step's prompt (input + cache read + cache write); 0 when unknown. Haiku 5.5's price tier is per request,
+     * and the summed turn above says nothing about how big each request was.
+     */
+    val maxPrompt: Long = 0,
+    /** dsh's time of the turn's end (epoch ms). DeepSeek's peak and off-peak prices follow when the reply ran, not when it is viewed. */
+    val endedAtMs: Long? = null,
 ) {
     /** Output tokens per second while generating; null when too short to measure. */
     val tokensPerSecond: Double? get() = if (decodeMs >= MIN_DECODE_MS && outputTokens > 0) outputTokens * 1000.0 / decodeMs else null
@@ -83,6 +90,7 @@ data class TurnAcc(
     val decodeMs: Long = 0,
     val steps: Int = 0,
     val lastAssistant: String? = null,
+    val maxPrompt: Long = 0,
 )
 
 sealed interface ChatItem {
