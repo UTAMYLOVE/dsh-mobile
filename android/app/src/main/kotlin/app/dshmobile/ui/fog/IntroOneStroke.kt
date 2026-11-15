@@ -66,9 +66,8 @@ import kotlin.math.sin
  * pale pink with its stamens) and your name is written in stroke by stroke in the intro's handwriting, with 歡迎回來 above it and a
  * small typed DSH MOBILE below. Over a picture the blush veil then thins a little, so the picture develops as the payoff.
  *
- * Its moves take 1.9 s in all (everything has moved by 1.53 s at the default 3 s). A longer setting only holds the finished crest
- * and name longer (the run ends exactly at the setting, which every look shares); a 1.5 s setting shortens the pen most, so the
- * name still holds at least 0.3 s.
+ * It is the short option: the run ends at min(setting, 2.5 s). All its moves take 1.9 s (everything has moved by 1.53 s, then
+ * the finished name holds about 0.6 s); a 1.5 s setting shortens the pen most, so the name still holds at least 0.3 s.
  */
 @Composable
 internal fun OneStrokeIntro(
@@ -198,8 +197,8 @@ private val PenHalo: Brush = Brush.radialGradient(
 )
 
 /**
- * One run's beats (ms on the run's clock), a pure function of the 1.5–8 s setting, which the run ends on. The moves: the ghost
- * inks in (110), the pen draws the crest (820), the crest glows and the name is
+ * One run's beats (ms on the run's clock), a pure function of the 1.5–8 s setting. The run is the short option: it ends at
+ * min(setting, [MAX_MS]). The moves: the ghost inks in (110), the pen draws the crest (820), the crest glows and the name is
  * written (600), the exit iris (360); one hold between them takes the rest (at least [HOLD_MIN], so the finished name always
  * shows a moment). A move never slows down. When the moves do not fit (a 1.5 s setting) the name keeps at least [WRITE_FLOOR]
  * and the other moves tighten by [pace]: the pen gives up most.
@@ -238,6 +237,8 @@ internal class OneStrokeTimes private constructor(val plan: IntroPlan, val pace:
         if (reduced) 1f else seg(ms, settled, min(DEVELOP_MS, exit - settled).coerceAtLeast(1f), IntroEase.CubicInOut)
 
     companion object {
+        /** The look's own length at most: it is the short option. */
+        const val MAX_MS = 2500f
         const val INK_MS = 110f
         const val DRAW_MS = 820f
         const val WRITE_MS = 600f
@@ -254,9 +255,9 @@ internal class OneStrokeTimes private constructor(val plan: IntroPlan, val pace:
 
         val PenEase: Easing = CubicBezierEasing(.42f, 0f, .28f, 1f)
 
-        /** The beats for a [settingMs] setting. */
+        /** The beats for a [settingMs] setting; the run itself lasts min(setting, [MAX_MS]). */
         fun of(settingMs: Float): OneStrokeTimes {
-            val total = settingMs
+            val total = min(settingMs, MAX_MS)
             val room = total - HOLD_MIN
             if (room >= MOVES_MS) {
                 return OneStrokeTimes(

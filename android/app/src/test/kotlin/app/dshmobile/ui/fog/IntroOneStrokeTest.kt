@@ -29,7 +29,7 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * 「一筆描」: the short look's beats (its moves are done by 1.53 s, longer settings only hold, a 1.5 s run gives up the pen
+ * 「一筆描」: the short look's beats (it ends at min(setting, 2.5 s), its moves are done by 1.53 s, a 1.5 s run gives up the pen
  * before the name), the crest as one unbroken brush line, the name's strokes in writing order, and the look drawn for real (native
  * graphics, PixelCopy): the pen draws before anything is written, the name is written in ink, the flower opens onto the user's
  * picture and the picture develops, petals never cover the name, and no grey shows.
@@ -41,22 +41,27 @@ class IntroOneStrokeTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
     @Test fun itIsTheShortLook() {
-        // Every move together, with the shortest hold, fits in 2.5 s, and at the default 3 s everything has moved by 1.53 s.
-        assertTrue(OneStrokeTimes.MOVES_MS + OneStrokeTimes.HOLD_MIN <= 2500f)
+        // The default 3 s setting runs 2.5 s: everything has moved by 1.53 s, the finished name holds about 0.6 s, then the exit.
         val t = OneStrokeTimes.of(3000f)
+        assertEquals(2500f, t.plan.total, 0f)
         assertEquals(1f, t.pace, 0f)
         assertEquals(1530f, t.settled, .01f)
+        assertEquals(2140f, t.exit, .01f)
         assertTrue("settled at ${t.settled}", t.settled < 2000f)
-        assertEquals(3000f - OneStrokeTimes.EXIT_MS, t.exit, .01f)
         assertEquals(t.exit - 1f, t.still, 0f)
     }
 
-    @Test fun longerRunsOnlyHoldLonger() {
+    @Test fun aLongerSettingDoesNotMakeItLonger() {
         val t3 = OneStrokeTimes.of(3000f)
         val t8 = OneStrokeTimes.of(8000f)
+        assertEquals(2500f, t8.plan.total, 0f)
+        assertEquals(2140f, t8.exit, .01f)
         for ((a, b) in listOf(t3.drawAt to t8.drawAt, t3.hit to t8.hit, t3.writeMs to t8.writeMs, t3.settled to t8.settled)) assertEquals(a, b, 0f)
-        assertEquals(8000f, t8.plan.total, 0f)
-        assertEquals(8000f - OneStrokeTimes.EXIT_MS, t8.exit, .01f)
+        // Under the cap it ends on the setting, holding a little less.
+        val t2 = OneStrokeTimes.of(2300f)
+        assertEquals(2300f, t2.plan.total, 0f)
+        assertEquals(1f, t2.pace, 0f)
+        assertEquals(t3.settled, t2.settled, .01f)
     }
 
     @Test fun aShortRunGivesUpThePenBeforeTheName() {
