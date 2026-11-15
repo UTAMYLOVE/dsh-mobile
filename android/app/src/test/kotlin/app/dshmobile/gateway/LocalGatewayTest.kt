@@ -398,7 +398,8 @@ class LocalGatewayTest {
         meter.hardCapUsd = 0.0
         postJson("/deepseek/v1/messages", """{"model":"deepseek-flash"}""").use {
             assertEquals(429, it.code)
-            assertEquals("""{"error":"dshm_daily_cap"}""", it.text())
+            // The providers' error shape: dsh's DeepSeek adapter reads only an `error` object (a string read as a busy model).
+            assertEquals("""{"type":"error","error":{"type":"dshm_daily_cap","code":"dshm_daily_cap","message":"dshm_daily_cap"}}""", it.text())
         }
         assertEquals(0, deepseekUpstream.requestCount)
     }
@@ -410,7 +411,7 @@ class LocalGatewayTest {
         repeat(3) {
             postJson("/deepseek/v1/messages", """{"model":"deepseek-flash"}""").use { r ->
                 assertEquals(429, r.code)
-                assertEquals("""{"error":"dshm_rate_guard"}""", r.text())
+                assertEquals("""{"type":"error","error":{"type":"dshm_rate_guard","code":"dshm_rate_guard","message":"dshm_rate_guard"}}""", r.text())
             }
         }
         assertEquals(2, deepseekUpstream.requestCount)
@@ -458,7 +459,7 @@ class LocalGatewayTest {
         startGateway(vault = FakeVault(mapOf(Provider.DEEPSEEK to "real-ds-key")))
         postJson("/anthropic/v1/messages", """{"model":"claude-sonnet-5-5"}""").use {
             assertEquals(401, it.code)
-            assertEquals("""{"error":"dshm_missing_key","provider":"ANTHROPIC"}""", it.text())
+            assertEquals("""{"type":"error","error":{"type":"dshm_missing_key","code":"dshm_missing_key","message":"dshm_missing_key: no usable ANTHROPIC key"},"provider":"ANTHROPIC"}""", it.text())
         }
         assertEquals(0, anthropicUpstream.requestCount)
     }
@@ -468,7 +469,7 @@ class LocalGatewayTest {
         postJson("/deepseek/v1/messages", """{"model":"deepseek-flash"}""").use {
             assertEquals(401, it.code)
             val text = it.text()
-            assertEquals("""{"error":"dshm_invalid_key","provider":"DEEPSEEK"}""", text)
+            assertEquals("""{"type":"error","error":{"type":"dshm_invalid_key","code":"dshm_invalid_key","message":"dshm_invalid_key: no usable DEEPSEEK key"},"provider":"DEEPSEEK"}""", text)
         }
         assertEquals(0, deepseekUpstream.requestCount)
     }
@@ -479,7 +480,7 @@ class LocalGatewayTest {
         postJson("/deepseek/v1/messages", """{"model":"deepseek-flash"}""").use {
             assertEquals(502, it.code)
             val text = it.text()
-            assertEquals("""{"error":"dshm_upstream_unreachable"}""", text)
+            assertEquals("""{"type":"error","error":{"type":"dshm_upstream_unreachable","code":"dshm_upstream_unreachable","message":"dshm_upstream_unreachable"}}""", text)
         }
     }
 

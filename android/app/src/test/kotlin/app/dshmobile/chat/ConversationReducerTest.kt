@@ -210,7 +210,14 @@ class ConversationReducerTest {
     @Test fun gatewayCodesAndStatusesBecomeOnePlainSentence() {
         val cases = mapOf(
             // Claude (pi-ai) quotes the gateway's body; DeepSeek keeps only the status and dsh's code.
-            """{"message":"401 {\"error\":\"dshm_missing_key\",\"provider\":\"ANTHROPIC\"}","code":"AUTH"}""" to "找不到金鑰，請到設定貼上金鑰",
+            """{"message":"401 {\"error\":\"dshm_missing_key\",\"provider\":\"ANTHROPIC\"}","code":"AUTH"}""" to "沒有 Claude 金鑰了，這個對話換成 DeepSeek 模型就能繼續",
+            // The gateway's provider-shaped body: Claude quotes all of it, DeepSeek keeps error.message.
+            """{"message":"401 {\"type\":\"error\",\"error\":{\"type\":\"dshm_missing_key\",\"code\":\"dshm_missing_key\",\"message\":\"dshm_missing_key: no usable ANTHROPIC key\"},\"provider\":\"ANTHROPIC\"}","code":"AUTH"}""" to
+                "沒有 Claude 金鑰了，這個對話換成 DeepSeek 模型就能繼續",
+            """{"message":"dshm_missing_key: no usable DEEPSEEK key","code":"AUTH","status":401}""" to "找不到 DeepSeek 金鑰，請到設定貼上金鑰",
+            """{"message":"401 {\"error\":\"dshm_missing_key\"}","code":"AUTH"}""" to "找不到金鑰，請到設定貼上金鑰",
+            """{"message":"dshm_invalid_key: no usable DEEPSEEK key","code":"AUTH","status":401}""" to "金鑰被拒絕，請到設定重新貼上金鑰",
+            """{"message":"dshm_daily_cap","code":"RATE_LIMIT","status":429}""" to "已達今日花費上限（每日硬上限）",
             """{"message":"401 {\"error\":\"dshm_invalid_key\"}","code":"AUTH"}""" to "金鑰被拒絕，請到設定重新貼上金鑰",
             """{"message":"DeepSeek Messages request failed (401)","code":"AUTH","status":401}""" to "金鑰被拒絕，請到設定重新貼上金鑰",
             """{"message":"Forbidden","code":"HTTP_403","status":403}""" to "金鑰被拒絕，請到設定重新貼上金鑰",
@@ -253,6 +260,17 @@ class ConversationReducerTest {
         assertNull(retrying.then(live(asstMsg(30, """{"type":"text","text":"ok"}"""))).retry)
         assertNull(retrying.then(live(turnEnd("""{"kind":"completed"}""", seq = 31))).retry)
         assertEquals("模型忙線，重試第 3 次…", running.then(retry(3, max = null)).retry?.label)
+    }
+
+    /** DeepSeek's adapter retries the owner's own daily cap (a 429); the chat says what it is, not 「模型忙線」. */
+    @Test fun aRetryOfTheDailyCapSaysTheCapNotABusyModel() {
+        val capped = s0.then(
+            live(ev("turn/start", 1)),
+            live(ev("llm/retry", 21, """{"retryId":"r","turn":1,"step":1,"provider":"deepseek-official","mode":"normal","retry":1,"maxRetries":5,"delayMs":500,"failure":{"message":"dshm_daily_cap","code":"RATE_LIMIT","status":429}}""")),
+        )
+        assertEquals(true, capped.retry?.dailyCap)
+        assertEquals("已達今日花費上限（每日硬上限）", capped.retry?.label)
+        assertEquals(false, s0.then(live(ev("turn/start", 1)), retry(1)).retry?.dailyCap)
     }
 
     @Test fun aNewTurnClearsAnOldRetry() {

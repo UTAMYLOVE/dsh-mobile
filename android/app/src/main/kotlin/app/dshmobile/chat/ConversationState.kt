@@ -31,9 +31,16 @@ data class ConversationState(
     val retry: RetryInfo? = null,
 )
 
-/** One model retry: [retry] of [maxRetries] (null under dsh's "always" retry policy, which has no ceiling). */
-data class RetryInfo(val retry: Int, val maxRetries: Int?) {
-    val label: String get() = if (maxRetries != null) "模型忙線，重試 $retry/$maxRetries…" else "模型忙線，重試第 $retry 次…"
+/**
+ * One model retry: [retry] of [maxRetries] (null under dsh's "always" retry policy, which has no ceiling). [dailyCap]: the
+ * request was refused by the owner's own 每日硬上限, which waiting does not clear, so it is not called a busy model.
+ */
+data class RetryInfo(val retry: Int, val maxRetries: Int?, val dailyCap: Boolean = false) {
+    val label: String get() = when {
+        dailyCap -> ConversationReducer.TURN_DAILY_CAP
+        maxRetries != null -> "模型忙線，重試 $retry/$maxRetries…"
+        else -> "模型忙線，重試第 $retry 次…"
+    }
 }
 
 /** The conversation's last turn failed (its last item is an error notice), so the end-of-work notice should not say 完成. */

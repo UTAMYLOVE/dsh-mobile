@@ -187,7 +187,13 @@ object ConversationReducer {
             "turn/start" -> state.copy(running = true, turn = TurnAcc(startMs = time), retry = null)
             "turn/end" -> turnEnd(finishReply(state, time), seq, data)
             // dsh-llm-retry: {retry, maxRetries?, delayMs, failure}; maxRetries is absent under the "always" policy.
-            "llm/retry" -> state.copy(retry = RetryInfo((data.num("retry") ?: 1).toInt(), data.num("maxRetries")?.toInt()))
+            "llm/retry" -> state.copy(
+                retry = RetryInfo(
+                    (data.num("retry") ?: 1).toInt(), data.num("maxRetries")?.toInt(),
+                    // dsh retries a 429 whatever it says; the owner's own daily cap is not a busy model and will not clear.
+                    dailyCap = data.obj("failure")?.str("message")?.contains("dshm_daily_cap", ignoreCase = true) == true,
+                ),
+            )
             "session/title" -> data.str("title")?.let { state.copy(title = it) } ?: state
             else -> state
         }
@@ -391,6 +397,9 @@ object ConversationReducer {
     const val TURN_TRUNCATED = "回覆太長被截斷，說「繼續」可接著寫"
     const val TURN_BLOCKED = "這一輪被擋下了"
     const val TURN_NO_KEY = "找不到金鑰，請到設定貼上金鑰"
+    /** The Claude key was removed (on purpose, Settings said Claude work stops): picking a DeepSeek model is enough. */
+    const val TURN_NO_CLAUDE_KEY = "沒有 Claude 金鑰了，這個對話換成 DeepSeek 模型就能繼續"
+    const val TURN_NO_DEEPSEEK_KEY = "找不到 DeepSeek 金鑰，請到設定貼上金鑰"
     const val TURN_KEY_REJECTED = "金鑰被拒絕，請到設定重新貼上金鑰"
     const val TURN_DAILY_CAP = "已達今日花費上限（每日硬上限）"
     const val TURN_NO_BALANCE = "帳戶餘額不足"
@@ -412,6 +421,9 @@ object ConversationReducer {
         val status = error?.num("status")
         val m = message.lowercase()
         return when {
+            // The gateway names the provider whose key is missing (LocalGateway.providerError).
+            "dshm_missing_key" in m && "anthropic" in m -> TURN_NO_CLAUDE_KEY
+            "dshm_missing_key" in m && "deepseek" in m -> TURN_NO_DEEPSEEK_KEY
             "dshm_missing_key" in m -> TURN_NO_KEY
             "dshm_invalid_key" in m || status == 401L || status == 403L || code == "AUTH" -> TURN_KEY_REJECTED
             "dshm_daily_cap" in m -> TURN_DAILY_CAP

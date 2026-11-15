@@ -154,15 +154,15 @@ class LocalGateway(
 
     private suspend fun forward(call: ApplicationCall, p: Provider, restAndQuery: String) {
         val upstream = upstreams[p] ?: return call.respondJson(HttpStatusCode.NotFound, """{"error":"dshm_not_found"}""")
-        if (meter.isBlocked()) return call.respondJson(HttpStatusCode.TooManyRequests, """{"error":"dshm_daily_cap"}""")
+        if (meter.isBlocked()) return call.respondJson(HttpStatusCode.TooManyRequests, providerError("dshm_daily_cap"))
         if (!rateGuard.tryAcquire(p)) {
             noticeRateGuard(p)
-            return call.respondJson(HttpStatusCode.TooManyRequests, """{"error":"dshm_rate_guard"}""")
+            return call.respondJson(HttpStatusCode.TooManyRequests, providerError("dshm_rate_guard"))
         }
         val key = vault.get(p)?.trim()?.takeIf { it.isNotEmpty() }
-            ?: return call.respondJson(HttpStatusCode.Unauthorized, """{"error":"dshm_missing_key","provider":"${p.name}"}""")
+            ?: return call.respondJson(HttpStatusCode.Unauthorized, providerError("dshm_missing_key", p))
         if (!key.all { it in ' '..'~' }) {
-            return call.respondJson(HttpStatusCode.Unauthorized, """{"error":"dshm_invalid_key","provider":"${p.name}"}""")
+            return call.respondJson(HttpStatusCode.Unauthorized, providerError("dshm_invalid_key", p))
         }
         val target = (upstream.toString().trimEnd('/') + restAndQuery).toHttpUrlOrNull()
             ?: return call.respondJson(HttpStatusCode.BadRequest, """{"error":"dshm_bad_request"}""")
@@ -190,7 +190,7 @@ class LocalGateway(
         val response = try {
             upstreamCall.await()
         } catch (_: IOException) {
-            return call.respondJson(HttpStatusCode.BadGateway, """{"error":"dshm_upstream_unreachable"}""")
+            return call.respondJson(HttpStatusCode.BadGateway, providerError("dshm_upstream_unreachable"))
         }
         stream(call, p, prepared.model, upstreamCall, response)
     }
@@ -329,6 +329,18 @@ class LocalGateway(
     }
 
     private companion object {
+        /**
+         * An answer the gateway gives in the provider's place, in the providers' own error shape (`error` is an object with type,
+         * code and message). dsh's DeepSeek adapter reads only that object: with `error` a plain string, the owner's own daily
+         * cap arrived as "DeepSeek Messages request failed (429)", retried as a busy model, and a missing key read as a rejected
+         * one. The Claude route quotes the whole body, so it sees the same code. A key error also names the provider.
+         */
+        fun providerError(code: String, provider: Provider? = null): String {
+            val message = if (provider == null) code else "$code: no usable ${provider.name} key"
+            val named = if (provider == null) "" else ",\"provider\":\"${provider.name}\""
+            return """{"type":"error","error":{"type":"$code","code":"$code","message":"$message"}$named}"""
+        }
+
         const val LOOPBACK = "127.0.0.1"
         const val BUFFER_BYTES = 8 * 1024
         const val RATE_NOTICE_INTERVAL_MS = 10 * 60 * 1_000L
