@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
@@ -66,8 +65,9 @@ import kotlin.math.sin
  * pale pink with its stamens) and your name is written in stroke by stroke in the intro's handwriting, with 歡迎回來 above it and a
  * small typed DSH MOBILE below. Over a picture the blush veil then thins a little, so the picture develops as the payoff.
  *
- * It is the short option: the run ends at min(setting, 2.5 s). All its moves take 1.9 s (everything has moved by 1.53 s, then
- * the finished name holds about 0.6 s); a 1.5 s setting shortens the pen most, so the name still holds at least 0.3 s.
+ * It is the short option: about 1.95 s at the default 3 s setting (everything has moved by 1.35 s, the finished name holds
+ * 0.32 s, then the exit). Only a setting above 3 s lengthens the hold, a little per second, and never past min(setting, 2.5 s);
+ * a setting under 1.95 s ends on the setting, the pen giving up most, so the name still holds 0.32 s. See [OneStrokeTimes].
  */
 @Composable
 internal fun OneStrokeIntro(
@@ -98,9 +98,15 @@ internal fun OneStrokeIntro(
             OneStrokeCrest(widthPx, heightPx, lay.c, lay.r, dp, if (fx.sparkles) introCount(level, fx, 9, 6, 0, reduced) else 0)
         }
         val backdrop = remember(this) { IntroBackdrop(this.picture, widthPx, heightPx, align) }
-        val driftCount = introCount(level, fx, 9, 6, 3, reduced)
+        // In winter the petals give way to snow (pink petals drifting through snow read as a mistake), and the snow falls behind
+        // the crest and the words: aqua passing over or under the rose-brown line, the glows or the flower's fill made grey.
+        val winter = fx.season == IntroSeason.SNOW
+        val driftCount = if (winter) 0 else introCount(level, fx, 9, 6, 3, reduced)
         val drift = remember(this) { IntroDrift(widthPx, heightPx, dp, driftCount, fx, salt = 40) }
-        val season = remember(this) { IntroSeasonFx(widthPx, heightPx, dp, fx.season, introCount(level, fx, 8, 6, 3, reduced), fx) }
+        val season = remember(this) {
+            IntroSeasonFx(widthPx, heightPx, dp, if (winter) IntroSeason.NONE else fx.season, introCount(level, fx, 8, 6, 3, reduced), fx)
+        }
+        val snow = remember(this) { OneStrokeSnow(widthPx, heightPx, dp, if (winter) introCount(level, fx, 12, 9, 6, reduced) else 0) }
         val particles = driftCount > 0 || season.active
         val text = remember(this, words, name) {
             val hand = runCatching { context.resources.getFont(R.font.intro_hand) }.getOrNull()
@@ -129,6 +135,13 @@ internal fun OneStrokeIntro(
                     }
                     drawRect(text.band, alpha = lerp(OneStrokeText.BAND_START, 1f, develop))
                 }
+            },
+        )
+        if (snow.active) Spacer(
+            Modifier.fillMaxSize().graphicsLayer { alpha = run.exitFade(60f, 160f); compositingStrategy = CompositingStrategy.Offscreen }.drawBehind {
+                snow.draw(this, run.amb, if (reduced) 1f else seg(run.ms, 0f, 500f))
+                drawRect(text.particleMask, blendMode = BlendMode.DstOut)
+                drawRect(crest.clearMask, blendMode = BlendMode.DstOut)
             },
         )
         Spacer(
@@ -162,9 +175,9 @@ internal fun OneStrokeIntro(
                 text.draw(this, run.ms, times, reduced)
             },
         )
-        // The petals (or sparkles) and the season drift in front of the crest but fade out over the band of the words: a petal
-        // cut into the name, and behind it the ink's soft edge over a snowflake's aqua ring read as grey. Composed in a layer so
-        // the band can wipe them softly.
+        // The petals (or sparkles) and spring's blossoms drift in front of the crest but fade out over the band of the words (a
+        // petal cut into the name). Composed in a layer so the band can wipe them softly; in the still frame the crest is kept
+        // clear as well, so no petal sits frozen on the flower.
         Spacer(
             Modifier.fillMaxSize().graphicsLayer { if (particles) compositingStrategy = CompositingStrategy.Offscreen }.drawBehind {
                 if (!particles) return@drawBehind
@@ -172,6 +185,7 @@ internal fun OneStrokeIntro(
                 drift.draw(this, run.amb, .8f * inK)
                 season.draw(this, run.amb, inK)
                 drawRect(text.particleMask, blendMode = BlendMode.DstOut)
+                if (reduced) drawRect(crest.clearMask, blendMode = BlendMode.DstOut)
             },
         )
     }
@@ -190,6 +204,12 @@ private val Ink = Sakura.RoseBrown.copy(alpha = .8f)
 private val UnderInk = Sakura.White.copy(alpha = .6f)
 private const val UNDER = 2.3f
 
+/** A sparkle's tinted glow, radius 1 at the origin: white at the heart, a faint aqua tint (never strong enough to grey the pink). */
+private val AquaGlow: Brush = Brush.radialGradient(
+    0f to Sakura.White.copy(alpha = .7f), .45f to lerpColor(Sakura.White, Sakura.Aqua, .4f).copy(alpha = .3f),
+    1f to lerpColor(Sakura.White, Sakura.Aqua, .4f).copy(alpha = 0f), center = Offset.Zero, radius = 1f,
+)
+
 /** The pen's pink halo, radius 1 at the origin (scaled where it is drawn). */
 private val PenHalo: Brush = Brush.radialGradient(
     0f to Sakura.Primary.copy(alpha = .55f), .45f to Sakura.Primary.copy(alpha = .22f), 1f to Sakura.Primary.copy(alpha = 0f),
@@ -197,72 +217,130 @@ private val PenHalo: Brush = Brush.radialGradient(
 )
 
 /**
- * One run's beats (ms on the run's clock), a pure function of the 1.5–8 s setting. The run is the short option: it ends at
- * min(setting, [MAX_MS]). The moves: the ghost inks in (110), the pen draws the crest (820), the crest glows and the name is
- * written (600), the exit iris (360); one hold between them takes the rest (at least [HOLD_MIN], so the finished name always
- * shows a moment). A move never slows down. When the moves do not fit (a 1.5 s setting) the name keeps at least [WRITE_FLOOR]
- * and the other moves tighten by [pace]: the pen gives up most.
+ * One run's beats (ms on the run's clock), a pure function of the 1.5–8 s setting. It is the short option, with a natural length
+ * of [NATURAL_MS] (1.95 s): the ghost inks in (90), the pen draws the crest (740), the crest glows while the name and the caption
+ * are written (520), the finished name holds (320) and the exit iris opens (280). Only a setting above 3 s lengthens the hold,
+ * evenly up to [MAX_MS] at 8 s, so 2.5 s is a ceiling, never the default; a setting under 1.95 s ends on the setting. A move
+ * never slows down. When the moves do not fit (a 1.5 s setting) the writing keeps at least [WRITE_FLOOR], the hold keeps
+ * [HOLD_MS], and the other moves tighten by [pace]: the pen gives up most.
  */
 internal class OneStrokeTimes private constructor(val plan: IntroPlan, val pace: Float) {
     /** When the pen starts and how long it draws. */
     val drawAt: Float = plan.at(1)
     val drawMs: Float = plan.length(1)
-    /** The line closes: the crest glows (and the haptic tick). */
+    /** The line closes: the charge runs back along it (and the haptic tick). */
     val hit: Float = plan.at(2)
-    /** The name is written from [writeAt] for [writeMs] (TalkBack hears the welcome then). */
-    val writeAt: Float = hit + 90f * pace
-    val writeMs: Float = plan.end(2) - writeAt
-    val eyebrowAt: Float = hit + 30f * pace
-    val captionAt: Float = plan.end(2) - 80f * pace
-    /** Everything has moved (the name is whole) by here; the hold follows. */
+    /** The name is written from [writeAt] for [writeMs] (TalkBack hears the welcome then)... */
+    val writeAt: Float = hit + WRITE_LEAD * pace
+    /** ...and everything (the name and the caption typed beside its last strokes) stops together here; the hold follows. */
     val settled: Float = plan.end(2)
+    val writeMs: Float = settled - writeAt
+    val eyebrowAt: Float = hit + 30f * pace
     val exit: Float = plan.at(4)
     /** The reduced-motion frame: the finished crest and name, just before the exit. */
     val still: Float = exit - 1f
 
-    /** The pen's progress along the line, 0..1: it lands slowly, glides, and eases into the last petal. */
-    fun drawK(ms: Float): Float = seg(ms, drawAt, drawMs, PenEase)
+    /** The pen's progress along the line, 0..1: an even pace with a soft landing and a soft lift ([glide]). */
+    fun drawK(ms: Float): Float =
+        if (drawMs <= 0f) (if (ms >= drawAt) 1f else 0f) else glide((ms - drawAt) / drawMs, LAND_RAMP / DRAW_MS, LIFT_RAMP / DRAW_MS)
 
     /** The ghost (the whole line, faint): it inks in first, then goes once the line is closed. */
     fun ghost(ms: Float): Float = seg(ms, 0f, plan.length(0) + 60f * pace) * (1f - seg(ms, hit, 240f * pace))
 
+    /** How much of the line the charge has lit, 0..1, running back from where the pen lifted to where it landed. */
+    fun charge(ms: Float): Float = seg(ms, hit, CHARGE_MS * pace, IntroEase.SineInOut)
+
+    /**
+     * The charge's white glow: .8 while it runs, its brightest (1) while the whole line is lit for [PEAK_MS], then it settles
+     * into the pink breathing over [SETTLE_MS]. 0 before the line closes.
+     */
+    fun chargeGlow(ms: Float): Float {
+        val d = ms - hit
+        val run = CHARGE_MS * pace
+        val peak = PEAK_MS * pace
+        return when {
+            d < 0f -> 0f
+            d < run -> .8f
+            d < run + peak -> lerp(.8f, 1f, seg(d, run, 40f * pace))
+            else -> 1f - seg(d, run + peak, SETTLE_MS * pace, IntroEase.CubicOut)
+        }
+    }
+
     /** The flower opening (onto the picture, or into its pale fill) after the line closes. */
     fun open(ms: Float, reduced: Boolean = false): Float = if (reduced) 1f else seg(ms, hit, 420f * pace, IntroEase.CubicOut)
 
-    /** The crest's breathing glow coming in after the line closes. */
-    fun glowIn(ms: Float, reduced: Boolean = false): Float = if (reduced) 1f else seg(ms, hit, 360f * pace)
+    /** The crest's pink breathing glow, coming in once the charge has run the whole line. */
+    fun glowIn(ms: Float, reduced: Boolean = false): Float = if (reduced) 1f else seg(ms, hit + CHARGE_MS * pace, 360f * pace)
 
     /** The picture developing once the name is whole: over [DEVELOP_MS], or what is left of the hold. */
     fun develop(ms: Float, reduced: Boolean = false): Float =
         if (reduced) 1f else seg(ms, settled, min(DEVELOP_MS, exit - settled).coerceAtLeast(1f), IntroEase.CubicInOut)
 
     companion object {
-        /** The look's own length at most: it is the short option. */
+        /** The look's length at most (at the 8 s setting): it is the short option. */
         const val MAX_MS = 2500f
-        const val INK_MS = 110f
-        const val DRAW_MS = 820f
-        const val WRITE_MS = 600f
+        const val INK_MS = 90f
+        const val DRAW_MS = 740f
+        /** The name, with the caption typed beside its last strokes. */
+        const val WRITE_MS = 520f
         /** The name's writing never gets shorter than this (a 1.5 s run takes it from the pen instead). */
         const val WRITE_FLOOR = 480f
-        const val HOLD_MIN = 300f
-        const val EXIT_MS = 360f
-        const val DEVELOP_MS = 400f
-        /** All the moves together: the look's own length before any hold. */
+        /** The finished name's hold at the default setting, and at least this at any setting. */
+        const val HOLD_MS = 320f
+        const val EXIT_MS = 280f
+        /** All the moves together... */
         const val MOVES_MS = INK_MS + DRAW_MS + WRITE_MS + EXIT_MS
+        /** ...and with the hold: the look's own length, used at the default 3 s setting. */
+        const val NATURAL_MS = MOVES_MS + HOLD_MS
+        const val DEVELOP_MS = 400f
+        /** From the line closing to the name's first stroke. */
+        const val WRITE_LEAD = 50f
+        /** The pen's soft start and stop (ms of the [DRAW_MS] draw; they scale with it). */
+        const val LAND_RAMP = 90f
+        const val LIFT_RAMP = 110f
+        /** The charge: its run back along the line, the whole line at its brightest, its settling into the breathing. */
+        const val CHARGE_MS = 260f
+        const val PEAK_MS = 120f
+        const val SETTLE_MS = 380f
+        /** Each letter of the caption, typed this far apart. */
+        const val CAPTION_PER_CHAR = 22f
 
         /** The breathing glow's period (s). */
         const val BREATH_S = 2.6f
 
-        val PenEase: Easing = CubicBezierEasing(.42f, 0f, .28f, 1f)
+        /**
+         * Progress at [u] (0..1 of the time) at an even speed between a soft start over [a] and a soft stop over [b] (raised-cosine
+         * ramps from and to standstill). The peak speed is 1 / (1 - (a + b) / 2) of the average: 1.16× for the pen, where an
+         * ease-in-out peaked at 2.5× and snapped the ring in over a few frames.
+         */
+        fun glide(u: Float, a: Float, b: Float): Float {
+            if (u <= 0f) return 0f
+            if (u >= 1f) return 1f
+            val v = 1f / (1f - (a + b) / 2f)
+            val pi = PI.toFloat()
+            return when {
+                u < a -> v * (u / 2f - a / (2f * pi) * sin(pi * u / a))
+                u > 1f - b -> 1f - v * ((1f - u) / 2f - b / (2f * pi) * sin(pi * (1f - u) / b))
+                else -> v * (a / 2f + (u - a))
+            }
+        }
 
-        /** The beats for a [settingMs] setting; the run itself lasts min(setting, [MAX_MS]). */
+        /**
+         * The run's own length for a [settingMs] setting: the setting itself under [NATURAL_MS], [NATURAL_MS] up to 3 s, then
+         * longer holds, evenly up to [MAX_MS] at 8 s (never past the setting).
+         */
+        fun lengthFor(settingMs: Float): Float =
+            if (settingMs <= 3000f) min(settingMs, NATURAL_MS)
+            else min(settingMs, NATURAL_MS + (MAX_MS - NATURAL_MS) * ((settingMs - 3000f) / 5000f).coerceIn(0f, 1f))
+
+        /** The beats for a [settingMs] setting; the run itself lasts [lengthFor] it. */
         fun of(settingMs: Float): OneStrokeTimes {
-            val total = min(settingMs, MAX_MS)
-            val room = total - HOLD_MIN
-            if (room >= MOVES_MS) {
+            val total = lengthFor(settingMs)
+            val room = total - HOLD_MS
+            if (room >= MOVES_MS - .01f) {
                 return OneStrokeTimes(
                     IntroPlan.of(
-                        total, IntroBeat.move(INK_MS), IntroBeat.move(DRAW_MS), IntroBeat.move(WRITE_MS), IntroBeat.hold(1f, HOLD_MIN),
+                        total, IntroBeat.move(INK_MS), IntroBeat.move(DRAW_MS), IntroBeat.move(WRITE_MS), IntroBeat.hold(1f, HOLD_MS),
                         IntroBeat.move(EXIT_MS),
                     ),
                     1f,
@@ -274,7 +352,7 @@ internal class OneStrokeTimes private constructor(val plan: IntroPlan, val pace:
             val pace = ((room - write) / (MOVES_MS - WRITE_MS)).coerceIn(0f, 1f)
             return OneStrokeTimes(
                 IntroPlan.of(
-                    total, IntroBeat.move(INK_MS * pace), IntroBeat.move(DRAW_MS * pace), IntroBeat.move(write), IntroBeat.hold(1f, HOLD_MIN),
+                    total, IntroBeat.move(INK_MS * pace), IntroBeat.move(DRAW_MS * pace), IntroBeat.move(write), IntroBeat.hold(1f, HOLD_MS),
                     IntroBeat.move(EXIT_MS * pace),
                 ),
                 pace,
@@ -329,9 +407,10 @@ private fun smooth(u: Float): Float = u * u * (3f - 2f * u)
  * the five-petal sakura outline once round (the shared silhouette at [FLOWER] of the ring) and a little past where it began, as a
  * brush lifts. One contour, so one [PathMeasure] draws it.
  *
- * The ink is cut into pieces of a brush-like width (it lands at a fifth of its width and fills out, swells round the ring, thins
- * in the curl and the flower, lifts to a hairline), finer where the width changes fast; a piece the pen has passed is a fixed
- * path, so a frame only cuts the one under the pen.
+ * The ink is cut into pieces of a brush-like width (it lands at 1.5 dp and fills out over its first [LAND_DP], swells round
+ * the ring, thins in the curl and the flower, lifts to a hairline), finer where the width changes fast; a piece the pen has
+ * passed is a fixed path, so a frame only cuts the one under the pen. The glows round the line start and stop a little inside
+ * its ends ([inset]): their round caps made a pink blob, wider than the line, at the tip where the brush lands.
  */
 internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, private val dp: Float, sparkles: Int) {
     val path = Path()
@@ -346,6 +425,8 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
     /** Where the ring ends and the curl ends, as fractions of [length]. */
     val ringEnd: Float
     val curlEnd: Float
+    /** The brush's landing, [LAND_DP] long, as a fraction of [length]. */
+    private val landU: Float
 
     private val pieceStart = FloatArray(PIECES + 1)
     private val pieces = Array(PIECES) { Path() }
@@ -353,17 +434,25 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
     private val underStroke: Array<Stroke>
 
     private val ghostStroke = Stroke(1.3f * dp, cap = StrokeCap.Round, join = StrokeJoin.Round)
-    /** The breathing glow: three widening strokes, ever fainter, read as one soft halo (no blur needed). */
-    private val halo = arrayOf(
-        Stroke(22f * dp, cap = StrokeCap.Round, join = StrokeJoin.Round),
-        Stroke(14f * dp, cap = StrokeCap.Round, join = StrokeJoin.Round),
-        Stroke(8f * dp, cap = StrokeCap.Round, join = StrokeJoin.Round),
-    )
-    /** The glow when the line closes: the same soft falloff, in white, under the ink. */
+    /** The breathing glow: three widening strokes, ever fainter, read as one soft halo (no blur needed)... */
+    private val halo = floatArrayOf(22f, 14f, 8f).map { Stroke(it * dp, cap = StrokeCap.Round, join = StrokeJoin.Round) }
+    /** ...each along the line minus its own width at both ends ([inset]). */
+    private val haloPaths: List<Path>
+    /** The charge when the line closes: the same soft falloff, in white, under the ink... */
     private val glowStrokes = floatArrayOf(18f, 11f, 6f, 3f).map { Stroke(it * dp, cap = StrokeCap.Round, join = StrokeJoin.Round) }
-    private val glowAlpha = floatArrayOf(.12f, .18f, .25f, .5f)
+    private val glowAlpha = floatArrayOf(.14f, .22f, .30f, .58f)
+    private val glowPaths: List<Path>
+    /** ...and its brighter head as it runs back along the line. */
+    private val headStrokes = floatArrayOf(12f, 5f).map { Stroke(it * dp, cap = StrokeCap.Round, join = StrokeJoin.Round) }
     private val scratch = Path()
     private val sparkle = Kawaii.sparklePath()
+    /**
+     * The crest's disc, soft edged (drawn with DstOut): snow passes behind the crest (seen through the flower's half-clear fill
+     * and the glows its faint aqua turned grey), and the still frame keeps petals off the flower and the ring.
+     */
+    val clearMask: Brush = Brush.radialGradient(
+        0f to Color.Black, .86f to Color.Black, 1f to Color.Transparent, center = c, radius = r * 1.16f,
+    )
 
     /** The pale fill of the flower without a picture: white at the heart, blush, pink at the petals' edges. */
     private val fill: Brush
@@ -420,6 +509,9 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
         val flowerLen = PathMeasure().apply { setPath(flower, true) }.length * (360f + OVERSHOOT) / 360f
         ringEnd = (ringLen / length).coerceIn(0f, 1f)
         curlEnd = ((length - flowerLen) / length).coerceIn(ringEnd, 1f)
+        landU = (LAND_DP * dp / length).coerceIn(1e-3f, .2f)
+        haloPaths = halo.map { inset(it.width) }
+        glowPaths = glowStrokes.map { inset(it.width) }
 
         for (j in 0..PIECES) pieceStart[j] = length * pieceU(j)
         pieceStroke = Array(PIECES) { j ->
@@ -457,16 +549,19 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
         }
     }
 
+    /** The line less [w] at each end (a glow [w] wide: its round caps then end half their width inside the line's tips). */
+    private fun inset(w: Float): Path = Path().also { if (length > 2f * w) measure.getSegment(w, length - w, it, true) }
+
     /** Where piece [j] starts along the line (0..1): finer over the landing and the lift, where the width changes fastest. */
     private fun pieceU(j: Int): Float = when {
-        j <= LAND_PIECES -> LAND * j / LAND_PIECES
+        j <= LAND_PIECES -> landU * j / LAND_PIECES
         j >= PIECES - LIFT_PIECES -> 1f - LIFT * (PIECES - j) / LIFT_PIECES
-        else -> LAND + (1f - LAND - LIFT) * (j - LAND_PIECES) / (PIECES - LAND_PIECES - LIFT_PIECES)
+        else -> landU + (1f - landU - LIFT) * (j - LAND_PIECES) / (PIECES - LAND_PIECES - LIFT_PIECES)
     }
 
-    /** The brush's width at [u] (0..1 along the line), as a factor of [INK_DP]. */
+    /** The brush's width at [u] (0..1 along the line), as a factor of [INK_DP]: it lands at [LAND_MIN] (1.5 dp). */
     fun pressure(u: Float): Float {
-        val land = .18f + .82f * smooth((u / LAND).coerceIn(0f, 1f))
+        val land = LAND_MIN + (1f - LAND_MIN) * smooth((u / landU).coerceIn(0f, 1f))
         val body = when {
             u < ringEnd -> 1f + .32f * sin(PI.toFloat() * u / ringEnd)
             u < curlEnd -> lerp(1f, .8f, (u - ringEnd) / (curlEnd - ringEnd).coerceAtLeast(1e-4f))
@@ -482,7 +577,7 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
     /** The line's direction at [k] (0..1 along the line). */
     fun tangentAt(k: Float): Offset = measure.getTangent(k.coerceIn(0f, 1f) * length)
 
-    /** Below the ink: the ghost, the breathing glow, the flower's fill and stamens, and the soft glow when the line closes. */
+    /** Below the ink: the ghost, the breathing glow, the flower's fill and stamens, and the charge when the line closes. */
     fun drawUnder(scope: DrawScope, ms: Float, amb: Float, t: OneStrokeTimes, level: EffectLevel, reduced: Boolean, window: Boolean) = with(scope) {
         val k = if (reduced) 1f else t.drawK(ms)
         val d = k * length
@@ -494,9 +589,9 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
             val breath = if (reduced || level == EffectLevel.SAVER) .5f
             else .5f - .5f * cos(2f * PI.toFloat() * (amb - t.hit / 1000f).coerceAtLeast(0f) / OneStrokeTimes.BREATH_S)
             val a = (.55f + .45f * breath) * glowIn
-            drawPath(path, Sakura.Primary.copy(alpha = .07f * a), style = halo[0])
-            drawPath(path, Sakura.Primary.copy(alpha = .10f * a), style = halo[1])
-            drawPath(path, Sakura.Primary.copy(alpha = .13f * a), style = halo[2])
+            drawPath(haloPaths[0], Sakura.Primary.copy(alpha = .07f * a), style = halo[0])
+            drawPath(haloPaths[1], Sakura.Primary.copy(alpha = .10f * a), style = halo[1])
+            drawPath(haloPaths[2], Sakura.Primary.copy(alpha = .13f * a), style = halo[2])
         }
         if (!window) {
             val open = t.open(ms, reduced)
@@ -512,13 +607,34 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
             }
         }
         if (k < 1f || reduced) return@with
-        // The line closes: a soft white glow runs along all of it, under the ink (which stays readable), and a bloom from the heart.
-        val f = flash(ms, t.hit, 1f)
-        if (f <= 0f) return@with
-        for (i in glowStrokes.indices) drawPath(path, Sakura.White.copy(alpha = glowAlpha[i] * f), style = glowStrokes[i])
-        if (level != EffectLevel.SAVER) {
-            val g = 1f - f
-            withTransform({ translate(c.x, c.y); scale(r * (.55f + .6f * g), r * (.55f + .6f * g), Offset.Zero) }) {
+        // The line closes and charges up: a white glow runs back along it (the same PathMeasure) from where the pen lifted to where
+        // it landed, a brighter head in front, under the ink (which stays readable); the whole line then holds at its brightest and
+        // settles into the pink breathing. When the whole line is lit, a bloom rises from the heart.
+        val g = t.chargeGlow(ms)
+        if (g > 0f) {
+            val lit = t.charge(ms)
+            if (lit >= 1f) {
+                for (i in glowStrokes.indices) drawPath(glowPaths[i], Sakura.White.copy(alpha = glowAlpha[i] * g), style = glowStrokes[i])
+            } else if (lit > 0f) {
+                val front = length * (1f - lit)
+                for (i in glowStrokes.indices) {
+                    val w = glowStrokes[i].width
+                    val from = max(front, w)
+                    if (from >= length - w) continue
+                    scratch.reset()
+                    measure.getSegment(from, length - w, scratch, true)
+                    drawPath(scratch, Sakura.White.copy(alpha = glowAlpha[i] * g), style = glowStrokes[i])
+                }
+                scratch.reset()
+                measure.getSegment(max(front, 6f * dp), min(front + HEAD_DP * dp, length - 6f * dp), scratch, true)
+                drawPath(scratch, Sakura.White.copy(alpha = .35f), style = headStrokes[0])
+                drawPath(scratch, Sakura.White.copy(alpha = .85f), style = headStrokes[1])
+            }
+        }
+        val f = flash(ms, t.hit + OneStrokeTimes.CHARGE_MS * t.pace, 1f)
+        if (f > 0f && level != EffectLevel.SAVER) {
+            val b = 1f - f
+            withTransform({ translate(c.x, c.y); scale(r * (.55f + .6f * b), r * (.55f + .6f * b), Offset.Zero) }) {
                 drawCircle(IntroUnitBloom, 1f, Offset.Zero, alpha = .5f * f)
             }
         }
@@ -563,14 +679,37 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
                 val tw = sin(amb * 2f * PI.toFloat() / OneStrokeTimes.BREATH_S * .7f + 6.28f * ih(i, 304))
                 a = max(a, glowIn * tw.coerceAtLeast(0f).pow(8))
             }
-            if (a > 0f) introSparkle(sparkle, sparkAt[i], (3f + 2f * ih(i, 305)) * dp, if (ih(i, 306) < .6f) Sakura.White else Sakura.Aqua, a, 45f * ih(i, 307))
+            if (a > 0f) crestSparkle(sparkAt[i], (3f + 2f * ih(i, 305)) * dp, ih(i, 306) >= .6f, a, 45f * ih(i, 307))
         }
-        if (closed) return@with
+        if (closed) {
+            // The charge's front carries the pen's own light (its pink halo and white star) back to where the pen landed, so the
+            // eye follows the glow running along the line.
+            val lit = if (reduced) 1f else t.charge(ms)
+            if (lit <= 0f || lit >= 1f || level == EffectLevel.SAVER) return@with
+            val a = (lit / .08f).coerceAtMost(1f) * ((1f - lit) / .08f).coerceAtMost(1f)
+            val front = length * (1f - lit)
+            val q = measure.getPosition(max(front, 1f))
+            withTransform({ translate(q.x, q.y); scale(10f * dp, 10f * dp, Offset.Zero) }) { drawCircle(PenHalo, 1f, Offset.Zero, alpha = a) }
+            introSparkle(sparkle, q, 6.5f * dp, Sakura.White, .95f * a, front / dp * .3f)
+            return@with
+        }
         // The pen: a white nib in a pink halo, a small star turning on it.
         val p = measure.getPosition(d)
         withTransform({ translate(p.x, p.y); scale(13f * dp, 13f * dp, Offset.Zero) }) { drawCircle(PenHalo, 1f, Offset.Zero) }
         drawCircle(Sakura.White, 2.6f * dp, p)
-        if (level != EffectLevel.SAVER) introSparkle(sparkle, p, 6.5f * dp, Sakura.White, .95f, d / dp * .9f)
+        // The star turns slowly with the distance drawn: a fast spin strobed at 60 Hz.
+        if (level != EffectLevel.SAVER) introSparkle(sparkle, p, 6.5f * dp, Sakura.White, .95f, d / dp * .3f)
+    }
+
+    /**
+     * A sparkle by the line: always a pure white star. An aqua one only tints the soft glow round it, and that glow is mostly
+     * white: aqua at a third of full strength over the blush cancels the pink exactly and reads grey.
+     */
+    private fun DrawScope.crestSparkle(at: Offset, size: Float, aqua: Boolean, alpha: Float, rot: Float) {
+        if (aqua) withTransform({ translate(at.x, at.y); scale(size * 1.7f, size * 1.7f, Offset.Zero) }) {
+            drawCircle(AquaGlow, 1f, Offset.Zero, alpha = alpha)
+        }
+        introSparkle(sparkle, at, size, Sakura.White, alpha, rot)
     }
 
     companion object {
@@ -583,15 +722,48 @@ internal class OneStrokeCrest(w: Float, h: Float, val c: Offset, val r: Float, p
         const val JOIN = 330f
         /** How far past its start the line runs round the flower (degrees), as a brush lifts. */
         const val OVERSHOOT = 10f
-        /** The brush lands over this much of the line and lifts over this much (fractions of its length). */
-        const val LAND = .07f
+        /** The brush lands over this much of the line (dp), from [LAND_MIN] of its width (1.5 dp)... */
+        const val LAND_DP = 40f
+        const val LAND_MIN = 1.5f / 2.4f
+        /** ...and lifts over this much (a fraction of its length). */
         const val LIFT = .035f
-        const val LAND_PIECES = 14
+        const val LAND_PIECES = 8
         const val LIFT_PIECES = 10
         const val PIECES = 68
         /** The ink's width at full pressure. */
         const val INK_DP = 2.4f
         const val STAMENS = 13
+        /** The charge's bright head, this long (dp). */
+        const val HEAD_DP = 60f
+    }
+}
+
+/**
+ * Winter's snow for this look, in place of the drifting petals: a solid white flake in a soft white halo, with only a thin,
+ * faint aqua ring inside the white. The shared snow's strong aqua ring round a white core the blush swallowed read as hollow
+ * bubbles; and aqua mixed into the pink at any edge (anti-aliasing, a fade) passes through grey, so here the aqua only ever
+ * lies on opaque white and is faint enough (.2) that even fading out over the darkest pink it stays lighter than grey. It falls
+ * behind the crest, so it never crosses the rose-brown line. [n] from [introCount]; a pure function of the ambient clock.
+ */
+private class OneStrokeSnow(private val w: Float, private val h: Float, private val dp: Float, private val n: Int) {
+    private val rim = Stroke(.9f * dp)
+    val active: Boolean get() = n > 0
+
+    fun draw(scope: DrawScope, amb: Float, alpha: Float) = with(scope) {
+        if (n == 0 || alpha <= 0f) return@with
+        val margin = 20f * dp
+        val spanY = h + 2 * margin
+        for (i in 0 until n) {
+            val hh = ih(i, 160)
+            val fall = 30f * dp * (.7f + .6f * hh)
+            val y = ((ih(i, 161) * spanY + amb * fall) % spanY) - margin
+            val x = ih(i, 163) * w + (8f + 10f * ih(i, 162)) * dp * sin(amb * (.8f + .6f * hh) + 6.28f * hh)
+            val r = (1.7f + 1.4f * ih(i, 164)) * dp
+            val at = Offset(x, y)
+            drawCircle(Sakura.White.copy(alpha = .32f * alpha), r * 2.2f, at)
+            drawCircle(Sakura.White.copy(alpha = alpha), r * 1.6f, at)
+            drawCircle(Sakura.Aqua.copy(alpha = .2f * alpha), r * 1.25f, at, style = rim)
+        }
     }
 }
 
@@ -928,10 +1100,20 @@ internal object OneStrokeSkeleton {
  * little wider than the pen, so each stroke's own edges show as the font draws them); at the end the brush spreads, so whatever
  * it did not reach fills in. The finished glyph is exactly the text the other looks draw.
  */
-private class InkGlyph(val run: GlyphRun, val i: Int, val left: Float, val top: Float, val ink: InkPaths?)
+private class InkGlyph(val run: GlyphRun, val i: Int, val left: Float, val top: Float, val ink: InkPaths?) {
+    /** Where the glyph shows (its outline's box for a written one, its advance box otherwise). */
+    var box: Rect = ink?.box ?: Rect(left, top + run.baseline - .82f * run.fontPx, left + run.advance[i], top + run.baseline + .1f * run.fontPx)
+    /** An emoji is drawn [k] times its own size, its centre [pivot] moved to [to] (sized and set against the characters). */
+    var k: Float = 1f
+    var pivot: Offset = box.center
+    var to: Offset = box.center
+}
 
 private class InkPaths(
     val full: Path,
+    /** The outline's own box. */
+    val box: Rect,
+    /** [box] with room for the brush (the layer the glyph is written in). */
     val bounds: Rect,
     val strokes: Array<Path>,
     val measures: Array<PathMeasure>,
@@ -949,10 +1131,14 @@ private class InkPaths(
  * name), the caption DSH MOBILE typed below. Laid out once; [draw] reads the clock.
  */
 internal class OneStrokeText(mm: IntroMeasure, private val lay: OneStrokeLayout, words: String, name: String, hand: Typeface?, private val dp: Float) {
-    private val eyebrow: GlyphRun? = if (name.isEmpty()) null else mm.fit(words, IntroFonts.hand(20f), .14f, 20f, 16f, lay.textMaxW)
+    /**
+     * 歡迎回來 small above the name, at 22 sp and with 60 % of the usual thickening: at 20 sp the thickened pen clotted 歡 into a
+     * blot.
+     */
+    private val eyebrow: GlyphRun? = if (name.isEmpty()) null else lighter(mm.fit(words, IntroFonts.hand(22f), .14f, 22f, 17f, lay.textMaxW), .6f)
     /** The name's lines (the shared sticker's fitting and line breaking, drawn here as ink instead). */
     private val hero = IntroSticker(mm, name.ifEmpty { words }, lay.textMaxW, 72f, 40f, dp)
-    private val caption: GlyphRun = mm.run(IntroLatin.BRAND, IntroFonts.latin(11f, FontWeight.SemiBold), .42f)
+    private val caption: GlyphRun = mm.run(IntroLatin.BRAND, IntroFonts.latin(11f, FontWeight.SemiBold), CAPTION_TRACK)
     private val gapEyebrow = 6f * dp * lay.s
     private val gapCaption = 16f * dp * lay.s
     private val blockH = (eyebrow?.let { it.height + gapEyebrow } ?: 0f) + hero.height + gapCaption + caption.height
@@ -979,15 +1165,29 @@ internal class OneStrokeText(mm: IntroMeasure, private val lay: OneStrokeLayout,
 
     init {
         val out = ArrayList<InkGlyph>()
+        val margin = 16f * dp
         for ((li, line) in hero.lines.withIndex()) {
-            val left = lay.textX - line.width / 2f
+            // The line is centred on its characters: an emoji (the 🌸 many names end in) hangs outside the centring, so the name
+            // stays on the crest's axis.
+            var lo = Float.MAX_VALUE
+            var hi = -Float.MAX_VALUE
+            for (g in 0 until line.size) {
+                if (line.emoji[g] || line.text[g].isBlank()) continue
+                lo = min(lo, line.x[g])
+                hi = max(hi, line.x[g] + line.advance[g])
+            }
+            var left = if (lo < hi) lay.textX - (lo + hi) / 2f else lay.textX - line.width / 2f
+            if (line.width <= lay.w - 2f * margin) left = left.coerceIn(margin, lay.w - margin - line.width)
             val base = hero.baseline(nameTop, li)
+            val row = ArrayList<InkGlyph>()
             for (g in 0 until line.size) {
                 if (line.text[g].isBlank()) continue
                 val x = left + line.x[g]
                 val ink = if (hand != null && line.thick[g] > 0f) runCatching { inkPaths(line, g, hand, x, base) }.getOrNull() else null
-                out += InkGlyph(line, g, x, base - line.baseline, ink)
+                row += InkGlyph(line, g, x, base - line.baseline, ink)
             }
+            placeEmoji(row)
+            out += row
         }
         glyphs = out
         written = out.isNotEmpty() && out.all { it.ink != null }
@@ -1015,6 +1215,78 @@ internal class OneStrokeText(mm: IntroMeasure, private val lay: OneStrokeLayout,
             }
         }
     }
+
+    /**
+     * Sizes and sets each emoji of a line against its characters: .85 of their line's height (the emoji font's glyph stood a
+     * quarter taller than 小雨), centred on them, a narrow [EMOJI_GAP] from the character beside it (the tracking plus the emoji's own side
+     * bearing left a wide gap).
+     */
+    private fun placeEmoji(row: List<InkGlyph>) {
+        if (row.none { it.run.emoji[it.i] }) return
+        val chars = row.filter { !it.run.emoji[it.i] }
+        val written = chars.filter { it.ink != null }.ifEmpty { chars }
+        for ((n, g) in row.withIndex()) {
+            val run = g.run
+            if (!run.emoji[g.i]) continue
+            val layout = run.glyphs[g.i]
+            val rc = emojiInk(run.text[g.i], run.fontPx, layout.firstBaseline, layout.size.width, layout.size.height) ?: continue
+            // drawGlyph draws a sticker emoji at .8 about (advance / 2, baseline × .62), moved by its dy.
+            val p = Offset(run.advance[g.i] / 2f, run.baseline * .62f)
+            val e = Offset(rc.exactCenterX(), rc.exactCenterY())
+            val natural = p + (e - p) * .8f
+            val pivot = Offset(g.left + natural.x, g.top + run.dy[g.i] + natural.y)
+            val h0 = .8f * rc.height()
+            val w0 = .8f * rc.width()
+            val em = run.fontPx
+            // The characters' line: from the highest top to the lowest foot (an average let a short 小 shrink the emoji).
+            val charTop = written.minOfOrNull { it.box.top }
+            val charBottom = written.maxOfOrNull { it.box.bottom }
+            val charH = if (charTop == null || charBottom == null) .8f * em else charBottom - charTop
+            val charY = if (charTop == null || charBottom == null) g.top + run.baseline - .36f * em else (charTop + charBottom) / 2f
+            val k = .85f * charH / h0
+            val half = w0 * k / 2f
+            val prev = row.getOrNull(n - 1)?.takeIf { !it.run.emoji[it.i] }
+            val next = row.getOrNull(n + 1)?.takeIf { !it.run.emoji[it.i] }
+            val x = when {
+                prev != null -> prev.box.right + EMOJI_GAP * em + half
+                next != null -> next.box.left - EMOJI_GAP * em - half
+                else -> pivot.x
+            }
+            g.k = k
+            g.pivot = pivot
+            g.to = Offset(x, charY)
+            g.box = Rect(x - half, charY - h0 * k / 2f, x + half, charY + h0 * k / 2f)
+        }
+    }
+
+    /**
+     * The emoji's visible ink in its layout's coordinates, found by drawing it once into a small bitmap: the emoji font's own
+     * bounds include the padding round its picture, and sizing by them left the 🌸 half the height of 小雨.
+     */
+    private fun emojiInk(text: String, fontPx: Float, baseline: Float, w: Int, h: Int): android.graphics.Rect? = runCatching {
+        val pad = (fontPx * .25f).toInt()
+        val bw = w + 2 * pad
+        val bh = h + 2 * pad
+        if (bw <= 0 || bh <= 0) return@runCatching null
+        val bmp = android.graphics.Bitmap.createBitmap(bw, bh, android.graphics.Bitmap.Config.ARGB_8888)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = fontPx }
+        android.graphics.Canvas(bmp).drawText(text, pad.toFloat(), pad + baseline, paint)
+        val px = IntArray(bw * bh)
+        bmp.getPixels(px, 0, bw, 0, 0, bw, bh)
+        bmp.recycle()
+        var l = bw
+        var t = bh
+        var r = -1
+        var b = -1
+        for (y in 0 until bh) for (x in 0 until bw) {
+            if ((px[y * bw + x] ushr 24) < 40) continue
+            if (x < l) l = x
+            if (x > r) r = x
+            if (y < t) t = y
+            if (y > b) b = y
+        }
+        if (r < l || b < t) null else android.graphics.Rect(l - pad, t - pad, r + 1 - pad, b + 1 - pad)
+    }.getOrNull()
 
     private fun inkPaths(run: GlyphRun, g: Int, hand: Typeface, x: Float, baseline: Float): InkPaths? {
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { typeface = hand; textSize = run.fontPx }
@@ -1048,7 +1320,8 @@ internal class OneStrokeText(mm: IntroMeasure, private val lay: OneStrokeLayout,
         val brushW = 2.2f * sk.pen + 1.2f * thick
         val pad = brushW * 2f + thick
         return InkPaths(
-            outline.asComposePath(), Rect(b.left - pad, b.top - pad, b.right + pad, b.bottom + pad), strokes, measures, lengths, start, dur,
+            outline.asComposePath(), Rect(b.left, b.top, b.right, b.bottom), Rect(b.left - pad, b.top - pad, b.right + pad, b.bottom + pad),
+            strokes, measures, lengths, start, dur,
             run.body(g) ?: Stroke(1f, cap = StrokeCap.Round, join = StrokeJoin.Round), brushW,
             Stroke(brushW, cap = StrokeCap.Round, join = StrokeJoin.Round),
         )
@@ -1065,18 +1338,23 @@ internal class OneStrokeText(mm: IntroMeasure, private val lay: OneStrokeLayout,
             val each = t.writeMs / (n * .8f + .2f)
             val step = .8f * each
             for ((j, g) in glyphs.withIndex()) {
-                val q = if (reduced) 1f else ((ms - t.writeAt - j * step) / each).coerceIn(0f, 1f)
-                if (q <= 0f) continue
+                val from = t.writeAt + j * step
                 val ink = g.ink
                 if (ink == null) {
-                    // A character the handwriting lacks (or an emoji): it wipes in from the left as it fades in. An emoji is the
-                    // sticker's pink silhouette with a fine rose-brown edge (a dark ink one read as a blot beside the name).
-                    val adv = g.run.advance[g.i]
-                    clipRect(g.left - adv * .2f, g.top - g.run.fontPx, g.left + adv * 1.2f * q, g.top + 2f * g.run.fontPx) {
-                        drawGlyph(g.run, g.i, Offset(g.left, g.top), Sakura.Text, q, sticker = g.run.emoji[g.i])
+                    // A glyph with no strokes to follow (an emoji, or a character the handwriting lacks) fades and grows in once
+                    // the strokes before it are written (a hard wipe looked unlike the rest). An emoji is the sticker's pink
+                    // silhouette with a fine rose-brown edge (a dark ink one read as a blot beside the name).
+                    val u = if (reduced) 1f else ((ms - from - (WRITE_PART - .8f) * each) / ((1.8f - WRITE_PART) * each)).coerceIn(0f, 1f)
+                    if (u <= 0f) continue
+                    val pop = lerp(.72f, 1f, IntroEase.CubicOut.transform(u)) * g.k
+                    val a = (u * 1.6f).coerceAtMost(1f)
+                    withTransform({ translate(g.to.x - g.pivot.x, g.to.y - g.pivot.y); scale(pop, pop, g.pivot) }) {
+                        drawGlyph(g.run, g.i, Offset(g.left, g.top), Sakura.Text, a, sticker = g.run.emoji[g.i])
                     }
                     continue
                 }
+                val q = if (reduced) 1f else ((ms - from) / each).coerceIn(0f, 1f)
+                if (q <= 0f) continue
                 if (q >= 1f) {
                     drawPath(ink.full, Sakura.Text)
                     drawPath(ink.full, Sakura.Text, style = ink.body)
@@ -1085,10 +1363,39 @@ internal class OneStrokeText(mm: IntroMeasure, private val lay: OneStrokeLayout,
                 writeGlyph(ink, q)
             }
         }
-        drawTyped(
-            caption, lay.textX - caption.width / 2f, captionTop, Sakura.TextSecondary, 1f, ms, t.captionAt, 24f * t.pace,
-            hold = 800f, reduced = reduced,
-        )
+        typeCaption(ms, t, reduced)
+    }
+
+    /**
+     * DSH MOBILE typed in letter by letter beside the name's last strokes, so it stops when the name does, with a small pink
+     * block cursor one tracking unit after the last letter: solid while it types, then blinking slowly through the hold (and
+     * steady in the still frame).
+     */
+    private fun DrawScope.typeCaption(ms: Float, t: OneStrokeTimes, reduced: Boolean) {
+        val run = caption
+        val n = run.size
+        if (n == 0) return
+        val left = lay.textX - run.width / 2f
+        val per = OneStrokeTimes.CAPTION_PER_CHAR * t.pace
+        val fade = 40f * t.pace
+        val start = t.settled - per * (n - 1) - fade
+        var shown = n
+        if (reduced) drawRun(run, left, captionTop, Sakura.TextSecondary, 1f)
+        else {
+            if (ms < start) return
+            shown = 0
+            for (i in 0 until n) {
+                val a = ((ms - start - per * i) / fade).coerceIn(0f, 1f)
+                if (a <= 0f) break
+                shown = i + 1
+                drawGlyph(run, i, Offset(left + run.x[i], captionTop), Sakura.TextSecondary, a)
+            }
+            if (ms > t.settled && ((ms - t.settled) % CURSOR_BLINK) > CURSOR_ON) return
+        }
+        val x = if (shown == 0) left else left + run.x[shown - 1] + run.advance[shown - 1] + CAPTION_TRACK * run.fontPx
+        val bw = .5f * run.fontPx
+        val bh = .66f * run.fontPx
+        drawRect(Sakura.Primary, Offset(x, captionTop + run.baseline - bh), Size(bw, bh))
     }
 
     /** Glyph [ink] [q] of the way written: whole in a layer, kept only where the brush has been (a DstIn layer of its strokes). */
@@ -1120,5 +1427,15 @@ internal class OneStrokeText(mm: IntroMeasure, private val lay: OneStrokeLayout,
         const val BAND_START = .38f / BAND_PEAK
         /** The share of a glyph's window spent on its strokes; the rest the brush spreads. */
         const val WRITE_PART = .86f
+        /** The caption's tracking (em), and the cursor's blink: on for [CURSOR_ON] of every [CURSOR_BLINK] ms. */
+        const val CAPTION_TRACK = .42f
+        const val CURSOR_BLINK = 520f
+        const val CURSOR_ON = 320f
+        /** The gap between an emoji and the character beside it (em). */
+        const val EMOJI_GAP = .1f
+
+        /** [r] with its thickening scaled by [k] (less ink for small handwriting, whose strokes clot). */
+        private fun lighter(r: GlyphRun, k: Float) =
+            GlyphRun(r.text, r.glyphs, r.x, r.advance, r.width, r.height, r.baseline, r.fontPx, r.emoji, r.dy, FloatArray(r.size) { r.thick[it] * k })
     }
 }
