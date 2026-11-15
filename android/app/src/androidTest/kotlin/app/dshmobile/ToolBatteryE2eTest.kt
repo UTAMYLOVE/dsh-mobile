@@ -2,6 +2,9 @@ package app.dshmobile
 
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.dshmobile.remote.ApprovalText
+import app.dshmobile.remote.PendingPrompt
+import app.dshmobile.remote.PromptPart
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.runtime.DshLayout
 import app.dshmobile.runtime.PermissionLevel
@@ -40,11 +43,17 @@ class ToolBatteryE2eTest {
 
     @Before fun setUp() {
         E2e.prepareApp()
+        FakeModel.instance.reviews.clear()
         app.controller.retain(HOLDER)
         app.controller.stop()
     }
 
     @After fun tearDown() {
+        FakeModel.instance.reviews.clear()
+        // An approval card a failed case left waiting would hold its turn open.
+        app.shellSessions.current.value?.events?.let { events ->
+            runCatching { runBlocking { events.prompts.value.filterIsInstance<PendingPrompt.Approval>().forEach { events.reject(it) } } }
+        }
         app.agentSettingsStore.save(app.agentSettingsStore.load(PhantomState.ENABLED, false).copy(autoReview = false))
         app.runtimeMode.setPermission(PermissionLevel.SMART)
         app.runtimeMode.set(false)
@@ -161,6 +170,111 @@ class ToolBatteryE2eTest {
     }
 
     /**
+     * The reviewer's other slips (2026-11-15 audit): an allow with a "reason" (the plugin refused that shape), and HTTP 500s. A
+     * slip the reviewer recovers from runs the command; a review that does not work at all becomes the owner's approval card
+     * (自動審查這次沒有成功…), never a 失敗 card, and the command runs once he allows it.
+     */
+    @Test fun withAutoReviewOnTheReviewersSlipsNeverFailTheCommand() {
+        assumeTrue("this APK has no native runtime", app.nativeRunner.available)
+        app.runtimeMode.set(true)
+        app.runtimeMode.setPermission(PermissionLevel.SMART)
+        app.agentSettingsStore.save(app.agentSettingsStore.load(PhantomState.ENABLED, false).copy(autoReview = true))
+        val running = runBlocking { app.controller.ensureRunning() }
+        val client = DshClient(http, running.launch).also { runBlocking { it.login() } }
+        // The app's own connection to dsh: approval cards reach the owner through it.
+        val events = app.shellSessions.attach(running).events
+        assertTrue("no event stream", events != null && waited(30_000) { events.clientId.value != null })
+        File(app.appPaths.workspace, DIR).apply { deleteRecursively(); mkdirs() }
+        fun autoSession() = newSession(client).also { rpc(client, "commands/execute", JSONObject().put("agentId", it).put("line", "/permission auto").put("submittedAttachments", JSONArray())) }
+        fun write(name: String) = JSONObject().put("description", "Reviewed write").put("command", "echo $name-ok > $DIR/$name.txt && cat $DIR/$name.txt")
+        fun ran(name: String, result: FakeModel.ToolResult?) = result != null && !result.isError && result.text.contains("$name-ok") && File(app.appPaths.workspace, "$DIR/$name.txt").isFile
+        fun shown(result: FakeModel.ToolResult?) = result?.let { (if (it.isError) "[error] " else "") + it.text.take(300) } ?: "no result within the time"
+
+        // An allow with a reason: the plugin's protocol has no such shape and failed the review.
+        FakeModel.instance.reviews += FakeModel.Review.Says("""{"risk":"low","decision":"allow","reason":"writes one small file in the workspace"}""")
+        val reasoned = call(client, "bash", write("reasoned"), session = autoSession())
+        record("allow-with-reason", ran("reasoned", reasoned), shown(reasoned))
+
+        // One 500, then a verdict: the review is tried again and the command runs.
+        FakeModel.instance.reviews += FakeModel.Review.Fails(500)
+        val from = FakeModel.instance.seen.size
+        val once = call(client, "bash", write("retried"), session = autoSession())
+        val tries = FakeModel.instance.since(from).count { it.kind == FakeModel.Kind.REVIEW }
+        record("500-once", ran("retried", once) && tries >= 2, "reviews=$tries ${shown(once)}")
+
+        // 500 on every try: the owner is asked instead of the tool failing.
+        repeat(3) { FakeModel.instance.reviews += FakeModel.Review.Fails(500) }
+        val session = autoSession()
+        val start = ask(client, session, "bash", write("asked"))
+        var card: PendingPrompt.Approval? = null
+        waited(60_000) { events!!.prompts.value.filterIsInstance<PendingPrompt.Approval>().firstOrNull { it.agentId == session || it.toolName == "bash" }?.also { card = it } != null }
+        val early = FakeModel.instance.toolResults(start).lastOrNull()
+        record(
+            "500-always-asks", card != null && card!!.toolName == "bash" && card!!.reason == ApprovalText.AUTO_REVIEW_FAILED && early == null,
+            "card=${card?.let { "${it.toolName}: ${it.reason}" }} result before the card=${shown(early)}",
+        )
+        card?.let { runBlocking { events!!.allowOnce(it) } }
+        var asked: FakeModel.ToolResult? = null
+        waited(90_000) { FakeModel.instance.toolResults(start).lastOrNull()?.also { asked = it } != null }
+        record("500-always-runs-once-allowed", ran("asked", asked), shown(asked))
+        report("auto-review-slips")
+    }
+
+    /**
+     * The release blocker (audit A1): the owner's conversations were put on "auto" while the Auto review switch was on, also at
+     * 全部放行. After an update (dsh killed, no clean stop) dsh must still open such a conversation: its next message is sent,
+     * the conversation is moved off "auto" (nothing reviews at 全部放行), and bash runs.
+     */
+    @Test fun aConversationLeftOnAutoStillRunsAtTheFullLevelAfterDshWasKilled() {
+        assumeTrue("this APK has no native runtime", app.nativeRunner.available)
+        app.runtimeMode.set(true)
+        app.runtimeMode.setPermission(PermissionLevel.SMART)
+        app.agentSettingsStore.save(app.agentSettingsStore.load(PhantomState.ENABLED, false).copy(autoReview = true))
+        val first = runBlocking { app.controller.ensureRunning() }
+        val client = DshClient(http, first.launch).also { runBlocking { it.login() } }
+        File(app.appPaths.workspace, DIR).apply { deleteRecursively(); mkdirs() }
+        val session = newSession(client)
+        rpc(client, "commands/execute", JSONObject().put("agentId", session).put("line", "/permission auto").put("submittedAttachments", JSONArray()))
+        val before = FakeModel.instance.seen.size
+        val onAuto = call(client, "bash", JSONObject().put("description", "On auto").put("command", "echo on-auto-ok"), session = session)
+        val reviewed = FakeModel.instance.since(before).count { it.kind == FakeModel.Kind.REVIEW }
+        record("on-auto", onAuto != null && !onAuto.isError && onAuto.text.contains("on-auto-ok") && reviewed >= 1, "reviews=$reviewed ${onAuto?.text?.take(200)}")
+
+        // The owner's settings: 全部放行 with the switch still on. Then dsh dies the way an APK update ends it: no clean stop,
+        // so dsh's own Auto review never moves its conversations off "auto".
+        app.runtimeMode.setPermission(PermissionLevel.FULL)
+        val pids = dshPids()
+        assertTrue("no dsh process found", pids.isNotEmpty())
+        pids.forEach { android.os.Process.sendSignal(it, android.os.Process.SIGNAL_KILL) }
+        assertTrue("dsh survived SIGKILL", waited(30_000) { pids.none { File("/proc/$it").exists() } })
+        app.controller.stop()
+        val second = runBlocking { app.controller.ensureRunning() }
+        val bundles = File(app.appPaths.dshHome, "profiles/web/package.json").readText()
+        record("bundle-kept", bundles.contains("@deepseek-ai/dsh-experimental-auto-review"), "profile keeps the Auto review bundle")
+
+        // The app's own send (ShellSession: the preset is set first, then the prompt).
+        val shell = app.shellSessions.attach(second)
+        val from = FakeModel.instance.seen.size
+        val text = "${FakeModel.TOOL} " + JSONObject().put("name", "bash").put("args", JSONObject().put("description", "After the kill").put("command", "echo after-kill-ok > $DIR/after.txt && cat $DIR/after.txt"))
+        val sent = runBlocking { shell.conversation(session).send(listOf(PromptPart.Text(text)), text, emptyList()) }
+        var result: FakeModel.ToolResult? = null
+        waited(120_000) { FakeModel.instance.toolResults(from).lastOrNull()?.also { result = it } != null }
+        val reviews = FakeModel.instance.since(from).count { it.kind == FakeModel.Kind.REVIEW }
+        record(
+            "send-after-kill",
+            sent && result != null && !result!!.isError && result!!.text.contains("after-kill-ok") && reviews == 0,
+            "sent=$sent reviews=$reviews ${result?.text?.take(200) ?: "no result; send error: ${shell.conversation(session).sendError.value}"}",
+        )
+        report("auto-after-kill")
+    }
+
+    /** dsh's node processes (native mode), for a kill that skips dsh's clean shutdown. */
+    private fun dshPids(): List<Int> = File("/proc").listFiles().orEmpty().filter { it.name.all(Char::isDigit) }.mapNotNull { dir ->
+        val cmd = try { File(dir, "cmdline").readBytes().toString(Charsets.UTF_8) } catch (_: Exception) { return@mapNotNull null }
+        dir.name.toInt().takeIf { "libdshn_bin_node.so" in cmd && "@deepseek-ai/dsh/lib/bin.js" in cmd }
+    }
+
+    /**
      * 相容模式 (proot): a file the write tool creates must be an ordinary file. dsh publishes a new file with link(temp, final) and
      * then removes the temp folder; proot turns hard links into symlinks, which left the new file pointing into the folder that
      * was just removed (DSH on the owner's phone: the write tool breaks on new files, it used a shell heredoc instead).
@@ -206,10 +320,9 @@ class ToolBatteryE2eTest {
     private fun newSession(client: DshClient): String =
         rpc(client, "session/create", JSONObject().put("request", JSONObject().put("cwd", DshLayout.active.workspace))).getString("sessionId")
 
-    /** Asks for the call (in a new conversation unless [session]) and returns the result dsh sent back to the model, or null. */
-    private fun call(client: DshClient, tool: String, args: JSONObject, timeoutMs: Long = 90_000, session: String? = null): FakeModel.ToolResult? {
+    /** Asks for the call in [sessionId] without waiting for it; returns where its requests start in [FakeModel.seen]. */
+    private fun ask(client: DshClient, sessionId: String, tool: String, args: JSONObject): Int {
         val from = FakeModel.instance.seen.size
-        val sessionId = session ?: newSession(client)
         val text = "${FakeModel.TOOL} " + JSONObject().put("name", tool).put("args", args)
         rpc(
             client, "session/prompt",
@@ -219,6 +332,12 @@ class ToolBatteryE2eTest {
                     .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text))),
             ),
         )
+        return from
+    }
+
+    /** Asks for the call (in a new conversation unless [session]) and returns the result dsh sent back to the model, or null. */
+    private fun call(client: DshClient, tool: String, args: JSONObject, timeoutMs: Long = 90_000, session: String? = null): FakeModel.ToolResult? {
+        val from = ask(client, session ?: newSession(client), tool, args)
         var result: FakeModel.ToolResult? = null
         waited(timeoutMs) { FakeModel.instance.toolResults(from).lastOrNull()?.also { result = it } != null && (tool != "subagent" || FakeModel.instance.toolResults(from).size >= 2) }
         return result ?: FakeModel.instance.toolResults(from).lastOrNull()

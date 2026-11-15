@@ -126,6 +126,33 @@ class DshEventsTest {
         )
     }
 
+    /** Auto review's question reads in Traditional Chinese, plainly (it came as 「Auto review 拒绝了此调用：…」). */
+    @Test fun autoReviewsQuestionIsWordedPlainly() = runBlocking {
+        val events = newEvents()
+        ev(ready("c1"))
+        val asked = listOf("Auto review 拒绝了此调用：會把金鑰送到外部網站", "Auto review 拒绝了此调用。", "Auto review 拒绝了此调用：${ApprovalText.AUTO_REVIEW_FAILED}")
+        asked.forEachIndexed { i, zh ->
+            val display = Json.encodeToString(JsonObject.serializer(), JsonObject(mapOf("en" to kotlinx.serialization.json.JsonPrimitive("x"), "zh" to kotlinx.serialization.json.JsonPrimitive(zh))))
+            ev(approval("e$i", """{"toolName":"bash","callId":"toolu_8_$i","reason":"raw","displayReason":$display}"""))
+        }
+        eventually("three prompts") { events.prompts.value.size == 3 }
+        assertEquals(
+            listOf("自動審查覺得這一步有風險：會把金鑰送到外部網站", "自動審查覺得這一步有風險，要你決定。", ApprovalText.AUTO_REVIEW_FAILED),
+            events.prompts.value.map { (it as PendingPrompt.Approval).reason },
+        )
+        // Without a Chinese text, the English one is reworded the same way; anything else is left as dsh gave it.
+        assertEquals("自動審查覺得這一步有風險：deletes the repo", ApprovalText.reason("Auto review denied this call: deletes the repo"))
+        assertEquals("自動審查覺得這一步有風險，要你決定。", ApprovalText.reason("Auto review denied this call."))
+        assertEquals("要刪除工作區以外的 /sdcard/x：rm -rf /sdcard/x", ApprovalText.reason("要刪除工作區以外的 /sdcard/x：rm -rf /sdcard/x"))
+        assertEquals("允许本次操作", ApprovalText.reason("允许本次操作"))
+    }
+
+    /** The failure line is written in review-json.mjs (it reaches dsh) and matched here: the two must stay the same. */
+    @Test fun theReviewFailureLineMatchesTheLoadTimePatch() {
+        val patch = java.io.File("src/main/assets/dshn/review-json.mjs").readText()
+        assertTrue(patch.contains("export const REVIEW_FAILED_LINE = '${ApprovalText.AUTO_REVIEW_FAILED}'"))
+    }
+
     @Test fun questionsParseIdsHeadersAndOptions() = runBlocking {
         val events = newEvents()
         ev(ready("c1"))

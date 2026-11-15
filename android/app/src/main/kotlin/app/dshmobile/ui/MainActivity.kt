@@ -458,7 +458,17 @@ class MainActivity : ComponentActivity() {
             onRetry = ::retry,
             onExportErrorLog = ::exportErrorLog,
             // dsh waits on these: the cards are global and never dismissed (a subagent's card names it through the agents' originOf)
-            overlay = { PromptHost(session?.events, session?.tree, originOf = { id -> session?.agents?.originOf(id) }) },
+            // The card names what will run: the summary of the call's tool card, when that conversation is open (existing()
+            // never opens one).
+            overlay = {
+                PromptHost(
+                    session?.events, session?.tree, originOf = { id -> session?.agents?.originOf(id) },
+                    detailOf = { agentId, callId ->
+                        val items = session?.existing(agentId)?.state?.collectAsState()?.value?.items
+                        callId?.let { id -> items?.lastOrNull { it is app.dshmobile.chat.ChatItem.Tool && it.key == id } as? app.dshmobile.chat.ChatItem.Tool }?.summary
+                    },
+                )
+            },
             modalOverlay = rememberHasPrompt(session?.events),
         ) { tab ->
             when (tab) {

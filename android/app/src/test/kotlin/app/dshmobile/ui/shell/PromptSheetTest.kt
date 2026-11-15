@@ -48,12 +48,14 @@ class PromptSheetTest {
         waiting: Int = 0,
         busy: Boolean = false,
         error: String? = null,
+        detail: String? = null,
     ) = rule.setContent {
         FogTheme(effectsFor(EffectLevel.FULL, reducedMotion = false)) {
             Box(androidx.compose.ui.Modifier.fillMaxSize()) {
                 PromptSheet(
                     prompt, origin, waiting, busy, error,
                     onAllowOnce = { allowed++ }, onReject = { rejected++ }, onAnswer = { answers += it }, onDecline = { declined++ },
+                    detail = detail,
                 )
             }
         }
@@ -67,6 +69,30 @@ class PromptSheetTest {
         rule.onNode(inSheet("要寫入 notes.md")).assertExists()
         rule.onNode(inSheet("來自：我的對話")).assertExists()
         rule.onNode(inSheet("APPROVAL")).assertExists()
+    }
+
+    /** Auto review asks with the reviewer's reason only: the card also shows the command, from the call's tool card. */
+    @Test fun anAutoReviewApprovalShowsTheCommandItIsAbout() {
+        val review = PendingPrompt.Approval("e2", "s1", "bash", "toolu_9_1", "自動審查覺得這一步有風險：會刪掉舊的報告")
+        val cards = mapOf(("s1" to "toolu_9_1") to "rm -rf reports/old")
+        val detail = approvalDetail(review) { agent, call -> cards[agent to call] }
+        assertEquals("rm -rf reports/old", detail)
+        show(review, detail = detail)
+        rule.onNodeWithTag(Tags.PROMPT_DETAIL).assertTextContains("rm -rf reports/old")
+        rule.onNode(inSheet("會刪掉舊的報告")).assertExists()
+    }
+
+    @Test fun noDetailLineWhenTheReasonAlreadyNamesItOrNoCardIsKnown() {
+        // The guard's own questions already end with the command.
+        val guard = PendingPrompt.Approval("e3", "s1", "bash", "toolu_9_2", "要刪除工作區以外的 /sdcard/x：rm -rf /sdcard/x")
+        assertEquals(null, approvalDetail(guard) { _, _ -> "rm -rf /sdcard/x" })
+        // A conversation that is not open, a call without an id, a question.
+        assertEquals(null, approvalDetail(approval) { _, _ -> null })
+        assertEquals(null, approvalDetail(approval.copy(callId = null)) { _, call -> call })
+        assertEquals(null, approvalDetail(PendingPrompt.Question("e4", "s1", listOf(color))) { _, _ -> "x" })
+        assertEquals(null, approvalDetail(approval) { _, _ -> "  " })
+        show(approval)
+        rule.onAllNodesWithTag(Tags.PROMPT_DETAIL).assertCountEquals(0)
     }
 
     @Test fun allowOnceAndRejectCallBack() {

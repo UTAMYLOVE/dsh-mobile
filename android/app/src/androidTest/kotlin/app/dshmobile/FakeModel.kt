@@ -43,6 +43,17 @@ class FakeModel {
     }
 
     val seen = CopyOnWriteArrayList<Seen>()
+
+    /** How the Auto review reviewer answers: one entry per review request, in order; [REVIEW_REPLY] once the list is empty. */
+    sealed interface Review {
+        /** A streamed text answer. */
+        data class Says(val text: String) : Review
+        /** An HTTP error instead of an answer (a provider hiccup). */
+        data class Fails(val status: Int) : Review
+    }
+
+    /** The reviewer's next answers; tests clear it before they fill it. */
+    val reviews = java.util.concurrent.ConcurrentLinkedQueue<Review>()
     private val ids = AtomicInteger()
     private val server = MockWebServer()
 
@@ -79,7 +90,12 @@ class FakeModel {
             Kind.SEARCH_BACKEND -> searchBackend()
             // dsh's Auto review asks the conversation's model for a verdict. Answered the way Claude answered on the owner's phone
             // (2026-11-15): a sentence first, then the JSON — which failed every command before review-json.mjs.
-            Kind.REVIEW -> sse(listOf(Block.Text(REVIEW_REPLY)), "end_turn")
+            Kind.REVIEW -> when (val r = reviews.poll()) {
+                null -> sse(listOf(Block.Text(REVIEW_REPLY)), "end_turn")
+                is Review.Says -> sse(listOf(Block.Text(r.text)), "end_turn")
+                is Review.Fails -> MockResponse().setResponseCode(r.status).setHeader("Content-Type", "application/json")
+                    .setBody("""{"type":"error","error":{"type":"api_error","message":"e2e reviewer hiccup"}}""")
+            }
             Kind.TOOL_USE -> sse(listOf(toolUse("e2e", "memory_write", JSONObject().put("target", "daily").put("text", MEMORY_MARK))), "tool_use")
             Kind.FOLLOW_UP -> followUp(parsed)
             Kind.HELLO -> sse(

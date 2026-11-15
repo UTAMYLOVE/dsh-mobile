@@ -115,6 +115,8 @@ fun PromptSheet(
     connecting: Boolean = false,
     /** dsh's plan review (0.5.0 plan card): approve, or keep planning with the owner's feedback (may be blank). */
     onPlan: (approve: Boolean, feedback: String) -> Unit = { _, _ -> },
+    /** What an approval is about (the call's command or file, see [approvalDetail]); shown above the reason. */
+    detail: String? = null,
 ) {
     val animate = LocalEffects.current.pageMs > 0
     val rise = remember { Animatable(if (animate) 1f else 0f) }
@@ -200,6 +202,13 @@ fun PromptSheet(
             ) {
                 when (prompt) {
                     is PendingPrompt.Approval -> {
+                        if (detail != null) {
+                            Text(
+                                detail, color = Sakura.Text, fontSize = 13.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth().testTag(Tags.PROMPT_DETAIL),
+                            )
+                        }
                         if (prompt.reason.isNotBlank()) Text(prompt.reason, color = Sakura.Text, fontSize = 15.sp, lineHeight = 24.sp)
                         Text(stringResource(R.string.prompt_origin, origin), style = FogText.Label)
                     }
@@ -303,12 +312,29 @@ private fun QuestionBlock(q: AskQuestion, picked: List<String>, busy: Boolean, o
 }
 
 /**
+ * The command or file an approval is about, for its card. dsh's Auto review asks with the reviewer's reason only, so the owner
+ * could not see what would run. [detailOf] gives the summary of the call's tool card (conversation [agentId], call [callId]),
+ * null when that conversation is not open. Nothing is shown when the reason already names it (the guard's questions do).
+ */
+fun approvalDetail(prompt: PendingPrompt, detailOf: (agentId: String, callId: String?) -> String?): String? {
+    val approval = prompt as? PendingPrompt.Approval ?: return null
+    val detail = detailOf(approval.agentId, approval.callId)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return detail.takeUnless { approval.reason.contains(it) }
+}
+
+/**
  * Shows the first of [events]' pending prompts as a [PromptSheet] over everything (inside [FogShell]'s overlay slot) and
  * answers it through [events]; the next one appears when this one is answered. Back does nothing while a prompt waits. A failed
- * answer keeps the card with an error and enables the buttons again.
+ * answer keeps the card with an error and enables the buttons again. [detailOf] finds what an approval is about ([approvalDetail]).
  */
 @Composable
-fun PromptHost(events: DshEvents?, tree: app.dshmobile.chat.SessionTree?, originOf: (String) -> String? = { null }) {
+fun PromptHost(
+    events: DshEvents?,
+    tree: app.dshmobile.chat.SessionTree?,
+    originOf: (String) -> String? = { null },
+    /** Composable so the line appears as soon as the call's tool card reaches the conversation (it can come after the card). */
+    detailOf: @Composable (agentId: String, callId: String?) -> String? = { _, _ -> null },
+) {
     val prompts by (events?.prompts ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList()) }).collectAsState()
     val prompt = prompts.firstOrNull() ?: return
     val clientId by (events?.clientId ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }).collectAsState()
@@ -358,6 +384,7 @@ fun PromptHost(events: DshEvents?, tree: app.dshmobile.chat.SessionTree?, origin
             }
         },
         connecting = busyId == prompt.eventId && clientId == null,
+        detail = (prompt as? PendingPrompt.Approval)?.let { p -> detailOf(p.agentId, p.callId) }.let { found -> approvalDetail(prompt) { _, _ -> found } },
     )
 }
 

@@ -26,6 +26,33 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+/** What an approval card says, from dsh's request. */
+object ApprovalText {
+    /**
+     * The line review-json.mjs gives a review that did not work (REVIEW_FAILED_LINE there): the approval card shows it alone.
+     * Keep the two the same.
+     */
+    const val AUTO_REVIEW_FAILED = "自動審查這次沒有成功（網路或模型回覆格式），請你決定要不要執行。"
+
+    /**
+     * dsh's Auto review asks in Simplified Chinese and names itself in English (「Auto review 拒绝了此调用：…」, the owner's
+     * screenshot); the card says it in Traditional Chinese, plainly. Every other reason is shown as dsh gave it.
+     */
+    fun reason(reason: String): String {
+        val detail = AUTO_REVIEW_PREFIXES.firstNotNullOfOrNull { p -> reason.takeIf { it.startsWith(p) }?.removePrefix(p)?.trim() }
+        return when {
+            detail != null && detail.isNotEmpty() -> if (detail == AUTO_REVIEW_FAILED) detail else "自動審查覺得這一步有風險：$detail"
+            reason.trim() in AUTO_REVIEW_BARE -> "自動審查覺得這一步有風險，要你決定。"
+            else -> reason
+        }
+    }
+
+    /** dsh-experimental-auto-review's askUser displayReason, Chinese and English, with a reason after it. */
+    private val AUTO_REVIEW_PREFIXES = listOf("Auto review 拒绝了此调用：", "Auto review denied this call:")
+    /** The same without a reason. */
+    private val AUTO_REVIEW_BARE = setOf("Auto review 拒绝了此调用。", "Auto review denied this call.")
+}
+
 /** A dsh `waterfall` waiting for this user's answer. */
 sealed interface PendingPrompt {
     val eventId: String
@@ -244,9 +271,11 @@ class DshEvents(
                         agentId = agentId,
                         toolName = request.string("toolName").orEmpty(),
                         callId = request.string("callId"),
-                        reason = display?.string("zh")?.takeIf { it.isNotBlank() }
-                            ?: display?.string("en")?.takeIf { it.isNotBlank() }
-                            ?: request.string("reason").orEmpty(),
+                        reason = ApprovalText.reason(
+                            display?.string("zh")?.takeIf { it.isNotBlank() }
+                                ?: display?.string("en")?.takeIf { it.isNotBlank() }
+                                ?: request.string("reason").orEmpty(),
+                        ),
                     )
                 }
                 "user-questions/request" -> PendingPrompt.Question(

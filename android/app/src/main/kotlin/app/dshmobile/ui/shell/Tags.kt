@@ -166,6 +166,8 @@ object Tags {
     const val PROMPT_SHEET = "prompt-sheet"
     /** The scrolling part of the sheet (the long reason or the questions); the buttons stay below it. */
     const val PROMPT_SCROLL = "prompt-scroll"
+    /** The command or file an approval card is about (PromptSheet's detail line). */
+    const val PROMPT_DETAIL = "prompt-detail"
     const val PROMPT_MORE = "prompt-more"
     const val APPROVE_ONCE = "approve-once"
     const val REJECT = "reject"
