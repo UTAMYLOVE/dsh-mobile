@@ -1,5 +1,5 @@
-// Adapted from bigfatorangecatjohn/opening-free (c) 2026 bigfatorangecatjohn, MIT License: the breaking wave (its three
-// harmonics and the body grain, crest file and spray layout), the burst (a radial flash, two shock rings and 64 rays), the
+// Adapted from bigfatorangecatjohn/opening-free (c) 2026 bigfatorangecatjohn, MIT License: the wave of grains on summed
+// harmonics (its three sines, the body, crest file and spray layout), the burst (a radial flash, two shock rings and rays), the
 // gather (a per-dot delay, flight and swirl), the three dotted rings with their comet and the 0.32 Hz breath, the 44-tick meter
 // and the batched dot drawing. The flight onto the app's edges follows hbgdjb/dsh-boot-particles (c) 2026 hbgdjb, MIT License
 // (a quota by length, the nearest segment that still has quota, then order by projection). Shapes, colours, words and timings
@@ -7,10 +7,21 @@
 package app.dshmobile.ui.fog
 
 import android.graphics.Typeface
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -20,13 +31,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
@@ -34,12 +46,24 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.util.lerp
 import app.dshmobile.R
 import app.dshmobile.ui.theme.Sakura
+import kotlinx.coroutines.flow.first
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -54,14 +78,18 @@ import kotlin.math.sqrt
 
 /**
  * 「花吹雪聚形」 (Petal storm gathers), the startup look [IntroStyle.PETAL_STORM]: a wave of pink petal grains sweeps in from the
- * left and breaks in the middle (one haptic tick); the burst throws the grains out, and they swirl back and gather into the
- * 櫻紋 crest. Three dotted rings switch on dot by dot round it and breathe, and a meter under them runs to 100 %. The crest's
- * grains then re-form as your name, which lands as the usual sticker under 歡迎回來. At the end the petals fly to where the app's
- * top bar and dock will be, trace them in light, and the app develops exactly there while the sakura iris opens the rest.
+ * left edge and breaks just past the middle (one haptic tick, a soft white flash); the burst throws the grains out, and they swirl
+ * back and gather into the 櫻紋 crest. Three dotted rings switch on dot by dot round it and breathe, and a meter under them runs
+ * to 100 %. The crest's grains then re-form as your name, which lands as the usual sticker under 歡迎回來. From the start a faint
+ * line marks where the app's top bar ends and a dotted outline where its dock sits; at the end the petals fly onto exactly those
+ * edges, and the app appears where they land: the top bar grows out of the petal line, the dock out of its outline, and then the
+ * rest of the screen fades into the app.
  *
- * Beats ([PetalStormBeats]): the wave, the gather and the morph keep their own speed; the crest and the name holds stretch with
- * the 1.5–8 s setting. Below 2.5 s the crest is skipped and the grains gather straight into the name. Everything is a pure
- * function of the run's clock, read only in draw lambdas; the grains are drawn in a few batched point calls per frame.
+ * The look does its own hand-off, so the host's sakura iris is only ever a tap's (its planned exit is the run's last instant,
+ * see [petalStormTiming]). With a picture the storm plays in a calm blush field under the figure, and the picture stays clear
+ * above it. Beats ([PetalStormBeats]): the wave, the gather and the morph keep their own speed; the crest and the name holds
+ * stretch with the 1.5–8 s setting. Everything is a pure function of the run's clock, read only in draw lambdas; the grains are
+ * drawn in a few batched point calls per frame.
  */
 @Composable
 internal fun PetalStormIntro(
@@ -74,35 +102,95 @@ internal fun PetalStormIntro(
     onDone: () -> Unit,
 ) {
     val beats = remember(intro.seconds) { PetalStormBeats.of(intro.seconds) }
-    val timing = remember(beats) { IntroTiming.of(beats.plan, still = beats.still, hit = beats.burst, announce = beats.announce) }
+    val timing = remember(beats) { petalStormTiming(beats) }
     val line = introWelcomeLine(intro)
     val words = intro.welcome.trim().ifEmpty { stringResource(R.string.intro_welcome_default) }
     val name = intro.name.trim()
     val gathering = stringResource(R.string.intro_petal_storm_gathering)
     val ready = stringResource(R.string.intro_petal_storm_ready)
+    val skip = stringResource(R.string.intro_skip)
+    val date = remember { SimpleDateFormat("yyyy.MM.dd", Locale.ROOT).format(Date()) }
+    // The home screen shows the picture at the 透明度 setting: the storm's picture is that same picture, so the hand-off has no seam.
+    val homeAlpha = (LocalLook.current.opacity / 100f).coerceIn(0f, 1f)
     val measurer = rememberTextMeasurer(cacheSize = 0)
     val context = LocalContext.current
     val coverage = IntroFonts.coverage(context.resources)
     // The handwriting as a platform typeface, only to trace the name's outlines once (the grains land on them).
     val pen = remember(context) { runCatching { context.resources.getFont(R.font.intro_hand) }.getOrNull() }
-    IntroHost(intro, picture, reducedMotion, pictureExpected, timing, fx, onOpaqueChange, onDone, announce = line) {
-        // 歡迎回來 (or the user's words) above the name; with no name the words themselves are the sticker.
-        val brow = if (name.isEmpty()) null else words
-        val scene = remember(this, beats, brow, name, gathering, ready) {
-            PetalStormScene(this, beats, measurer, coverage, pen, brow, name.ifEmpty { words }, gathering, ready)
+    val gate = remember { PetalStormGate() }
+    val opaqueNow by rememberUpdatedState(onOpaqueChange)
+    // Each change passes once (the host and the look both say "no longer opaque" on the way out).
+    val opaque: (Boolean) -> Unit = remember(gate) { { v -> if (gate.opaque != v) { gate.opaque = v; opaqueNow(v) } } }
+    // The hand-off cuts holes in the intro (DstOut) to show the app: that needs a layer of its own round the host, whose own layer
+    // is not offscreen before its exit. Only while the app develops, so the rest of the run pays for no extra layer.
+    Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = if (gate.revealing(beats)) CompositingStrategy.Offscreen else CompositingStrategy.Auto }) {
+        IntroHost(intro, picture, reducedMotion, pictureExpected, timing, fx, opaque, onDone, announce = null) {
+            val run = this.run
+            SideEffect { gate.run = run }
+            // The app underneath has to draw again before it shows through: from the moment the petals take off (or the still's
+            // fade). Until then it stays hidden, so it costs nothing under the storm.
+            LaunchedEffect(run) {
+                snapshotFlow { run.ms >= beats.landStart || run.fade < 1f }.first { it }
+                opaque(false)
+            }
+            // 歡迎回來 (or the user's words) above the name; with no name the words themselves are the sticker.
+            val brow = if (name.isEmpty()) null else words
+            val scene = remember(this, beats, brow, name, gathering, ready, skip, date, homeAlpha, intro.skippable) {
+                PetalStormScene(this, beats, measurer, coverage, pen, brow, name.ifEmpty { words }, gathering, ready, skip, date, homeAlpha, intro.skippable)
+            }
+            run.sceneOrigin = scene.focus
+            Spacer(Modifier.fillMaxSize().drawBehind { scene.drawBackdrop(this, run) })
+            Spacer(Modifier.fillMaxSize().drawBehind { scene.drawGhosts(this, run) })
+            Spacer(Modifier.fillMaxSize().drawBehind { scene.drawStage(this, run) })
+            // Until they take off the grains sit under the type (they gather behind the name sticker) ...
+            Spacer(Modifier.fillMaxSize().drawBehind { if (!scene.flying(run)) scene.drawPetals(this, run) })
+            Spacer(Modifier.fillMaxSize().drawBehind { scene.drawMeter(this, run); scene.drawSkip(this, run) })
+            Spacer(Modifier.fillMaxSize().graphicsLayer { alpha = scene.typeAlpha(run) }.drawBehind { scene.drawType(this, run.ms) })
+            // No layer of its own: the cut has to reach the layer round the host to show the app underneath (see drawReveal).
+            Spacer(Modifier.fillMaxSize().drawBehind { scene.drawReveal(this, run) })
+            // ... and in flight over everything, landing on the app's edges as it appears.
+            Spacer(Modifier.fillMaxSize().drawBehind { if (scene.flying(run)) scene.drawPetals(this, run) })
+            PetalStormSemantics(this, scene, timing, intro.skippable, skip, line)
         }
-        val run = this.run
-        run.sceneOrigin = scene.focus
-        Spacer(Modifier.fillMaxSize().drawBehind { scene.drawBackdrop(this, run.ms, run.amb) })
-        Spacer(Modifier.fillMaxSize().drawBehind { scene.drawStage(this, run) })
-        // Before the exit the grains sit under the type (they gather behind the name sticker) ...
-        Spacer(Modifier.fillMaxSize().drawBehind { if (!run.exiting) scene.drawPetals(this, run) })
-        Spacer(Modifier.fillMaxSize().graphicsLayer { alpha = run.exitFade(40f) }.drawBehind { scene.drawType(this, run.ms, run.amb) })
-        // No layer of its own: the cut has to reach the host's own layer to show the app underneath (see drawDevelop).
-        Spacer(Modifier.fillMaxSize().drawBehind { scene.drawDevelop(this, run) })
-        // ... and on exit over the developed app, on its edges.
-        Spacer(Modifier.fillMaxSize().drawBehind { if (run.exiting) scene.drawPetals(this, run) })
     }
+}
+
+/**
+ * The host's timing for a run: the haptic tick when the wave breaks, the welcome announced once the name is there, and the exit
+ * at the very end. The look hands over to the app by itself (the petals land and the app appears there), so the host's own exit
+ * iris only ever opens for a tap.
+ */
+internal fun petalStormTiming(b: PetalStormBeats): IntroTiming =
+    IntroTiming(exit = b.plan.total, total = b.plan.total, still = b.still, hit = b.burst, announce = b.announce)
+
+/** The run (once the host has one) and the last opaque state passed on. */
+private class PetalStormGate {
+    var run by mutableStateOf<IntroRun?>(null)
+    var opaque: Boolean? = null
+
+    /** True while the app develops under the look on the planned path (a tap's exit is the host's iris). */
+    fun revealing(b: PetalStormBeats): Boolean {
+        val r = run ?: return false
+        if (r.ms < b.landStart) return false
+        return !(r.exitAt >= 0f && r.exitAt < b.landStart)
+    }
+}
+
+/**
+ * What a screen reader (and the tests) read: the skip button where its pill is (only with [skippable]) and the welcome [line] as
+ * the run's one live announcement from [IntroTiming.announce] (at once for reduced motion). Composed once more when the
+ * announcement starts, never per frame.
+ */
+@Composable
+private fun PetalStormSemantics(sc: IntroScope, scene: PetalStormScene, timing: IntroTiming, skippable: Boolean, skipLabel: String, line: String) {
+    val run = sc.run
+    val shown by remember(timing) { derivedStateOf { sc.reduced || run.ms >= timing.announce } }
+    val d = sc.density
+    fun Modifier.at(r: Rect) = this
+        .offset { IntOffset(r.left.roundToInt(), r.top.roundToInt()) }
+        .size(with(d) { r.width.coerceAtLeast(1f).toDp() }, with(d) { r.height.coerceAtLeast(1f).toDp() })
+    if (skippable) Box(Modifier.at(scene.skipRect).semantics { text = AnnotatedString(skipLabel); role = Role.Button })
+    if (shown) Box(Modifier.at(scene.nameRect).semantics { text = AnnotatedString(line); liveRegion = LiveRegionMode.Polite })
 }
 
 /** How many grains for [level]: about 1,500 on FULL, 1,000 on BALANCED and 600 on SAVER (and for the still); the user's 數量 thins them down to 60 %. */
@@ -115,8 +203,8 @@ internal fun petalStormCount(level: EffectLevel, fx: IntroFx, reduced: Boolean):
 /**
  * The beats of one run of 「花吹雪聚形」 and the moments derived from them, in ms on the run's clock:
  * the wave (it breaks at [burst]), the gather into the crest, the crest hold, the morph into the name, the name hold, the flight
- * to the app's edges ([landStart]) and the exit. A [compact] run (below 2.5 s) has no crest: the grains gather straight into the
- * name. Only the two holds stretch with the length, so 8 s waits longer instead of moving slower.
+ * to the app's edges ([landStart]) and the hand-off ([exitStart]). A [compact] run (below 2.5 s) has no crest: the wave's grains
+ * gather straight into the name. Only the two holds stretch with the length, so 8 s waits longer instead of moving slower.
  */
 internal class PetalStormBeats private constructor(val plan: IntroPlan, val compact: Boolean) {
     val pace: Float get() = plan.pace
@@ -149,6 +237,17 @@ internal class PetalStormBeats private constructor(val plan: IntroPlan, val comp
     val landStart: Float = plan.at(land)
     val landLen: Float = plan.length(land)
     val exitStart: Float = plan.at(exit)
+    /** 準備好了 is typed in as the meter closes on 100 %. */
+    val readyAt: Float = nameFormed - 100f * pace
+    /** The meter and the skip pill are gone before the first petal reaches the edges: they fade over the last of the name hold. */
+    val meterOutStart: Float = landStart - 150f * pace
+    val meterOutLen: Float = 150f * pace
+    /** The app develops where the petals have landed: the top bar and the dock, over [revealLen] from here. */
+    val revealAt: Float = landStart + .78f * landLen
+    val revealLen: Float = 220f * pace
+    /** The rest of the screen fades into the app over the last [fadeLen] ms (about 250). */
+    val fadeLen: Float = min(250f, .85f * plan.length(exit))
+    val fadeStart: Float = plan.total - fadeLen
     /** The reduced-motion frame: the welcome, settled, just before the petals would fly off. */
     val still: Float = plan.end(name) - 1f
 
@@ -388,13 +487,55 @@ private class DotBatch(capacity: Int, private val radii: FloatArray) {
     }
 }
 
-/** The wave at one moment: its head and tail (px), its alpha and the clock in seconds for the harmonics. */
+/**
+ * The wave at one moment: its peak ([head]), the foot of its front face ([front]) and its tail (px), how far it has risen, its
+ * alpha, spray and sinking, and the clock (s).
+ */
 private class WaveState {
     var head = 0f
+    var front = 0f
     var tail = 0f
     var span = 1f
+    var rise = 1f
     var alpha = 0f
+    var spray = 0f
+    var sink = 0f
     var t = 0f
+}
+
+/**
+ * Winter's snow for this look: soft white flakes with a thin aqua rim inside a white halo (the aqua only ever touches white),
+ * spread over the whole width in even columns and falling with a sway. A flake fades out as it passes behind the name, the meter
+ * or the skip pill, so it never sits on type.
+ */
+private class PetalSnow(private val w: Float, private val h: Float, private val dp: Float, private val count: Int, private val avoid: Array<Rect>) {
+    private val rim = Stroke(.7f * dp)
+    private val margin = 16f * dp
+
+    fun draw(scope: DrawScope, amb: Float, alpha: Float) = with(scope) {
+        if (alpha <= 0f) return@with
+        val spanY = h + 2 * margin
+        for (i in 0 until count) {
+            val hh = ih(i, 150)
+            val fall = (24f + 20f * hh) * dp
+            val y = ((ih(i, 151) * spanY + amb * fall) % spanY) - margin
+            val sway = (5f + 8f * ih(i, 152)) * dp * sin(amb * (.7f + .5f * hh) + 6.28f * ih(i, 153))
+            val x = (i + .15f + .7f * ih(i, 154)) / count * w + sway
+            var a = alpha * (.75f + .25f * ih(i, 155))
+            for (r in avoid) {
+                val dx = max(max(r.left - x, x - r.right), 0f)
+                val dy = max(max(r.top - y, y - r.bottom), 0f)
+                a *= ((hypot(dx, dy) - 4f * dp) / (16f * dp)).coerceIn(0f, 1f)
+            }
+            if (a <= .02f) continue
+            val rr = (1.4f + 1.3f * ih(i, 156)) * dp
+            val c = Offset(x, y)
+            drawCircle(Sakura.White.copy(alpha = .28f * a), rr * 2.5f, c)
+            drawCircle(Sakura.White.copy(alpha = .95f * a), rr * 1.55f, c)
+            drawCircle(Sakura.Aqua.copy(alpha = .65f * a), rr * 1.2f, c, style = rim)
+            drawCircle(Sakura.White.copy(alpha = a), rr, c)
+        }
+    }
 }
 
 /**
@@ -412,6 +553,10 @@ internal class PetalStormScene(
     stickerText: String,
     gathering: String,
     ready: String,
+    skip: String,
+    date: String,
+    private val homeAlpha: Float,
+    private val skippable: Boolean,
 ) {
     private val w = sc.widthPx
     private val h = sc.heightPx
@@ -421,23 +566,86 @@ internal class PetalStormScene(
     private val fx = sc.fx
     private val unit = max(1f, min(w, h))
     private val pace = beats.pace
+    private val hasPicture = sc.picture != null
+    private val insetTop = sc.insetTop
+    private val insetBottom = sc.insetBottom
 
-    // ---- layout: the app's edges, and the scene between them --------------------------------------------------------------
-    private val headerY = PetalEdges.headerY(sc.insetTop, dp)
-    private val dock = PetalEdges.dock(w, h, sc.insetBottom, dp)
-    private val spanTop = headerY + 12f * dp
-    private val spanBottom = dock.top - 12f * dp
-    private val ringR = minOf(.37f * w, 160f * dp, .31f * (spanBottom - spanTop)).coerceAtLeast(40f * dp)
-    val focus = Offset(w / 2f, spanTop + .42f * (spanBottom - spanTop))
-    private val crestR = .62f * ringR
-    /** Where the wave's head is when it breaks: its curl then sits over the middle. (Declared before init, which uses it.) */
-    private val breakX = .50f * w - .035f * unit
+    // ---- type, measured first (the layout makes room for the meter) ----------------------------------------------------------
     private val s = (min(w / dp / 412f, h / dp / 915f)).coerceIn(.78f, 1.1f)
-
-    // ---- type ------------------------------------------------------------------------------------------------------------------
     private val mm = IntroMeasure(measurer, dp, sc.density.fontScale, s, coverage)
-    private val sticker = IntroSticker(mm, stickerText, w - 56f * dp, 72f, 34f, dp)
-    private val brow: GlyphRun? = eyebrow?.let { mm.fit(it, IntroFonts.hand(22f), .06f, 22f, 16f, w - 64f * dp) }
+    /**
+     * The meter's status and the skip pill are small and on screen the whole run, so they are set in the app's own clear sans:
+     * at 11–15 sp the thin handwriting smeared 瓣 into a blob and split 好 in two. The handwriting stays for 歡迎回來 and the name.
+     */
+    private val small = IntroFonts.sans(14f, FontWeight.Medium)
+    private val captionGather = mm.run(gathering, small, .04f)
+    private val captionReady = mm.run(ready, small, .04f)
+    private val digits = mm.run("0123456789%", IntroFonts.latin(13f, FontWeight.SemiBold), 0f)
+    private val digitSlot = (0 until 10).maxOf { digits.advance[it] }
+    private val tickW = 2.2f * dp
+    private val tickH = 11f * dp
+    private val tickGap = 3f * dp
+    private val ticksW = TICKS * tickW + (TICKS - 1) * tickGap
+    private val counterW = 3 * digitSlot + digits.advance[10]
+    private val meterW = ticksW + 10f * dp + counterW
+    private val meterH = captionGather.height + 8f * dp + tickH
+    private val skipCjk = mm.run(skip, small, .04f)
+    private val skipLatin = mm.run(IntroLatin.SKIP, IntroFonts.latin(11f, FontWeight.SemiBold), .2f)
+    private val hudBrand = mm.run(IntroLatin.BRAND, IntroFonts.latin(11f, FontWeight.SemiBold), .22f)
+    private val hudDate = mm.run(date, IntroFonts.latin(11f, FontWeight.Medium), .12f)
+    private val hudOutline = Stroke(2.6f * dp, join = StrokeJoin.Round)
+
+    // ---- layout: the app's edges, and the stage between them --------------------------------------------------------------
+    private val headerY = PetalEdges.headerY(insetTop, dp)
+    private val dock = PetalEdges.dock(w, h, insetBottom, dp)
+    private val dockCorner = min(PetalEdges.DOCK_CORNER_DP * dp, dock.height / 2f)
+    private val spanTop = headerY + 12f * dp
+    private val ringR: Float
+    val focus: Offset
+    private val meterTop: Float
+    /** With a picture: the picture stays clear above this line and gives way to a calm blush field below it (the stage). */
+    private val calmY: Float
+
+    init {
+        if (hasPicture) {
+            // The storm plays in the calm field under the figure, so the crest and the name never sit on a face or a body.
+            val meterBottom = dock.top - 22f * dp
+            val top = min(.53f * h, meterBottom - meterH - 40f * dp - 200f * dp).coerceAtLeast(spanTop + 8f * dp)
+            val r = minOf(.31f * w, 150f * dp, (meterBottom - meterH - 40f * dp - top) / 2f).coerceAtLeast(40f * dp)
+            ringR = r
+            focus = Offset(w / 2f, top + r)
+            meterTop = focus.y + r + 40f * dp
+            calmY = top - 4f * dp
+        } else {
+            val spanBottom = dock.top - 12f * dp
+            val span = spanBottom - spanTop
+            val r = minOf(.37f * w, 160f * dp, .30f * span).coerceAtLeast(40f * dp)
+            ringR = r
+            val fy = max(spanTop + .40f * span, spanTop + 20f * dp + r)
+            focus = Offset(w / 2f, fy)
+            // Down in the lower third, well clear of the rings, and above the skip pill.
+            meterTop = max(fy + r + 40f * dp, .70f * h - meterH / 2f).coerceAtMost(dock.top - 50f * dp - meterH).coerceAtLeast(fy + r + 32f * dp)
+            calmY = h
+        }
+    }
+
+    private val crestR = .62f * ringR
+    private val meterLeft = (w - meterW) / 2f
+    private val meterPad = 14f * dp
+    private val ticksTop = meterTop + captionGather.height + 8f * dp
+    private val meterRect = Rect(meterLeft - meterPad, meterTop - 6f * dp, meterLeft + meterW + meterPad, ticksTop + tickH + 8f * dp)
+    // The skip pill: the host's own place, at the bottom right.
+    private val chevW = 2 * 5f * dp + 2f * dp
+    private val skipRight = w - 20f * dp
+    private val skipTop = h - insetBottom - 42f * dp
+    private val skipLeft = skipRight - chevW - 6f * dp - skipLatin.width - 6f * dp - skipCjk.width
+    /** Where the skip pill is (the screen reader's skip button too). */
+    val skipRect = Rect(skipLeft - 10f * dp, skipTop - 5f * dp, skipRight + 10f * dp, skipTop + skipCjk.height + 5f * dp)
+
+    // ---- the name ------------------------------------------------------------------------------------------------------------
+    /** Capped at 80 % of the width (it shrinks to fit, then breaks onto two lines); a little smaller in the picture's field. */
+    private val sticker = IntroSticker(mm, stickerText, .80f * w, if (hasPicture) 62f else 72f, 34f, dp)
+    private val brow: GlyphRun? = eyebrow?.let { mm.fit(it, IntroFonts.hand(22f), .06f, 22f, 16f, .80f * w) }
     /**
      * Its white edge, stroked twice: a stroke this wide round a contour as small as the dot of 辶 turns its inner edge inside
      * out and leaves a hole beside the ink (ink on the picture's aqua read grey there); the narrower second stroke fills it.
@@ -448,66 +656,41 @@ internal class PetalStormScene(
     private val blockH = (brow?.let { it.height + browGap } ?: 0f) + sticker.height
     private val browTop = focus.y - blockH / 2f + 2f * dp
     val stickerTop: Float = browTop + (brow?.let { it.height + browGap } ?: 0f)
-    private val captionGather = mm.run(gathering, IntroFonts.hand(15f, small = true), .06f)
-    private val captionReady = mm.run(ready, IntroFonts.hand(15f, small = true), .06f)
-    private val digits = mm.run("0123456789%", IntroFonts.latin(12f, FontWeight.SemiBold), 0f)
-    private val digitSlot = (0 until 10).maxOf { digits.advance[it] }
-    private val tickW = 2.2f * dp
-    private val tickH = 11f * dp
-    private val tickGap = 3f * dp
-    private val ticksW = TICKS * tickW + (TICKS - 1) * tickGap
-    private val counterW = 3 * digitSlot + digits.advance[10]
-    private val meterW = ticksW + 10f * dp + counterW
-    private val captionTop = focus.y + ringR + 22f * dp
-    private val ticksTop = captionTop + captionGather.height + 8f * dp
-    private val meterLeft = (w - meterW) / 2f
+    private val blockW = max(sticker.width, brow?.width ?: 0f)
+    /** The welcome block (the screen reader's live node, and what snow keeps away from). */
+    val nameRect = Rect(focus.x - blockW / 2f - 10f * dp, browTop - 8f * dp, focus.x + blockW / 2f + 10f * dp, stickerTop + sticker.height + 10f * dp)
+    /** The name is wider than the inner ring: once it stands, the rings and the crest's ghost step back behind it. */
+    private val wide = sticker.width > 2f * RING_R[2] * ringR * .92f
 
     // ---- the backdrop and the season ---------------------------------------------------------------------------------------
     private val backdrop = IntroBackdrop(sc.picture, w, h, sc.align)
-    private val season = IntroSeasonFx(w, h, dp, fx.season, introCount(level, fx, 10, 8, 4, reduced), fx)
-    private val drift = IntroDrift(w, h, dp, introCount(level, fx, 12, 8, 5, reduced), fx, salt = 7)
-    /**
-     * Over the user's picture: a frost, strongest round the circle, so the storm reads over busy art. It lifts while the petals
-     * fly to the edges, so the picture is back, clear, as the app appears. White with only a hint of blush: a blush veil over the
-     * picture's aqua sky blended to grey.
-     */
-    private val veil: Brush? = if (sc.picture == null) null else lerpColor(Sakura.White, Sakura.Background, .35f).let { frost ->
-        Brush.radialGradient(
-            0f to frost.copy(alpha = .86f), .45f to frost.copy(alpha = .72f), 1f to frost.copy(alpha = .42f),
-            center = focus, radius = .75f * max(w, h),
-        )
+    /** The home screen's own scrim over its picture (FogBackground's), so the top of the screen is the home's from the start. */
+    private val homeScrim = Brush.verticalGradient(
+        0f to Sakura.Background.copy(alpha = .55f), .14f to Sakura.Background.copy(alpha = 0f),
+        .80f to Sakura.Background.copy(alpha = 0f), 1f to Sakura.Background.copy(alpha = .65f), startY = 0f, endY = h,
+    )
+    /** The calm field under the figure: the home's blush, almost opaque, fading in over the 13 % above [calmY]. */
+    private val calmField: Brush = Sakura.Background.let { c ->
+        Brush.verticalGradient(0f to c.copy(alpha = 0f), .55f to c.copy(alpha = .62f), 1f to c.copy(alpha = .90f), startY = calmY - .13f * h, endY = calmY)
     }
+    private val season = IntroSeasonFx(w, h, dp, if (fx.season == IntroSeason.SAKURA) IntroSeason.SAKURA else IntroSeason.NONE, introCount(level, fx, 10, 8, 4, reduced), fx)
+    private val snow = if (fx.season == IntroSeason.SNOW) PetalSnow(w, h, dp, introCount(level, fx, 22, 16, 10, reduced), arrayOf(nameRect, meterRect, skipRect)) else null
+    private val drift = IntroDrift(w, h, dp, introCount(level, fx, 12, 8, 5, reduced), fx, salt = 7)
 
     // ---- paths, brushes, strokes -------------------------------------------------------------------------------------------
     private val petal = Kawaii.petalPath()
     private val sparkle = Kawaii.sparklePath()
     private val silhouette = sakuraSilhouette()
-    private val wavePath = Path()
-    private val trace = Path().apply {
+    private val trace = androidx.compose.ui.graphics.Path().apply {
         moveTo(PetalEdges.DOCK_SIDE_DP * dp, headerY)
         lineTo(w - PetalEdges.DOCK_SIDE_DP * dp, headerY)
-        addRoundRect(androidx.compose.ui.geometry.RoundRect(dock, CornerRadius(min(PetalEdges.DOCK_CORNER_DP * dp, dock.height / 2f))))
+        addRoundRect(androidx.compose.ui.geometry.RoundRect(dock, CornerRadius(dockCorner)))
     }
     private val traceGlow = Stroke(5f * dp, cap = StrokeCap.Round)
     private val traceCore = Stroke(1.4f * dp, cap = StrokeCap.Round)
-    /** The wave's still-water line: low enough that its curl breaks at [focus], where the crest then gathers. */
-    private val by = focus.y + unit * .17f
-    private val waveBody: Brush = Brush.verticalGradient(
-        0f to Sakura.Primary.copy(alpha = .66f), .5f to lerpColor(Sakura.Primary, Sakura.Background, .45f).copy(alpha = .52f),
-        1f to Sakura.Background.copy(alpha = 0f), startY = by - unit * (WAVE_AMP + .03f), endY = by + unit * .16f,
-    )
-    private val waveLip: Brush = Brush.verticalGradient(
-        0f to Sakura.White.copy(alpha = .95f), .6f to Sakura.Primary.copy(alpha = .90f), 1f to Sakura.Primary.copy(alpha = .3f),
-        startY = by - unit * (WAVE_AMP + .05f), endY = by,
-    )
-    private val lipStroke = Stroke(2.2f * dp, cap = StrokeCap.Round)
-    private val rippleStroke = Stroke(.9f * dp)
-    private val unitPink: Brush = Brush.radialGradient(
-        0f to Sakura.Primary.copy(alpha = .9f), 1f to Sakura.Primary.copy(alpha = 0f), center = Offset.Zero, radius = 1f,
-    )
-    private val unitFlash: Brush = Brush.radialGradient(
-        0f to Sakura.White, .32f to lerpColor(Sakura.White, Sakura.Primary, .55f).copy(alpha = .75f), 1f to Sakura.Primary.copy(alpha = 0f),
-        center = Offset.Zero, radius = 1f,
+    private val burstFlash: Brush = Brush.radialGradient(
+        0f to Sakura.White, .38f to lerpColor(Sakura.White, Sakura.Background, .45f).copy(alpha = .9f),
+        .72f to Sakura.Background.copy(alpha = .45f), 1f to Sakura.Background.copy(alpha = 0f), center = Offset.Zero, radius = 1f,
     )
     private val crestInk: Brush = Brush.radialGradient(
         0f to Sakura.White, .55f to Sakura.White.copy(alpha = .95f), .85f to lerpColor(Sakura.Background, Sakura.White, .3f),
@@ -517,17 +700,47 @@ internal class PetalStormScene(
     private val crestInner = Stroke(1f * dp / crestR)
     private val crestVein = Stroke(1.1f * dp / crestR, cap = StrokeCap.Round)
     private val hairline = Stroke(1f * dp)
-    /** The shock rings' strokes, a few fixed widths (a frame picks one; none is built per frame). */
-    private val shock = Array(8) { Stroke((.6f + 3f * it / 7f) * dp) }
-    private val headerCut: Brush = (headerY + 16f * dp).let { end ->
-        Brush.verticalGradient(0f to Color.Black, (headerY / end) to Color.Black, 1f to Color.Transparent, startY = 0f, endY = end)
-    }
+    private val hairlineUnder = Stroke(2.6f * dp)
+    /** The shock rings' strokes, a few fixed thin widths (a frame picks one; none is built per frame). */
+    private val shock = Array(8) { Stroke((.5f + 1.6f * it / 7f) * dp) }
     private val browPaint = Paint()
+    // The hand-off's cuts: a native paint whose stroke width changes per frame without a new object.
+    private val cut = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+        style = android.graphics.Paint.Style.STROKE
+        color = android.graphics.Color.BLACK
+    }
+    private val dockBox = android.graphics.RectF(dock.left, dock.top, dock.right, dock.bottom)
+    private val dockClip = android.graphics.Path().apply { addRoundRect(dockBox, dockCorner, dockCorner, android.graphics.Path.Direction.CW) }
+    /** A soft edge one unit tall (clear above, cut below), scaled to the header's growing edge. */
+    private val fringe = Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = 0f, endY = 1f)
+
+    // ---- the landing targets, shown from the start ----------------------------------------------------------------------------
+    private val ghostHeader: FloatArray
+    private val ghostDock: FloatArray
+
+    init {
+        val step = 7f * dp
+        val l = PetalEdges.DOCK_SIDE_DP * dp
+        val r = w - PetalEdges.DOCK_SIDE_DP * dp
+        val m = ((r - l) / step).toInt().coerceAtLeast(2)
+        ghostHeader = FloatArray(m + 1) { lerp(l, r, it / m.toFloat()) }
+        val pm = android.graphics.PathMeasure(dockClip, true)
+        val k = (pm.length / step).toInt().coerceAtLeast(8)
+        val pos = FloatArray(2)
+        ghostDock = FloatArray(2 * k)
+        for (j in 0 until k) {
+            pm.getPosTan(pm.length * j / k, pos, null)
+            ghostDock[2 * j] = pos[0]
+            ghostDock[2 * j + 1] = pos[1]
+        }
+    }
 
     // ---- the grains ------------------------------------------------------------------------------------------------------
     private val n = petalStormCount(level, fx, reduced)
-    private val nBody = (n * .70f).toInt()
-    private val nLip = (n * .25f).toInt()
+    /** The wave's own extra grains (as many again), only while it lives: several thousand grains make one body of water. */
+    private val nx = if (reduced) 0 else n
+    private val nw = n + nx
     private val spriteKind = when {
         fx.petals -> 1
         fx.sparkles -> 2
@@ -537,24 +750,20 @@ internal class PetalStormScene(
         EffectLevel.FULL -> 120; EffectLevel.BALANCED -> 80; EffectLevel.SAVER -> 48
     }
     private val radii = floatArrayOf(.55f * dp, .8f * dp, 1.1f * dp, 1.5f * dp, 2f * dp)
-    /** Over a picture pink grains get white rims ([HALO]). */
-    private val rimmed = sc.picture != null
-    private val dots = DotBatch(n * 2 + 1200, radii)
-    private val rays = when (level) { EffectLevel.FULL -> 48; EffectLevel.BALANCED -> 36; EffectLevel.SAVER -> 24 }
+    /** Over a picture pink grains get white rims ([HALO]) where the picture shows (not in the calm field: there they wash out). */
+    private val rimmed = hasPicture
+    private fun rimAt(y: Float): Boolean = rimmed && y < calmY + 8f * dp
+    private val dots = DotBatch(nw * 2 + 1600, radii)
+    private val rays = when (level) { EffectLevel.FULL -> 14; EffectLevel.BALANCED -> 12; EffectLevel.SAVER -> 10 }
 
-    // The wave's own layout per grain (where along the wave, how high in it), and where it was when the wave broke.
-    private val ws1 = FloatArray(n) { ih(it, 51) }
-    private val ws2 = FloatArray(n) { ih(it, 52) }
-    private val ws3 = FloatArray(n) { ih(it, 53) }
-    /** Each wave grain's fixed place along the wave (k) and depth in it (v), so a frame does not raise them to powers again. */
-    private val wk = FloatArray(n) { i ->
-        when {
-            i < nBody -> 1f - (1f - (i + .5f) / nBody).pow(1.7f)
-            i < nBody + nLip -> 1f - (1f - (i - nBody + .5f) / nLip).pow(2.4f)
-            else -> 0f
-        }
-    }
-    private val wv = FloatArray(n) { ws1[it].pow(1.35f) }
+    // The wave's layout per grain: its role (body, crest foam or spray), where along the wave (k), how deep in it (v), and hashes.
+    private val role = ByteArray(nw)
+    private val wk = FloatArray(nw)
+    private val wv = FloatArray(nw)
+    private val ws1 = FloatArray(nw) { ih(it, 51) }
+    private val ws2 = FloatArray(nw) { ih(it, 52) }
+    private val ws3 = FloatArray(nw) { ih(it, 53) }
+    // Where each tracked grain was when the wave broke, and the burst's kick.
     private val w0x = FloatArray(n)
     private val w0y = FloatArray(n)
     private val w0c = ByteArray(n)
@@ -570,8 +779,8 @@ internal class PetalStormScene(
     private val cCol = ByteArray(n)
     private val cA = FloatArray(n)
     private val cS = ByteArray(n)
-    private val nx = FloatArray(n)
-    private val ny = FloatArray(n)
+    private val nx2 = FloatArray(n)
+    private val ny2 = FloatArray(n)
     private val nGlyph = IntArray(n)
     private val nCol = ByteArray(n)
     private val nA = FloatArray(n)
@@ -606,6 +815,17 @@ internal class PetalStormScene(
     private val waveNow = WaveState()
     private val waveFrom = WaveState()
 
+    // ---- the wave's geometry -----------------------------------------------------------------------------------------------
+    /** How long the wave's remains take to subside after the break. (Before init, which lays the wave out.) */
+    private val waveAfter = 420f * pace
+    /** Where the wave's head is when it breaks: just past the middle, after sweeping in from the left edge. */
+    private val breakX = focus.x + .06f * w
+    /** The still-water line; set in init so the crest's breaking point sits just above the circle's centre. */
+    private var waterY = focus.y + .20f * unit
+    /** Where the wave breaks (the burst's centre): the crest at its head at the moment of the break. */
+    var breakPoint = Offset.Zero
+        private set
+
     // Stamp timing of the sticker (the same as drawSticker's), so each name grain puffs out as its own glyph lands.
     private val stampStep: Float
     private val glyphCount: Int
@@ -614,6 +834,35 @@ internal class PetalStormScene(
         glyphCount = sticker.lines.sumOf { it.size }
         val stagger = (if (beats.compact) 24f else if (!sticker.latin) 40f else 20f) * pace
         stampStep = if (glyphCount > 1) min(stagger, 240f * pace / (glyphCount - 1)) else 0f
+        // The wave's roles: in each group (the tracked grains and the wave's own) 66 % body, 16 % crest foam, 18 % spray.
+        for (i in 0 until nw) {
+            val g = if (i < n) i else i - n
+            val size = if (i < n) n else nx
+            val u = (g + .5f) / size
+            when {
+                u < .66f -> {
+                    role[i] = BODY
+                    wk[i] = u / .66f
+                    // Most grains near the surface, ever fewer deeper down: the body fades out, it has no lower edge.
+                    wv[i] = ws1[i] * ws1[i] * 1.25f
+                }
+                u < .82f -> {
+                    role[i] = FOAM
+                    wk[i] = 1f - (1f - ((u - .66f) / .16f)).pow(1.8f)
+                    wv[i] = 0f
+                }
+                else -> {
+                    role[i] = SPRAY
+                    wk[i] = ws1[i]
+                    wv[i] = 0f
+                }
+            }
+        }
+        // The still-water line, so the head's crest breaks at (breakX, just above the centre).
+        val ws = WaveState()
+        setWave(beats.burst, ws)
+        waterY += (focus.y - .03f * unit) - crestY(breakX, ws)
+        breakPoint = Offset(breakX, crestY(breakX, ws))
         buildWaveStart()
         val perm = IntArray(n) { it }
         for (i in n - 1 downTo 1) {
@@ -626,8 +875,8 @@ internal class PetalStormScene(
         for (i in 0 until n) {
             val far = ih(i, 73) < .38f
             val dist = (if (far) 16f + 40f * ih(i, 74) else 3f + 10f * ih(i, 74)) * dp
-            val ox = nx[i] - focus.x
-            val oy = ny[i] - (stickerTop + sticker.height / 2f)
+            val ox = nx2[i] - focus.x
+            val oy = ny2[i] - (stickerTop + sticker.height / 2f)
             val l = hypot(ox, oy).coerceAtLeast(1f)
             val a = 6.2832f * ih(i, 75)
             val dx = .55f * ox / l + .45f * cos(a)
@@ -636,9 +885,9 @@ internal class PetalStormScene(
             hx[i] = dx / dl * dist
             hy[i] = dy / dl * dist
         }
-        val fromX = FloatArray(n) { nx[it] + hx[it] }
-        val fromY = FloatArray(n) { ny[it] + hy[it] }
-        PetalEdges.allocate(fromX, fromY, n, PetalEdges.segments(w, h, dp, sc.insetTop, sc.insetBottom), ex, ey)
+        val fromX = FloatArray(n) { nx2[it] + hx[it] }
+        val fromY = FloatArray(n) { ny2[it] + hy[it] }
+        PetalEdges.allocate(fromX, fromY, n, PetalEdges.segments(w, h, dp, insetTop, insetBottom), ex, ey)
         // The sprites: spread evenly through the grains (every k-th), so petals ride every part of the wave and the shapes.
         if (spriteCount > 0) {
             val every = max(1, n / spriteCount)
@@ -652,106 +901,148 @@ internal class PetalStormScene(
 
     private fun setWave(ms: Float, out: WaveState) {
         out.t = ms / 1000f
-        val post = 620f * pace
         if (ms < beats.burst) {
-            val sweep = (ms / beats.burst.coerceAtLeast(1f)).coerceIn(0f, 1f)
-            out.head = lerp(-.30f * w, breakX, sweep * sweep * (3f - 2f * sweep))
-            out.alpha = (ms / 140f).coerceIn(0f, 1f)
+            val k = (ms / beats.burst.coerceAtLeast(1f)).coerceIn(0f, 1f)
+            // In fast from the left edge, slowing as it rises to break.
+            val e = 1f - (1f - k) * (1f - k)
+            out.head = lerp(-.10f * w, breakX, e)
+            out.rise = lerp(.55f, 1f, e)
+            out.alpha = (ms / 90f).coerceIn(0f, 1f)
+            out.spray = ((e - .30f) / .60f).coerceIn(0f, 1f)
+            out.sink = 0f
         } else {
-            val k = ((ms - beats.burst) / post).coerceIn(0f, 1f)
-            out.head = lerp(breakX, 1.46f * w, k)
-            out.alpha = 1f - k
+            val k = ((ms - beats.burst) / waveAfter).coerceIn(0f, 1f)
+            out.head = breakX + .24f * w * k
+            out.rise = 1f - .35f * k
+            out.alpha = (1f - k) * (1f - k)
+            out.spray = 1f
+            out.sink = .05f * unit * k
         }
-        out.tail = out.head - WAVE_LENGTH * w
-        out.span = max(1f, out.head - out.tail)
+        // The wave fills the screen from the left edge to its peak (a short stretch off screen while it enters); its front face
+        // falls steeply ahead of the peak.
+        out.tail = min(-.03f * w, out.head - .55f * w)
+        out.front = out.head + FACE * w
+        out.span = max(1f, out.front - out.tail)
     }
 
     /** x in the source's desktop pixels (a 1080 px tall screen), so its harmonics keep their wavelength on a phone. */
     private fun xu(x: Float) = x / unit * 1080f
     private fun reach(x: Float, ws: WaveState) = ((x - ws.tail) / ws.span).coerceIn(0f, 1f)
-    private fun amp(x: Float, ws: WaveState) = unit * (.005f + WAVE_AMP * reach(x, ws).pow(1.25f))
+
+    /**
+     * How high the water stands above its still line at [x]: a long back that swells (flat, then rising, rounding off at the
+     * peak), and in front of the peak a steep face falling to the foot. A wave's profile, not a ramp or a fin.
+     */
+    private fun amp(x: Float, ws: WaveState): Float {
+        val a = if (x <= ws.head) {
+            val r = ((x - ws.tail) / max(1f, ws.head - ws.tail)).coerceIn(0f, 1f)
+            val sm = r * r * (3f - 2f * r)
+            .06f + .19f * sm * sqrt(sm)
+        } else {
+            val f = ((x - ws.head) / (FACE * w)).coerceIn(0f, 1f)
+            .25f * cos(f * PI.toFloat() / 2f).coerceAtLeast(0f).pow(.85f)
+        }
+        return unit * ws.rise * a
+    }
+
+    /** The crest line: the swell rising toward the head, on three summed harmonics travelling at their own speeds. */
     private fun crestY(x: Float, ws: WaveState): Float {
         val k = reach(x, ws)
         val u = xu(x)
         val t = ws.t
-        return by - amp(x, ws) + sin(u * .0082f + t * 1.15f) * unit * .024f * (.3f + k) +
-            sin(u * .0181f - t * 1.85f + .8f) * unit * .010f * (.22f + k) + sin(u * .0410f + t * 2.60f + 1.7f) * unit * .0028f
+        // The rolling swells ride the back, not the face (there the water falls).
+        val back = if (x <= ws.head) 1f else .35f
+        return waterY + ws.sink - amp(x, ws) + back * (sin(u * .0082f + t * 1.15f) * unit * .030f * (.35f + .65f * k) +
+            sin(u * .0181f - t * 1.85f + .8f) * unit * .024f * (.4f + .6f * k)) + sin(u * .0410f + t * 2.60f + 1.7f) * unit * .006f
     }
+
     private fun troughY(x: Float, ws: WaveState): Float {
         val k = reach(x, ws)
         val u = xu(x)
         val t = ws.t
-        return by + amp(x, ws) * .55f + sin(u * .0077f + t * 1.15f + 1.3f) * unit * .019f * (.3f + k) +
-            sin(u * .0197f - t * 1.95f + 2.1f) * unit * .0072f * (.22f + k)
+        return waterY + ws.sink + amp(x, ws) * .30f + unit * .09f + sin(u * .0077f + t * 1.15f + 1.3f) * unit * .018f * (.3f + k) +
+            sin(u * .0197f - t * 1.95f + 2.1f) * unit * .007f * (.22f + k)
     }
 
-    /** A source radius (desktop px) as one of the batch's size steps. */
-    private fun sizeOf(rCss: Float): Int = when {
-        rCss < .7f -> 0
-        rCss < .95f -> 1
-        rCss < 1.3f -> 2
-        rCss < 1.75f -> 3
-        else -> 4
-    }
-
-    /** Grain [i] as part of the wave at [ws]: the body (the first 70 %), the crest file along the lip (25 %) and the spray. */
+    /**
+     * Grain [i] as part of the wave at [ws], only grains (no filled body): the body between the crest and the trough (pink near
+     * the top, blush deeper down, each grain turning on a small circle like water), the white foam along the crest, and the spray
+     * the crest throws forward off its last stretch, white turning aqua as it flies (aqua on a white halo when drawn).
+     */
     private fun waveGrain(i: Int, ws: WaveState) {
         val t = ws.t
         val s1 = ws1[i]
         val s2 = ws2[i]
         val s3 = ws3[i]
-        if (i < nBody) {
-            val k = wk[i]
-            val x = ws.tail + ws.span * k + sin(t * .9f + s2 * 6.2832f) * unit * .006f + (s3 - .5f) * unit * .01f
-            val v = wv[i]
-            val c = crestY(x, ws)
-            qx = x
-            qy = c + (troughY(x, ws) - c) * v + sin(t * 1.6f + s2 * 6.2832f + xu(x) * .01f) * unit * .004f
-            val tw = .5f + .5f * sin(t * 2.4f + s3 * 6.2832f)
-            val light = s1 > .66f
-            qa = (ws.alpha * (.18f + .5f * (1f - v) * (.35f + .65f * k)) * (.55f + .45f * tw)).coerceAtMost(1f)
-            qc = if (light) WHITE else PINK
-            qs = sizeOf((.5f + s2 * 1.6f) * (.6f + .5f * k))
-        } else if (i < nBody + nLip) {
-            val k = wk[i]
-            val x = ws.tail + ws.span * k + sin(t * 1.4f + s2 * 6.2832f) * unit * .004f
-            qx = x
-            qy = crestY(x, ws) + (s1 - .5f) * unit * .02f * (.35f + k)
-            val tw = .45f + .55f * sin(t * 3.1f + s1 * 6.2832f)
-            qa = (ws.alpha * (.2f + .75f * k) * tw).coerceIn(0f, 1f)
-            qc = WHITE
-            qs = sizeOf(.6f + s2 * 2.1f * (.35f + k))
-        } else {
-            val phase = (t * .52f + s1) % 1f
-            // Thrown off anywhere along the last stretch of the lip (all from its tip read as a beak), up and forward, falling.
-            val ox = ws.head - unit * .10f * s1
-            qx = ox + unit * (.04f + .12f * s1) * phase
-            qy = crestY(ox, ws) - unit * (.03f + .08f * s1) * phase + unit * .16f * phase * phase
-            qa = ws.alpha * (1f - phase) * (phase / .2f).coerceAtMost(1f) * .8f
-            qc = AQUA
-            qs = sizeOf(.7f + (1f - phase) * 1.8f)
+        val k = wk[i]
+        when (role[i]) {
+            BODY -> {
+                val v = wv[i]
+                val bx = ws.tail + ws.span * k + (s3 - .5f) * unit * .008f
+                val orb = ((1f - v).coerceAtLeast(0f) * 3.2f + 1f) * dp
+                val ph = t * (4.2f + 1.6f * s3) + s2 * 6.2832f
+                val c = crestY(bx, ws)
+                qx = bx + cos(ph) * orb
+                qy = c + (troughY(bx, ws) - c) * v + sin(ph) * orb
+                val tw = .62f + .38f * sin(t * 2.6f + s3 * 6.2832f)
+                // Deep grains thin out below the trough, so the body has no hard lower edge.
+                val deep = 1f - ((v - .55f) / .70f).coerceIn(0f, 1f)
+                // Down the face the grains thin out toward its foot: the spray carries the leading edge, not a wall of dots.
+                val face = if (bx > ws.head) 1f - .85f * ((bx - ws.head) / (FACE * w)).coerceIn(0f, 1f) else 1f
+                qa = (ws.alpha * (.30f + .62f * (1f - v).coerceAtLeast(0f)) * (.50f + .50f * k) * tw * deep * face).coerceAtMost(1f)
+                qc = when {
+                    s3 > .95f -> WHITE
+                    s1 * 1.05f > v -> PINK
+                    else -> BLUSH
+                }
+                qs = (if (s2 > .55f) 2 else 1) + (if (k > .55f && s2 > .3f) 1 else 0)
+            }
+            FOAM -> {
+                // Along the top of the swell up to the peak (none down the face: a white line there drew an outline).
+                val x = ws.tail + (ws.head + .01f * w - ws.tail) * k + sin(t * 1.4f + s2 * 6.2832f) * unit * .004f
+                // The last of it pitches forward over the face as an open lip, which the spray then carries on.
+                val lip = ((k - .90f) / .10f).coerceIn(0f, 1f)
+                qx = x + lip * lip * unit * .07f * ws.spray
+                qy = crestY(x, ws) + (s1 - .5f) * unit * .012f * (.3f + k) - unit * .004f + lip * lip * lip * unit * .05f * ws.spray
+                val tw = .55f + .45f * sin(t * 3.1f + s1 * 6.2832f)
+                qa = (ws.alpha * (.35f + .65f * k) * tw).coerceIn(0f, 1f)
+                qc = WHITE
+                qs = 2 + (if (k > .6f) 1 else 0) + (if (s2 > .75f) 1 else 0)
+            }
+            else -> {
+                // Thrown forward and up off the crest just behind the peak, arcing over the face and falling in front of it: an
+                // open plume, never a closed curl.
+                val phase = (t * 1.1f + s2) % 1f
+                val ox = ws.head + unit * (.05f - .08f * k * k)
+                qx = ox + unit * (.08f + .22f * s3) * phase
+                qy = crestY(ws.head, ws) - unit * (.02f + .08f * s1) * phase + unit * .26f * phase * phase
+                qa = ws.alpha * ws.spray * (1f - phase * phase * phase) * (phase / .08f).coerceAtMost(1f) * .95f
+                // Mostly white water; a share turns aqua as it flies (on a white halo when drawn).
+                qc = if (phase > .40f && s3 > .55f) AQUA else WHITE
+                qs = if (phase < .45f) 2 + (if (s1 > .6f) 1 else 0) else 1
+            }
         }
     }
 
-    /** Where each grain was when the wave broke, and the burst's kick that throws it out from there. */
+    /** Where each tracked grain was when the wave broke, and the burst's kick that throws it out from the breaking point. */
     private fun buildWaveStart() {
         val ws = WaveState()
         setWave(beats.burst, ws)
-        // At the break the head is at full strength (the post-burst fade starts from here).
+        // At the break the wave is at full strength (the remains fade from here).
         ws.alpha = 1f
         for (i in 0 until n) {
             waveGrain(i, ws)
             w0x[i] = qx
             w0y[i] = qy
             w0c[i] = qc.toByte()
-            w0a[i] = qa
+            w0a[i] = max(qa, .35f)
             w0s[i] = qs.toByte()
-            val dx = qx - focus.x
-            val dy = qy - focus.y
+            val dx = qx - breakPoint.x
+            val dy = qy - breakPoint.y
             val l = hypot(dx, dy)
             var a = if (l > unit * .02f) atan2(dy, dx) else 6.2832f * ih(i, 63)
             a += (ih(i, 64) - .5f) * .7f
-            val mag = unit * (.08f + .42f * ih(i, 65).pow(1.6f))
+            val mag = unit * (.06f + .36f * ih(i, 65).pow(1.6f))
             kx[i] = cos(a) * mag
             ky[i] = sin(a) * mag
         }
@@ -951,8 +1242,8 @@ internal class PetalStormScene(
         val order = (0 until n).sortedBy { px[it] + .002f * ih(it, 104) }
         for (i in 0 until n) {
             val src = order[perm[i]]
-            nx[i] = px[src]
-            ny[i] = py[src]
+            nx2[i] = px[src]
+            ny2[i] = py[src]
             nGlyph[i] = gi[src]
             if (ih(i, 105) < .55f) { nCol[i] = ROSE.toByte(); nA[i] = .9f; nS[i] = 2 } else { nCol[i] = PINK.toByte(); nA[i] = .95f; nS[i] = 2 }
         }
@@ -964,7 +1255,6 @@ internal class PetalStormScene(
 
     /** How far grain [i]'s glyph has puffed it out into the halo (0 until its glyph lands). */
     private fun puff(i: Int, ms: Float): Float {
-        if (reduced) return 1f
         val at = beats.stickerStart + stampStep * nGlyph[i] + 40f * pace
         return IntroEase.ExpoOut.transform(((ms - at) / (520f * pace)).coerceIn(0f, 1f))
     }
@@ -985,8 +1275,8 @@ internal class PetalStormScene(
         var tS: Int
         if (beats.compact) {
             val p = puff(i, ms)
-            tx = nx[i] + hx[i] * p + drift(i, amb, true)
-            ty = ny[i] + hy[i] * p + drift(i, amb, false)
+            tx = nx2[i] + hx[i] * p + drift(i, amb, true)
+            ty = ny2[i] + hy[i] * p + drift(i, amb, false)
             tCol = if (p > .5f) puffColour(i) else nCol[i].toInt()
             tA = lerp(nA[i], puffAlpha(i), p)
             tS = nS[i].toInt()
@@ -1027,8 +1317,8 @@ internal class PetalStormScene(
         val km = IntroEase.CubicInOut.transform(((ms - m0) / (.55f * beats.morphLen)).coerceIn(0f, 1f))
         if (km <= 0f) return
         val p = puff(i, ms)
-        val nxx = nx[i] + hx[i] * p + drift(i, amb, true)
-        val nyy = ny[i] + hy[i] * p + drift(i, amb, false)
+        val nxx = nx2[i] + hx[i] * p + drift(i, amb, true)
+        val nyy = ny2[i] + hy[i] * p + drift(i, amb, false)
         val dx = nxx - qx
         val dy = nyy - qy
         val bow = sin(PI.toFloat() * km)
@@ -1042,7 +1332,7 @@ internal class PetalStormScene(
     private fun puffColour(i: Int): Int = if (ih(i, 106) < .5f) WHITE else PINK
     private fun puffAlpha(i: Int): Float = if (ih(i, 73) < .38f) .75f else .5f
 
-    /** A grain's slow drift while it rests (px), from the ambient clock (0 for reduced motion). */
+    /** A grain's slow drift while it rests (px), from the ambient clock. */
     private fun drift(i: Int, amb: Float, x: Boolean): Float {
         val ph = 6.2832f * ih(i, if (x) 111 else 112)
         val f = .5f + .5f * ih(i, if (x) 113 else 114)
@@ -1057,18 +1347,24 @@ internal class PetalStormScene(
     private val planned = Flight(beats.landStart, beats.landLen, false)
     private var tapFlight: Flight? = null
 
+    /** A tap before the petals took off: the host's iris is the exit, and they fly quickly. */
+    private fun tapped(run: IntroRun): Boolean = run.exitAt >= 0f && run.exitAt < beats.landStart
+
     private fun flight(run: IntroRun): Flight {
+        if (!tapped(run)) return planned
         val at = run.exitAt
-        if (at < 0f || at >= beats.landStart) return planned
         val f = tapFlight
         if (f != null && f.from == at) return f
         return Flight(at, .70f * run.exitDur, true).also { tapFlight = it }
     }
 
+    /** True once the petals have taken off for the edges (they then draw over everything). */
+    fun flying(run: IntroRun): Boolean = !reduced && (run.ms >= beats.landStart || tapped(run))
+
     /** Grain [i] at [ms], all the way to its edge: [grain], then the flight along a gentle curve, then resting on the edge. */
     private fun petalAt(i: Int, ms: Float, amb: Float, fl: Flight) {
         if (ms < fl.from) { grain(i, ms, amb, waveNow); return }
-        grain(i, fl.from, if (reduced) 0f else fl.from / 1000f, waveFrom)
+        grain(i, fl.from, fl.from / 1000f, waveFrom)
         val sx = qx
         val sy = qy
         val sa = qa
@@ -1092,99 +1388,116 @@ internal class PetalStormScene(
 
     // ---- drawing --------------------------------------------------------------------------------------------------------
 
-    fun drawBackdrop(scope: DrawScope, ms: Float, amb: Float) = with(scope) {
-        backdrop.draw(this, backdrop.zoom(ms, beats.exitStart, reduced = reduced))
-        // The veil eases to 65 % once the name stands (the sticker reads on its own), and lifts as the petals fly to the edges.
-        veil?.let {
-            // It only starts to lift once the circle has gone: rings fading over the bare picture's aqua blended to grey.
-            val a = if (reduced) .65f else (1f - .35f * seg(ms, beats.nameFormed, 600f * pace, IntroEase.SineInOut)) *
-                (1f - seg(ms, beats.landStart + LEAVE * beats.landLen, (.95f - LEAVE) * beats.landLen, IntroEase.SineInOut))
-            drawRect(it, alpha = a)
+    /**
+     * The sky (or the picture as the home screen shows it, under the home's own scrim, with the calm field under the figure),
+     * the loose petals and the season.
+     */
+    fun drawBackdrop(scope: DrawScope, run: IntroRun) = with(scope) {
+        val ms = run.ms
+        val amb = run.amb
+        if (hasPicture) {
+            drawRect(Sakura.Background)
+            // The push settles on the home screen's own crop by the time the app appears.
+            backdrop.draw(this, backdrop.zoom(ms, beats.revealAt, reduced = reduced), homeAlpha)
+            drawRect(homeScrim)
+            drawRect(calmField)
+        } else {
+            backdrop.draw(this, 1f)
         }
-        // A few loose petals in the open sky once the wave has broken (the storm's leftovers).
-        val loose = if (reduced) .8f else .8f * seg(ms, beats.burst, 600f * pace)
-        // Over a picture they leave with the frost (pink petals straight on its aqua sky would blend to grey).
-        drift.draw(this, amb, if (rimmed && !reduced) loose * (1f - seg(ms, beats.landStart, LEAVE * beats.landLen)) else loose)
-        season.draw(this, amb)
+        if (!reduced) {
+            // A few loose petals once the wave has broken (the storm's leftovers); over a picture only in the calm field (pink
+            // petal edges on the picture's aqua would blend to grey).
+            val loose = .8f * seg(ms, beats.burst, 600f * pace) * (1f - seg(ms, beats.landStart, beats.landLen))
+            if (loose > 0f) {
+                if (hasPicture) clipRect(top = calmY) { drift.draw(this, amb, loose) } else drift.draw(this, amb, loose)
+            }
+        }
+        val air = if (reduced) 1f else 1f - seg(ms, beats.fadeStart - 120f * pace, 120f * pace)
+        season.draw(this, amb, air)
+        snow?.draw(this, amb, air)
+    }
+
+    /**
+     * The landing targets, faint from the start: a small HUD row (DSH MOBILE and the date) in the top bar's place, a dotted line
+     * where the bar ends and a dotted outline where the dock sits. The petals complete them at the end.
+     */
+    fun drawGhosts(scope: DrawScope, run: IntroRun) = with(scope) {
+        val ms = run.ms
+        val tap = tapped(run)
+        val on = if (reduced) 1f else seg(ms, 80f * pace, 320f * pace)
+        if (on <= 0f) return@with
+        // The HUD row types in at full strength and is wiped away from the left as the petals take off (a tap hides it): faded
+        // instead, its half-transparent ink over the picture's aqua blended to grey.
+        val shown = if (reduced) Int.MAX_VALUE else ((ms - 80f * pace) / (26f * pace)).toInt()
+        val wipe = if (reduced) 0f else seg(ms, beats.landStart, .30f * beats.landLen) * w
+        if (!tap && shown > 0 && wipe < w) clipRect(left = wipe) {
+            val top = insetTop + 20f * dp
+            val left = 20f * dp
+            val right = w - 20f * dp - hudDate.width
+            for (i in 0 until min(shown, hudBrand.size)) drawGlyph(hudBrand, i, Offset(left + hudBrand.x[i], top), Sakura.White, 1f, stroke = hudOutline)
+            for (i in 0 until min(shown, hudDate.size)) drawGlyph(hudDate, i, Offset(right + hudDate.x[i], top), Sakura.White, 1f, stroke = hudOutline)
+            for (i in 0 until min(shown, hudBrand.size)) drawGlyph(hudBrand, i, Offset(left + hudBrand.x[i], top), Sakura.TextSecondary, 1f)
+            for (i in 0 until min(shown, hudDate.size)) drawGlyph(hudDate, i, Offset(right + hudDate.x[i], top), Sakura.TextSecondary, 1f)
+        }
+        val ghost = on * (if (tap) run.exitFade(0f) else 1f - seg(ms, beats.landStart + .70f * beats.landLen, .30f * beats.landLen))
+        if (ghost > 0f) {
+            val b = if (reduced) .5f else breath(run.amb)
+            val a = ghost * (.62f + .14f * b)
+            // Over a picture the bar's line gets a full white rim (pink edges on its aqua would blend to grey).
+            val rim = if (rimAt(headerY)) (a * 1.5f).coerceAtMost(1f) else a * .7f
+            for (x in ghostHeader) { dots.add(x, headerY, 2, rim, HALO); dots.add(x, headerY, 1, a, PINK) }
+            var j = 0
+            while (j < ghostDock.size) {
+                dots.add(ghostDock[j], ghostDock[j + 1], 2, a * .7f, HALO)
+                dots.add(ghostDock[j], ghostDock[j + 1], 1, a, PINK)
+                j += 2
+            }
+            dots.flush(this)
+        }
     }
 
     /** How far the stage (rings, crest, bloom) has left: from the land beat, or from a tap's exit. */
     private fun leave(ms: Float, run: IntroRun): Float {
         val planned = seg(ms, beats.landStart, LEAVE * beats.landLen)
-        val tap = if (run.exitAt >= 0f && run.exitAt < beats.landStart) seg(ms, run.exitAt, .35f * run.exitDur) else 0f
+        val tap = if (tapped(run)) seg(ms, run.exitAt, .35f * run.exitDur) else 0f
         return max(planned, tap)
     }
 
-    /** The bloom behind the rings, the wave, the crest's crisp mark, the rings and the burst. */
+    /** Once the name stands: a name wider than the inner ring sends the rings and the crest's ghost back behind it. */
+    private fun backOff(ms: Float): Float {
+        if (!wide) return 1f
+        val k = if (reduced) 1f else seg(ms, beats.nameFrom + .30f * beats.nameLen, .50f * beats.nameLen)
+        return lerp(1f, .26f, k)
+    }
+
+    /** The bloom behind the rings, the crest's crisp mark, the rings and the burst. */
     fun drawStage(scope: DrawScope, run: IntroRun) = with(scope) {
         val ms = run.ms
         val amb = run.amb
-        val b = breath(amb)
+        val b = if (reduced) .5f else breath(amb)
         val alive = .55f + .45f * b
         val gone = 1f - leave(ms, run)
         val ringsOn = if (reduced) 1f else seg(ms, beats.ringStart - 120f * pace, 400f * pace)
-        // A soft white light behind the circle, so the crest and the name read over a busy picture.
-        val bloom = ringsOn * gone * (if (backdrop.hasPicture) .70f + .10f * b else .40f + .12f * b)
+        // A soft white light behind the circle, so the crest and the name read on any ground.
+        val bloom = ringsOn * gone * (.42f + .12f * b)
         if (bloom > 0f) withTransform({ translate(focus.x, focus.y); scale(1.25f * ringR, 1.25f * ringR, Offset.Zero) }) {
             drawCircle(IntroUnitBloom, 1f, Offset.Zero, alpha = bloom)
         }
-        if (!reduced) drawWave(this, ms)
         drawCrestInk(this, ms, b, gone)
-        drawRings(this, ms, b, alive, gone * ringsOn)
+        drawRings(this, ms, b, alive, gone * ringsOn * backOff(ms))
         if (!reduced) drawBurst(this, ms)
     }
 
-    private fun drawWave(scope: DrawScope, ms: Float) = with(scope) {
-        if (ms > beats.burst + 620f * pace) return@with
-        val ws = waveNow
-        setWave(ms, ws)
-        if (ws.alpha <= .01f) return@with
-        val head = ws.head
-        val path = wavePath
-        path.reset()
-        path.moveTo(ws.tail, by)
-        val stepX = 4f * dp
-        var x = ws.tail
-        while (x <= head) { path.lineTo(x, crestY(x, ws)); x += stepX }
-        val u = unit
-        val top = crestY(head, ws)
-        // The crest runs over the top and curls forward and down (a breaking lip, not a wall), tucks under, and the face falls
-        // to the foot of the wave.
-        path.cubicTo(head + u * .03f, top - u * .03f, head + u * .075f, top - u * .012f, head + u * .07f, top + u * .022f)
-        path.quadraticTo(head + u * .05f, top + u * .02f, head + u * .035f, top + u * .05f)
-        val foot = head - u * .02f
-        path.cubicTo(head + u * .05f, top + u * .12f, head + u * .03f, by - amp(head, ws) * .05f, foot, troughY(foot, ws))
-        x = foot
-        while (x >= ws.tail) { path.lineTo(x, troughY(x, ws)); x -= stepX }
-        path.close()
-        drawPath(path, waveBody, alpha = ws.alpha)
-        // The lip along the top and round the curl, so the head keeps a hard edge; faint ripples behind it.
-        path.reset()
-        val from = head - u * .08f
-        path.moveTo(from, crestY(from, ws))
-        path.quadraticTo(head - u * .025f, crestY(head - u * .025f, ws) - u * .006f, head, top)
-        path.cubicTo(head + u * .03f, top - u * .03f, head + u * .075f, top - u * .012f, head + u * .07f, top + u * .022f)
-        path.quadraticTo(head + u * .05f, top + u * .02f, head + u * .035f, top + u * .05f)
-        drawPath(path, waveLip, alpha = ws.alpha, style = lipStroke)
-        for (i in 1..6) {
-            val ry = u * (.006f + i * .0055f)
-            val cxx = head - i * u * .055f
-            drawOval(
-                Sakura.Primary, Offset(cxx - ry * 3.2f, by + u * .03f - ry), Size(ry * 6.4f, ry * 2f),
-                alpha = ws.alpha * .30f * (1f - i / 7f), style = rippleStroke,
-            )
-        }
-        withTransform({ translate(head + u * .04f, top + u * .06f); scale(u * .26f, u * .26f, Offset.Zero) }) {
-            drawCircle(unitPink, 1f, Offset.Zero, alpha = .25f * ws.alpha)
-        }
-    }
-
-    /** The crest's crisp mark: it bleeds in under the grains as they lock, then stays as a faint watermark behind the name. */
+    /**
+     * The crest's crisp mark: it bleeds in under the grains as they lock, then stays as a faint watermark behind the name. A
+     * compact run has no crest beat, so no mark either (a half-formed crest flashed past behind the name).
+     */
     private fun drawCrestInk(scope: DrawScope, ms: Float, b: Float, gone: Float) = with(scope) {
+        val ghost = if (wide) .08f else .22f
         val ink = when {
-            reduced -> .22f
-            beats.compact -> .22f * seg(ms, beats.ringStart, 500f * pace)
-            else -> seg(ms, beats.crestLock - 60f * pace, 520f * pace) * lerp(1f, .22f, seg(ms, beats.morphStart, .6f * beats.morphLen))
+            reduced -> ghost
+            beats.compact -> 0f
+            else -> seg(ms, beats.crestLock - 60f * pace, 520f * pace) * lerp(1f, ghost, seg(ms, beats.morphStart, .6f * beats.morphLen))
         } * gone
         if (ink <= .005f) return@with
         val k = crestR * (1f + .012f * b)
@@ -1199,20 +1512,23 @@ internal class PetalStormScene(
         }
     }
 
-    /** A dot; over a picture a pink or rose one sits on a white rim ([HALO]). */
+    /** A dot; over a picture a pink, rose or blush one sits on a white rim ([HALO]). */
     private fun dot(x: Float, y: Float, size: Int, alpha: Float, colour: Int) {
         // The rim is more opaque than the dot, so the dot's soft edge falls on white, not on the picture.
-        if (rimmed && (colour == PINK || colour == ROSE)) dots.add(x, y, (size + 1).coerceAtMost(4), (alpha * 1.6f).coerceAtMost(1f), HALO)
+        if (rimAt(y) && (colour == PINK || colour == ROSE || colour == BLUSH)) dots.add(x, y, (size + 1).coerceAtMost(4), (alpha * 1.6f).coerceAtMost(1f), HALO)
         dots.add(x, y, size, alpha, colour)
     }
 
-    /** Three dotted rings that switch on dot by dot and counter-rotate, a comet round the outer one, all on one breath. */
+    /**
+     * Three dotted rings that switch on dot by dot and counter-rotate, a comet round the outer one, all on one breath. Every dot
+     * and hairline has a thin white line under it, so the rings read on any ground.
+     */
     private fun drawRings(scope: DrawScope, ms: Float, b: Float, alive: Float, vis: Float) = with(scope) {
         if (vis <= .01f) return@with
         val ringT = if (reduced) 10f else (ms - beats.ringStart) / (1000f * pace)
-        val spinT = (ms - beats.ringStart) / 1000f
+        val spinT = if (reduced) 0f else (ms - beats.ringStart) / 1000f
         if (ringT < -.05f) return@with
-        val swell = 1f + .06f * (1f - vis)
+        val swell = 1f + .06f * (1f - vis).coerceAtMost(1f) * (if (wide) 0f else 1f)
         for (s in 0 until 3) {
             val r = RING_R[s] * ringR * (1f + .014f * b) * swell
             val count = RING_N[s]
@@ -1220,83 +1536,103 @@ internal class PetalStormScene(
                 val appear = ((ringT - (i.toFloat() / count) * .5f) / .24f).coerceIn(0f, 1f).let { it * it * (3f - 2f * it) }
                 if (appear <= .01f) continue
                 val a = (i.toFloat() / count) * 6.2832f + RING_SPIN[s] * spinT + .35f * s
-                dot(focus.x + cos(a) * r, focus.y + sin(a) * r, RING_SIZE[s] - (if (appear < .5f) 1 else 0), RING_A[s] * appear * alive * vis, RING_C[s])
+                val x = focus.x + cos(a) * r
+                val y = focus.y + sin(a) * r
+                val size = RING_SIZE[s] - (if (appear < .5f) 1 else 0)
+                val al = RING_A[s] * appear * alive * vis
+                dots.add(x, y, size + 1, (al * 1.5f).coerceAtMost(1f), HALO)
+                dots.add(x, y, size, al, RING_C[s])
             }
         }
-        // The comet: 20 dots racing round the outer ring, white over a pink under-dot.
-        val head = spinT * 1.5f
-        val cr = ringR * (1f + .014f * b) * swell
-        val on = if (reduced) 1f else (ringT / .4f).coerceIn(0f, 1f)
-        for (i in 0 until 20) {
-            val a = head - i * .032f
-            val fade = (1f - i / 20f) * .95f * on * vis
-            val x = focus.x + cos(a) * cr
-            val y = focus.y + sin(a) * cr
-            if (i < 3) {
-                dot(x, y, 4, fade * .35f, PINK)
-                dots.add(x, y, 3, fade, WHITE)
-            } else {
-                dot(x, y, if (i < 9) 3 else 2, fade * .85f, PINK)
+        // The comet: 20 dots racing round the outer ring, white over a pink under-dot (none in the still: nothing in flight).
+        if (!reduced) {
+            val head = spinT * 1.5f
+            val cr = ringR * (1f + .014f * b) * swell
+            val on = (ringT / .4f).coerceIn(0f, 1f)
+            for (i in 0 until 20) {
+                val a = head - i * .032f
+                val fade = (1f - i / 20f) * .95f * on * vis
+                val x = focus.x + cos(a) * cr
+                val y = focus.y + sin(a) * cr
+                if (i < 3) {
+                    dot(x, y, 4, fade * .35f, PINK)
+                    dots.add(x, y, 3, fade, WHITE)
+                } else {
+                    dots.add(x, y, (if (i < 9) 3 else 2) + 1, fade * .9f, HALO)
+                    dots.add(x, y, if (i < 9) 3 else 2, fade * .85f, PINK)
+                }
             }
         }
         dots.flush(this)
         val all = if (reduced) 1f else (ringT / .3f).coerceIn(0f, 1f)
         for (s in 0 until 2) {
-            drawCircle(Sakura.Primary, RING_R[s] * ringR * swell, focus, alpha = .22f * alive * all * vis, style = hairline)
+            val a = .22f * alive * all * vis
+            drawCircle(Sakura.White, RING_R[s] * ringR * swell, focus, alpha = (a * 2.4f).coerceAtMost(.7f), style = hairlineUnder)
+            drawCircle(Sakura.Primary, RING_R[s] * ringR * swell, focus, alpha = a, style = hairline)
         }
     }
 
-    /** The break: a radial flash, two shock rings and a ring of thin petal-shaped rays. */
+    /**
+     * The break, at the crest's breaking point and gone within 220 ms: a soft white-to-blush flash, two thin shock rings that grow
+     * and thin out, and a ring of short petals flung outward.
+     */
     private fun drawBurst(scope: DrawScope, ms: Float) = with(scope) {
         val bt = ms - beats.burst
-        if (bt < 0f || bt > 1050f) return@with
-        val punch = if (level == EffectLevel.SAVER) .7f else 1f
-        val flash = (1f - bt / 260f).coerceAtLeast(0f)
+        if (bt < 0f || bt > BURST_MS) return@with
+        val punch = if (level == EffectLevel.SAVER) .75f else 1f
+        val k = bt / BURST_MS
+        val out = IntroEase.CubicOut.transform(k)
+        val o = breakPoint
+        val flash = (1f - k).pow(1.5f) * punch
         if (flash > .01f) {
-            val reachR = unit * (.12f + .5f * min(1f, bt / 260f))
-            withTransform({ translate(focus.x, focus.y); scale(reachR, reachR, Offset.Zero) }) {
-                drawCircle(unitFlash, 1f, Offset.Zero, alpha = .85f * flash * punch)
-            }
+            val r = unit * (.10f + .30f * out)
+            withTransform({ translate(o.x, o.y); scale(r, r, Offset.Zero) }) { drawCircle(burstFlash, 1f, Offset.Zero, alpha = .95f * flash) }
         }
+        // Two thin rings, a white one and a fainter pink one just behind it, thinning as they grow.
         for (ring in 0 until 2) {
-            val k = ((bt - ring * 70f) / 620f).coerceIn(0f, 1f)
-            if (k <= 0f || k >= 1f) continue
-            val st = shock[((1f - k) * 7f).roundToInt().coerceIn(0, 7)]
-            drawCircle(Sakura.Primary, unit * .5f * k.pow(.62f), focus, alpha = .75f * (1f - k).pow(1.7f) * punch, style = st)
+            val kr = ((bt - ring * 40f) / (BURST_MS - 40f)).coerceIn(0f, 1f)
+            if (kr <= 0f || kr >= 1f) continue
+            val st = shock[((1f - kr) * 7f).roundToInt().coerceIn(0, 7)]
+            val rr = unit * (.05f + (.26f + .06f * ring) * IntroEase.CubicOut.transform(kr))
+            if (ring == 0) drawCircle(Sakura.White, rr, o, alpha = .9f * (1f - kr).pow(1.2f) * punch, style = st)
+            else drawCircle(Sakura.Primary, rr, o, alpha = .45f * (1f - kr).pow(1.5f) * punch, style = st)
         }
-        val sk = min(1f, bt / 420f)
-        val a = .80f * (1f - sk).pow(1.6f) * punch
+        // Short petals flung out at uneven distances, each tumbling its own way (evenly spaced, upright ones read as a badge).
+        val a = (1f - k).pow(1.1f) * punch
         if (a > .01f) for (i in 0 until rays) {
-            val ang = (i.toFloat() / rays) * 6.2832f + .21f + (ih(i, 121) - .5f) * .10f
-            val long = .05f + .2f * (((i * 37) % 100) / 100f)
-            val inner = unit * .04f * sqrt(sk)
-            val outer = unit * (.04f + long) * sk.pow(.55f)
-            val len = outer - inner
-            if (len <= 1f) continue
-            val mid = (inner + outer) / 2f
+            val ang = (i.toFloat() / rays) * 6.2832f + .21f + (ih(i, 121) - .5f) * .55f
+            val dist = unit * (.03f + (.08f + .20f * ih(i, 122)) * out)
+            val len = (6f + 7f * ih(i, 123)) * dp
+            val turn = ang * 180f / PI.toFloat() + 90f + 140f * (ih(i, 124) - .5f) + 220f * k * (ih(i, 125) - .5f)
             withTransform({
-                translate(focus.x + cos(ang) * mid, focus.y + sin(ang) * mid)
-                rotate(ang * 180f / PI.toFloat() + 90f, Offset.Zero)
-                scale(max(.8f * dp, len * .05f), len / 2f, Offset.Zero)
+                translate(o.x + cos(ang) * dist, o.y + sin(ang) * dist)
+                rotate(turn, Offset.Zero)
+                scale(.55f * len, len, Offset.Zero)
             }) {
+                if (rimAt(o.y + sin(ang) * dist) && i % 3 != 0) withTransform({ scale(1.3f, 1.18f, Offset.Zero) }) { drawPath(petal, Sakura.White, alpha = a * .85f) }
                 drawPath(petal, if (i % 3 == 0) Sakura.White else Sakura.Primary, alpha = a)
             }
         }
     }
 
+    /** How strong the landed petals are: they fade out with the rest of the look (a tap's a little later: still arriving). */
+    private fun landedOut(ms: Float, run: IntroRun, fl: Flight): Float = when {
+        fl.tap -> 1f - seg(ms, run.exitAt + .55f * run.exitDur, .40f * run.exitDur)
+        else -> 1f - seg(ms, beats.fadeStart + .1f * beats.fadeLen, .9f * beats.fadeLen)
+    }
+
     /** Every grain this frame: the dots in batches, then the petal (or sparkle) sprites, and the edges' light once they land. */
     fun drawPetals(scope: DrawScope, run: IntroRun) = with(scope) {
+        if (reduced) { drawResting(this); return@with }
         val ms = run.ms
         val amb = run.amb
         val fl = flight(run)
         if (ms >= fl.from) setWave(fl.from, waveFrom)
-        if (ms < beats.burst + 620f * pace) setWave(ms, waveNow)
-        val exiting = run.exiting
-        // Landed grains fade with the exit (a tap's a little later: they are still arriving).
-        val out = if (!exiting) 1f else if (fl.tap) 1f - seg(ms, run.exitAt + .55f * run.exitDur, .40f * run.exitDur)
-        else 1f - seg(ms, run.exitAt + .30f * run.exitDur, .55f * run.exitDur)
+        val waveLives = ms < beats.burst + waveAfter
+        if (waveLives) setWave(ms, waveNow)
+        val out = landedOut(ms, run, fl)
         if (out <= 0f) return@with
-        drawTrace(this, ms, run, fl, out)
+        drawTrace(this, ms, fl, out)
         val motion = beats.motion(ms)
         spN = 0
         for (i in 0 until n) {
@@ -1311,8 +1647,19 @@ internal class PetalStormScene(
                 dots.add(qx, qy, (qs + 1).coerceAtMost(4), a, WHITE)
                 dots.add(qx, qy, qs, a, qc)
             } else {
-                // Over a picture's bare aqua (once the frost lifts) rose-brown blends to grey even on a rim: the flight is pink.
+                // Over a picture's bare aqua rose-brown blends to grey even on a rim: the flight is pink.
                 dot(qx, qy, qs, a, if (rimmed && qc == ROSE && ms >= fl.from) PINK else qc)
+            }
+        }
+        // The wave's own grains, while it lives (they make it a body of water; they subside after the break).
+        if (waveLives) for (i in n until nw) {
+            waveGrain(i, waveNow)
+            if (qa <= .02f) continue
+            if (qc == AQUA) {
+                dots.add(qx, qy, (qs + 1).coerceAtMost(4), qa, WHITE)
+                dots.add(qx, qy, qs, qa, qc)
+            } else {
+                dot(qx, qy, qs, qa, qc)
             }
         }
         dots.flush(this)
@@ -1325,7 +1672,7 @@ internal class PetalStormScene(
                 val col = if (spriteWhite[i]) Sakura.White else Sakura.Primary
                 withTransform({ translate(spX[j], spY[j]); rotate(spin, Offset.Zero); scale(.72f * r * flip.coerceIn(-1f, 1f).let { if (abs(it) < .15f) .15f else it }, r, Offset.Zero) }) {
                     // Over a picture a pink petal lies on a slightly larger white one, its rim (see [HALO]).
-                    if (rimmed && !spriteWhite[i]) withTransform({ scale(1.3f, 1.18f, Offset.Zero) }) { drawPath(petal, Sakura.White, alpha = spA[j] * .85f) }
+                    if (rimAt(spY[j]) && !spriteWhite[i]) withTransform({ scale(1.3f, 1.18f, Offset.Zero) }) { drawPath(petal, Sakura.White, alpha = spA[j] * .85f) }
                     drawPath(petal, col, alpha = spA[j] * (if (spriteWhite[i]) .95f else .9f))
                 }
             } else {
@@ -1334,8 +1681,24 @@ internal class PetalStormScene(
         }
     }
 
+    /** The still's few resting petals: lying on the lower arc of the outer ring, nothing in flight. */
+    private fun drawResting(scope: DrawScope) = with(scope) {
+        if (spriteKind != 1) return@with
+        for (j in 0 until 5) {
+            val ang = (RESTING[j] * PI.toFloat() / 180f)
+            val x = focus.x + cos(ang) * ringR * 1.06f
+            val y = focus.y + sin(ang) * ringR * 1.06f
+            val r = (4.4f + 1.2f * ih(j, 131)) * dp
+            val white = j % 2 == 1
+            withTransform({ translate(x, y); rotate(RESTING[j] + 90f + 40f * (ih(j, 132) - .5f), Offset.Zero); scale(.72f * r, r, Offset.Zero) }) {
+                if (rimAt(y) && !white) withTransform({ scale(1.3f, 1.18f, Offset.Zero) }) { drawPath(petal, Sakura.White, alpha = .85f) }
+                drawPath(petal, if (white) Sakura.White else Sakura.Primary, alpha = .92f)
+            }
+        }
+    }
+
     /** A thin light along the edges, drawn once the grains have landed, under them. */
-    private fun drawTrace(scope: DrawScope, ms: Float, run: IntroRun, fl: Flight, out: Float) = with(scope) {
+    private fun drawTrace(scope: DrawScope, ms: Float, fl: Flight, out: Float) = with(scope) {
         val on = seg(ms, fl.from + .80f * fl.dur, .25f * fl.dur) * out
         if (on <= .01f) return@with
         drawPath(trace, Sakura.Primary, alpha = .35f * on, style = traceGlow)
@@ -1343,55 +1706,87 @@ internal class PetalStormScene(
     }
 
     /**
-     * On exit the app develops where the petals landed: its top bar and its dock show through first, while the host's sakura
-     * iris opens the rest. Drawn straight into the host's own layer (which is offscreen from the exit's first frame on, except on
-     * SAVER where the host only fades): DstOut there clears the intro's pixels and shows the app. Never on SAVER (no layer: the
-     * cut would reach past the intro) nor for the still.
+     * The hand-off: the app appears where the petals landed. The top bar grows up out of the petal line (a soft edge rising to the
+     * top of the screen), the dock grows inward from its outline, and then the rest of the look fades into the app over the last
+     * ~250 ms. Drawn as DstOut cuts into the layer round the host (see PetalStormIntro), so they show the app underneath. A tap's
+     * exit is the host's iris instead; the still has none.
      */
-    fun drawDevelop(scope: DrawScope, run: IntroRun) = with(scope) {
-        if (!run.exiting || reduced || level == EffectLevel.SAVER) return@with
-        val tap = run.exitAt < beats.landStart
-        val k = IntroEase.CubicOut.transform(seg(run.ms, run.exitAt + (if (tap) .30f else .05f) * run.exitDur, .45f * run.exitDur))
-        if (k <= 0f) return@with
-        drawRect(headerCut, Offset.Zero, Size(w, headerY + 16f * dp), alpha = k, blendMode = BlendMode.DstOut)
-        val c = min(PetalEdges.DOCK_CORNER_DP * dp, dock.height / 2f) + 1f * dp
-        drawRoundRect(Color.Black, Offset(dock.left - dp, dock.top - dp), Size(dock.width + 2f * dp, dock.height + 2f * dp), CornerRadius(c), alpha = k, blendMode = BlendMode.DstOut)
+    fun drawReveal(scope: DrawScope, run: IntroRun) = with(scope) {
+        if (reduced || tapped(run)) return@with
+        val ms = run.ms
+        if (ms < beats.revealAt) return@with
+        val kh = IntroEase.CubicOut.transform(seg(ms, beats.revealAt, beats.revealLen))
+        if (kh > 0f) {
+            val soft = 22f * dp
+            val edge = lerp(headerY, -soft, kh)
+            drawRect(Color.Black, Offset(0f, edge), Size(w, headerY + 1f * dp - edge), blendMode = BlendMode.DstOut)
+            withTransform({ translate(0f, edge - soft); scale(1f, soft, Offset.Zero) }) {
+                drawRect(fringe, Offset.Zero, Size(w, 1f), blendMode = BlendMode.DstOut)
+            }
+        }
+        val kd = IntroEase.CubicOut.transform(seg(ms, beats.revealAt + 30f * pace, beats.revealLen))
+        if (kd > 0f) drawIntoCanvas { canvas ->
+            val nc = canvas.nativeCanvas
+            nc.save()
+            nc.clipPath(dockClip)
+            val g = kd * (dock.height / 2f + 2f * dp)
+            // A soft inner edge, then the solid band growing in from the outline.
+            cut.alpha = 110
+            cut.strokeWidth = 2f * g + 10f * dp
+            nc.drawRoundRect(dockBox, dockCorner, dockCorner, cut)
+            cut.alpha = 255
+            cut.strokeWidth = 2f * g
+            nc.drawRoundRect(dockBox, dockCorner, dockCorner, cut)
+            nc.restore()
+        }
+        val f = seg(ms, beats.fadeStart, beats.fadeLen, IntroEase.SineInOut)
+        if (f > 0f) drawRect(Color.Black, alpha = f, blendMode = BlendMode.DstOut)
     }
 
-    /** The meter with its caption and counter, 歡迎回來 and the name sticker. */
-    fun drawType(scope: DrawScope, ms: Float, amb: Float) = with(scope) {
-        val b = breath(amb)
-        drawMeter(this, ms, b)
+    /** The name block's alpha: it dissolves as its petals take off (a tap's: at once). */
+    fun typeAlpha(run: IntroRun): Float = when {
+        reduced -> 1f
+        tapped(run) -> run.exitFade(40f)
+        else -> 1f - seg(run.ms, beats.landStart + .06f * beats.landLen, .34f * beats.landLen)
+    }
+
+    /** 歡迎回來 and the name sticker. */
+    fun drawType(scope: DrawScope, ms: Float) = with(scope) {
         drawBrow(this, ms)
-        drawSticker(sticker, focus.x, stickerTop, ms, beats.stickerStart, pace, beats.compact, reduced, beats.exitStart)
+        drawSticker(sticker, focus.x, stickerTop, ms, beats.stickerStart, pace, beats.compact, reduced, beats.landStart)
     }
 
-    private fun drawMeter(scope: DrawScope, ms: Float, b: Float) = with(scope) {
-        val on = if (reduced) 1f else seg(ms, 160f * pace, 260f * pace)
+    /** The meter's and the skip pill's alpha on the way out: gone before the first petal reaches the edges. */
+    private fun chromeOut(run: IntroRun): Float = when {
+        reduced -> 1f
+        tapped(run) -> run.exitFade(0f)
+        else -> 1f - seg(run.ms, beats.meterOutStart, beats.meterOutLen)
+    }
+
+    /** The meter with its status and counter, on a soft white card. */
+    fun drawMeter(scope: DrawScope, run: IntroRun) = with(scope) {
+        val ms = run.ms
+        val on = (if (reduced) 1f else seg(ms, 160f * pace, 260f * pace)) * chromeOut(run)
         if (on <= 0f) return@with
+        val b = if (reduced) .5f else breath(run.amb)
         val p = if (reduced) 1f else beats.meter(ms)
-        // A soft white pill behind it, so it reads over a busy picture.
-        val padX = 14f * dp
-        val top = captionTop - 6f * dp
-        val bottom = ticksTop + tickH + 8f * dp
         drawRoundRect(
-            Sakura.White.copy(alpha = (if (backdrop.hasPicture) .62f else .38f) * on), Offset(meterLeft - padX, top),
-            Size(meterW + 2 * padX, bottom - top), CornerRadius(16f * dp),
+            Sakura.White.copy(alpha = (if (hasPicture) .70f else .50f) * on), Offset(meterRect.left, meterRect.top),
+            Size(meterRect.width, meterRect.height), CornerRadius(16f * dp),
         )
-        // The caption: 花瓣集合中 with three blinking dots, then 準備好了 typed in when the meter is full.
-        val readyAt = beats.nameFormed - 40f * pace
-        val gatherA = on * (if (reduced) 0f else 1f - seg(ms, readyAt - 120f * pace, 120f * pace))
+        // The status: 花瓣集合中 with three blinking dots, then 準備好了 typed in as the meter closes on 100 %.
+        val gatherA = on * (if (reduced) 0f else 1f - seg(ms, beats.readyAt - 100f * pace, 100f * pace))
         val left = meterLeft
         if (gatherA > 0f) {
-            drawRun(captionGather, left, captionTop, Sakura.TextSecondary, gatherA)
-            val dotY = captionTop + captionGather.baseline - 2.5f * dp
+            drawRun(captionGather, left, meterTop, Sakura.Text, gatherA)
+            val dotY = meterTop + captionGather.baseline - 3.5f * dp
             val lit = ((ms / 240f).toInt() % 4)
             for (d in 0 until 3) {
                 val x = left + captionGather.width + (6f + 6f * d) * dp
-                drawCircle(Sakura.Primary, 1.6f * dp, Offset(x, dotY), alpha = gatherA * (if (d < lit) 1f else .3f))
+                drawCircle(Sakura.Primary, 1.8f * dp, Offset(x, dotY), alpha = gatherA * (if (d < lit) 1f else .3f))
             }
         }
-        if (reduced || ms >= readyAt) drawTyped(captionReady, left, captionTop, Sakura.TextSecondary, on, ms, readyAt, 55f * pace, 400f, reduced)
+        if (reduced || ms >= beats.readyAt) drawTyped(captionReady, left, meterTop, Sakura.Text, on, ms, beats.readyAt, 45f * pace, 300f, reduced)
         // The 44 ticks: filled ones in pink breathing with the rings, the rest a faint rose.
         val filled = p * TICKS
         for (i in 0 until TICKS) {
@@ -1410,6 +1805,25 @@ internal class PetalStormScene(
             x += digitSlot
         }
         drawGlyph(digits, 10, Offset(x, y), Sakura.Text, on)
+    }
+
+    /** 跳過 SKIP ›› at the bottom right (only when skippable), in the clear sans, gone before the petals fly to the dock. */
+    fun drawSkip(scope: DrawScope, run: IntroRun) = with(scope) {
+        if (!skippable) return@with
+        val a = (if (reduced) 1f else seg(run.ms, 200f, 200f)) * chromeOut(run)
+        if (a <= 0f) return@with
+        drawRoundRect(Sakura.White.copy(alpha = .62f * a), Offset(skipRect.left, skipRect.top), Size(skipRect.width, skipRect.height), CornerRadius(14f * dp))
+        var x = skipLeft
+        drawRun(skipCjk, x, skipTop, Sakura.Text, a)
+        x += skipCjk.width + 6f * dp
+        drawRun(skipLatin, x, skipTop + (skipCjk.baseline - skipLatin.baseline), Sakura.Text, a)
+        x += skipLatin.width + 6f * dp
+        val cyy = skipTop + skipCjk.baseline - 4.5f * dp
+        for (j in 0 until 2) {
+            val cxx = x + j * 7f * dp
+            drawLine(Sakura.Primary.copy(alpha = a), Offset(cxx, cyy - 4f * dp), Offset(cxx + 5f * dp, cyy), 1.5f * dp, StrokeCap.Round)
+            drawLine(Sakura.Primary.copy(alpha = a), Offset(cxx + 5f * dp, cyy), Offset(cxx, cyy + 4f * dp), 1.5f * dp, StrokeCap.Round)
+        }
     }
 
     /** 歡迎回來 (or the user's words) above the name: its tracking closes in as it fades up, in ink inside a white edge. */
@@ -1440,32 +1854,37 @@ internal class PetalStormScene(
     companion object {
         /**
          * The dots' colours, in drawing order: first the white rims ([HALO]) that pink grains get over a picture (pink edges
-         * straight on the picture's aqua blend to grey), then the pinks, then white, and aqua last, only ever on a white halo.
+         * straight on the picture's aqua blend to grey), then the blush and the pinks, then white, and aqua last, only ever on a
+         * white halo.
          */
         val PALETTE = arrayOf(Sakura.White, Sakura.Background, Sakura.MilkTea, Sakura.Primary, Sakura.RoseBrown, Sakura.White, Sakura.Aqua)
         const val HALO = 0
+        const val BLUSH = 1
         const val PINK = 3
         const val ROSE = 4
         const val WHITE = 5
         const val AQUA = 6
         const val TICKS = 44
+        private const val BODY: Byte = 0
+        private const val FOAM: Byte = 1
+        private const val SPRAY: Byte = 2
         private const val T_OUTLINE: Byte = 0
         private const val T_VEIN: Byte = 1
         private const val T_RING: Byte = 2
         private const val T_FILL: Byte = 3
-        /**
-         * The wave on a portrait phone: the source's .72 screen widths and .158 of the short side made a short stub here (a
-         * phone's short side is its width), so it is longer and taller.
-         */
-        private const val WAVE_LENGTH = 1.0f
-        /** The circle (rings, crest, bloom) leaves in this share of the flight; a picture's frost lifts only after it. */
+        /** The wave's front face, from the peak to its foot, as a share of the width. */
+        private const val FACE = .15f
+        /** The burst's flash, shock rings and petals are all gone within this (ms). */
+        const val BURST_MS = 220f
+        /** The circle (rings, crest, bloom) leaves in this share of the flight. */
         private const val LEAVE = .35f
-        private const val WAVE_AMP = .22f
         private val RING_R = floatArrayOf(1f, .86f, .72f)
         private val RING_N = intArrayOf(96, 72, 120)
         private val RING_SPIN = floatArrayOf(.26f, -.34f, .44f)
         private val RING_SIZE = intArrayOf(3, 2, 2)
         private val RING_A = floatArrayOf(.92f, .72f, .56f)
         private val RING_C = intArrayOf(PINK, ROSE, PINK)
+        /** Where the still's resting petals lie on the outer ring (degrees, 90 = straight down). */
+        private val RESTING = floatArrayOf(28f, 62f, 104f, 141f, 166f)
     }
 }

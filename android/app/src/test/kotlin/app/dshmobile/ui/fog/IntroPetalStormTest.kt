@@ -8,6 +8,10 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import app.dshmobile.ui.theme.Sakura
@@ -27,8 +31,9 @@ import kotlin.math.sqrt
 /**
  * 「花吹雪聚形」 ([IntroStyle.PETAL_STORM]): its beats (moves keep their speed, only the holds stretch; the crest is skipped below
  * 2.5 s), the meter, the grain counts per effect level, where the petals land (the app's top bar and dock, every stretch covered,
- * in order), and the look drawn for real: only the palette's colours, the petals on the edges, and the app developing under the
- * bar and the dock on exit. (The shared contract, on time, tap, reduced motion and TalkBack, is IntroStylesTest's.)
+ * in order), and the look drawn for real: only the palette's colours, the petals on the edges, the app growing out of the bar's
+ * line and the dock's outline with no centre iris, the picture kept clear above a calm field, and a still with nothing in flight.
+ * (The shared contract, on time, tap, reduced motion and TalkBack, is IntroStylesTest's.)
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w412dp-h915dp-port-xhdpi")
@@ -107,11 +112,34 @@ class IntroPetalStormTest {
             if (s >= 3f) assertTrue("$s s: the name is settled before the flight", b.landStart >= b.stickerStart + (240f + .8f * 420f) * b.pace)
         }
         assertTrue("IntroStylesTest reads the welcome at 2.5 s of a 3 s run", PetalStormBeats.of(3f).announce < 2400f)
-        // The haptic tick is the wave breaking.
-        val three = PetalStormBeats.of(3f)
-        val timing = IntroTiming.of(three.plan, still = three.still, hit = three.burst, announce = three.announce)
-        assertEquals(three.exitStart, timing.exit, 0f)
-        assertEquals(three.burst, timing.hit, 0f)
+        // The haptic tick is the wave breaking; the host's exit is the run's last instant, so its sakura iris never opens on the
+        // planned path (the look hands over to the app itself).
+        for (s in listOf(1.5f, 3f, 8f)) {
+            val b = PetalStormBeats.of(s)
+            val timing = petalStormTiming(b)
+            assertEquals(b.plan.total, timing.exit, 0f)
+            assertEquals(b.plan.total, timing.total, 0f)
+            assertEquals(b.burst, timing.hit, 0f)
+            assertEquals(b.announce, timing.announce, 0f)
+            assertEquals(b.still, timing.still, 0f)
+        }
+    }
+
+    @Test fun theMeterAndSkipLeaveBeforeThePetalsAndTheAppAppearsWhereTheyLand() {
+        for (s in listOf(1.5f, 3f, 8f)) {
+            val b = PetalStormBeats.of(s)
+            // 準備好了 is typed while the meter closes on 100 %; meter and skip are gone when the petals take off.
+            assertTrue("$s s: ready typed before the name has formed", b.readyAt < b.nameFormed)
+            assertEquals("$s s: meter out by take-off", b.landStart, b.meterOutStart + b.meterOutLen, .01f)
+            assertTrue("$s s: within 150 ms", b.meterOutLen <= 150f)
+            assertTrue("$s s: still on screen at 100 %", b.meterOutStart > b.readyAt)
+            // The app develops once most petals have landed, inside the run, and the rest fades over the last ~250 ms.
+            assertTrue("$s s: reveal after take-off", b.revealAt > b.landStart + .5f * b.landLen)
+            assertTrue("$s s: reveal before the end", b.revealAt + b.revealLen < b.plan.total)
+            assertTrue("$s s: the fade is about 250 ms", b.fadeLen in 150f..250f)
+            assertEquals(b.plan.total, b.fadeStart + b.fadeLen, .01f)
+            assertTrue("$s s: the fade starts after the reveal", b.fadeStart > b.revealAt)
+        }
     }
 
     @Test fun petalsTumbleInFlightAndOnlySwayAtRest() {
@@ -227,9 +255,17 @@ class IntroPetalStormTest {
         return b
     }
 
-    private fun play(intro: Intro, vararg frames: Long, picture: ImageBitmap? = null, level: EffectLevel = EffectLevel.FULL): List<Bitmap> {
+    /**
+     * Plays [intro] over a plain white "app" (so what shows through the look is easy to tell from the look's own pink) and
+     * captures [frames] (ms on the run's clock).
+     */
+    private fun play(intro: Intro, vararg frames: Long, picture: ImageBitmap? = null, level: EffectLevel = EffectLevel.FULL, reduced: Boolean = false): List<Bitmap> {
         rule.mainClock.autoAdvance = false
-        rule.setContent { FogTheme(effectsFor(level, false)) { StartupIntro(intro, picture, false) {} } }
+        rule.setContent {
+            FogTheme(effectsFor(level, false)) {
+                Box(Modifier.fillMaxSize().background(Sakura.White)) { StartupIntro(intro, picture, reduced) {} }
+            }
+        }
         val start = rule.mainClock.currentTime
         return frames.map { ms ->
             rule.mainClock.advanceTimeBy(start + ms - rule.mainClock.currentTime)
@@ -260,33 +296,56 @@ class IntroPetalStormTest {
     private fun grey(r: Int, g: Int, b: Int) = r < 200 && g < 200 && b < 200 && maxOf(r, g, b) - minOf(r, g, b) < 6
     private fun petal(r: Int, g: Int, b: Int) = (abs(r - 0xDC) < 14 && abs(g - 0x9F) < 18 && abs(b - 0xB4) < 18) || (r >= 248 && g >= 248 && b >= 248)
 
-    @Test fun thePetalsLandOnTheBarAndTheDockAndTheAppDevelopsThere() {
+    @Test fun thePetalsLandOnTheBarAndTheDockAndTheAppGrowsOutOfThem() {
         val intro = Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.PETAL_STORM)
         val b = PetalStormBeats.of(3f)
         val (burst, crest, name, landed, develop) = play(
-            intro, b.burst.toLong() + 80, (b.plan.at(b.crest) + 60f).toLong(), 2100L, (b.exitStart - 10f).toLong(), (b.exitStart + 110f).toLong(),
+            intro, b.burst.toLong() + 80, (b.plan.at(b.crest) + 60f).toLong(), 2100L, (b.revealAt - 10f).toLong(), (b.fadeStart + 20f).toLong(),
         )
         // Only the palette: no grey where pink and aqua meet, in the burst, the crest, the welcome, the landing or the hand-off.
         for ((label, f) in listOf("burst" to burst, "crest" to crest, "name" to name, "landed" to landed, "develop" to develop)) {
-            assertEquals("$label: grey pixels", 0, f.count(0, 0, f.width, f.height, ::grey))
+            assertEquals("$label: grey pixels ${greys(f)}", 0, f.count(0, 0, f.width, f.height, ::grey))
         }
         // The crest: a ring of petal-pink round the middle of the circle.
         val dock = PetalEdges.dock(824f, 1830f, 0f, 2f)
         val headerY = PetalEdges.headerY(0f, 2f).toInt()
-        val crestPink = crest.count(220, 560, 604, 980) { r, g, bl -> abs(r - 0xDC) < 14 && abs(g - 0x9F) < 18 && abs(bl - 0xB4) < 18 }
+        val crestPink = crest.count(220, 460, 604, 1060) { r, g, bl -> abs(r - 0xDC) < 14 && abs(g - 0x9F) < 18 && abs(bl - 0xB4) < 18 }
         assertTrue("crest grains: $crestPink", crestPink > 2000)
-        // Landed: the bar's line and the dock's outline are lined with petals; before, they were not.
+        // Landed: the bar's line and the dock's outline are lined with petals; before, only their faint dotted ghosts were there.
         fun bar(f: Bitmap) = f.count(24, headerY - 5, 800, headerY + 6, ::petal)
         fun dockTop(f: Bitmap) = f.count(dock.left.toInt() + 60, dock.top.toInt() - 5, dock.right.toInt() - 60, dock.top.toInt() + 6, ::petal)
-        assertTrue("bar: ${bar(landed)} vs ${bar(name)}", bar(landed) > 1500 && bar(landed) > 4 * bar(name))
-        assertTrue("dock: ${dockTop(landed)} vs ${dockTop(name)}", dockTop(landed) > 1500 && dockTop(landed) > 4 * dockTop(name))
-        // The hand-off: under the dock and the bar the intro has gone (the window shows: here, its light background), while the
-        // sky beside the circle is still the intro's pink.
-        fun light(f: Bitmap, x: Int, y: Int) = f.getPixel(x, y).let { ((it shr 8) and 255) >= 235 && (it and 255) >= 235 }
-        assertFalse(light(landed, 412, dock.center.y.toInt()))
-        assertTrue("the dock developed", light(develop, 412, dock.center.y.toInt()))
-        assertTrue("the bar developed", light(develop, 412, headerY / 2))
-        assertFalse("the sky is still the intro's", light(develop, 60, 1400))
+        assertTrue("bar: ${bar(landed)} vs ${bar(name)}", bar(landed) > 1500 && bar(landed) > 3 * bar(name))
+        assertTrue("dock: ${dockTop(landed)} vs ${dockTop(name)}", dockTop(landed) > 1500 && dockTop(landed) > 3 * dockTop(name))
+        // The hand-off: the app (white here) shows under the bar and inside the dock, grown out of where the petals landed, while
+        // the middle of the screen is still the look's (no sakura iris punched through the centre).
+        fun white(f: Bitmap, x: Int, y: Int) = f.getPixel(x, y).let { ((it shr 16) and 255) >= 250 && ((it shr 8) and 255) >= 250 && (it and 255) >= 250 }
+        assertFalse(white(landed, 412, dock.center.y.toInt()))
+        assertFalse(white(landed, 412, headerY / 2))
+        assertTrue("the dock developed", white(develop, 412, dock.center.y.toInt()))
+        assertTrue("the bar developed", white(develop, 412, headerY / 2))
+        assertFalse("the middle is still the look's", white(develop, 412, 760))
+        assertFalse("the sky is still the look's", white(develop, 60, 1400))
+    }
+
+    @Test fun theHandOffFadesTheRestIntoTheAppByTheEnd() {
+        val intro = Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.PETAL_STORM)
+        val (end) = play(intro, 2990L)
+        // Ten ms before the end the look is all but gone: the app (white) shows nearly everywhere.
+        val whiteish = end.count(0, 0, end.width, end.height) { r, g, b -> r >= 240 && g >= 240 && b >= 240 }
+        assertTrue("whiteish: $whiteish", whiteish > .9f * end.width * end.height)
+    }
+
+    @Test fun theStillIsComposedWithNothingInFlight() {
+        val intro = Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.PETAL_STORM)
+        val (still) = play(intro, 300L, reduced = true)
+        rule.onNodeWithText("歡迎回來，小雨").assertExists()
+        assertEquals("grey pixels ${greys(still)}", 0, still.count(0, 0, still.width, still.height, ::grey))
+        // Between the rings and the meter (and right across the screen) no grain hangs in the air.
+        val pink = still.count(0, 1110, still.width, 1220, ::petal)
+        assertEquals("grains in flight in the still", 0, pink)
+        // The name and the full meter are there.
+        val ink = still.count(220, 600, 604, 900) { r, g, b -> abs(r - 0x5E) < 20 && abs(g - 0x44) < 20 && abs(b - 0x45) < 20 }
+        assertTrue("the name's ink: $ink", ink > 1500)
     }
 
     /**
@@ -302,19 +361,20 @@ class IntroPetalStormTest {
 
     private fun overAPicture(name: String, level: EffectLevel) {
         val intro = Intro(enabled = true, name = name, seconds = 2f, style = IntroStyle.PETAL_STORM)
-        val frames = play(intro, 300, 900, 1500, 1700, picture = picture(), level = level)
+        val frames = play(intro, 300, 900, 1300, picture = picture(), level = level)
         val line = if (name.isEmpty()) "歡迎回來" else "歡迎回來，$name"
         rule.onNodeWithText(line).assertExists()
-        // Over the picture the storm is frosted (the picture's pink under it is lighter than the picture itself) ...
-        val during = frames[1].getPixel(412, 1500)
-        val lum = sqrt((((during shr 16) and 255) * ((during shr 8) and 255)).toFloat())
-        assertTrue("$name: frosted during the storm ($lum)", lum > 205f)
-        // ... and clear again once the petals have flown to the edges.
-        val after = frames[3].getPixel(412, 1500)
-        val clear = sqrt((((after shr 16) and 255) * ((after shr 8) and 255)).toFloat())
-        assertTrue("$name: clear at the end ($clear)", clear < 200f)
-        // The frost is white, so the aqua sky stays aqua: no grey anywhere in the storm.
-        for ((k, f) in frames.take(3).withIndex()) assertEquals("$name, frame $k: grey pixels ${greys(f)}", 0, f.count(0, 0, f.width, f.height, ::grey))
+        for ((k, f) in frames.withIndex()) {
+            // The top keeps the picture as the home screen shows it (its aqua sky, not washed out) ...
+            val top = f.getPixel(412, 330)
+            assertTrue("$name, frame $k: the picture is clear at the top (#%06X)".format(top and 0xFFFFFF), (top and 255) > ((top shr 16) and 255) + 25)
+            // ... and the storm plays in a calm blush field below it.
+            val field = f.getPixel(60, 1500)
+            val lum = sqrt((((field shr 16) and 255) * ((field shr 8) and 255)).toFloat())
+            assertTrue("$name, frame $k: calm field ($lum)", lum > 205f)
+            // Pink grains get white rims over the picture's aqua: no grey anywhere.
+            assertEquals("$name, frame $k: grey pixels ${greys(f)}", 0, f.count(0, 0, f.width, f.height, ::grey))
+        }
     }
 
     @Test fun aLongLatinNameOverAPicture() = overAPicture("Christopher Robin Milne", EffectLevel.BALANCED)
