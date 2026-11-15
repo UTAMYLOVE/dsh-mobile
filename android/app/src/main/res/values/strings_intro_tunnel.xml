@@ -2,4 +2,17 @@
 <!-- The tunnel startup look's own words (Traditional Chinese, short and plain). Every string here is drawn in the intro's
      handwriting font: after changing one, rerun tools/fonts/subset_intro_font.py so none falls back to the system font. -->
 <resources>
+    <!-- The small status discs that fly past: what each value is. -->
+    <string name="intro_tunnel_number">編號</string>
+    <string name="intro_tunnel_level">等級</string>
+    <string name="intro_tunnel_date">日期</string>
+    <string name="intro_tunnel_version">版本</string>
+    <!-- The sign-in panel: the name types itself in, the code shows only as dots (nothing is read). -->
+    <string name="intro_tunnel_login">登入</string>
+    <string name="intro_tunnel_login_name">名字</string>
+    <string name="intro_tunnel_login_code">通行碼</string>
+    <!-- The confirm panel: one button that lights up by itself. -->
+    <string name="intro_tunnel_confirm">確認</string>
+    <string name="intro_tunnel_confirm_line">櫻花通道已就緒</string>
+    <string name="intro_tunnel_go">出發</string>
 </resources>
