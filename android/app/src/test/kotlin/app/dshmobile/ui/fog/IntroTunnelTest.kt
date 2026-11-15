@@ -1,10 +1,28 @@
 package app.dshmobile.ui.fog
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.test.core.app.ApplicationProvider
+import app.dshmobile.config.AgentModels
+import app.dshmobile.config.AgentSettings
+import app.dshmobile.config.AgentSettingsStore
+import app.dshmobile.config.displayName
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -15,7 +33,9 @@ import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_CRUISE
 import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_DASH
 import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_EXIT
 import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_LOGIN
+import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_OPEN
 import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_READ
+import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_RUSH
 import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_TUNNEL
 import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_VOID
 import app.dshmobile.ui.fog.TunnelTimeline.Companion.B_WELCOME
@@ -31,12 +51,14 @@ import org.robolectric.annotation.GraphicsMode
 import kotlin.math.abs
 
 /**
- * 「櫻花隧道」 ([IntroStyle.TUNNEL]): its beats (fixed moves, stretching holds, the 確認 panel left out of short runs), the
- * tunnel's fast start and the rays' closed-form depth, colours and fan-out, the core that grows the portrait and opens onto the
- * picture, the one true-white burst, the layout on every screen (the panels never cover the core, the discs hover fully on
- * screen), the name's line break and the landscape card; then drawn for real (native graphics, PixelCopy): no grey anywhere
- * (the 跳過 pill included), sakura light with few rose-brown accents, the welcome in ink inside white, the picture in the core,
- * the still's frozen tunnel, and the odd screens (landscape, a small phone with a long name, saver with petals off).
+ * 「櫻花隧道」 ([IntroStyle.TUNNEL]): its beats (fixed moves, stretching holds, a dash long enough to read, the 確認 panel left
+ * out of short runs), the tunnel's fast start and the rays' closed-form depth, colours and fan-out, the core that grows the
+ * portrait, swells in the rush and opens before the burst, the one true-white burst, the layout on every screen (the panels never
+ * cover the core, each disc on its own lane, none ever hiding another), the 模型 disc, the name fitted to its field, the name's
+ * line break and the landscape card; then drawn for real (native graphics, PixelCopy): no grey and no muddy colour (the 跳過 pill
+ * included), sakura light with few rose-brown accents, the welcome in ink inside white, the picture in the core, the still as
+ * the settled end of the welcome, no seam at the burst's nudge, and the odd screens (landscape, a small phone with a long name,
+ * saver with petals off).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w412dp-h915dp-port-xhdpi")
@@ -52,16 +74,17 @@ class IntroTunnelTest {
         assertEquals(1f, t3.pace, 0f)
         assertEquals(1f, t8.pace, 0f)
         // At 8 s every move is exactly as long as at 3 s: nothing slows down.
-        for (b in listOf(B_VOID, B_TUNNEL, B_LOGIN, B_CONFIRM, B_DASH, B_BURST, B_EXIT)) {
+        for (b in listOf(B_VOID, B_TUNNEL, B_LOGIN, B_CONFIRM, B_DASH, B_OPEN, B_BURST, B_EXIT)) {
             assertEquals("beat $b", t3.plan.length(b), t8.plan.length(b), .01f)
         }
-        // The extra five seconds go to the cruise, the panels and above all the welcome.
+        // The extra five seconds go to the cruise, the panels, the rush and above all the welcome.
         assertTrue(t8.plan.length(B_CRUISE) > 1200f)
         assertTrue(t8.plan.length(B_READ) > 500f)
+        assertTrue(t8.plan.length(B_RUSH) > 200f)
         assertTrue(t8.plan.length(B_WELCOME) > 2000f)
         assertTrue(t8.plan.length(B_WELCOME) > t8.plan.length(B_CRUISE))
         // At 3 s the welcome still holds its minimum.
-        assertEquals(TunnelTimeline.WELCOME_MIN, t3.plan.length(B_WELCOME), 1f)
+        assertEquals(TunnelTimeline.WELCOME_MIN, t3.plan.length(B_WELCOME), 15f)
         // Every length ends exactly on time.
         for (s in listOf(1500f, 2199f, 2200f, 3000f, 5000f, 8000f)) {
             val t = TunnelTimeline.of(s)
@@ -70,27 +93,42 @@ class IntroTunnelTest {
         }
     }
 
+    @Test fun theDashIsLongEnoughToReadAsTheClimax() {
+        // The review: at 3 s the dash lasted about 100 ms and read as a flicker. Now over 300 ms at 3 s, at least 150 ms at
+        // 1.5 s, and longer on a long run (its rush is a hold).
+        val t3 = TunnelTimeline.of(3000f)
+        assertTrue("${t3.hit - t3.dashAt}", t3.hit - t3.dashAt >= 300f)
+        val t15 = TunnelTimeline.of(1500f)
+        assertTrue("${t15.hit - t15.dashAt}", t15.hit - t15.dashAt >= 150f)
+        val t8 = TunnelTimeline.of(8000f)
+        assertTrue("${t8.hit - t8.dashAt}", t8.hit - t8.dashAt >= 500f)
+        for (t in listOf(t15, t3, t8)) assertTrue(t.confirmAt <= t.dashAt && t.dashAt < t.openAt && t.openAt < t.hit)
+    }
+
     @Test fun theBeatsComeInOrderAtEveryLength() {
-        for (s in listOf(1500f, 2000f, 2200f, 3000f, 4500f, 8000f)) {
+        for (s in listOf(1500f, 2000f, 2200f, 3000f, 3500f, 4500f, 8000f)) {
             val t = TunnelTimeline.of(s)
             // The white void is short: the spark comes within 150 ms.
             assertTrue("$s", 0f < t.tunnelAt && t.tunnelAt <= 150f && t.tunnelAt < t.discAt(0))
-            for (i in 1 until t.discs) assertTrue("$s disc $i", t.discAt(i) > t.discAt(i - 1))
-            // The last disc is past the camera by the time the panel has wiped open.
-            assertTrue("$s", t.discAt(t.discs - 1) + t.discMs <= t.loginAt + 160f * t.pace)
+            for (i in 1 until t.discs) assertTrue("$s disc $i", t.discAt(i) - t.discAt(i - 1) >= TunnelTimeline.DISC_APART * t.discMs - .01f)
+            // The last disc is gone before the panel wipes in.
+            assertTrue("$s", t.discAt(t.discs - 1) + TunnelTimeline.DISC_GONE * t.discMs <= t.loginAt + .01f)
             assertTrue("$s", t.loginAt < t.typeAt && t.typeAt < t.confirmAt + .01f && t.confirmAt <= t.dashAt)
-            assertTrue("$s", t.dashAt < t.hit && t.hit < t.greetAt && t.greetAt < t.nameAt && t.nameAt < t.still)
+            assertTrue("$s", t.dashAt < t.openAt && t.openAt < t.hit && t.hit < t.greetAt && t.greetAt < t.nameAt && t.nameAt < t.still)
             assertTrue("$s", t.still < t.exit && t.exit < t.total)
         }
-        // At 3 s the burst (and the announcement) comes well before 2.5 s, the welcome then holds 0.7 s before the iris.
+        // At 3 s the burst (and the announcement) comes well before 2.5 s, the welcome then holds 0.75 s before the iris.
         val t3 = TunnelTimeline.of(3000f)
-        assertEquals(1880f, t3.hit, .01f)
+        assertEquals(1867f, t3.hit, 1f)
         assertEquals(2620f, t3.exit, .01f)
-        // On a long run the discs fly one at a time; at 3 s two or three hover at once.
+        // Three discs at 3 s (one hovering at a time), four on a long run; fewer when the words have fewer.
+        assertEquals(3, t3.discs)
+        assertTrue(t3.discStep >= (DISC_HOVER_TO - DISC_HOVER_FROM) * t3.discMs)
         val t8 = TunnelTimeline.of(8000f)
-        assertEquals(420f, t8.discStep, .01f)
-        assertTrue(t8.discStep < t8.discMs)
-        assertEquals(320f / 3f, t3.discStep, .01f)
+        assertEquals(4, t8.discs)
+        assertEquals(TunnelTimeline.DISC_STEP_MAX, t8.discStep, .01f)
+        assertEquals(3, TunnelTimeline.of(8000f, discs = 3).discs)
+        assertEquals(2, TunnelTimeline.of(1500f).discs)
     }
 
     @Test fun shortRunsLeaveOutTheConfirmPanel() {
@@ -101,12 +139,10 @@ class IntroTunnelTest {
         assertEquals(0f, short.plan.length(B_CONFIRM), 0f)
         assertEquals(short.dashAt, short.confirmAt, .01f)
         assertEquals(short.dashAt, short.loginOutAt, .01f)
-        assertEquals(3, short.discs)
-        assertEquals(4, TunnelTimeline.of(3000f).discs)
-        // The moves tighten together, about by half, and the name types in at most 220 ms × pace.
+        // The moves tighten together, about by half, and the name types in at most 180 ms × pace.
         assertTrue(short.pace in .45f..0.6f)
-        assertEquals(70f * short.pace, short.typeStep(2), .01f)
-        assertTrue(short.typeStep(24) * 24 <= 220f * short.pace + .1f)
+        assertEquals(60f * short.pace, short.typeStep(2), .01f)
+        assertTrue(short.typeStep(24) * 24 <= 180f * short.pace + .1f)
     }
 
     @Test fun theTunnelStartsFastBuildsSlowsBehindThePanelsAndDashes() {
@@ -195,7 +231,7 @@ class IntroTunnelTest {
         assertTrue("aqua ${groups[0] / all}", groups[0] / all in .05f..0.16f)
     }
 
-    @Test fun theCoreIsALightThatGrowsThePortraitAndOpensAtTheBurst() {
+    @Test fun theCoreIsALightThatGrowsThePortraitSwellsInTheRushAndOpensBeforeTheBurst() {
         for (s in listOf(1500f, 3000f, 8000f)) {
             val t = TunnelTimeline.of(s)
             val dp = 2f
@@ -204,10 +240,15 @@ class IntroTunnelTest {
             // The core at its largest through the panels: what the layout keeps clear.
             val panel = t.coreRadius(t.dashAt - 1f, dp, cover)
             assertTrue("$panel", panel in (TunnelLayout.CORE_DP - 3f) * dp..TunnelLayout.CORE_DP * dp + .01f)
+            // It does not grow while the 確認 panel flies off (it would cover it), then swells in the rush.
+            assertEquals(panel, t.coreRadius(t.dashAt + TunnelTimeline.PANEL_OUT * t.pace - 1f, dp, cover), .5f)
+            assertEquals(1f, t.panelOut(t.dashAt + TunnelTimeline.PANEL_OUT * t.pace, t.dashAt), 0f)
+            val rush = t.coreRadius(t.openAt - .01f, dp, cover)
+            assertTrue("$s: $rush", rush > panel * 1.1f && rush <= panel * (1f + TunnelTimeline.RUSH_ZOOM) + .5f)
+            // It covers the screen before the burst: no edge of it shows at the flash.
+            assertEquals(cover, t.coreRadius(t.hit - .28f * (t.hit - t.openAt), dp, cover), .5f)
             assertEquals(cover, t.coreRadius(t.hit, dp, cover), 0f)
             assertEquals(cover, t.coreRadius(t.still, dp, cover), 0f)
-            // It opens mostly at the end (the dash eases in).
-            assertTrue(t.coreRadius(t.dashAt + .5f * (t.hit - t.dashAt), dp, cover) < .3f * cover)
             // The user's picture grows in the core during the cruise, fully there before the panels.
             assertEquals(0f, t.portraitK(t.tunnelAt + 249f * t.pace), 0f)
             assertEquals(1f, t.portraitK(t.loginAt), 1e-4f)
@@ -233,16 +274,15 @@ class IntroTunnelTest {
         }
     }
 
-    @Test fun aPanelLosesItsWordsBeforeItIsPulledIntoTheCore() {
+    @Test fun aPanelLeavesAsOnePieceBeforeTheCoreGrows() {
         val t = TunnelTimeline.of(3000f)
         val at = t.dashAt
-        assertEquals(1f, t.panelText(at - 1f, at), 0f)
-        assertEquals(0f, t.panelText(at + 60f, at), 0f)
-        assertEquals(0f, t.panelPull(at + 40f, at), 0f)
-        assertEquals(1f, t.panelPull(at + 180f, at), 0f)
-        // The words are gone before the card has shrunk noticeably: no squashed glyph is ever drawn.
-        assertTrue(t.panelPull(at + 60f, at) < .05f)
-        assertTrue(at + 180f <= t.hit + .01f)
+        assertEquals(0f, t.panelOut(at, at), 0f)
+        assertEquals(.5f, t.panelOut(at + 60f, at), .01f)
+        assertEquals(1f, t.panelOut(at + 120f, at), 0f)
+        // Gone before the core opens, and the 登入 panel gone before the dash.
+        assertTrue(at + 120f <= t.openAt)
+        assertTrue(t.loginOutAt + 120f <= t.dashAt)
     }
 
     @Test fun theWelcomeLightSettlesFainterOverAPicture() {
@@ -278,7 +318,9 @@ class IntroTunnelTest {
         assertEquals(0, none.petals + none.burst + none.drift)
         assertEquals(full.rays, none.rays)
         assertEquals(0, full.season)
-        assertEquals(10, TunnelCounts.of(EffectLevel.FULL, IntroFx(season = IntroSeason.SNOW), false).season)
+        assertEquals(16, TunnelCounts.of(EffectLevel.FULL, IntroFx(season = IntroSeason.SNOW), false).season)
+        // Sakura with petals off shows no season, as the shared season effect does.
+        assertEquals(0, TunnelCounts.of(EffectLevel.FULL, IntroFx(season = IntroSeason.SAKURA, petals = false), false).season)
     }
 
     // ---- the layout ----
@@ -311,19 +353,22 @@ class IntroTunnelTest {
     }
 
     @Test fun theDiscsHoverFullyOnScreenBigEnoughToRead() {
-        for (s in screens) {
-            val lay = TunnelLayout.of(s.w, s.h, s.dp, s.top, s.bottom, 140f * s.dp)
-            val where = "${s.w / s.dp}×${s.h / s.dp} dp"
-            for (i in lay.discs.indices) {
+        for (s in screens) for (len in listOf(1500f, 3000f, 8000f)) {
+            val tl = TunnelTimeline.of(len)
+            val lay = TunnelLayout.of(s.w, s.h, s.dp, s.top, s.bottom, 140f * s.dp, tl)
+            val where = "${s.w / s.dp}×${s.h / s.dp} dp, $len ms"
+            for (i in 0 until tl.discs) {
                 val b = lay.discBox(i)
                 assertTrue("$where disc $i $b", b.left >= 16f * s.dp - .5f && b.right <= s.w - 16f * s.dp + .5f)
-                assertTrue("$where disc $i $b", b.top >= s.top + 64f * s.dp - .5f && b.bottom <= s.h - s.bottom - 16f * s.dp + .5f)
+                assertTrue("$where disc $i $b", b.top >= s.top + 64f * s.dp - .5f && b.bottom <= s.h - s.bottom - 72f * s.dp - 16f * s.dp + .5f)
+                // Clear of the core, with the 12 dp gap.
+                assertTrue("$where disc $i", (lay.discs[i] - lay.vp).getDistance() >= lay.coreR + lay.discRadius(i) + 12f * s.dp - .5f)
             }
-            // The hero (編號) takes the most central path.
-            val d = lay.discs.map { (it - lay.vp).getDistance() }
-            assertTrue("$where $d", d[0] <= d.minOrNull()!! + 1f)
-            // Full size on the review's three screens (and any phone); smaller only on a short landscape with system bars.
-            if (s.w / s.dp to s.h / s.dp in listOf(412f to 915f, 360f to 640f, 915f to 412f, 320f to 568f)) assertEquals(where, 1f, lay.discScale, 0f)
+            // The first disc (the 模型) is the largest.
+            for (i in 1 until tl.discs) assertTrue(where, lay.discRadius(0) > lay.discRadius(i))
+            // Full size on the review's phone screens; a little smaller only where four lanes cannot all fit apart.
+            if (len == 3000f && s.top == 0f && s.w / s.dp to s.h / s.dp in listOf(412f to 915f, 915f to 412f)) assertEquals(where, 1f, lay.discScale, 0f)
+            assertTrue("$where ${lay.discScale}", lay.discScale >= (if (s.top == 0f) .8f else .5f))
         }
         // While it hovers a disc is at least 140 dp across and it flips to OK then, before it flies off.
         var k = DISC_HOVER_FROM
@@ -335,6 +380,60 @@ class IntroTunnelTest {
         // Out of the depths of the tunnel, and past the camera at the end.
         assertTrue("${tunnelDiscDepth(.02f)}", tunnelDiscDepth(.02f) > 5f)
         assertEquals(.3f, tunnelDiscDepth(1f), .01f)
+    }
+
+    @Test fun eachDiscFliesItsOwnLaneAndNoneHidesAnother() {
+        // The review: in landscape the 版本 disc sat on No.0001's last digit and three piled up on one side; on the small phone
+        // 編號 covered 日期's edge. Every frame of every length on every screen: at most two discs at full size, two hovering
+        // at once 12 dp apart, two showing words never touching, and the next disc always on another side.
+        val pose = DiscPose()
+        val other = DiscPose()
+        for (s in screens) for (len in listOf(1500f, 2200f, 3000f, 3500f, 4500f, 8000f)) for (wanted in listOf(3, 4)) {
+            val tl = TunnelTimeline.of(len, wanted)
+            val lay = TunnelLayout.of(s.w, s.h, s.dp, s.top, s.bottom, 140f * s.dp, tl)
+            val where = "${s.w / s.dp}×${s.h / s.dp} dp, $len ms, $wanted"
+            for (i in 1 until tl.discs) {
+                val a = lay.discs[i - 1] - lay.vp
+                val b = lay.discs[i] - lay.vp
+                val cos = (a.x * b.x + a.y * b.y) / (a.getDistance() * b.getDistance())
+                assertTrue("$where: discs ${i - 1} and $i fly ${Math.toDegrees(kotlin.math.acos(cos.toDouble()))}° apart", cos <= .01f)
+            }
+            var ms = tl.tunnelAt
+            while (ms < tl.loginAt + 50f) {
+                var hovering = 0
+                for (i in 0 until tl.discs) {
+                    if (!tunnelDiscPose(lay, tl, i, ms, s.dp, pose)) continue
+                    if (pose.hovering) hovering++
+                    for (j in i + 1 until tl.discs) {
+                        if (!tunnelDiscPose(lay, tl, j, ms, s.dp, other)) continue
+                        val d = kotlin.math.hypot(pose.x - other.x, pose.y - other.y)
+                        val gap = d - pose.radius - other.radius
+                        if (pose.hovering && other.hovering) assertTrue("$where at $ms: $i and $j hover $gap px apart", gap >= 12f * s.dp - 1f)
+                        if (pose.valueA > 0f && other.valueA > 0f) assertTrue("$where at $ms: $i and $j overlap by ${-gap} px", gap >= 0f)
+                    }
+                }
+                assertTrue("$where at $ms: $hovering hovering", hovering <= 2)
+                ms += 4f
+            }
+            // Every disc is gone before the 登入 panel comes.
+            for (i in 0 until tl.discs) assertTrue(where, !tunnelDiscPose(lay, tl, i, tl.loginAt, s.dp, pose))
+        }
+    }
+
+    @Test fun aDiscShowsItsHandwrittenHeaderOnlyOnceItIsBigEnough() {
+        val tl = TunnelTimeline.of(3000f)
+        val lay = TunnelLayout.of(824f, 1830f, 2f, 0f, 0f, 280f, tl)
+        val pose = DiscPose()
+        var ms = tl.discAt(0)
+        while (ms < tl.discAt(0) + tl.discMs) {
+            if (tunnelDiscPose(lay, tl, 0, ms, 2f, pose)) {
+                val across = 2f * pose.radius / 2f
+                if (across < 112f) assertEquals("at $ms ($across dp)", 0f, pose.labelA, 0f)
+                if (across < 80f) assertEquals("at $ms ($across dp)", 0f, pose.valueA, 0f)
+                if (pose.hovering) assertTrue(pose.labelA > .99f)
+            }
+            ms += 4f
+        }
     }
 
     @Test fun aLongMixedNameBreaksWhereItsScriptChanges() {
@@ -381,6 +480,34 @@ class IntroTunnelTest {
         return frames.map { ms ->
             rule.mainClock.advanceTimeBy(start + ms - rule.mainClock.currentTime)
             shot()
+        }
+    }
+
+    /** One run to draw: what plays and the moments (ms after it starts) to capture. */
+    private class Case(val intro: Intro, vararg val frames: Long, val reduced: Boolean = false, val fx: IntroFx = IntroFx(), val picture: ImageBitmap? = null)
+
+    /** Several runs in one test (content can be set only once): each starts afresh, keyed, as the render harness does. */
+    private fun playEach(vararg cases: Case): List<List<Bitmap>> {
+        var current by mutableStateOf<Pair<Int, Case>?>(null)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                current?.let { (id, c) -> key(id) { StartupIntro(c.intro, c.picture, c.reduced, fx = c.fx) {} } }
+            }
+        }
+        return cases.mapIndexed { i, c ->
+            current = i to c
+            Snapshot.sendApplyNotifications()
+            val start = rule.mainClock.currentTime
+            val shots = c.frames.map { ms ->
+                val d = start + ms - rule.mainClock.currentTime
+                if (d > 0) rule.mainClock.advanceTimeBy(d)
+                shot()
+            }
+            current = null
+            Snapshot.sendApplyNotifications()
+            rule.mainClock.advanceTimeBy(50)
+            shots
         }
     }
 
@@ -486,16 +613,172 @@ class IntroTunnelTest {
         assertTrue("and the welcome stands on it", welcome.count(0, 0, welcome.width, welcome.height, green) > 20_000)
     }
 
-    @Test fun theStillIsAFrozenTunnelBehindTheWelcome() {
-        val frame = play(tunnel(8f), 600, reduced = true).single()
-        assertTrue(frame.count(0, 0, frame.width, frame.height) { r, g, b -> roseBrown(r, g, b) } < 200)
-        assertEquals(0, frame.greys())
-        val top = (frame.height * .58f).toInt()
-        assertTrue(frame.count(0, top, frame.width, top + 420) { r, g, b -> ink(r, g, b) } > 4000)
-        // The light core (pure white round the vanishing point) and one OK disc (its aqua ring) behind the words.
-        assertTrue("core", frame.countIn(frame.width / 2f, frame.height * .45f, 86f, true) { r, g, b -> r >= 253 && g >= 253 && b >= 253 } > 5000)
-        assertTrue("disc", frame.count(0, 0, frame.width, (frame.height * .45f).toInt()) { r, g, b -> aqua(r, g, b) } > 300)
-        rule.onNodeWithText("歡迎回來，小雨").assertExists()
+    @Test fun theStillIsTheSettledEndOfTheWelcome() {
+        val t = TunnelTimeline.of(8000f)
+        val (s1, m1) = playEach(Case(tunnel(8f), 600, reduced = true), Case(tunnel(8f), (t.exit - 60f).toLong()))
+        val still = s1.single()
+        val motion = m1.single()
+        for ((name, frame) in listOf("still" to still, "motion's end" to motion)) {
+            assertTrue(name, frame.count(0, 0, frame.width, frame.height) { r, g, b -> roseBrown(r, g, b) } < 200)
+            assertEquals(name, 0, frame.greys())
+            val top = (frame.height * .58f).toInt()
+            assertTrue(name, frame.count(0, top, frame.width, top + 420) { r, g, b -> ink(r, g, b) } > 4000)
+            // No picture: the sakura crest has settled into the core above the eyebrow (pink at the vanishing point, white
+            // round it), not an empty glow; and no disc is left over.
+            assertTrue("$name crest", frame.countIn(frame.width / 2f, frame.height * .45f, 60f, true) { r, g, b -> r > 190 && r - g > 30 && b > g } > 1500)
+            assertTrue("$name core", frame.countIn(frame.width / 2f, frame.height * .45f, 86f, true) { r, g, b -> r >= 252 && g >= 250 && b >= 250 } > 1500)
+            assertEquals("$name: no disc", 0, frame.count(0, 0, frame.width, frame.height) { r, g, b -> aqua(r, g, b) })
+        }
+        // The two end states agree: the same pixels but for the drift and the turning light.
+        var diff = 0
+        for (y in 0 until still.height step 2) for (x in 0 until still.width step 2) {
+            val a = still.getPixel(x, y)
+            val b = motion.getPixel(x, y)
+            if (abs(((a shr 16) and 255) - ((b shr 16) and 255)) + abs(((a shr 8) and 255) - ((b shr 8) and 255)) + abs((a and 255) - (b and 255)) > 24) diff++
+        }
+        assertTrue("differing pixels: $diff", diff < still.width * still.height / 4 / 20)
+    }
+
+    /** HSL lightness and saturation of a pixel, 0..1. */
+    private fun hsl(r: Int, g: Int, b: Int): Pair<Float, Float> {
+        val mx = maxOf(r, g, b)
+        val mn = minOf(r, g, b)
+        val l = (mx + mn) / 510f
+        val s = if (mx == mn) 0f else (mx - mn) / (255f - abs(mx + mn - 255f))
+        return l to s
+    }
+
+    /**
+     * Muddy pixels: saturation under .15 and lightness under .9 (the grey-lavender of aqua over pink), outside text: anything
+     * within 5 px of a dark pixel (lightness under .6, the ink and its anti-aliased edge) is text and not counted.
+     */
+    private fun Bitmap.muddy(): Int {
+        val w = width
+        val h = height
+        val px = IntArray(w * h)
+        getPixels(px, 0, w, 0, 0, w, h)
+        val text = BooleanArray(w * h)
+        for (y in 0 until h) for (x in 0 until w) {
+            val c = px[y * w + x]
+            if (hsl((c shr 16) and 255, (c shr 8) and 255, c and 255).first >= .6f) continue
+            for (yy in maxOf(0, y - 5)..minOf(h - 1, y + 5)) for (xx in maxOf(0, x - 5)..minOf(w - 1, x + 5)) text[yy * w + xx] = true
+        }
+        var n = 0
+        for (i in px.indices) {
+            if (text[i]) continue
+            val c = px[i]
+            val (l, s) = hsl((c shr 16) and 255, (c shr 8) and 255, c and 255)
+            if (s < .15f && l < .9f) {
+                if (n < 5) muddyAt += "(${i % w},${i / w} #%06x) ".format(c and 0xFFFFFF)
+                n++
+            }
+        }
+        return n
+    }
+
+    /** Where the last [muddy] call found its first few muddy pixels. */
+    private var muddyAt = ""
+
+    @Test fun theStillHasNoMuddyColour() {
+        // The review: a wide translucent aqua wedge over the pink tail made a grey-lavender band (#D5D3D9) across the still.
+        val frames = playEach(
+            Case(tunnel(), 600, reduced = true), Case(tunnel(), 600, reduced = true, fx = IntroFx(season = IntroSeason.SAKURA)),
+            Case(tunnel(), 600, reduced = true, fx = IntroFx(season = IntroSeason.SNOW)),
+        )
+        frames.forEachIndexed { i, f -> muddyAt = ""; val n = f.single().muddy(); assertEquals("still $i: $muddyAt", 0, n) }
+    }
+
+    @Test fun onALongRunAquaRaysNeverTurnGreyOverThePink() {
+        // The review's 8 s frame (3200 ms): thin aqua rays crossing the pink outer field turned #C5D4DC grey-blue.
+        play(tunnel(8f), 1800, 3200, 4400).forEachIndexed { i, f -> muddyAt = ""; val n = f.muddy(); assertEquals("8 s frame $i: $muddyAt", 0, n) }
+    }
+
+    @Test fun theBurstLeavesNoSeamAlongTheEdges() {
+        // The host nudges the whole screen 2 dp down, then 1.5 dp up, at the burst: a layer drawn only to the edge left row 0
+        // (then the last row) showing what is under it.
+        val t = TunnelTimeline.of(3000f)
+        fun unlike(a: Int, b: Int) = abs(((a shr 16) and 255) - ((b shr 16) and 255)) > 10 || abs(((a shr 8) and 255) - ((b shr 8) and 255)) > 10 ||
+            abs((a and 255) - (b and 255)) > 10
+        val marks = listOf(20f, 45f, 60f, 75f, 100f, 120f).map { (t.hit + it).toLong() }.toLongArray()
+        val runs = playEach(Case(tunnel(), *marks), Case(tunnel(), *marks, picture = tallPicture()))
+        for ((n, frames) in runs.withIndex()) {
+            val picture = if (n == 0) null else 1
+            frames.forEachIndexed { i, f ->
+                val top = (0 until f.width).count { unlike(f.getPixel(it, 0), f.getPixel(it, 2)) }
+                val bottom = (0 until f.width).count { unlike(f.getPixel(it, f.height - 1), f.getPixel(it, f.height - 3)) }
+                assertTrue("frame $i (picture ${picture != null}): $top px of row 0 unlike row 2", top < f.width / 50)
+                assertTrue("frame $i (picture ${picture != null}): $bottom px of the last row unlike the third last", bottom < f.width / 50)
+            }
+        }
+    }
+
+    @Config(qualifiers = "w360dp-h640dp-port-xhdpi")
+    @Test fun aLongNameFitsTheFieldFromItsFirstCharacter() {
+        // The review: 星野夢美子桜庭ひなた🌸 scrolled left in the 名字 field and 星 was cut in half at its edge.
+        val names = listOf("星野夢美子桜庭ひなた🌸" to false, "星野夢美子桜庭ひなた星野夢美子桜庭ひなたあいう" to true)
+        val scenes = scenes(names.map { it.first })
+        for ((k, nc) in names.withIndex()) {
+            val (name, cut) = nc
+            val scene = scenes[k]
+            val f = scene.nameField
+            assertTrue("$name: ${f.width} in ${scene.fieldWidth}", f.width <= scene.fieldWidth + .5f)
+            assertEquals(name, "星", f.run.text.first())
+            // Never below 15 sp (the handwriting blurs under it); a name too long even then ends in ….
+            assertTrue("$name: ${f.run.fontPx / 2f} sp", f.run.fontPx >= FIELD_FLOOR * 2f - .5f)
+            assertEquals(name, cut, f.run.text.last() == "…")
+            // A character the handwriting lacks (桜, ひなた) is set a little smaller than the pen beside it.
+            val sakura = f.run.text.indexOf("桜")
+            if (sakura >= 0) assertEquals(FALLBACK_SCALE, f.scale[sakura], 0f)
+            assertEquals(1f, f.scale[0], 0f)
+        }
+    }
+
+    /** The look's scene for each of [names] at this test's screen size, built as the look builds it. */
+    private fun scenes(names: List<String>): List<TunnelScene> {
+        val scenes = arrayOfNulls<TunnelScene>(names.size)
+        rule.setContent {
+            val m = rememberTextMeasurer(cacheSize = 0)
+            val d = LocalDensity.current
+            val cov = IntroFonts.coverage(LocalContext.current.resources)
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val w = constraints.maxWidth.toFloat()
+                val h = constraints.maxHeight.toFloat()
+                for ((k, name) in names.withIndex()) scenes[k] = remember(name) {
+                    val words = TunnelWords(
+                        greet = "歡迎回來", greetIsDefault = true, name = name, labels = listOf("編號", "等級", "日期"),
+                        values = listOf("No.0001", "Lv.1", "2026.11.15"), login = "登入", loginName = "名字", loginCode = "通行碼",
+                        loginValue = name, confirm = "確認", confirmLine = "櫻花通道已就緒", go = "出發", time = "12:00", skip = "跳過",
+                    )
+                    TunnelScene(
+                        IntroScope(IntroRun(), null, w, h, d, 0f, 0f, EffectLevel.FULL, false, IntroFx(), PictureAlign.CENTER),
+                        TunnelTimeline.of(3000f, 3), words, IntroMeasure(m, d.density, d.fontScale, 1f, cov),
+                        IntroMeasure(m, d.density, d.fontScale, 1f, IntArray(0)), true,
+                    )
+                }
+            }
+        }
+        rule.waitForIdle()
+        return scenes.map { it!! }
+    }
+
+    @Test fun theModelDiscShowsTheModelDshLeadsWith() {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = ctx.getSharedPreferences(AgentSettingsStore.PREFS, Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        // Nothing chosen yet: the default lead, by the name the chat uses for it.
+        assertEquals(AgentModels.displayName(AgentModels.DEFAULT_MODEL), tunnelModelLabel(ctx))
+        val store = AgentSettingsStore(prefs)
+        val other = AgentModels.available(false).first { it.id != AgentModels.DEFAULT_MODEL }.id
+        store.save(AgentSettings(maxConcurrent = 3, leadModel = other))
+        assertEquals(AgentModels.displayName(other), tunnelModelLabel(ctx))
+        // A lead stored whose provider has no key: dsh runs the default, so the disc says the default too.
+        store.save(AgentSettings(maxConcurrent = 3, leadModel = AgentModels.available(true).first { it.isClaude }.id))
+        assertEquals(AgentModels.displayName(AgentModels.DEFAULT_MODEL), tunnelModelLabel(ctx))
+        prefs.edit().clear().commit()
+        // A label too long for a disc is cut with ….
+        assertEquals("abcdefghijklmno…", tunnelCap("abcdefghijklmnopqrstuvwxyz"))
+        assertEquals("Short", tunnelCap("  Short "))
+        assertEquals(null, tunnelCap("  "))
     }
 
     @Test fun onSaverWithPetalsOffItStillPlays() {
