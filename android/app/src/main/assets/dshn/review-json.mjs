@@ -151,9 +151,15 @@ export async function reviewRetry(run, signal, waits = RETRY_WAITS_MS) {
 export const REVIEW_FAILED_LINE = '自動審查這次沒有成功（網路或模型回覆格式），請你決定要不要執行。'
 export const reviewFailure = (_error) => REVIEW_FAILED_LINE
 
+/** Added to the reviewer's policy: the language of a denial's reason. No backtick or `${`: the policy is a template literal. */
+export const REASON_LANGUAGE = "When you give a reason, write it as one short, plain sentence in Traditional Chinese (zh-TW); the phone's owner reads it."
+
 export const AUTO_REVIEW = /[\\/]@deepseek-ai[\\/]dsh-experimental-auto-review[\\/]lib[\\/]index\.js$/
 
-/** The pieces of the plugin's source that change, each with its replacement. Every one occurs once in dsh 0.2.1-rc.5. */
+/**
+ * The pieces of the plugin's source that change, each with its replacement. Every one occurs once in dsh 0.2.1-rc.5
+ * (rootfs/smoke-test.sh checks the pinned dsh at every rootfs build).
+ */
 export const PATCHES = [
   {
     name: 'verdict',
@@ -180,6 +186,13 @@ export const PATCHES = [
     from: '\t\ttemperature: 0,\n\t\tsignal\n\t});',
     to: '\t\t...((h) => h?.config.provider === snapshot.provider && h.config.model === snapshot.model && h.config.reasoningEffort !== void 0 ? { reasoningEffort: h.config.reasoningEffort } : {})(agent.session.requestHeader()),\n' +
       '\t\ttemperature: 0,\n\t\tsignal\n\t});',
+  },
+  {
+    // The reviewer's reason is what the owner reads on the approval card (自動審查覺得這一步有風險：…). dsh's policy is all
+    // English and names no language for it, so it came in English (or Simplified Chinese). dsh only checks it is a string.
+    name: 'reason-language',
+    from: 'Never return low with deny, high with allow, or a reason with allow.',
+    to: 'Never return low with deny, high with allow, or a reason with allow.\n' + REASON_LANGUAGE,
   },
 ]
 

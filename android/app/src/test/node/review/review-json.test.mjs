@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
-  reviewJson, normalizeVerdict, verdictOf, patchAutoReview, install, reviewRetry, reviewFailure, REVIEW_FAILED_LINE, PATCHES, AUTO_REVIEW,
+  reviewJson, normalizeVerdict, verdictOf, patchAutoReview, install, reviewRetry, reviewFailure, REVIEW_FAILED_LINE, PATCHES, AUTO_REVIEW, REASON_LANGUAGE,
 } from '../../../main/assets/dshn/review-json.mjs'
 
 const verdict = '{"risk":"low","decision":"allow"}'
@@ -79,6 +79,7 @@ const plugin = [
   'function parseDecision(text) {\n\tconst value = JSON.parse(text);\n\treturn value;\n}',
   'async function classifyRisk(ctx, agent, exec, signal) {\n\tconst options = {\n\t\tmessages: [],\n\t\ttemperature: 0,\n\t\tsignal\n\t});\n\treturn readDecision(ctx.llm.stream(options));\n}',
   'async function gate() {\n\t\t\t\tif (!review.ok) return failed(exec, review.error);\n\t\t\t\tconst { decision } = review;\n}',
+  'const REVIEW_POLICY = `REVIEW_POLICY\nReturn exactly one JSON object.\nNever return low with deny, high with allow, or a reason with allow.\n\nFirst classify.`;',
   'export { parseDecision };\n',
 ].join('\n')
 
@@ -90,6 +91,15 @@ test('every change lands in the expected source', () => {
   assert.match(out, /if \(!review\.ok && \(exec\.signal\.aborted \|\| ctx\.approval\.overrideOf\(agent\.session\) === "never"\)\) return failed/)
   assert.match(out, /__dshmReviewFailure\(review\.error\)/)
   assert.match(out, /reasoningEffort: h\.config\.reasoningEffort/)
+  assert.match(out, /a reason with allow\.\nWhen you give a reason, write it as one short, plain sentence in Traditional Chinese \(zh-TW\)/)
+})
+
+test('the reason line keeps the policy a valid template literal', () => {
+  assert.ok(!REASON_LANGUAGE.includes('`') && !REASON_LANGUAGE.includes('${'))
+  const out = patchAutoReview(plugin)
+  const policy = out.slice(out.indexOf('const REVIEW_POLICY'), out.indexOf('export {'))
+  const value = new Function(policy + '\nreturn REVIEW_POLICY')()
+  assert.ok(value.includes('Traditional Chinese (zh-TW)'))
 })
 
 test('a source missing one piece still gets the others, and an unknown source is left alone', () => {
