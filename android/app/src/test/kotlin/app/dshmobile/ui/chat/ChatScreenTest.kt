@@ -162,6 +162,41 @@ class ChatScreenTest {
         assertTrue(text(Tags.TOOL_CARD + "c3").contains("permission denied"))
     }
 
+    /** B3: the owner's own 拒絕 / 略過 / STOP are the card's status, grey, with no red line and no 失敗. */
+    @Test fun theOwnersChoicesAreTheStatusNotAFailure() {
+        show(
+            ChatItem.Tool("r1", "bash", "rm x", ToolStatus.FAILED, error = "已拒絕"),
+            ChatItem.Tool("r2", "ask_user_question", "要哪一個？", ToolStatus.FAILED, error = "已略過"),
+            ChatItem.Tool("r3", "bash", "sleep 9", ToolStatus.FAILED, error = "已停止"),
+        )
+        for ((key, word) in listOf("r1" to "已拒絕", "r2" to "已略過", "r3" to "已停止")) {
+            rule.onNodeWithTag(Tags.TOOL_STATUS + key, useUnmergedTree = true).assertTextEquals(word)
+            assertEquals(key, 0, rule.onAllNodesWithTag(Tags.TOOL_ERROR + key, useUnmergedTree = true).fetchSemanticsNodes().size)
+        }
+        assertEquals(0, rule.onAllNodes(hasText("失敗"), useUnmergedTree = true).fetchSemanticsNodes().size)
+    }
+
+    /** B2: a known dsh phrase reads as one Chinese line first; dsh's English stays under it without 「Error: 」. */
+    @Test fun aKnownToolErrorReadsInChineseFirst() {
+        show(ChatItem.Tool("c5", "bash", "ls", ToolStatus.FAILED, error = "Error: Auto review rejected tool \"bash\"; its body was not executed"))
+        rule.onNodeWithTag(Tags.TOOL_STATUS + "c5", useUnmergedTree = true).assertTextEquals("失敗")
+        rule.onNodeWithTag(Tags.TOOL_ERROR + "c5", useUnmergedTree = true).assertTextEquals("自動審查擋下了這個指令，沒有執行。")
+        val card = text(Tags.TOOL_CARD + "c5")
+        assertTrue(card, card.contains("Auto review rejected tool") && !card.contains("Error:"))
+    }
+
+    /** B1: an error notice shows the reducer's sentence as it is. */
+    @Test fun anErrorNoticeShowsItsSentence() {
+        show(ChatItem.User("e1", "記一筆午餐", emptyList()), ChatItem.Notice("n2", NoticeKind.ERROR, "帳戶餘額不足"))
+        rule.onNodeWithTag(Tags.NOTICE).assertTextEquals("帳戶餘額不足")
+    }
+
+    /** B7: a Java exception name is not shown to the owner; dsh's own codes still are. */
+    @Test fun aDroppedLinkReadsPlainly() {
+        show { state = state.copy(sendError = "IOException") }
+        rule.onNodeWithTag(Tags.CHAT_ERROR).assertTextEquals("暫時連不上 dsh，請再試一次")
+    }
+
     private val search = ChatItem.Tool(
         "c9", "web_search", "台北 天氣", ToolStatus.DONE,
         sources = listOf(WebSource("https://example.com/e2e-weather", "E2E Weather"), WebSource("https://news.example.org/a/b", "")),

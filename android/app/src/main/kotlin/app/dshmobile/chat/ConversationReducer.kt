@@ -21,8 +21,25 @@ object ConversationReducer {
         "description", "command", "file_path", "path", "url", "query", "pattern", "subject", "title", "name", "question", "prompt", "message",
     )
     private const val ERROR_MAX = 200
-    private const val STOPPED = "已停止"
-    private const val REJECTED = "已拒絕"
+    private const val TURN_ERROR_MAX = 160
+
+    // The owner's own choices on a tool card. dsh reports each one as a failed result in English ("the user rejected tool",
+    // "tool call aborted", "declined in DSH Mobile"), which the owner read as 「失敗」; the card shows the word instead, in grey.
+    const val STOPPED = "已停止"
+    const val REJECTED = "已拒絕"
+    const val SKIPPED = "已略過"
+    val OWNER_CHOICES = setOf(STOPPED, REJECTED, SKIPPED)
+
+    /** dsh had nobody to ask (no screen was connected): a real failure, said in Chinese. */
+    const val NO_ASK_CHANNEL = "沒有可以詢問你的連線"
+
+    /** What [app.dshmobile.remote.DshEvents.decline] answers for 略過; dsh's tool result echoes it as `Error: <this>`. */
+    const val DECLINED_IN_APP = "declined in DSH Mobile"
+
+    // dsh's codes and wording for a cancelled tool (dsh-tools TOOL_ABORTED / TOOL_ABORTED_BEFORE_DISPATCH).
+    private val ABORT_CODES = setOf("ABORTED", "ABORTED_BEFORE_DISPATCH")
+    private val ABORT_TEXTS = setOf("Error: tool call aborted", "Error: tool call aborted before dispatch")
+    private const val USER_REJECTED_PREFIX = "Error: the user rejected tool \""
 
     fun reduce(state: ConversationState, frame: JsonElement?): ConversationState = try {
         val o = frame as? JsonObject
@@ -149,7 +166,7 @@ object ConversationReducer {
         val time = event.num("time")
         return when (type) {
             "user/message" -> userMessage(state, seq, data)
-            "assistant/message" -> countReply(assistantMessage(state, seq, data), seq, time, data)
+            "assistant/message" -> countReply(assistantMessage(state.copy(retry = null), seq, data), seq, time, data)
             "step/start" -> state.copy(turn = (state.turn ?: TurnAcc()).copy(stepStartMs = time))
             "request/context" -> state.copy(
                 turn = (state.turn ?: TurnAcc()).copy(
@@ -160,8 +177,10 @@ object ConversationReducer {
             "tool/result" -> toolResult(state, data)
             "approval/asked" -> approvalAsked(state, data)
             "approval/decided" -> approvalDecided(state, data)
-            "turn/start" -> state.copy(running = true, turn = TurnAcc(startMs = time))
+            "turn/start" -> state.copy(running = true, turn = TurnAcc(startMs = time), retry = null)
             "turn/end" -> turnEnd(finishReply(state, time), seq, data)
+            // dsh-llm-retry: {retry, maxRetries?, delayMs, failure}; maxRetries is absent under the "always" policy.
+            "llm/retry" -> state.copy(retry = RetryInfo((data.num("retry") ?: 1).toInt(), data.num("maxRetries")?.toInt()))
             "session/title" -> data.str("title")?.let { state.copy(title = it) } ?: state
             else -> state
         }
@@ -247,10 +266,25 @@ object ConversationReducer {
             state, index,
             card.copy(
                 status = if (failed) ToolStatus.FAILED else ToolStatus.DONE,
-                error = if (failed) text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(ERROR_MAX) else null,
+                error = if (failed) failureOf(card, data, text) else null,
                 sources = sources.ifEmpty { card.sources },
             ),
         )
+    }
+
+    /**
+     * What a failed card says: the owner's own choice when it was one, else dsh's first error line. A card the owner already
+     * decided keeps its word, because dsh's result for it (`Error: the user rejected tool …`) used to overwrite 已拒絕.
+     */
+    private fun failureOf(card: ChatItem.Tool, data: JsonObject, text: String): String? {
+        card.error?.takeIf { card.status == ToolStatus.FAILED && (it in OWNER_CHOICES || it == NO_ASK_CHANNEL) }?.let { return it }
+        return when {
+            data.obj("error")?.str("code") in ABORT_CODES || text.trim() in ABORT_TEXTS -> STOPPED
+            // Only the owner's own rejection: "Auto review rejected tool" is a real block and stays a failure with its text.
+            text.startsWith(USER_REJECTED_PREFIX) -> REJECTED
+            text.startsWith("Error: $DECLINED_IN_APP") -> SKIPPED
+            else -> text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(ERROR_MAX)
+        }
     }
 
     private fun approvalAsked(state: ConversationState, data: JsonObject): ConversationState {
@@ -270,7 +304,10 @@ object ConversationReducer {
         if (index < 0) return state
         val card = state.items[index] as ChatItem.Tool
         return when (data.str("outcome")) {
-            "rejected", "cancelled", "unavailable" -> replace(state, index, card.copy(status = ToolStatus.FAILED, error = REJECTED))
+            "rejected" -> replace(state, index, card.copy(status = ToolStatus.FAILED, error = REJECTED))
+            // STOP while the question was up.
+            "cancelled" -> replace(state, index, card.copy(status = ToolStatus.FAILED, error = STOPPED))
+            "unavailable" -> replace(state, index, card.copy(status = ToolStatus.FAILED, error = NO_ASK_CHANNEL))
             "allowed-once" -> replace(state, index, card.copy(status = ToolStatus.RUNNING))
             else -> state
         }
@@ -320,10 +357,60 @@ object ConversationReducer {
         return state.copy(turn = null, replyStats = state.replyStats + (key to stats))
     }
 
+    /**
+     * A turn that did not complete says why. Before, only STOP did: a rejected key, an empty balance or a dsh restart ended the
+     * turn with no word in the chat while the phone announced 「DSH 完成了」. The key comes from the event's seq, so a snapshot
+     * that replays the event finds the notice already there.
+     */
     private fun turnEnd(state: ConversationState, seq: Long?, data: JsonObject): ConversationState {
-        val ended = state.copy(running = false)
-        if (data.obj("reason")?.str("kind") != "aborted" || seq == null) return ended
-        return withItem(ended, ChatItem.Notice("n$seq", NoticeKind.STOPPED, STOPPED))
+        val ended = state.copy(running = false, retry = null)
+        if (seq == null) return ended
+        val reason = data.obj("reason")
+        val notice = when (reason?.str("kind")) {
+            "aborted" -> ChatItem.Notice("n$seq", NoticeKind.STOPPED, STOPPED)
+            "error" -> ChatItem.Notice("n$seq", NoticeKind.ERROR, turnErrorText(reason.obj("error")))
+            "interrupted" -> ChatItem.Notice("n$seq", NoticeKind.ERROR, TURN_INTERRUPTED)
+            "max-tokens" -> ChatItem.Notice("n$seq", NoticeKind.ERROR, TURN_TRUNCATED)
+            "blocked" -> ChatItem.Notice("n$seq", NoticeKind.ERROR, TURN_BLOCKED)
+            else -> null
+        }
+        return if (notice == null) ended else withItem(ended, notice)
+    }
+
+    const val TURN_INTERRUPTED = "dsh 中途重新啟動，這一輪沒做完，說「繼續」可接著做"
+    const val TURN_TRUNCATED = "回覆太長被截斷，說「繼續」可接著寫"
+    const val TURN_BLOCKED = "這一輪被擋下了"
+    const val TURN_NO_KEY = "找不到金鑰，請到設定貼上金鑰"
+    const val TURN_KEY_REJECTED = "金鑰被拒絕，請到設定重新貼上金鑰"
+    const val TURN_DAILY_CAP = "已達今日花費上限（每日硬上限）"
+    const val TURN_NO_BALANCE = "帳戶餘額不足"
+    const val TURN_BUSY = "模型服務太忙，稍後再試"
+    const val TURN_OFFLINE = "連不上模型服務，請檢查網路"
+
+    private val QUOTA_TEXT = Regex("""insufficient[\s_-]+(quota|balance|credits?)|credit balance is too low""", RegexOption.IGNORE_CASE)
+    private val NETWORK_TEXT = Regex("""\b(network|econn[a-z]+|fetch failed|socket hang up|timed? ?out)\b""", RegexOption.IGNORE_CASE)
+
+    /**
+     * One plain sentence for dsh's turn failure `{message, code, status}` (LlmFailure). The app's gateway codes (`dshm_…`) only
+     * reach the message through the Claude route (pi-ai quotes the body); the DeepSeek adapter keeps just the status, so every
+     * check also accepts dsh's own code and the HTTP status. The quota check runs before the 429 one: a 429 that says
+     * "insufficient quota" is an empty balance, not a busy server.
+     */
+    internal fun turnErrorText(error: JsonObject?): String {
+        val message = error?.str("message").orEmpty()
+        val code = error?.str("code").orEmpty()
+        val status = error?.num("status")
+        val m = message.lowercase()
+        return when {
+            "dshm_missing_key" in m -> TURN_NO_KEY
+            "dshm_invalid_key" in m || status == 401L || status == 403L || code == "AUTH" -> TURN_KEY_REJECTED
+            "dshm_daily_cap" in m -> TURN_DAILY_CAP
+            status == 402L || code == "QUOTA" || code == "ACCOUNT_QUOTA" || QUOTA_TEXT.containsMatchIn(message) -> TURN_NO_BALANCE
+            "dshm_rate_guard" in m || "overloaded" in m || status == 429L || status == 529L || status == 503L || code == "RATE_LIMIT" -> TURN_BUSY
+            "dshm_upstream_unreachable" in m || status == 502L || status == 504L || code == "TRANSPORT" || code == "TIMEOUT" ||
+                NETWORK_TEXT.containsMatchIn(message) -> TURN_OFFLINE
+            else -> message.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(TURN_ERROR_MAX)?.let { "這一輪出錯了：$it" } ?: "這一輪出錯了"
+        }
     }
 
     // ---- live stream ----------------------------------------------------------------------------------------------

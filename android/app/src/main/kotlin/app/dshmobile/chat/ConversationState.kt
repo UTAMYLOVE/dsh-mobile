@@ -24,7 +24,20 @@ data class ConversationState(
     val context: ContextFill? = null,
     /** The turn being folded; only the reducer reads it. */
     internal val turn: TurnAcc? = null,
+    /**
+     * dsh's latest `llm/retry` while it waits to ask the model again (a 429 or overload back-off); null once a reply lands or the
+     * turn ends. Without it the chat said 「準備中」 for the whole back-off and the owner thought it had hung.
+     */
+    val retry: RetryInfo? = null,
 )
+
+/** One model retry: [retry] of [maxRetries] (null under dsh's "always" retry policy, which has no ceiling). */
+data class RetryInfo(val retry: Int, val maxRetries: Int?) {
+    val label: String get() = if (maxRetries != null) "模型忙線，重試 $retry/$maxRetries…" else "模型忙線，重試第 $retry 次…"
+}
+
+/** The conversation's last turn failed (its last item is an error notice), so the end-of-work notice should not say 完成. */
+fun ConversationState.endedWithError(): Boolean = (items.lastOrNull() as? ChatItem.Notice)?.kind == NoticeKind.ERROR
 
 /**
  * One finished reply (one turn, every step summed). [ttftMs]: first step's start to its first streamed chunk; [decodeMs]: summed

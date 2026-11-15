@@ -58,10 +58,12 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.dshmobile.R
 import app.dshmobile.chat.ChatItem
+import app.dshmobile.chat.ConversationReducer
 import app.dshmobile.chat.NoticeKind
 import app.dshmobile.chat.PendingSend
 import app.dshmobile.chat.ToolStatus
 import app.dshmobile.chat.WebSource
+import app.dshmobile.chat.SUBAGENTS_BUSY
 import app.dshmobile.chat.friendlyToolError
 import app.dshmobile.ui.fog.FogButton
 import app.dshmobile.ui.fog.FogButtonKind
@@ -366,6 +368,30 @@ private fun statusColor(status: ToolStatus): Color = when (status) {
 
 private val CardShape = RoundedCornerShape(FogDimens.Thumb)
 
+/** The owner's own 已拒絕 / 已略過 / 已停止 on a failed card, else null: it is shown as the status, grey, with no red line. */
+private fun ownerChoice(item: ChatItem.Tool): String? =
+    item.error?.takeIf { item.status == ToolStatus.FAILED && it in ConversationReducer.OWNER_CHOICES }
+
+/**
+ * A failed card's explanation: the first line (the plain Chinese one when [friendlyToolError] knows the phrase) in error red, dsh's
+ * own words under it small and grey, at most two lines. The subagent-limit line needs nothing from the owner, so it is grey too.
+ */
+@Composable
+private fun ToolErrorLines(item: ChatItem.Tool, firstMaxLines: Int) {
+    val error = item.error?.takeIf { item.status == ToolStatus.FAILED && it.isNotBlank() && ownerChoice(item) == null } ?: return
+    val friendly = friendlyToolError(error)
+    val first = friendly.substringBefore('\n')
+    val rest = friendly.substringAfter('\n', "").trim()
+    Text(
+        first, color = if (friendly == SUBAGENTS_BUSY) Sakura.TextSecondary else MaterialTheme.colorScheme.error,
+        fontSize = 12.sp, lineHeight = 17.sp, maxLines = firstMaxLines, overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.testTag(Tags.TOOL_ERROR + item.key),
+    )
+    if (rest.isNotEmpty()) {
+        Text(rest, color = Sakura.TextSecondary, fontSize = 11.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 /** A generic tool card: name, argument summary and status; the error when it failed; 「分享」 for a file it wrote in the workspace. */
 @Composable
 internal fun ToolCard(item: ChatItem.Tool, onShare: (String) -> Unit) {
@@ -380,20 +406,19 @@ internal fun ToolCard(item: ChatItem.Tool, onShare: (String) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val dot = statusColor(item.status)
+            val choice = ownerChoice(item)
+            val dot = if (choice != null) Sakura.TextSecondary else statusColor(item.status)
             Box(Modifier.size(8.dp).glow(dot, 6.dp, CircleShape).background(dot, CircleShape))
             Text(
                 item.name.ifEmpty { "tool" }, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 style = TextStyle(fontFamily = FogFonts.ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 0.1.em, color = Sakura.Text),
             )
-            Text(statusText(item.status), color = Sakura.TextSecondary, fontSize = 12.sp, maxLines = 1, modifier = Modifier.testTag(Tags.TOOL_STATUS + item.key))
+            Text(choice ?: statusText(item.status), color = Sakura.TextSecondary, fontSize = 12.sp, maxLines = 1, modifier = Modifier.testTag(Tags.TOOL_STATUS + item.key))
         }
         if (item.summary.isNotBlank()) {
             Text(item.summary, color = Sakura.Text, fontSize = 13.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        item.error?.takeIf { item.status == ToolStatus.FAILED && it.isNotBlank() }?.let { e -> friendlyToolError(e) }?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 7, overflow = TextOverflow.Ellipsis)
-        }
+        ToolErrorLines(item, firstMaxLines = 3)
         item.sharePath?.let { path ->
             val label = stringResource(R.string.chat_share_file, path)
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -449,9 +474,8 @@ internal fun SearchCard(item: ChatItem.Tool, onLink: (String) -> Unit) {
                 }
             }
         }
-        item.error?.takeIf { item.status == ToolStatus.FAILED && it.isNotBlank() }?.let { e -> friendlyToolError(e) }?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        }
+        ownerChoice(item)?.let { Text(it, color = Sakura.TextSecondary, fontSize = 12.sp, maxLines = 1) }
+        ToolErrorLines(item, firstMaxLines = 2)
     }
 }
 
@@ -461,7 +485,8 @@ internal fun SearchCard(item: ChatItem.Tool, onLink: (String) -> Unit) {
 @Composable
 internal fun NoticeLine(item: ChatItem.Notice) {
     val stopped = stringResource(R.string.chat_stopped)
-    val text = if (item.kind == NoticeKind.STOPPED) item.text.ifBlank { stopped } else friendlyToolError(item.text)
+    // An error notice is already one plain Chinese sentence from the reducer (dsh's own words only after 「這一輪出錯了：」).
+    val text = if (item.kind == NoticeKind.STOPPED) item.text.ifBlank { stopped } else item.text
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
             text,

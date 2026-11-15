@@ -162,6 +162,8 @@ object WarRoomBuilder {
             }
             running && c?.live?.text?.isNotEmpty() == true -> { stage = Stage.WRITE; prop = Prop.PEN; mood = Mood.RUNNING; action = "撰寫回覆" }
             running && c?.live?.reasoning?.isNotEmpty() == true -> { stage = Stage.PLAN; mood = Mood.RUNNING; action = "思考中" }
+            // dsh is backing off after a 429 or overload and will ask the model again: say so instead of 「準備中」.
+            running && c?.retry != null -> { stage = Stage.PLAN; mood = Mood.RUNNING; action = c.retry.label }
             running -> { stage = Stage.PLAN; mood = Mood.RUNNING; action = "準備中" }
             notice != null || failed != null -> { stage = Stage.DONE; mood = Mood.ERROR; action = "出錯了" }
             c?.items.isNullOrEmpty() && m?.lastLine == null -> { stage = Stage.PLAN; mood = Mood.IDLE; action = "閒置" }

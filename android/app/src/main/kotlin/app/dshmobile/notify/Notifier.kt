@@ -131,12 +131,13 @@ class Notifier(private val context: Context) {
     }
 
     /** Dsh finished everything while the app was away; the tap opens that conversation. */
-    fun showWorkDone(sessionId: String?, title: String?) {
+    fun showWorkDone(sessionId: String?, title: String?, failed: Boolean = false) {
         val id = nextId.getAndIncrement()
         val name = if (isLocked(sessionId)) LOCKED_TITLE else title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
         post(
             id,
-            builder(CHANNEL_MESSAGES, "DSH 完成了", name)
+            // [failed]: the turn ended with an error notice (a rejected key, no balance…); 「完成」 would send the owner away happy.
+            builder(CHANNEL_MESSAGES, if (failed) "DSH 出錯了" else "DSH 完成了", name)
                 .setContentIntent(openMainActivity(id, EXTRA_SESSION_ID to sessionId))
                 .setAutoCancel(true),
         )

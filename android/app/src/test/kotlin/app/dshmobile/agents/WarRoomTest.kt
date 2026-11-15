@@ -2,6 +2,8 @@ package app.dshmobile.agents
 
 import app.dshmobile.chat.ChatItem
 import app.dshmobile.chat.ConversationState
+import app.dshmobile.chat.NoticeKind
+import app.dshmobile.chat.RetryInfo
 import app.dshmobile.chat.SessionTreeState
 import app.dshmobile.chat.ToolStatus
 import app.dshmobile.remote.SessionSummary
@@ -54,6 +56,28 @@ class WarRoomTest {
         assertEquals(2, gk.depth)
         assertEquals(Mood.WAITING, gk.mood)
         assertEquals(2, gk.queued)
+    }
+
+    /** B6: while dsh backs off and asks the model again, the lead (and the chat's activity line) says so, not 「準備中」. */
+    @Test fun aRetryingLeadSaysTheModelIsBusy() {
+        val tree = SessionTreeState(summaries = listOf(s("lead", running = true)).associateBy { it.id })
+        fun lead(c: ConversationState) = WarRoomBuilder.build(tree, "lead", c, emptyList(), nowMs = 0, leadStartMs = null)[0]
+        val waiting = ConversationState("lead", running = true)
+        assertEquals("準備中", lead(waiting).action)
+        val retrying = lead(waiting.copy(retry = RetryInfo(2, 5)))
+        assertEquals("模型忙線，重試 2/5…", retrying.action)
+        assertEquals(Mood.RUNNING, retrying.mood)
+    }
+
+    /** B1: a turn that ended with an error notice reads 出錯了, not 完成. */
+    @Test fun aLeadWhoseTurnFailedSaysSo() {
+        val tree = SessionTreeState(summaries = listOf(s("lead")).associateBy { it.id })
+        val failed = ConversationState("lead", items = listOf(
+            ChatItem.User("e1", "hi", emptyList()), ChatItem.Notice("n2", NoticeKind.ERROR, "金鑰被拒絕，請到設定重新貼上金鑰"),
+        ))
+        val l = WarRoomBuilder.build(tree, "lead", failed, emptyList(), nowMs = 0, leadStartMs = null)[0]
+        assertEquals(Mood.ERROR, l.mood); assertEquals("出錯了", l.action)
+        assertEquals("金鑰被拒絕，請到設定重新貼上金鑰", l.error)
     }
 
     @Test fun pickLeadPrefersTheOpenThenTheRunningThenTheNewest() {

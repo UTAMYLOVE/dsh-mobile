@@ -126,6 +126,140 @@ class ConversationReducerTest {
         assertEquals(ToolStatus.RUNNING, tool(base.then(live(ev("approval/decided", 13, """{"id":"ap1","outcome":"allowed-once"}""")))).status)
     }
 
+    // ---- B3: the owner's own choices are not 「失敗」 ----
+
+    private fun asked(id: String = "ap1", call: String = "c1", tool: String = "write") =
+        live(ev("approval/asked", 12, """{"id":"$id","toolName":"$tool","callId":"$call","reason":"r"}"""))
+    private fun decided(outcome: String, id: String = "ap1") = live(ev("approval/decided", 13, """{"id":"$id","outcome":"$outcome"}"""))
+    private fun failedResult(id: String, text: String, code: String? = null) = ev(
+        "tool/result", 14,
+        """{"message":{"role":"tool","toolCallId":"$id","content":[{"type":"text","text":${q(text)}}],"isError":true}""" +
+            (if (code != null) ""","error":{"name":"AbortError","code":"$code"}""" else "") + "}",
+    )
+
+    @Test fun aRejectionStaysRejectedAfterDshReportsIt() {
+        val s = s0.then(live(call("c1", "write", "{}")), asked(), decided("rejected"),
+            live(failedResult("c1", "Error: the user rejected tool \"write\"")))
+        assertEquals(ToolStatus.FAILED, tool(s).status); assertEquals("已拒絕", tool(s).error)
+    }
+
+    @Test fun theOwnersRejectionReadsAsRejectedEvenWithoutTheApprovalEvent() {
+        val s = s0.then(live(call("c1", "bash", "{}")), live(failedResult("c1", "Error: the user rejected tool \"bash\"")))
+        assertEquals("已拒絕", tool(s).error)
+    }
+
+    @Test fun stopDuringAToolOrBeforeItRanIsStopped() {
+        for (code in listOf("ABORTED", "ABORTED_BEFORE_DISPATCH")) {
+            val text = if (code == "ABORTED") "Error: tool call aborted" else "Error: tool call aborted before dispatch"
+            val s = s0.then(live(call("c1", "bash", "{}")), live(failedResult("c1", text, code)))
+            assertEquals(code, ToolStatus.FAILED, tool(s).status); assertEquals(code, "已停止", tool(s).error)
+        }
+    }
+
+    @Test fun stopWhileAskingIsStoppedAndStaysSo() {
+        val cancelled = s0.then(live(call("c1", "bash", "{}")), asked(tool = "bash"), decided("cancelled"))
+        assertEquals("已停止", tool(cancelled).error)
+        val after = cancelled.then(live(failedResult("c1", "Error: approval for tool \"bash\" was cancelled")))
+        assertEquals("已停止", tool(after).error)
+    }
+
+    @Test fun skippingAQuestionIsSkipped() {
+        val s = s0.then(live(call("c1", "ask_user_question", "{}")), live(failedResult("c1", "Error: " + ConversationReducer.DECLINED_IN_APP)))
+        assertEquals(ToolStatus.FAILED, tool(s).status); assertEquals("已略過", tool(s).error)
+    }
+
+    @Test fun anAutoReviewRejectionIsARealFailureWithItsText() {
+        val text = "Error: Auto review rejected tool \"bash\"; its body was not executed"
+        val s = s0.then(live(call("c1", "bash", "{}")), asked(tool = "bash"), decided("allowed-once"), live(failedResult("c1", text)))
+        assertEquals(ToolStatus.FAILED, tool(s).status); assertEquals(text, tool(s).error)
+        assertNull(tool(s).error?.takeIf { it in ConversationReducer.OWNER_CHOICES })
+    }
+
+    @Test fun noOneToAskIsARealFailureSaidInChinese() {
+        val s = s0.then(live(call("c1", "bash", "{}")), asked(tool = "bash"), decided("unavailable"),
+            live(failedResult("c1", "Error: tool \"bash\" requires approval, but no approval channel is available")))
+        assertEquals(ToolStatus.FAILED, tool(s).status); assertEquals("沒有可以詢問你的連線", tool(s).error)
+    }
+
+    // ---- B1: a turn that did not complete says why ----
+
+    private fun turnEnd(reason: String, seq: Long = 18) = ev("turn/end", seq, """{"turn":1,"reason":$reason}""")
+    private fun errorEnd(error: String) = turnEnd("""{"kind":"error","error":$error}""")
+    private fun notice(s: ConversationState) = s.items.last() as ChatItem.Notice
+
+    @Test fun eachTurnEndKindAddsOneErrorNotice() {
+        val cases = mapOf(
+            """{"kind":"interrupted"}""" to "dsh 中途重新啟動，這一輪沒做完，說「繼續」可接著做",
+            """{"kind":"max-tokens"}""" to "回覆太長被截斷，說「繼續」可接著寫",
+            """{"kind":"blocked"}""" to "這一輪被擋下了",
+            """{"kind":"error","error":{"message":"boom\nstack","code":"UNKNOWN"}}""" to "這一輪出錯了：boom",
+            """{"kind":"error"}""" to "這一輪出錯了",
+        )
+        for ((reason, text) in cases) {
+            val s = s0.then(live(ev("turn/start", 1)), live(turnEnd(reason)))
+            assertFalse(reason, s.running)
+            assertEquals(reason, ChatItem.Notice("n18", NoticeKind.ERROR, text), s.items.last())
+        }
+    }
+
+    @Test fun aCompletedTurnAddsNothing() {
+        val s = s0.then(live(ev("turn/start", 1)), live(turnEnd("""{"kind":"completed"}""")))
+        assertTrue(s.items.none { it is ChatItem.Notice })
+    }
+
+    @Test fun gatewayCodesAndStatusesBecomeOnePlainSentence() {
+        val cases = mapOf(
+            // Claude (pi-ai) quotes the gateway's body; DeepSeek keeps only the status and dsh's code.
+            """{"message":"401 {\"error\":\"dshm_missing_key\",\"provider\":\"ANTHROPIC\"}","code":"AUTH"}""" to "找不到金鑰，請到設定貼上金鑰",
+            """{"message":"401 {\"error\":\"dshm_invalid_key\"}","code":"AUTH"}""" to "金鑰被拒絕，請到設定重新貼上金鑰",
+            """{"message":"DeepSeek Messages request failed (401)","code":"AUTH","status":401}""" to "金鑰被拒絕，請到設定重新貼上金鑰",
+            """{"message":"Forbidden","code":"HTTP_403","status":403}""" to "金鑰被拒絕，請到設定重新貼上金鑰",
+            """{"message":"429 {\"error\":\"dshm_daily_cap\"}","code":"RATE_LIMIT"}""" to "已達今日花費上限（每日硬上限）",
+            """{"message":"429 {\"error\":\"dshm_rate_guard\"}","code":"RATE_LIMIT"}""" to "模型服務太忙，稍後再試",
+            """{"message":"DeepSeek Messages request failed (429)","code":"RATE_LIMIT","status":429}""" to "模型服務太忙，稍後再試",
+            """{"message":"Overloaded","code":"SERVER","status":529}""" to "模型服務太忙，稍後再試",
+            """{"message":"Insufficient Balance","code":"QUOTA","status":402}""" to "帳戶餘額不足",
+            """{"message":"429 You exceeded: insufficient_quota","code":"QUOTA"}""" to "帳戶餘額不足",
+            """{"message":"502 {\"error\":\"dshm_upstream_unreachable\"}","code":"SERVER"}""" to "連不上模型服務，請檢查網路",
+            """{"message":"fetch failed: ECONNREFUSED","code":"TRANSPORT"}""" to "連不上模型服務，請檢查網路",
+            """{"message":"pi-ai stream idle timeout after 120000ms","code":"TIMEOUT"}""" to "連不上模型服務，請檢查網路",
+            """{"message":"model \"x\" returned a completed response with no content","code":"EMPTY_RESPONSE"}""" to
+                "這一輪出錯了：model \"x\" returned a completed response with no content",
+        )
+        for ((error, text) in cases) {
+            assertEquals(error, text, notice(s0.then(live(ev("turn/start", 1)), live(errorEnd(error)))).text)
+        }
+    }
+
+    @Test fun aReplayedSnapshotKeepsASingleErrorNotice() {
+        val end = errorEnd("""{"message":"x","code":"AUTH","status":401}""")
+        val s = s0.then(snapshot(ev("turn/start", 1), end), live(end), snapshot(ev("turn/start", 1), end))
+        assertEquals(1, s.items.count { it is ChatItem.Notice })
+        assertEquals(NoticeKind.ERROR, notice(s).kind)
+        assertTrue(s.endedWithError())
+    }
+
+    // ---- B6: dsh's model retries ----
+
+    private fun retry(n: Int, max: Int? = 5) =
+        live(ev("llm/retry", 20L + n, """{"retryId":"r","turn":1,"step":1,"provider":"deepseek-official","mode":"normal","retry":$n""" +
+            (if (max != null) ""","maxRetries":$max""" else "") + ""","delayMs":500,"failure":{"message":"busy","code":"RATE_LIMIT","status":429}}"""))
+
+    @Test fun aRetryIsShownUntilTheReplyLands() {
+        val running = s0.then(live(ev("turn/start", 1)))
+        val retrying = running.then(retry(2))
+        assertEquals(RetryInfo(2, 5), retrying.retry)
+        assertEquals("模型忙線，重試 2/5…", retrying.retry?.label)
+        assertNull(retrying.then(live(asstMsg(30, """{"type":"text","text":"ok"}"""))).retry)
+        assertNull(retrying.then(live(turnEnd("""{"kind":"completed"}""", seq = 31))).retry)
+        assertEquals("模型忙線，重試第 3 次…", running.then(retry(3, max = null)).retry?.label)
+    }
+
+    @Test fun aNewTurnClearsAnOldRetry() {
+        val s = s0.then(live(ev("turn/start", 1)), retry(1))
+        assertNull(s.then(live(ev("turn/start", 40))).retry)
+    }
+
     @Test fun turnEndAbortedAddsAStoppedNotice() {
         val s = s0.then(live(ev("turn/start", 1)), live(ev("turn/end", 18, """{"turn":1,"reason":{"kind":"aborted","reason":{"kind":"user"}}}""")))
         assertFalse(s.running)

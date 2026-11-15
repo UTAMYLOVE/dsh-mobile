@@ -133,6 +133,8 @@ object Tags {
     const val TOOL_CARD = "tool-card-"
     /** + callId. */
     const val TOOL_STATUS = "tool-status-"
+    /** + callId: the first (red) line of a failed card's explanation. */
+    const val TOOL_ERROR = "tool-error-"
     const val SEARCH_CARD = "search-card"
     /** + the source's number, from 1. */
     const val SOURCE_CHIP = "source-chip-"

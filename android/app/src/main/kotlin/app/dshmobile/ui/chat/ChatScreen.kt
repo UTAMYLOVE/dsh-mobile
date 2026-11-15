@@ -822,6 +822,9 @@ fun ChatScreen(
                     // dsh refuses because an old dsh still holds this conversation (bug-writer-held): say so once, with the cure.
                     ErrorLine(stringResource(R.string.chat_writer_held), Tags.CHAT_ERROR)
                     TextButton(onClick = onRestartDsh, modifier = Modifier.testTag(Tags.CHAT_RESTART_DSH)) { Text(stringResource(R.string.chat_writer_held_action)) }
+                } else if (code.endsWith("Exception")) {
+                    // A Java class name (IOException…) means the link to dsh dropped, not that dsh refused: say that plainly.
+                    ErrorLine(stringResource(R.string.chat_action_failed_link), Tags.CHAT_ERROR)
                 } else {
                     ErrorLine(stringResource(R.string.chat_action_failed, code), Tags.CHAT_ERROR)
                 }

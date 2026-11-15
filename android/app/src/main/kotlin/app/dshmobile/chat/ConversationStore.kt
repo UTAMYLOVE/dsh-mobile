@@ -369,6 +369,8 @@ class ConversationStore(
     }
 
     suspend fun stop() {
+        // Each action owns the error line, as send() does: an old 「沒有完成（…）」 must not outlive the next action that worked.
+        _sendError.value = null
         try {
             remote.cancel(sessionId)
         } catch (e: CancellationException) {
@@ -412,15 +414,18 @@ class ConversationStore(
     }
 
     /** False when dsh refused it ([sendError] holds the code). */
-    suspend fun selectModel(model: AgentModels.Model, reasoningEffort: String? = null): Boolean = try {
-        if (reasoningEffort == null) remote.selectModel(sessionId, model.provider, model.id)
-        else remote.selectModelEffort(sessionId, model.provider, model.id, reasoningEffort)
-        true
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        report(e)
-        false
+    suspend fun selectModel(model: AgentModels.Model, reasoningEffort: String? = null): Boolean {
+        _sendError.value = null // the same rule as send() and stop()
+        return try {
+            if (reasoningEffort == null) remote.selectModel(sessionId, model.provider, model.id)
+            else remote.selectModelEffort(sessionId, model.provider, model.id, reasoningEffort)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            report(e)
+            false
+        }
     }
 
     fun close() {

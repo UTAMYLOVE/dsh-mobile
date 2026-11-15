@@ -167,6 +167,15 @@ class NotifierTest {
         assertTrue(n.flags and Notification.FLAG_AUTO_CANCEL != 0)
     }
 
+    /** B1: work whose last turn failed does not say 完成. */
+    @Test fun failedWorkSaysItFailed() {
+        notifier.showWorkDone("sess-8", "記帳", failed = true)
+        val n = posted().single()
+        assertEquals("DSH 出錯了", n.title())
+        assertEquals("記帳", n.text())
+        assertEquals("sess-8", tapIntent(n).getStringExtra("sessionId"))
+    }
+
     @Test fun aLongConversationTitleIsClippedTo40Characters() {
         notifier.showWorkDone("s", "字".repeat(100))
         assertEquals(40, posted().single().text().length)

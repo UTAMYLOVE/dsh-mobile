@@ -136,16 +136,34 @@ fun replyLine(r: ReplyStats, costUsd: Double?): String = buildList {
 }.joinToString(" · ")
 
 /**
- * dsh's tool error plus what to do in this app (stage 2 §I.2/§I.3): a team or agent limit names the app setting (never dsh's own
- * config files, which the app rewrites); a missing sandbox explains that workflows cannot run inside Android's proot.
+ * What a failed tool card says: one plain Traditional-Chinese line first when dsh's English is one of its fixed phrases, then
+ * dsh's own words after a line break (the card draws them small and grey). The owner saw only red English 「Error: Auto review of
+ * tool "bash" failed…」 and could not tell what happened. Nothing here promises a retry: whether the model tries again is its call.
+ *
+ * dsh's subagent limit is ordinary flow control (the model waits for a running child), so it gets one calm sentence and no
+ * advice. Only dsh's team-member limit names the app setting (never dsh's own config files, which the app rewrites).
  */
 fun friendlyToolError(error: String): String {
-    val e = error.lowercase()
-    return when {
-        "limit" in e && ("reached" in e || "exceed" in e) && ("team" in e || "member" in e || "agent" in e || "concurren" in e) ->
-            "$error\n→ 上限在 app 的「設定 → 代理人」（並行上限、團隊上限）調整，改完按「套用並重啟」。不要改 dsh 的設定檔，app 會蓋掉。"
-        "sandbox" in e || "沙盒" in error || "bubblewrap" in e || "landlock" in e ->
-            "$error\n→ 手機上的 dsh 跑在 proot 裡，沒有工作流需要的沙盒，所以 workflow 暫時不能用。請叫它直接做，或派子代理人分工。"
-        else -> error
+    val raw = error.trim().let { if (it.startsWith("error:", ignoreCase = true)) it.substring("error:".length).trimStart() else it }
+    val e = raw.lowercase()
+    val lead = when {
+        "active child limit" in e || "wait for an existing child" in e -> return SUBAGENTS_BUSY
+        TEAM_MEMBER_LIMIT.containsMatchIn(raw) ->
+            "上限在 app 的「設定 → 代理人」（並行上限、團隊上限）調整，改完按「套用並重啟」。不要改 dsh 的設定檔，app 會蓋掉。"
+        "sandbox" in e || "沙盒" in raw || "bubblewrap" in e || "landlock" in e ->
+            "手機上的 dsh 跑在 proot 裡，沒有工作流需要的沙盒，所以 workflow 暫時不能用。請叫它直接做，或派子代理人分工。"
+        "auto review of tool" in e && "failed" in e -> "自動審查本身出錯，這個指令沒有執行。"
+        "auto review rejected tool" in e || "auto review denied tool" in e -> "自動審查擋下了這個指令，沒有執行。"
+        "tool call aborted" in e -> "已中止，沒有執行。"
+        "interrupted after it was recorded" in e -> "上次被中斷，不確定有沒有做完。"
+        "enoent" in e || "no such file" in e || "file not found" in e -> "找不到檔案。"
+        else -> null
     }
+    return if (lead == null) raw else "$lead\n$raw"
 }
+
+/** The subagent-limit line: nothing for the owner to do, so the card draws it grey, not red. */
+const val SUBAGENTS_BUSY = "子代理人都在忙（同時最多的數量已滿），dsh 會等前面的做完再派，不用處理。"
+
+/** dsh-experimental-agent-team's `Team member limit N reached` (TEAM_MEMBER_LIMIT), the one limit a setting changes. */
+private val TEAM_MEMBER_LIMIT = Regex("""team member limit\b.*\breached|TEAM_MEMBER_LIMIT""", RegexOption.IGNORE_CASE)

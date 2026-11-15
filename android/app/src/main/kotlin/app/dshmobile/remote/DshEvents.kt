@@ -163,7 +163,8 @@ class DshEvents(
 
     suspend fun decline(p: PendingPrompt.Question) = respond(p, buildJsonObject {
         put("kind", "rejected")
-        put("error", buildJsonObject { put("name", "UserDeclined"); put("message", "declined in DSH Mobile") })
+        // The chat reads this message back from dsh's tool result to label the card 已略過, so both use one constant.
+        put("error", buildJsonObject { put("name", "UserDeclined"); put("message", app.dshmobile.chat.ConversationReducer.DECLINED_IN_APP) })
     })
 
     /**

@@ -279,6 +279,7 @@
     <string name="chat_follow_failed">這個對話的連線中斷了（%1$s）</string>
     <string name="chat_follow_retry">重新連線</string>
     <string name="chat_action_failed">沒有完成（%1$s）</string>
+    <string name="chat_action_failed_link">暫時連不上 dsh，請再試一次</string>
     <string name="chat_typing">正在回覆…</string>
     <string name="chat_using_tools">正在使用 %1$s</string>
     <string name="chat_long_reply_loading">長回覆整理中…</string>

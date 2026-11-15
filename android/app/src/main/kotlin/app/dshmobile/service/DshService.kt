@@ -9,6 +9,7 @@ import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.ServiceCompat
 import app.dshmobile.DshMobileApp
+import app.dshmobile.chat.endedWithError
 import app.dshmobile.notify.Notifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -227,7 +228,13 @@ class DshService : Service() {
         val done = lastWork
         // UiHolder is main-thread only.
         Handler(Looper.getMainLooper()).post {
-            if (announce && !app.uiHolder.isForeground) app.notifier.showWorkDone(done?.sessionId, done?.title)
+            if (announce && !app.uiHolder.isForeground) {
+                // Best effort: only a conversation the app has open knows how its turn ended; any other one keeps 「完成」.
+                val failed = runCatching {
+                    app.shellSessions.current.value?.existing(done?.sessionId)?.state?.value?.endedWithError() == true
+                }.getOrDefault(false)
+                app.notifier.showWorkDone(done?.sessionId, done?.title, failed)
+            }
             app.uiHolder.onWorkEnded()
         }
     }

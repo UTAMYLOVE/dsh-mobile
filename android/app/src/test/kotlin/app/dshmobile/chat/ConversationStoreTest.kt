@@ -41,7 +41,8 @@ private class FakeChatRemote : ChatRemote {
         promptError?.let { throw it }
         prompts += Triple(sessionId, requestId, parts)
     }
-    override suspend fun cancel(sessionId: String) { cancelled++ }
+    var cancelError: Exception? = null
+    override suspend fun cancel(sessionId: String) { cancelError?.let { throw it }; cancelled++ }
     override suspend fun page(sessionId: String, beforeSeq: Long, maxMessages: Int): JsonElement { pageCalls += beforeSeq to maxMessages; return pageAnswer }
     var modelError: Exception? = null
     override suspend fun selectModel(sessionId: String, provider: String, model: String) { modelError?.let { throw it }; this.model = provider to model }
@@ -339,6 +340,28 @@ class ConversationStoreTest {
         remote.modelError = DshRpcException("session/model-unavailable", "x")
         assertFalse(store.selectModel(AgentModels.find("deepseek-flash")!!))
         assertEquals("session/model-unavailable", store.sendError.value)
+        store.close()
+    }
+
+    /** B7: a STOP that failed while the link dropped left 「沒有完成（IOException）」 up after everything worked again. */
+    @Test fun aFailedStopThenAWorkingModelChangeClearsTheErrorLine() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        remote.cancelError = java.io.IOException("socket closed")
+        store.stop()
+        assertEquals("IOException", store.sendError.value)
+        assertTrue(store.selectModel(AgentModels.find("deepseek-v4-pro")!!))
+        assertNull(store.sendError.value)
+        store.close()
+    }
+
+    @Test fun aWorkingStopClearsAnOldErrorLine() = runTest {
+        val remote = FakeChatRemote(); val store = store(remote)
+        remote.modelError = DshRpcException("session/model-unavailable", "x")
+        assertFalse(store.selectModel(AgentModels.find("deepseek-flash")!!))
+        assertEquals("session/model-unavailable", store.sendError.value)
+        store.stop()
+        assertNull(store.sendError.value)
+        assertEquals(1, remote.cancelled)
         store.close()
     }
 
