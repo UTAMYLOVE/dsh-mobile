@@ -2,4 +2,8 @@
 <!-- The petal_storm startup look's own words (Traditional Chinese, short and plain). Every string here is drawn in the intro's
      handwriting font: after changing one, rerun tools/fonts/subset_intro_font.py so none falls back to the system font. -->
 <resources>
+    <!-- Under the meter while the petals gather (before 100 %). -->
+    <string name="intro_petal_storm_gathering">花瓣集合中</string>
+    <!-- Under the meter at 100 %, typed in behind a pink cursor. -->
+    <string name="intro_petal_storm_ready">準備好了</string>
 </resources>
