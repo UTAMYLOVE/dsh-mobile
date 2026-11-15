@@ -3,6 +3,8 @@ package app.dshmobile.ui.fog
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
@@ -220,7 +222,10 @@ class LookController(private val store: LookStore, private val dir: File, privat
         dir.mkdirs()
         val tmp = File(dir, "$PICTURE_FILE.tmp")
         try {
-            tmp.outputStream().use { if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it)) return@withContext false }
+            // JPEG has no alpha: a cut-out PNG (common for 二次元 art) kept its transparent parts as black, which the six colours
+            // then turned into a dark block over the pink ground. The name stays picture.jpg; decodeFile reads the format itself.
+            val format = if (bitmap.hasAlpha()) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+            tmp.outputStream().use { if (!bitmap.compress(format, 92, it)) return@withContext false }
             if (!tmp.renameTo(pictureFile)) return@withContext false
         } finally {
             bitmap.recycle()
@@ -239,7 +244,11 @@ class LookController(private val store: LookStore, private val dir: File, privat
         const val PICTURE_FILE = "picture.jpg"
         const val MAX_SIDE = 2048
 
-        /** [open] decoded with the largest power-of-two step that keeps the long side at or above [maxSide], then scaled to it. */
+        /**
+         * [open] decoded with the largest power-of-two step that keeps the long side at or above [maxSide], then scaled to it and
+         * turned upright. BitmapFactory ignores the EXIF orientation a phone camera writes instead of turning the pixels, so a
+         * portrait photo came out on its side.
+         */
         fun decodeScaled(open: () -> InputStream?, maxSide: Int): Bitmap? {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             runCatching { open()?.use { BitmapFactory.decodeStream(it, null, bounds) } }
@@ -249,11 +258,28 @@ class LookController(private val store: LookStore, private val dir: File, privat
             var sample = 1
             while (maxOf(w, h) / (sample * 2) >= maxSide) sample *= 2
             val decoded = runCatching { open()?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } }.getOrNull() ?: return null
+            val matrix = upright(runCatching { open()?.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) } }.getOrNull())
             val long = maxOf(decoded.width, decoded.height)
-            if (long <= maxSide) return decoded
-            val scale = maxSide.toFloat() / long
-            return Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true)
-                .also { if (it !== decoded) decoded.recycle() }
+            if (long > maxSide) (maxSide.toFloat() / long).let { matrix.postScale(it, it) }
+            if (matrix.isIdentity) return decoded
+            // One pass for the scale and the turn (the same 2048 cap either way, since a turn keeps the long side).
+            val out = runCatching { Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true) }.getOrNull()
+            if (out == null) { decoded.recycle(); return null }
+            if (out !== decoded) decoded.recycle()
+            return out
+        }
+
+        /** The turn (and mirror) that shows a picture with EXIF [orientation] upright; identity for normal or unknown. */
+        internal fun upright(orientation: Int?): Matrix = Matrix().apply {
+            when (orientation) {
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> setScale(-1f, 1f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> setRotate(180f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> { setRotate(180f); postScale(-1f, 1f) }
+                ExifInterface.ORIENTATION_TRANSPOSE -> { setRotate(90f); postScale(-1f, 1f) }
+                ExifInterface.ORIENTATION_ROTATE_90 -> setRotate(90f)
+                ExifInterface.ORIENTATION_TRANSVERSE -> { setRotate(-90f); postScale(-1f, 1f) }
+                ExifInterface.ORIENTATION_ROTATE_270 -> setRotate(-90f)
+            }
         }
     }
 }
