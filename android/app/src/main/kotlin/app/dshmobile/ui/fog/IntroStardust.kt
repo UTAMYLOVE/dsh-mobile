@@ -93,7 +93,7 @@ internal fun StardustIntro(
 ) {
     val tl = remember(intro.seconds) { StardustTimeline.of(intro.seconds.coerceIn(Intro.MIN_SECONDS, Intro.MAX_SECONDS) * 1000f) }
     // The look's own light iris needs the full layers; on SAVER the host's crossfade is the exit (from the look's exit mark).
-    val ownIris = introLevel(reducedMotion) != EffectLevel.SAVER && !reducedMotion
+    val ownIris = rememberIntroLevel(reducedMotion) != EffectLevel.SAVER && !reducedMotion
     val timing = remember(tl, ownIris) {
         IntroTiming(if (ownIris) tl.hand else tl.exit, tl.total, still = tl.still, hit = tl.hit, announce = tl.announce)
     }

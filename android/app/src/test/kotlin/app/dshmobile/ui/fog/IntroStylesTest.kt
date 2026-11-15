@@ -1,5 +1,7 @@
 package app.dshmobile.ui.fog
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -100,6 +102,19 @@ class IntroStylesTest {
     @Test fun reducedMotionTunnel() = reducedIsOneStill(IntroStyle.TUNNEL)
     @Test fun reducedMotionOneStroke() = reducedIsOneStill(IntroStyle.ONE_STROKE)
 
+    @Test fun oneStrokesStillIsAsShortAsTheLook() {
+        // At the default 3 s the short look runs about 1.95 s, so its reduced-motion still is no longer than that either.
+        show(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.ONE_STROKE), reducedMotion = true)
+        val end = runMs(IntroStyle.ONE_STROKE, 3f)
+        at(200)
+        rule.onNodeWithText("歡迎回來，小雨").assertExists()
+        at(end - 200)
+        assertEquals(0, done)
+        at(end + 100)
+        rule.waitForIdle()
+        assertEquals(1, done)
+    }
+
     private fun announcesTheWelcome(style: IntroStyle) {
         show(Intro(enabled = true, name = "小雨", seconds = 3f, style = style, skippable = false))
         // Half a second before the end (2.5 s of the 3 s looks; 1.45 s of 一筆描's 1.95 s, once the name is written).
@@ -117,4 +132,26 @@ class IntroStylesTest {
     @Test fun petalStormAnnouncesTheWelcome() = announcesTheWelcome(IntroStyle.PETAL_STORM)
     @Test fun tunnelAnnouncesTheWelcome() = announcesTheWelcome(IntroStyle.TUNNEL)
     @Test fun oneStrokeAnnouncesTheWelcome() = announcesTheWelcome(IntroStyle.ONE_STROKE)
+
+    @Test fun aLevelDropMidRunDoesNotChangeTheRunningLook() {
+        // The jank governor steps the app down to SAVER a second into an 8 s 星屑迎接: the run keeps the level it started with,
+        // so its own light iris still plays and the screen underneath stays hidden until the iris has covered it (on SAVER the
+        // crossfade would start at the earlier exit mark).
+        val tl = StardustTimeline.of(8000f)
+        var level by androidx.compose.runtime.mutableStateOf(EffectLevel.FULL)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            FogTheme(effectsFor(level, false)) {
+                StartupIntro(Intro(enabled = true, name = "小雨", seconds = 8f, style = IntroStyle.STARDUST), null, false, onOpaqueChange = { opaque += it }) { done++ }
+            }
+        }
+        start = rule.mainClock.currentTime
+        at(1000)
+        level = EffectLevel.SAVER
+        at(((tl.exit + tl.hand) / 2f).toLong())
+        assertEquals(listOf(true), opaque)
+        at(8200)
+        rule.waitForIdle()
+        assertEquals(1, done)
+    }
 }

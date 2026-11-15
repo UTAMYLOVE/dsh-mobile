@@ -434,7 +434,10 @@ private fun DrawScope.drawTicksLighting(k: SigilKit, head: Float) {
         val sn = sin(a)
         val age = ((head - deg) / TICK_FLASH_DEG).coerceIn(0f, 1f)
         val from = SigilKit.tickFrom(i)
-        val (alpha, stroke) = when (i % 16) { 0 -> .85f to k.tickMajorStroke; 8 -> .70f to k.tickMidStroke; else -> .50f to k.tickMinorStroke }
+        // Two plain whens, not a Pair: this runs for all 80 ticks every frame of the reveal, and a Pair (with its boxed Float)
+        // per tick allocated 80 objects a frame.
+        val alpha = when (i % 16) { 0 -> .85f; 8 -> .70f; else -> .50f }
+        val stroke = when (i % 16) { 0 -> k.tickMajorStroke; 8 -> k.tickMidStroke; else -> k.tickMinorStroke }
         val pop = .03f * (1f - age) * (1f - age)
         drawLine(Sakura.RoseBrown.copy(alpha = alpha), Offset(c * from, sn * from), Offset(c * (.86f + pop), sn * (.86f + pop)), stroke.width)
         if (age < 1f) drawLine(Sakura.White.copy(alpha = .95f * (1f - age)), Offset(c * from, sn * from), Offset(c * (.86f + pop), sn * (.86f + pop)), stroke.width)

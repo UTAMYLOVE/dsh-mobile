@@ -80,22 +80,29 @@ internal class GlyphRun(
     /** The thickening of this run's handwriting glyphs (px); an outline round the run adds it, so its white rim stays as wide. */
     val thickPx: Float = thick.maxOrNull() ?: 0f
 
-    // One stroke per width, built on first use: a frame never allocates one.
-    private val bodies = HashMap<Float, Stroke>()
-    private val thinner = HashMap<Stroke, Stroke>()
+    // The strokes are built on first use and kept per glyph, so a frame never allocates one. Per glyph, not per width: a map
+    // keyed by a Float boxed the key on every lookup (an allocation per glyph per frame), and the narrower outlines differ by
+    // glyph ([thick] can be 0 for an emoji and a little for a fallback character in the same run), so one per outline gave the
+    // second kind the first one's width. A look may lower [thick] (matchPen) after measuring, but always before drawing.
+    private val bodies = arrayOfNulls<Stroke>(glyphs.size)
+    private val thinner = HashMap<Stroke, Array<Stroke?>>()
 
     /** The stroke that thickens glyph [i] (round, so the pen's ends stay soft), or null for a glyph drawn as it is. */
     internal fun body(i: Int): Stroke? {
         val w = thick[i]
         if (w <= 0f) return null
-        return bodies.getOrPut(w) { Stroke(w, join = StrokeJoin.Round, cap = StrokeCap.Round) }
+        bodies[i]?.let { if (it.width == w) return it }
+        return Stroke(w, join = StrokeJoin.Round, cap = StrokeCap.Round).also { bodies[i] = it }
     }
 
     /** [outline] for glyph [i]: one drawn without thickening (a fallback character, an emoji) gets it [thickPx] narrower. */
     internal fun outlineFor(i: Int, outline: Stroke): Stroke {
         val less = thickPx - thick[i]
         if (less <= 0f) return outline
-        return thinner.getOrPut(outline) { Stroke((outline.width - less).coerceAtLeast(0f), join = outline.join, cap = outline.cap) }
+        val row = thinner.getOrPut(outline) { arrayOfNulls(glyphs.size) }
+        val width = (outline.width - less).coerceAtLeast(0f)
+        row[i]?.let { if (it.width == width) return it }
+        return Stroke(width, join = outline.join, cap = outline.cap).also { row[i] = it }
     }
 }
 

@@ -173,13 +173,27 @@ internal fun introLevel(reducedMotion: Boolean): EffectLevel {
 }
 
 /**
+ * [introLevel] as it was when the run started, kept for the whole run. The jank governor can step the app's level down while
+ * the intro plays (a cold start, with dsh starting underneath, is when frames drop): followed live, every look rebuilt its scene
+ * mid-run (re-measuring the type, re-placing every grain, re-blurring the picture) on the very frames the phone was struggling
+ * with, its particles jumped to the new count and 星屑迎接 swapped its light iris for the crossfade half way through it. The app
+ * behind the intro still follows the governor; the intro is over in at most 8 s.
+ */
+@Composable
+internal fun rememberIntroLevel(reducedMotion: Boolean): EffectLevel {
+    val live = introLevel(reducedMotion)
+    return remember { live }
+}
+
+/**
  * The frame every look plays in, so each one gets the same behaviour for free:
  * - a picture on its way gets up to 400 ms, then the run's [IntroRun.picture] is decided once;
  * - the capped clock ([IntroHostConst.MAX_STEP_MS]), the haptic tick and nudge at [IntroTiming.hit], the exit at
  *   [IntroTiming.exit] and [onDone] exactly once at [IntroTiming.total];
  * - with [Intro.skippable] a tap opens a 280 ms iris at the tap and back ends it;
  * - the sakura-shaped exit iris (a soft fade on SAVER), opened at the tap or at [IntroRun.sceneOrigin];
- * - reduced motion: the clock held at [IntroTiming.still] for up to 2.5 s, then a 150 ms fade; a tap ends it at once;
+ * - reduced motion: the clock held at [IntroTiming.still] for up to 2.5 s (never longer than the run), then a 150 ms fade; a
+ *   tap ends it at once;
  * - [onOpaqueChange] true while the intro covers the screen underneath.
  *
  * With [announce] (the welcome line) the host also draws a 跳過 SKIP label at the bottom right when skippable and adds the
@@ -203,7 +217,7 @@ internal fun IntroHost(
     val opaque by rememberUpdatedState(onOpaqueChange)
     val latestPicture by rememberUpdatedState(picture)
     val latestTiming by rememberUpdatedState(timing)
-    val level = introLevel(reducedMotion)
+    val level = rememberIntroLevel(reducedMotion)
     val totalMs = (intro.seconds.coerceIn(Intro.MIN_SECONDS, Intro.MAX_SECONDS) * 1000).roundToInt()
     val run = remember { IntroRun() }
     val view = LocalView.current
@@ -224,7 +238,8 @@ internal fun IntroHost(
         run.decided.value = true
         if (reducedMotion) {
             run.msState.floatValue = latestTiming.still
-            val show = minOf(totalMs, IntroHostConst.STILL_SHOW_MS)
+            // Never longer than the look itself runs: 一筆描 is about 2 s at any setting, so its still is too.
+            val show = minOf(totalMs, latestTiming.total.roundToInt(), IntroHostConst.STILL_SHOW_MS)
             delay((show - IntroHostConst.STILL_FADE_MS).toLong())
             val t0 = withFrameNanos { it }
             while (true) {
@@ -304,6 +319,9 @@ internal fun IntroHost(
                 val matrix = Matrix()
                 val sparkle = Kawaii.sparklePath()
                 val dp = density.density
+                // Built once with the cache, not on each frame of the iris.
+                val rimGlow = Stroke(10f * dp)
+                val rimLine = Stroke(2f * dp)
                 onDrawWithContent {
                     drawContent()
                     val exitAt = run.exitAt
@@ -323,8 +341,8 @@ internal fun IntroHost(
                     scratch.addPath(sakura)
                     scratch.transform(matrix)
                     drawPath(scratch, Color.Black, blendMode = BlendMode.DstOut)
-                    drawPath(scratch, Sakura.White.copy(alpha = .22f), style = Stroke(10f * dp))
-                    drawPath(scratch, Sakura.White.copy(alpha = .95f), style = Stroke(2f * dp))
+                    drawPath(scratch, Sakura.White.copy(alpha = .22f), style = rimGlow)
+                    drawPath(scratch, Sakura.White.copy(alpha = .95f), style = rimLine)
                     for (i in 0 until 5) {
                         val a = (270f + 72f * i + 30f * k) * (PI.toFloat() / 180f)
                         val tip = Offset(o.x + cos(a) * .99f * r, o.y + sin(a) * .99f * r)
