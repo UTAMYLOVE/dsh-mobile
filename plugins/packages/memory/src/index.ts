@@ -20,7 +20,7 @@ interface PluginCtx {
   get(name: string): any;
   effect(fn: () => unknown, name?: string): unknown;
   inject(deps: string[], callback: (ctx: PluginCtx) => void): unknown;
-  on(event: string, listener: (...args: any[]) => unknown): unknown;
+  on(event: string, listener: (...args: any[]) => unknown, options?: { prepend?: boolean }): unknown;
   tools: { register(tool: Record<string, unknown>): unknown };
   systemPrompt: { context(entry: Record<string, unknown>): unknown };
 }
@@ -270,6 +270,56 @@ export function phoneNote(runtime: string | undefined): string {
 /** The note for the runtime this dsh was started in. */
 export const PHONE_NOTE = phoneNote(process.env.DSHM_RUNTIME);
 
+/** The other names of [workspace] (native mode's DSHN_REMAP entries that map onto it), and always proot's /root/workspace. */
+export function workspaceAliases(remap: string | undefined, workspace: string): string[] {
+  const fromRemap = (remap ?? "").split(";").map((s) => s.split("=")).filter((p) => p.length === 2 && p[1]!.replace(/\/+$/, "") === workspace && isAbsolute(p[0]!))
+    .map((p) => p[0]!.replace(/\/+$/, ""));
+  return [...new Set([...fromRemap, "/root/workspace"])].filter((a) => a !== workspace && a !== "/");
+}
+
+/** [cwd] under its real name when it lies under one of [aliases]; undefined when it is not under one. */
+export function realFolder(cwd: unknown, aliases: string[], workspace: string): string | undefined {
+  if (typeof cwd !== "string") return undefined;
+  const alias = aliases.find((a) => cwd === a || cwd.startsWith(a + "/"));
+  return alias === undefined ? undefined : workspace + cwd.slice(alias.length);
+}
+
+/**
+ * Native mode: a conversation made under proot (相容模式) keeps /root/workspace as its folder. The shim maps that name for dsh's
+ * own file calls, but a command's text is not rewritten, so `cat /root/workspace/x` failed natively while the model was still
+ * told that name. Before such a conversation's next request its folder is moved once to the same folder's real name: dsh records
+ * the change (so it happens once per conversation), tells the model, and subagents started later inherit it. Back in 相容模式
+ * the real name works too, because proot binds the workspace at its host path as well.
+ */
+function moveProotFolder(ctx: PluginCtx, workspace: string): void {
+  if (process.env.DSHM_RUNTIME !== "native") return;
+  const aliases = workspaceAliases(process.env.DSHN_REMAP, workspace);
+  if (aliases.length === 0) return;
+  // A folder that cannot be moved (its sub-folder is gone) is tried once per conversation, not before every request.
+  const failed = new WeakSet<object>();
+  ctx.inject(["workingDirectory"], (c) => {
+    c.on(
+      "system-prompt/assemble",
+      async (_assembly: unknown, context: { agent?: { session?: unknown }; signal?: AbortSignal } | undefined, next: () => Promise<unknown>) => {
+        const agent = context?.agent;
+        const session = agent?.session;
+        if (agent !== undefined && typeof session === "object" && session !== null && !failed.has(session)) {
+          try {
+            const folders = c.get("workingDirectory");
+            const target = realFolder(folders?.get(session), aliases, workspace);
+            if (target !== undefined) await folders.set(agent, target, context?.signal);
+          } catch (e) {
+            failed.add(session);
+            c.logger.warn(`[dshm-memory] could not move the conversation to ${workspace}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        return next();
+      },
+      { prepend: true },
+    );
+  });
+}
+
 export function apply(ctx: PluginCtx): void {
   // Keys are managed by the app whether or not memory is usable.
   registerCredentialGuard(ctx);
@@ -294,6 +344,7 @@ export function apply(ctx: PluginCtx): void {
     text: () => store.loadStartupContext(),
   });
   registerTools(ctx, store);
+  moveProotFolder(ctx, workspace.replace(/\/+$/, ""));
   // webServer is optional (absent in headless) and may be mounted after this
   // plugin applies, so ctx.get("webServer") here would race the boot order.
   // ctx.inject runs the callback once the service exists and never blocks the

@@ -250,12 +250,19 @@ class DshMobileApp : Application(), Configuration.Provider {
             filesDir = filesDir,
             isRootfsInstalled = rootfsInstaller::isInstalled,
             launcher = DshLauncher { env, args ->
-                // The guard plugin's level and the app's own folders it never lets go (plugins/packages/guard).
-                val level = "DSHM_GUARD_LEVEL" to runtimeMode.permission.value.id
+                // The guard plugin's level and the app's own folders it never lets go (plugins/packages/guard). DSHM_AUTO_REVIEW
+                // lets the guard put a conversation dsh runs on its own (a reminder, a helper) on the same preset ShellSession
+                // gives the ones the owner sends to; internal, not a setting.
+                val level = mapOf("DSHM_GUARD_LEVEL" to runtimeMode.permission.value.id, "DSHM_AUTO_REVIEW" to if (autoReviewWanted()) "1" else "0")
                 if (DshLayout.active.native) {
                     val own = listOf(appPaths.rootfs, File(filesDir, "native")).joinToString(":") { it.path }
                     nativeRunner.command(args, env + level + ("DSHM_GUARD_PROTECTED" to own), appPaths.workspace).start()
-                } else proot.command(args, env + level + ("DSHM_GUARD_PROTECTED" to "/opt/dsh:/opt/dshm")).start()
+                } else {
+                    // Under proot the workspace is also bound at its host path (conversations made natively use it): the guard
+                    // reads that name as the workspace too, so writing there is not "outside".
+                    val aliases = "DSHM_GUARD_ALIASES" to "${appPaths.workspace.absolutePath}=${app.dshmobile.runtime.AppPaths.GUEST_WORKSPACE}"
+                    proot.command(args, env + level + ("DSHM_GUARD_PROTECTED" to "/opt/dsh:/opt/dshm") + aliases).start()
+                }
             },
             layout = ::layoutForStart,
             // Many agents at once make many requests: the runaway guard scales with the concurrency setting.
@@ -389,6 +396,13 @@ class DshMobileApp : Application(), Configuration.Provider {
     val effectsController: EffectsController by lazy { EffectsController(uiPrefs) }
 
     /**
+     * Whether conversations should be on dsh's Auto review now: the owner's switch, never at 全部放行 (PermissionLevel.autoReviews).
+     * ShellSession asks before each send and the launcher hands the answer to the guard, so both follow the same rule.
+     */
+    private fun autoReviewWanted(): Boolean =
+        runtimeMode.permission.value.autoReviews(agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview)
+
+    /**
      * The native interface's link to the running dsh: one [ShellSession] per dsh instance, in a scope of its own (a child of
      * [applicationScope], cancelled when that instance's session closes). Whenever dsh stops, with or without a screen (the
      * background grace, a give-up), the session is detached here, so its remote never keeps retrying a dead port. On the main
@@ -398,7 +412,7 @@ class DshMobileApp : Application(), Configuration.Provider {
         val loopback = loopbackHttp
         val holder = ShellSessionHolder { running ->
             val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
-            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope, autoReview = { runtimeMode.permission.value != app.dshmobile.runtime.PermissionLevel.FULL && agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview }, levelPreset = { runtimeMode.permission.value.preset }) }
+            DshRemote(DshClient(loopback, running.launch), scope).let { ShellSession(it, it.events, scope, autoReview = ::autoReviewWanted, levelPreset = { runtimeMode.permission.value.preset }) }
         }
         applicationScope.launch(Dispatchers.Main) {
             controller.isRunning.collect { running -> if (!running) holder.detach() }

@@ -106,6 +106,33 @@ class NativeModeE2eTest {
     }
 
     /**
+     * A proot-era conversation (folder /root/workspace) run natively (audit C1): its folder is moved once to the workspace's real
+     * name, so the model is told that name and a command with an absolute path works (bash's own text is not remapped, and
+     * `cat /root/workspace/...` failed natively).
+     */
+    @Test fun aProotFolderConversationRunsAnAbsolutePathCommandNatively() {
+        val running = runBlocking { app.controller.ensureRunning() }
+        assertTrue("the layout is not native: ${DshLayout.active}", DshLayout.active.native)
+        val client = DshClient(http, running.launch)
+        runBlocking { client.login() }
+        val host = app.appPaths.workspace.absolutePath
+        File(app.appPaths.workspace, "e2e-native").apply { deleteRecursively(); mkdirs() }
+        File(app.appPaths.workspace, "e2e-native/probe.txt").writeText("probe-ok\n")
+        val sessionId = rpc(client, "session/create", JSONObject().put("request", JSONObject().put("cwd", AppPaths.GUEST_WORKSPACE))).getString("sessionId")
+        // The model's call names the folder it is told, as a real model does: the real name, after the move.
+        val from = FakeModel.instance.seen.size
+        val call = JSONObject().put("name", "bash").put("args", JSONObject().put("description", "Read the probe").put("command", "cat $host/e2e-native/probe.txt"))
+        prompt(client, sessionId, JSONArray().put(JSONObject().put("type", "text").put("text", "${FakeModel.TOOL} $call")))
+        var result: FakeModel.ToolResult? = null
+        E2e.waitFor(180_000, "the result of the absolute-path command") { FakeModel.instance.toolResults(from).lastOrNull()?.also { result = it } != null }
+        val told = FakeModel.instance.since(from).filter { it.kind == FakeModel.Kind.TOOL || it.kind == FakeModel.Kind.FOLLOW_UP }
+        assertTrue("the model was not told the real folder", told.isNotEmpty() && told.all { it.body.contains("Current working directory: \\\"$host") })
+        assertTrue("the model was still told /root/workspace", told.none { it.body.contains("Current working directory: \\\"${AppPaths.GUEST_WORKSPACE}") })
+        val r = result!!
+        assertTrue("the command failed: ${r.text.take(300)}", !r.isError && r.text.contains("probe-ok"))
+    }
+
+    /**
      * 0.7.0: a picture can be sent natively. dsh prepares pictures with sharp, whose glibc build cannot load on Android's own
      * node; the rootfs carries sharp's WebAssembly build next to it and sharp falls back to that (the owner's 0.5.0 screenshot:
      * 「prompt rejected」).

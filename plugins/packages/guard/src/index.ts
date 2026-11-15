@@ -24,6 +24,17 @@ interface PluginCtx {
 }
 
 const LEVELS: readonly Level[] = ["ask", "smart", "full"];
+/** dsh's presets the app configures (DshPatch.permission), plus dsh's own Auto review. */
+const GUARDED = "dshm-guarded";
+const FULL_ACCESS = "danger-full-access";
+const AUTO = "auto";
+
+/** `from=to;from=to` pairs of absolute paths, without trailing slashes; anything else is dropped. */
+function pairs(value: string | undefined): [string, string][] {
+  const trim = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+  return (value ?? "").split(";").map((s) => s.split("=")).filter((p): p is [string, string] => p.length === 2 && isAbsolute(p[0]!) && isAbsolute(p[1]!))
+    .map(([from, to]) => [trim(from), trim(to)]);
+}
 
 /** The guard's settings from the environment the app starts dsh with; undefined when the workspace is not known. */
 export function readEnv(e: Record<string, string | undefined>): GuardEnv | undefined {
@@ -34,7 +45,31 @@ export function readEnv(e: Record<string, string | undefined>): GuardEnv | undef
   const temp = [...new Set([...list(e["TMPDIR"]), "/tmp"])];
   const home = e["HOME"] !== undefined && isAbsolute(e["HOME"]) ? e["HOME"].replace(/\/+$/, "") : undefined;
   const dshHome = list(e["DSH_HOME"]);
-  return { level, workspace: workspace.replace(/\/+$/, ""), temp, protectedRoots: [...new Set([...dshHome, ...list(e["DSHM_GUARD_PROTECTED"])])], ...(home === undefined ? {} : { home }) };
+  // The folders' other names: native mode's DSHN_REMAP (/root/workspace and /root/.dsh onto the phone's folders, the shim's own
+  // table), proot's DSHM_GUARD_ALIASES (the workspace's host path, which proot also binds).
+  const aliases = [...pairs(e["DSHN_REMAP"]), ...pairs(e["DSHM_GUARD_ALIASES"])];
+  return {
+    level, workspace: workspace.replace(/\/+$/, ""), temp, protectedRoots: [...new Set([...dshHome, ...list(e["DSHM_GUARD_PROTECTED"])])],
+    ...(home === undefined ? {} : { home }), ...(aliases.length === 0 ? {} : { aliases }),
+  };
+}
+
+/** The app's Auto review switch as it applies at the level (DSHM_AUTO_REVIEW, "1"/"0"); undefined from an app that does not say. */
+export function readAutoReview(e: Record<string, string | undefined>): boolean | undefined {
+  const v = e["DSHM_AUTO_REVIEW"];
+  return v === "1" ? true : v === "0" ? false : undefined;
+}
+
+/**
+ * The preset a top-level conversation should be on: the same rule ShellSession follows before the owner's sends
+ * (DshMobileApp.autoReviewWanted). undefined leaves it as it is: an app that does not say whether Auto review is on never moves a
+ * conversation onto or off "auto".
+ */
+export function wantedPreset(level: Level, autoReview: boolean | undefined, current: unknown): string | undefined {
+  if (autoReview === undefined && current === AUTO) return undefined;
+  if (level === "full") return FULL_ACCESS;
+  if (autoReview === true) return AUTO;
+  return GUARDED;
 }
 
 export function apply(ctx: PluginCtx): void {
@@ -43,23 +78,48 @@ export function apply(ctx: PluginCtx): void {
     ctx.logger.warn("[dshm-guard] DSHM_WORKSPACE is unset or not an absolute path; the guard is off");
     return;
   }
+  const autoReview = readAutoReview(process.env);
   ctx.on(
     "tools/pre-execute",
     async (exec, next) => {
       const agent = exec.agent;
       if (agent === undefined) return next();
+      // A real subagent (or teammate) has origin "subagent"; a fork has a parent but is the owner's own conversation.
+      const subagent = (agent.session as { header?: { origin?: unknown } } | undefined)?.header?.origin === "subagent";
       let mode: unknown;
       let policy: unknown;
+      let auto = false;
       try {
+        const presets = ctx.get("permissionPresets");
         mode = ctx.get("sandboxPolicy")?.resolve({ session: agent.session })?.mode;
         policy = ctx.get("approval")?.effectivePolicy(agent.session);
-        // dsh's Auto review judges its own conversations.
-        if (ctx.get("permissionPresets")?.current(agent.session) === "auto") return next();
+        let preset: unknown = presets?.current(agent.session);
+        // The app puts a conversation on its level's preset only before the owner's own sends (ShellSession.ensurePreset).
+        // Turns dsh starts itself (a reminder, a helper, a conversation dsh moved to danger-full-access at a clean stop) kept a
+        // stale preset, and at 一般 every risky step was refused as if from a subagent. The same rule is applied here, and this
+        // very call is judged by the new state (dsh reads the approval policy when it asks).
+        if (!subagent && presets !== undefined) {
+          const wanted = wantedPreset(env.level, autoReview, preset);
+          if (wanted !== undefined && preset !== wanted) {
+            presets.set(agent.session, wanted);
+            preset = wanted;
+            mode = FULL_ACCESS;
+            policy = wanted === FULL_ACCESS ? "never" : "ask";
+          }
+        }
+        auto = preset === AUTO;
       } catch (e) {
         ctx.logger.warn(`[dshm-guard] cannot read the conversation's permissions: ${e instanceof Error ? e.message : String(e)}`);
       }
+      // dsh's Auto review judges its own conversations, but the short always-refused list (deleting DSH's own data, a fork bomb)
+      // stays refused there too, as the 權限 note promises. The level's questions are not added: that would make the review
+      // pointless at 每次都問.
+      if (auto) {
+        const hard = classify(exec.name, exec.arguments, { ...env, level: "full" });
+        return hard.kind === "deny" ? { kind: "deny", reason: `DSH Mobile refused this call (${hard.why}): ${hard.text}` } : next();
+      }
       // A conversation still on one of dsh's sandboxed modes keeps dsh's own rules (escalation asks the owner).
-      if (mode !== undefined && mode !== "danger-full-access") return next();
+      if (mode !== undefined && mode !== FULL_ACCESS) return next();
       // Nobody can be asked from a subagent: it works at the smart level and what would ask is refused with the reason.
       const cannotAsk = policy === "never" && env.level !== "full";
       const level: Level = cannotAsk && env.level === "ask" ? "smart" : env.level;
@@ -67,7 +127,9 @@ export function apply(ctx: PluginCtx): void {
       if (verdict.kind === "allow") return next();
       if (verdict.kind === "deny") return { kind: "deny", reason: `DSH Mobile refused this call (${verdict.why}): ${verdict.text}` };
       if (cannotAsk) {
-        return { kind: "deny", reason: `DSH Mobile: this needs the owner's approval (${verdict.why}) and a subagent cannot ask. Do not work around it; report it to the lead agent, which can ask. ${verdict.text}` };
+        return subagent
+          ? { kind: "deny", reason: `DSH Mobile: this needs the owner's approval (${verdict.why}) and a subagent cannot ask. Do not work around it; report it to the lead agent, which can ask. ${verdict.text}` }
+          : { kind: "deny", reason: `DSH Mobile (${verdict.why}): 這個對話目前不能詢問你，這一步沒有執行。Do not work around it; tell the owner what was not done and why. ${verdict.text}` };
       }
       const downstream = await next();
       if (downstream.kind !== "allow") return downstream;

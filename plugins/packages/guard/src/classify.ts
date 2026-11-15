@@ -15,6 +15,13 @@ export interface GuardEnv {
   /** The app's own folders outside the workspace (dsh's home, the runtime): never deleted, changed only after asking. */
   protectedRoots: string[];
   home?: string;
+  /**
+   * Other names of the same folders, `[alias, name]`: since 0.7.0 either mode runs the other mode's conversations, whose folder
+   * is spelled the other way (native maps /root/workspace and /root/.dsh onto the phone's folders, proot binds the workspace at
+   * its host path too). A path under an alias is read as the same path under the name the guard knows, so writing in the
+   * workspace under its other name is not "outside", and deleting dsh's home under its other name is still refused.
+   */
+  aliases?: [string, string][];
 }
 
 /** Why a call is held back; the app shows [text] to the owner, and the model reads it when the call is refused. */
@@ -27,8 +34,8 @@ const ALLOW: Verdict = { kind: "allow" };
 
 /** Tools that change nothing by themselves at any level (reading, searching, planning, asking, the app's own tools). */
 const MUTATING_TOOLS = new Set(["bash", "write", "edit"]);
-/** Tools that start work the owner did not look at: asked about at the `ask` level only. */
-const DELEGATING_TOOLS = new Set(["subagent", "subagent_fork", "workflow", "schedule_create", "schedule_update", "schedule_delete", "job_kill"]);
+/** Tools that start work the owner did not look at: asked about at the `ask` level only (a teammate is a subagent too). */
+const DELEGATING_TOOLS = new Set(["subagent", "subagent_fork", "spawn_teammate", "workflow", "schedule_create", "schedule_update", "schedule_delete", "job_kill"]);
 
 /** Programs that only read (with the flags checked in [readOnlySegment]). */
 const READ_ONLY = new Set([
@@ -173,7 +180,12 @@ const unknown = (word: string) => /[$`]/.test(word);
 /** The absolute path a word names when it is read as a file (relative to [cwd]); glob characters stay as they are. */
 function resolve(word: string, cwd: string, env: GuardEnv): string {
   const expanded = expandHome(word, env);
-  return posix.resolve(cwd, expanded);
+  const p = posix.resolve(cwd, expanded);
+  // Every path check goes through here, so the whole-workspace and app-folder checks see the alias as the folder itself.
+  for (const [from, to] of env.aliases ?? []) {
+    if (p === from || p.startsWith(from + "/")) return to + p.slice(from.length);
+  }
+  return p;
 }
 
 function free(p: string, env: GuardEnv): boolean {
@@ -188,6 +200,69 @@ function harmless(p: string): boolean {
 function precious(p: string, env: GuardEnv): boolean {
   const roots = [...env.protectedRoots, env.workspace, ...(env.home === undefined ? [] : [env.home])];
   return roots.some((r) => p === r || inside(r, p)) || env.protectedRoots.some((r) => inside(p, r));
+}
+
+const AWKS = new Set(["awk", "gawk", "mawk", "nawk"]);
+
+/**
+ * The words of a sed, awk or perl call that name files. Their scripts are text, not paths (`sed -i '/TODO/d' notes.md` named
+ * "/TODO/d", and the guard asked about a place outside the workspace that does not exist): the value of a flag that takes one is
+ * left out (sed -e -f -l, awk -F -v -f, perl -e and its bundles like -ne), and for sed and awk without -e/-f the first word is
+ * the script. undefined for any other program.
+ */
+function scriptFileOperands(name: string, args: string[]): string[] | undefined {
+  const sed = name === "sed", awk = AWKS.has(name), perl = name === "perl";
+  if (!sed && !awk && !perl) return undefined;
+  // Short flags whose value follows (attached, or as the next word), and the ones among them that carry the script.
+  const valued = sed ? "efl" : awk ? "Fvf" : "eE";
+  const script = sed ? "ef" : awk ? "f" : "eE";
+  // Flags whose optional value can only be attached (sed -i.bak, perl -i.orig -Mmodule -Ilib ...): the rest of the word.
+  const attachedOnly = sed ? "i" : perl ? "iIMmFxCdD" : "";
+  const long = sed ? ["--expression", "--file", "--line-length"] : awk ? ["--field-separator", "--assign", "--file"] : [];
+  const longScript = sed ? ["--expression", "--file"] : awk ? ["--file"] : [];
+  const words: string[] = [];
+  let scriptGiven = false;
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k]!;
+    if (a === "--") { words.push(...args.slice(k + 1)); break; }
+    if (!a.startsWith("-") || a === "-") { words.push(a); continue; }
+    if (a.startsWith("--")) {
+      const [flag, attached] = a.split("=", 2) as [string, string | undefined];
+      if (!long.includes(flag)) continue;
+      if (longScript.includes(flag)) scriptGiven = true;
+      if (attached === undefined) k++;
+      continue;
+    }
+    for (let j = 1; j < a.length; j++) {
+      const c = a[j]!;
+      if (attachedOnly.includes(c)) break;
+      // perl -l and -0 take attached octal digits only (-l0, -00), then more flags may follow (-lne).
+      if (perl && (c === "l" || c === "0")) { while (j + 1 < a.length && /[0-7]/.test(a[j + 1]!)) j++; continue; }
+      if (!valued.includes(c)) continue;
+      if (script.includes(c)) scriptGiven = true;
+      if (j === a.length - 1) k++; // the value is the next word
+      break; // the rest of this word is the value
+    }
+  }
+  return (sed || awk) && !scriptGiven ? words.slice(1) : words;
+}
+
+/** The words of [args] that may name files: a sed/awk/perl script is not one, also inside `find … -exec sed …`. */
+function fileOperands(name: string, args: string[]): string[] {
+  const scripted = scriptFileOperands(name, args);
+  if (scripted !== undefined) return scripted;
+  if (name !== "find") return args.filter((a) => !a.startsWith("-"));
+  const out: string[] = [];
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k]!;
+    if (!["-exec", "-execdir", "-ok", "-okdir"].includes(a)) { if (!a.startsWith("-")) out.push(a); continue; }
+    let end = k + 1;
+    while (end < args.length && args[end] !== ";" && args[end] !== "+") end++;
+    const [run, ...rest] = args.slice(k + 1, end);
+    if (run !== undefined) out.push(...fileOperands(run.includes("/") ? posix.basename(run) : run, rest));
+    k = end;
+  }
+  return out;
 }
 
 const short = (command: string) => (command.length > 160 ? command.slice(0, 157) + "…" : command).replace(/\s+/g, " ").trim();
@@ -266,7 +341,7 @@ function risk(command: string, cwd: string, env: GuardEnv): Verdict | undefined 
     if (readOnlySegment(seg)) continue;
     // Anything else that names a place outside the workspace: for copies only the destination counts.
     const copies = name === "cp" || name === "ln" || name === "install" || name === "rsync";
-    const paths = copies ? operands.slice(-1) : operands;
+    const paths = copies ? operands.slice(-1) : fileOperands(name, args);
     for (const o of paths) {
       if (unknown(o) || !/^(\/|~|\$\{?HOME|\.\.(\/|$))/.test(o) && !o.includes("/../")) continue;
       const target = resolve(o, here, env);
@@ -311,9 +386,13 @@ export function classify(tool: string, args: unknown, env: GuardEnv): Verdict {
   }
   if (env.level === "ask" && DELEGATING_TOOLS.has(tool)) {
     const what = typeof a["description"] === "string" ? a["description"] : typeof a["title"] === "string" ? a["title"] : tool;
-    return { kind: "ask", why: "delegate", text: tool.startsWith("subagent") ? `要派出子代理人：${what}（它會照「一般」等級自己工作）` : `要執行 ${tool}：${what}` };
+    const agent = tool.startsWith("subagent") || tool === "spawn_teammate";
+    return { kind: "ask", why: "delegate", text: agent ? `要派出子代理人：${what}（它會照「一般」等級自己工作）` : `要執行 ${tool}：${what}` };
   }
+  // An MCP server's tool can do anything its server does; 每次都問 asks first. At smart and full they run: the owner added
+  // those servers himself.
+  if (env.level === "ask" && tool.startsWith("mcp__")) return { kind: "ask", why: "mcp", text: `要使用 MCP 伺服器的工具 ${tool}` };
   return ALLOW;
 }
 
-export const isMutatingTool = (tool: string) => MUTATING_TOOLS.has(tool) || DELEGATING_TOOLS.has(tool);
+export const isMutatingTool = (tool: string) => MUTATING_TOOLS.has(tool) || DELEGATING_TOOLS.has(tool) || tool.startsWith("mcp__");

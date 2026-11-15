@@ -14,6 +14,8 @@ interface FakeOptions {
   webServer?: boolean;
   llmReply?: string | (() => Promise<string>);
   noLlm?: boolean;
+  /** dsh's workingDirectory service (absent unless given). */
+  workingDirectory?: unknown;
 }
 
 function makeCtx(options: FakeOptions = {}) {
@@ -41,6 +43,7 @@ function makeCtx(options: FakeOptions = {}) {
     agentDefaultModel: { currentSelection: () => ({ provider: "prov", model: "mod" }) },
   };
   if (options.noLlm) delete services.llm;
+  if (options.workingDirectory !== undefined) services.workingDirectory = options.workingDirectory;
   if (options.webServer !== false) {
     services.webServer = {
       register: ({ path, handler }: { path: string; handler: Handler }) => {
@@ -446,5 +449,81 @@ describe("tools", () => {
       /target/,
     );
     await expect(fake.tools.get("memory_search")!.execute({ query: 5 }, {})).rejects.toThrow(/query/);
+  });
+});
+
+describe("a conversation made under proot, run natively", () => {
+  const saved = { runtime: process.env.DSHM_RUNTIME, remap: process.env.DSHN_REMAP };
+  afterEach(() => {
+    for (const [key, value] of [["DSHM_RUNTIME", saved.runtime], ["DSHN_REMAP", saved.remap]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+
+  /** The plugin with a fake workingDirectory whose conversation is in [cwd]; returns the assemble listener and the fake. */
+  function mountWith(cwd: string, runtime: string | undefined, remap?: string) {
+    if (runtime === undefined) delete process.env.DSHM_RUNTIME; else process.env.DSHM_RUNTIME = runtime;
+    if (remap === undefined) delete process.env.DSHN_REMAP; else process.env.DSHN_REMAP = remap;
+    let folder = cwd;
+    const workingDirectory = {
+      get: vi.fn(() => folder),
+      set: vi.fn(async (_agent: unknown, path: string) => { folder = path; return path; }),
+    };
+    const fake = makeCtx({ workingDirectory });
+    mount(fake);
+    const assemble = fake.listeners.get("system-prompt/assemble")?.[0];
+    const next = vi.fn(async () => ({ contexts: [] }));
+    const run = (agent: unknown = { session: {} }) => assemble!({ contexts: [] }, { agent, signal: new AbortController().signal }, next);
+    return { fake, workingDirectory, assemble, next, run };
+  }
+
+  it("moves its folder once from /root/workspace to the workspace's real name", async () => {
+    const m = mountWith("/root/workspace/projects/x", "native", `/root/workspace=${root};/root/.dsh=/data/dsh-home`);
+    expect(m.assemble).toBeDefined();
+    const agent = { session: {} };
+    await m.run(agent);
+    expect(m.workingDirectory.set).toHaveBeenCalledWith(agent, `${root}/projects/x`, expect.any(AbortSignal));
+    expect(m.next).toHaveBeenCalledTimes(1);
+    // dsh now reports the real name: nothing more to move.
+    await m.run(agent);
+    expect(m.workingDirectory.set).toHaveBeenCalledTimes(1);
+    expect(m.next).toHaveBeenCalledTimes(2);
+  });
+
+  it("the workspace itself is moved too, and /root/workspace is known without DSHN_REMAP", async () => {
+    const m = mountWith("/root/workspace", "native");
+    await m.run();
+    expect(m.workingDirectory.set).toHaveBeenCalledWith(expect.anything(), root, expect.any(AbortSignal));
+  });
+
+  it("leaves other folders, proot mode and requests without an agent alone", async () => {
+    for (const [cwd, runtime] of [[root, "native"], ["/root/workspace2", "native"], ["/sdcard/x", "native"], ["/root/workspace/a", "proot"], ["/root/workspace/a", undefined]] as const) {
+      const m = mountWith(cwd, runtime);
+      if (m.assemble !== undefined) await m.run();
+      expect(m.workingDirectory.set, `${cwd} ${runtime}`).not.toHaveBeenCalled();
+    }
+    const m = mountWith("/root/workspace", "native");
+    await m.assemble!({ contexts: [] }, { signal: new AbortController().signal }, m.next);
+    expect(m.workingDirectory.set).not.toHaveBeenCalled();
+    expect(m.next).toHaveBeenCalledTimes(1);
+  });
+
+  it("a folder that cannot be moved is only warned about, once, and the request goes on", async () => {
+    const m = mountWith("/root/workspace/gone", "native");
+    m.workingDirectory.set.mockRejectedValue(new Error("working-directory: directory does not exist"));
+    const agent = { session: {} };
+    await m.run(agent);
+    await m.run(agent);
+    expect(m.workingDirectory.set).toHaveBeenCalledTimes(1);
+    expect(m.fake.logger.warn).toHaveBeenCalledWith(expect.stringContaining("could not move"));
+    expect(m.next).toHaveBeenCalledTimes(2);
+  });
+
+  it("knows the workspace's other names", () => {
+    expect(plugin.workspaceAliases(`/root/workspace=/w;/root/.dsh=/h;/old/ws/=/w`, "/w")).toEqual(["/root/workspace", "/old/ws"]);
+    expect(plugin.workspaceAliases(undefined, "/root/workspace")).toEqual([]);
+    expect(plugin.realFolder("/root/workspace/a/b", ["/root/workspace"], "/w")).toBe("/w/a/b");
+    expect(plugin.realFolder("/root/workspaces", ["/root/workspace"], "/w")).toBeUndefined();
+    expect(plugin.realFolder(undefined, ["/root/workspace"], "/w")).toBeUndefined();
   });
 });

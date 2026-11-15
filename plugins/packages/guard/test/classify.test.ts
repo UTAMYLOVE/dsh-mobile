@@ -158,3 +158,79 @@ describe("files at the smart level", () => {
     expect(classify("write", { file_path: "~/x", content: "x" }, env("smart"))).toMatchObject({ kind: "ask", why: "outside" });
   });
 });
+
+describe("the workspace's other name (conversations made in the other mode)", () => {
+  const DSH_HOME = "/data/user/0/app.dshmobile/files/dsh-home";
+  // Native mode: the shim maps proot's names onto the phone's folders (DSHN_REMAP); a proot-era conversation still says them.
+  const native: GuardEnv = { ...env("smart"), protectedRoots: [DSH_HOME, ...env("smart").protectedRoots.slice(1)], aliases: [["/root/workspace", WS], ["/root/.dsh", DSH_HOME]] };
+  const nat = (command: string, workdir?: string) => { const v = classify("bash", { command, ...(workdir === undefined ? {} : { workdir }) }, native); return v.kind === "allow" ? "allow" : `${v.kind}:${v.why}`; };
+  it("writes and deletes under /root/workspace run at smart, natively", () => {
+    expect(classify("write", { file_path: "/root/workspace/notes.md", content: "x" }, native).kind).toBe("allow");
+    expect(classify("edit", { file_path: "/root/workspace/notes.md", old_string: "a", new_string: "b" }, native).kind).toBe("allow");
+    expect(nat("echo hi > out.txt", "/root/workspace")).toBe("allow");
+    expect(nat("rm old.txt", "/root/workspace")).toBe("allow");
+    expect(nat("cd /root/workspace/reports && rm -rf old")).toBe("allow");
+    expect(nat("cp a.txt /root/workspace/b.txt")).toBe("allow");
+  });
+  it("the whole workspace under its other name still asks, and dsh's home under its other name is still refused", () => {
+    expect(nat("rm -rf /root/workspace")).toBe("ask:delete");
+    expect(nat("rm -rf *", "/root/workspace")).toBe("ask:delete");
+    expect(nat("rm -rf /root/.dsh")).toBe("deny:delete-app");
+    expect(nat("rm -rf /root/.dsh/sessions")).toBe("deny:delete-app");
+    expect(nat("echo x >> /root/.dsh/config.yml")).toBe("ask:protected");
+  });
+  it("a name that only starts the same is not the workspace", () => {
+    expect(classify("write", { file_path: "/root/workspace2/x", content: "x" }, native)).toMatchObject({ kind: "ask", why: "outside" });
+  });
+  it("under proot, the workspace's host path (bound inside too) is the workspace", () => {
+    const proot: GuardEnv = { level: "smart", workspace: "/root/workspace", temp: ["/tmp"], protectedRoots: ["/root/.dsh", "/opt/dsh", "/opt/dshm"], home: "/root", aliases: [[WS, "/root/workspace"]] };
+    expect(classify("write", { file_path: `${WS}/notes.md`, content: "x" }, proot).kind).toBe("allow");
+    expect(classify("bash", { command: "echo hi > out.txt", workdir: WS }, proot).kind).toBe("allow");
+    expect(classify("bash", { command: `rm -rf ${WS}` }, proot)).toMatchObject({ kind: "ask", why: "delete" });
+    expect(classify("write", { file_path: "/sdcard/a.txt", content: "x" }, proot)).toMatchObject({ kind: "ask", why: "outside" });
+  });
+});
+
+describe("sed, awk and perl scripts are not paths", () => {
+  it.each([
+    "sed -i '/TODO/d' notes.md", "sed -i -e '/TODO/d' notes.md", "sed -i.bak -e '/a/d' -e '/b/d' notes.md", "sed -ni '/x/p' notes.md",
+    "sed -i --expression='/x/d' notes.md", "awk '/error/' log.txt", "awk -F '\\t' '/x/' f", "awk -F / '{print $2}' paths.txt",
+    "awk -v pat=/x/ '$0 ~ pat' f", "gawk '/a/ {print}' log.txt > out.txt", "perl -ne '/x/ && print' f", "perl -pi -e 's/a/b/' notes.md",
+    "perl -lne '/x/ and print' f", "perl -l0ne '/x/ and print' f", "perl -00 -ne '/x/ && print' f", "find . -name '*.md' -exec sed -i '/TODO/d' {} \;",
+  ])("%s", (command) => expect(why(command)).toBe("allow"));
+  it("the file a script works on is still checked, and named in the question", () => {
+    const v = bash("sed -i '/x/d' /outside/f");
+    expect(v).toMatchObject({ kind: "ask", why: "outside" });
+    expect(v.kind === "ask" && v.text).toBe("要動到工作區以外的 /outside/f：sed -i '/x/d' /outside/f");
+    expect(why("awk '/a/' /sdcard/log.txt")).toBe("ask:outside");
+    expect(why("perl -pi -e 's/a/b/' /sdcard/x.txt")).toBe("ask:outside");
+    expect(why("sed -i -f script.sed /sdcard/x.txt")).toBe("ask:outside");
+    expect(why("find . -exec sed -i '/x/d' /sdcard/y \;")).toBe("ask:outside");
+    // A program file given to perl is a file, not a script; an attached value is not a flag that takes the next word.
+    expect(why("perl /sdcard/x.pl")).toBe("ask:outside");
+    expect(why("perl -Mfile /sdcard/x.pl")).toBe("ask:outside");
+    expect(why("perl -i.bake -pe 's/a/b/' /sdcard/x.txt")).toBe("ask:outside");
+    expect(why("sed -i.sed '/x/d' /sdcard/x.txt")).toBe("ask:outside");
+    expect(why("sed -i.orig '/x/d' notes.md")).toBe("allow");
+  });
+});
+
+describe("每次都問 also covers teammates and MCP tools", () => {
+  it("asks at the ask level", () => {
+    expect(classify("spawn_teammate", { name: "researcher", description: "查資料", prompt: "y" }, env("ask"))).toEqual({
+      kind: "ask", why: "delegate", text: "要派出子代理人：查資料（它會照「一般」等級自己工作）",
+    });
+    expect(classify("mcp__notes__write_page", { title: "x" }, env("ask"))).toEqual({ kind: "ask", why: "mcp", text: "要使用 MCP 伺服器的工具 mcp__notes__write_page" });
+  });
+  it("runs at smart and full: the owner added those servers himself", () => {
+    for (const level of ["smart", "full"] as const) {
+      expect(classify("spawn_teammate", { name: "r", description: "x", prompt: "y" }, env(level)).kind).toBe("allow");
+      expect(classify("mcp__notes__write_page", { title: "x" }, env(level)).kind).toBe("allow");
+    }
+  });
+  it("talking to teammates and their task list is not new work", () => {
+    for (const tool of ["send_message", "list_agents", "team_task_create", "team_task_update", "team_task_list"]) {
+      expect(classify(tool, { target: "lead", message: "x" }, env("ask")).kind).toBe("allow");
+    }
+  });
+});
