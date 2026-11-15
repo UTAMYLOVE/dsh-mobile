@@ -9,9 +9,24 @@ import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import app.dshmobile.ui.theme.Sakura
@@ -76,7 +91,7 @@ class IntroPetalStormTest {
         assertFalse(PetalStormBeats.of(3f).compact)
     }
 
-    @Test fun theMeterClimbsToFullWhenTheNameHasFormed() {
+    @Test fun theMeterReadsNinetyWhenTheNameStandsAndFullWhileItHolds() {
         for (s in listOf(1.5f, 3f, 8f)) {
             val b = PetalStormBeats.of(s)
             assertEquals(0f, b.meter(0f), 0f)
@@ -90,13 +105,30 @@ class IntroPetalStormTest {
                 t += 10f
             }
             assertTrue("$s s: not full before the name", b.meter(b.nameFormed - 50f) < 1f)
-            assertEquals("$s s: full when the name has formed", 1f, b.meter(b.nameFormed), 0f)
+            assertTrue("$s s: full only once the grains are home", b.meterFull >= b.nameFormed)
+            assertEquals("$s s: full at meterFull", 1f, b.meter(b.meterFull), 0f)
+            assertTrue("$s s: full before the meter leaves", b.meterFull < b.meterOutStart)
             assertEquals(1f, b.meter(b.still), 0f)
+        }
+        // From 3 s the whole name stands (its last glyph opaque) when the meter reads 90 %.
+        for (s in listOf(3f, 8f)) {
+            val b = PetalStormBeats.of(s)
+            assertEquals("$s s: 90 % when the name stands", .90f, b.meter(b.nameLegible), .001f)
+            assertTrue("$s s: the name stands after its grains are home", b.nameLegible >= b.nameFormed)
         }
         // It moves in every beat of the storm, not in one jump.
         val b = PetalStormBeats.of(3f)
         assertTrue(b.meter(b.burst) in 0.1f..0.25f)
         assertTrue(b.meter(b.plan.end(b.gather)) in 0.4f..0.5f)
+    }
+
+    @Test fun theWholeNameReadsForAtLeast600MsBeforeThePetalsTakeItAway() {
+        val three = PetalStormBeats.of(3f)
+        val eight = PetalStormBeats.of(8f)
+        // Even a long name's last glyph is opaque at nameLegible (the glyphs start within 240 ms and each is opaque within 60 ms).
+        assertTrue(three.nameLegible >= three.stickerStart + (240f + 60f) * three.pace)
+        assertTrue("3 s: ${three.landStart - three.nameLegible} ms", three.landStart - three.nameLegible >= 600f)
+        assertTrue("8 s stretches the hold", eight.landStart - eight.nameLegible > 3000f)
     }
 
     @Test fun theWelcomeIsAnnouncedOnceTheNameIsThereAndTheStillIsSettled() {
@@ -129,7 +161,7 @@ class IntroPetalStormTest {
         for (s in listOf(1.5f, 3f, 8f)) {
             val b = PetalStormBeats.of(s)
             // 準備好了 is typed while the meter closes on 100 %; meter and skip are gone when the petals take off.
-            assertTrue("$s s: ready typed before the name has formed", b.readyAt < b.nameFormed)
+            assertEquals("$s s: ready typed as the meter closes", b.meterFull - 100f * b.pace, b.readyAt, .01f)
             assertEquals("$s s: meter out by take-off", b.landStart, b.meterOutStart + b.meterOutLen, .01f)
             assertTrue("$s s: within 150 ms", b.meterOutLen <= 150f)
             assertTrue("$s s: still on screen at 100 %", b.meterOutStart > b.readyAt)
@@ -139,7 +171,21 @@ class IntroPetalStormTest {
             assertTrue("$s s: the fade is about 250 ms", b.fadeLen in 150f..250f)
             assertEquals(b.plan.total, b.fadeStart + b.fadeLen, .01f)
             assertTrue("$s s: the fade starts after the reveal", b.fadeStart > b.revealAt)
+            // The dock's inside develops only once every petal is home, evenly, and is done before the run ends.
+            assertTrue("$s s: the dock waits for the petals", b.dockAt >= b.landed)
+            assertTrue("$s s: the dock is done in time", b.dockAt + b.dockLen < b.plan.total)
+            // The look's ground gives way as the petals leave the name, over at least 400 ms (with a picture: the calm field).
+            assertTrue("$s s: the lift starts in the flight", b.liftStart >= b.landStart && b.liftStart <= b.landStart + .5f * b.landLen)
+            if (s >= 3f) assertTrue("$s s: the lift takes ${b.liftLen} ms", b.liftLen >= 400f)
+            assertEquals(b.plan.total, b.liftStart + b.liftLen, .01f)
+            // The sky is mostly the home's blush before the bar develops above it (no step at the bar's line).
+            assertTrue("$s s: the sky leads the bar", b.revealAt - b.liftStart >= .5f * b.skyLen)
+            // The name turns pink first, then fades: never the dark ink half faded over the pink.
+            assertTrue("$s s: tint before fade", b.typeTintLen < b.typeOutLen && b.typeOutLen <= 150f)
         }
+        // At 3 s the dock is fully developed by 2800 ms.
+        val three = PetalStormBeats.of(3f)
+        assertTrue("3 s: dock done at ${three.dockAt + three.dockLen}", three.dockAt + three.dockLen <= 2800f)
     }
 
     @Test fun petalsTumbleInFlightAndOnlySwayAtRest() {
@@ -325,6 +371,84 @@ class IntroPetalStormTest {
         assertTrue("the bar developed", white(develop, 412, headerY / 2))
         assertFalse("the middle is still the look's", white(develop, 412, 760))
         assertFalse("the sky is still the look's", white(develop, 60, 1400))
+    }
+
+    /**
+     * The hand-off over the dock, 2620–2800 ms of a 3 s run, against the app alone: the composer (pill, buttons, placeholder at the
+     * dock's real place) comes up evenly under one veil, no row of it is covered more than another (the first cut left a pink bar
+     * straight through 輸入訊息…), and by 2800 ms nothing is drawn over it.
+     */
+    @Test fun theDockDevelopsEvenlyAndNothingIsLeftOverThePlaceholder() {
+        val intro = Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.PETAL_STORM)
+        var showIntro by mutableStateOf(true)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                Box(Modifier.fillMaxSize().background(Sakura.White)) {
+                    // The dock as the shell lays it out: 12 dp from the sides and the bottom, 68 dp tall.
+                    Row(
+                        Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 12.dp).fillMaxWidth().height(68.dp)
+                            .background(Sakura.Background, RoundedCornerShape(30.dp)).padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(44.dp).background(Sakura.Aqua, CircleShape))
+                        Box(Modifier.weight(1f).height(44.dp).background(Sakura.White, RoundedCornerShape(22.dp)).padding(start = 14.dp), contentAlignment = Alignment.CenterStart) {
+                            Text("輸入訊息…", color = Sakura.TextSecondary, fontSize = 14.sp)
+                        }
+                        Box(Modifier.size(44.dp).background(Sakura.Primary, CircleShape))
+                    }
+                    if (showIntro) StartupIntro(intro, null, false) {}
+                }
+            }
+        }
+        val start = rule.mainClock.currentTime
+        val times = listOf(2620L, 2660L, 2700L, 2740L, 2780L, 2800L)
+        val frames = times.map { ms ->
+            rule.mainClock.advanceTimeBy(start + ms - rule.mainClock.currentTime)
+            shot()
+        }
+        showIntro = false
+        rule.mainClock.advanceTimeBy(32)
+        val app = shot()
+        // The pill with its placeholder (x 157–667, y 1698–1785 at this size), and the two round buttons' rows across the dock.
+        val left = 157; val right = 667; val top = 1698; val bottom = 1785
+        fun diff(f: Bitmap, x: Int, y: Int): Int {
+            val a = f.getPixel(x, y); val b = app.getPixel(x, y)
+            return maxOf(abs(((a shr 16) and 255) - ((b shr 16) and 255)), abs(((a shr 8) and 255) - ((b shr 8) and 255)), abs((a and 255) - (b and 255)))
+        }
+        // How strong the look still is over each row, measured on the pill's plain white (an even veil lies on it equally; a
+        // bar shows as a band of rows with more of the look on them).
+        fun plain(x: Int, y: Int) = app.getPixel(x, y).let { ((it shr 16) and 255) >= 252 && ((it shr 8) and 255) >= 252 && (it and 255) >= 252 }
+        for ((k, f) in frames.withIndex()) {
+            val rows = (top until bottom).mapNotNull { y ->
+                val xs = (left until right).filter { plain(it, y) }
+                if (xs.size < 100) null else xs.sumOf { x -> diff(f, x, y) }.toFloat() / xs.size
+            }
+            assertTrue(rows.size > 40)
+            val spread = rows.max() - rows.min()
+            assertTrue("${times[k]} ms: the veil is even (rows differ by $spread)", spread <= 4f)
+        }
+        val last = frames.last()
+        var worst = 0
+        var sum = 0L
+        for (y in top until bottom) for (x in left until right) { val d = diff(last, x, y); worst = maxOf(worst, d); sum += d }
+        val mean = sum.toFloat() / ((bottom - top) * (right - left))
+        assertTrue("2800 ms: nothing over the placeholder (worst $worst, mean $mean)", worst <= 10 && mean < 1f)
+    }
+
+    /** A long name fits inside the inner ring on two whole lines, and the rings stay at full strength round it. */
+    @Test fun aLongNameFitsInsideTheRings() {
+        val intro = Intro(enabled = true, name = "Christopher Robin", seconds = 3f, style = IntroStyle.PETAL_STORM)
+        val (frame) = play(intro, 2100L)
+        fun ink(r: Int, g: Int, b: Int) = abs(r - 0x5E) < 24 && abs(g - 0x44) < 24 && abs(b - 0x45) < 24
+        // The circle's centre is (412, 747) and its inner ring 220 px round at this size.
+        val inside = frame.count(192, 520, 632, 980, ::ink)
+        val outside = frame.count(0, 520, 192, 980, ::ink) + frame.count(632, 520, 824, 980, ::ink)
+        assertTrue("the name's ink inside: $inside", inside > 1500)
+        assertEquals("the name's ink outside the inner ring", 0, outside)
+        // The outer ring's dots, at full strength, all the way round (its left and right arcs, past the name).
+        val ringPink = frame.count(80, 600, 130, 900) { r, g, b -> abs(r - 0xDC) < 16 && abs(g - 0x9F) < 20 && abs(b - 0xB4) < 20 }
+        assertTrue("the outer ring's dots: $ringPink", ringPink > 40)
     }
 
     @Test fun theHandOffFadesTheRestIntoTheAppByTheEnd() {
