@@ -61,7 +61,11 @@ class LicensesPageTest {
     @Test fun theDshCommunityLooksAreCreditedWithCommitLicenceAndChanges() {
         show()
         val ported = OpenSourceLicences.portedLooks
-        assertEquals(listOf("sakura", "neon", "wave"), ported.map { it.key })
+        assertEquals(listOf("sakura", "neon", "wave", "access"), ported.map { it.key })
+        val access = ported.last()
+        assertEquals("沈宏宏", access.author)
+        assertEquals("https://github.com/6shenhonghong9/dsh-startup-screen", access.url)
+        assertEquals("7f3d2837c1aaef8293abc69093b0a35c80d0f0e8", access.commit)
         for (p in ported) {
             rule.onNodeWithText("原作：${p.project} · ${p.author}").performScrollTo()
             rule.onNodeWithText("版本：${p.commit}").performScrollTo()
@@ -76,7 +80,9 @@ class LicensesPageTest {
         }
         rule.onNodeWithTag(LicensesTags.PORTED + "sakura").performScrollTo()
         rule.onAllNodesWithText("櫻花動漫風（dsh 社群作品）").assertCountEquals(1)
-        rule.onAllNodesWithText("我們改了什麼：", substring = true).assertCountEquals(3)
+        rule.onNodeWithTag(LicensesTags.PORTED + "access").performScrollTo()
+        rule.onAllNodesWithText("科技檔案授權（dsh 社群作品）").assertCountEquals(1)
+        rule.onAllNodesWithText("我們改了什麼：", substring = true).assertCountEquals(4)
     }
 
     @Test fun theLibraryLicenceIsThereAndClosingWorks() {

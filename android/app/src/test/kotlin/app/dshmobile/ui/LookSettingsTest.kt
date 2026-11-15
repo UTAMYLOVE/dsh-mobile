@@ -91,11 +91,16 @@ class LookSettingsTest {
             "web-sakura" to "櫻花動漫風（dsh 社群作品）",
             "web-neon" to "粉色霓虹敘事（dsh 社群作品）",
             "web-wave" to "光點聚形波浪（dsh 社群作品）",
+            "web-access" to "科技檔案授權（dsh 社群作品）",
         )) {
             rule.onNodeWithTag(LookTags.INTRO_STYLE + id).performScrollTo().assertIsNotSelected()
             rule.onNodeWithText(name).assertExists()
         }
         rule.onNodeWithText("照原作播放：粉白畫面，你的圖當背景和頭像，歡迎詞一個字一個字浮上來。").assertExists()
+        rule.onNodeWithText("照原作播放：黑幕亮起成米白檔案頁，一步步核對你的身份，再歡迎你；最短約 6 秒。").assertExists()
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "web-access").performScrollTo().performClick()
+        assertEquals(IntroStyle.WEB_ACCESS, c.look.value.intro.style)
+        rule.onNodeWithTag(LookTags.INTRO_STYLE + "web-access").assertIsSelected()
         rule.onNodeWithTag(LookTags.INTRO_STYLE + "web-wave").performScrollTo().performClick()
         assertEquals(IntroStyle.WEB_WAVE, c.look.value.intro.style)
         rule.onNodeWithTag(LookTags.INTRO_STYLE + "web-wave").assertIsSelected()

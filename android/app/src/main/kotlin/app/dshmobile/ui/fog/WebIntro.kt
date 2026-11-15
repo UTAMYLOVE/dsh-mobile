@@ -89,6 +89,13 @@ enum class WebLook(val key: String, internal val ground: Long, private val calmM
     WAVE("wave", 0xFFF7F8FA, 1_700) {
         override fun runMs(seconds: Float) = ms(seconds) + 600L
     },
+    /**
+     * 科技檔案授權: its own speed (about 18.7 s at 1×, kept within 0.35×–3×) is set from the setting, so it is the setting
+     * long, but never under 18.7 s / 3 (about 6.2 s).
+     */
+    ACCESS("access", 0xFF000000, 2_200) {
+        override fun runMs(seconds: Float) = max(ms(seconds), 6_234L)
+    },
     ;
 
     protected abstract fun runMs(seconds: Float): Long

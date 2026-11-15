@@ -37,10 +37,10 @@ import org.robolectric.fakes.RoboWebSettings
 import java.io.File
 
 /**
- * The dsh community looks (櫻花動漫風, 粉色霓虹敘事, 光點聚形波浪) in their locked-down WebView: what the page is told, what it
- * may load (its own folder and the user's picture, nothing else), the one thing it can call (DSHM.done), how a run ends and how
- * a page that cannot show gives way to 櫻紋陣. A WebView does not render under Robolectric, so the page's own side is driven
- * by hand here; the emulator test (IntroWebLooksTest) plays the real pages.
+ * The dsh community looks (櫻花動漫風, 粉色霓虹敘事, 光點聚形波浪, 科技檔案授權) in their locked-down WebView: what the page
+ * is told, what it may load (its own folder and the user's picture, nothing else), the one thing it can call (DSHM.done), how a
+ * run ends and how a page that cannot show gives way to 櫻紋陣. A WebView does not render under Robolectric, so the page's own
+ * side is driven by hand here; the emulator test (IntroWebLooksTest) plays the real pages.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -55,16 +55,17 @@ class WebIntroTest {
 
     @Test fun theCommunityLooksComeAfterTheDrawnFiveWithTheirOwnIds() {
         val ids = IntroStyle.entries.map { it.id }
-        assertEquals(listOf("sigil", "stardust", "petal-storm", "tunnel", "one-stroke", "web-sakura", "web-neon", "web-wave"), ids)
-        assertEquals(listOf(null, null, null, null, null, WebLook.SAKURA, WebLook.NEON, WebLook.WAVE), IntroStyle.entries.map { it.web })
+        assertEquals(listOf("sigil", "stardust", "petal-storm", "tunnel", "one-stroke", "web-sakura", "web-neon", "web-wave", "web-access"), ids)
+        assertEquals(listOf(null, null, null, null, null, WebLook.SAKURA, WebLook.NEON, WebLook.WAVE, WebLook.ACCESS), IntroStyle.entries.map { it.web })
+        assertEquals(listOf("sakura", "neon", "wave", "access"), WebLook.entries.map { it.key })
         for (style in IntroStyle.entries) assertEquals(style, IntroStyle.of(style.id))
-        // The look that did not pass its review (科技檔案授權) is not offered, and its id reads as the default.
-        assertEquals(IntroStyle.SIGIL, IntroStyle.of("web-access"))
+        // An id this app does not know (an older or newer app's look) reads as the default.
+        assertEquals(IntroStyle.SIGIL, IntroStyle.of("web-unknown"))
     }
 
     @Test fun aCommunityLookIsSavedAndReadBack() {
         val prefs = app.dshmobile.gateway.InMemorySharedPreferences()
-        for (style in listOf(IntroStyle.WEB_SAKURA, IntroStyle.WEB_NEON, IntroStyle.WEB_WAVE)) {
+        for (style in listOf(IntroStyle.WEB_SAKURA, IntroStyle.WEB_NEON, IntroStyle.WEB_WAVE, IntroStyle.WEB_ACCESS)) {
             LookStore(prefs).save(Look(intro = Intro(enabled = true, style = style)))
             assertEquals(style, LookStore(prefs).load().intro.style)
         }
@@ -102,6 +103,13 @@ class WebIntroTest {
         assertEquals("8.0", Uri.parse(IntroWeb.url(WebLook.WAVE, Intro(seconds = 99f), false, false)).getQueryParameter("seconds"))
         assertEquals("1.5", Uri.parse(IntroWeb.url(WebLook.WAVE, Intro(seconds = 0f), false, false)).getQueryParameter("seconds"))
         assertEquals("3.0", Uri.parse(IntroWeb.url(WebLook.WAVE, Intro(seconds = Float.NaN), false, false)).getQueryParameter("seconds"))
+        val access = Uri.parse(IntroWeb.url(WebLook.ACCESS, Intro(name = "小雨", seconds = 6.5f), reduced = false, picture = true))
+        assertEquals("/assets/intro-web/access/index.html", access.path)
+        assertEquals(listOf("name", "welcome", "number", "level", "seconds", "reduced", "skippable", "picture", "lang"), access.queryParameterNames.toList())
+        assertEquals("小雨", access.getQueryParameter("name"))
+        assertEquals("6.5", access.getQueryParameter("seconds"))
+        assertEquals("1", access.getQueryParameter("picture"))
+        assertNull(access.getQueryParameter("interact")) // the page's own tap-to-go-on steps stay off
         // Hostile words travel as data: encoded in the query, never as markup or another parameter.
         val odd = Uri.parse(IntroWeb.url(WebLook.SAKURA, Intro(name = "<img src=x>&picture=0#done"), false, true))
         assertEquals("<img src=x>&picture=0#done", odd.getQueryParameter("name"))
@@ -117,9 +125,14 @@ class WebIntroTest {
         assertEquals(4_200L, own(WebLook.NEON, 3f)) // its own floor is about 4 s
         assertEquals(8_200L, own(WebLook.NEON, 8f))
         assertEquals(3_600L, own(WebLook.WAVE, 3f))
+        assertEquals(6_234L, own(WebLook.ACCESS, 1.5f)) // its own speed tops out at 3×: 18.7 s / 3
+        assertEquals(6_234L, own(WebLook.ACCESS, 3f))
+        assertEquals(6_500L, own(WebLook.ACCESS, 6.5f))
+        assertEquals(8_000L, own(WebLook.ACCESS, 8f))
         assertEquals(2_000L, own(WebLook.SAKURA, 8f, reduced = true))
         assertEquals(2_200L, own(WebLook.NEON, 8f, reduced = true))
         assertEquals(1_700L, own(WebLook.WAVE, 8f, reduced = true))
+        assertEquals(2_200L, own(WebLook.ACCESS, 8f, reduced = true)) // 1.5 s still, done 0.7 s into its fade
         assertEquals(6_000L, IntroWeb.ceilingMs(WebLook.SAKURA, Intro(seconds = 3f), false))
         for (look in WebLook.entries) for (s in listOf(1.5f, 3f, 8f, 99f)) for (r in listOf(false, true)) {
             val c = IntroWeb.ceilingMs(look, Intro(seconds = s), r)
@@ -154,6 +167,9 @@ class WebIntroTest {
         assertEquals("text/css", req.respond(Uri.parse("${base}sakura/boot.css")).mimeType)
         assertEquals("text/javascript", req.respond(Uri.parse("${base}neon/neon.js")).mimeType)
         assertEquals(200, req.respond(Uri.parse("${base}wave/wave.js")).statusCode)
+        assertEquals("text/css", req.respond(Uri.parse("${base}access/splash.css")).mimeType)
+        assertEquals("text/javascript", req.respond(Uri.parse("${base}access/splash.js")).mimeType)
+        assertEquals(200, req.respond(Uri.parse("${base}access/splash.js")).statusCode)
     }
 
     @Test fun everythingElseIsBlocked() {
@@ -170,7 +186,12 @@ class WebIntroTest {
             "https://appassets.androidplatform.net/assets/intro-web/sakura/LICENSE",
             "https://appassets.androidplatform.net/assets/intro-web/sakura/.hidden.js",
             "https://appassets.androidplatform.net/assets/intro-web/sakura/missing.js",
-            "https://appassets.androidplatform.net/assets/intro-web/access/index.html",
+            "https://appassets.androidplatform.net/assets/intro-web/access/NOTICE.md",
+            "https://appassets.androidplatform.net/assets/intro-web/access/LICENSE",
+            "https://appassets.androidplatform.net/assets/intro-web/access/%2e%2e/sakura/boot.js",
+            "https://appassets.androidplatform.net/assets/intro-web/access/splash.mjs",
+            "https://appassets.androidplatform.net/assets/intro-web/access/sfx-tick.mp3",
+            "https://appassets.androidplatform.net/assets/intro-web/accessx/index.html",
             "https://appassets.androidplatform.net/res/drawable/x.png",
             "https://appassets.androidplatform.net/",
             "http://appassets.androidplatform.net/assets/intro-web/sakura/index.html",
@@ -403,6 +424,24 @@ class WebIntroTest {
         assertBlocked(client(web).shouldInterceptRequest(web, request("${base}neon/picture.img"))!!, "the picture with the portrait off")
     }
 
+    @Test fun theTechArchiveIsGivenItsOwnSixSecondsEvenWhenTheSettingIsShorter() {
+        play(Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_ACCESS))
+        val web = web()
+        assertEquals("/assets/intro-web/access/index.html", Uri.parse(shadowOf(web).lastLoadedUrl).path)
+        showFirstFrame(web)
+        at(100)
+        val visibleAt = rule.mainClock.currentTime - start
+        // Its own floor is 6.234 s: the screen underneath comes back 1.2 s before that, the ceiling is 3 s after it.
+        at(visibleAt + 4_900)
+        assertEquals(listOf(true), opaque)
+        at(visibleAt + 5_150)
+        assertEquals(listOf(true, false), opaque)
+        at(visibleAt + 9_100)
+        assertEquals(0, done)
+        at(visibleAt + 9_350)
+        assertEquals(1, done)
+    }
+
     @Test fun aPageThatNeverEndsIsEndedAtItsCeiling() {
         play(Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_SAKURA))
         val web = web()
@@ -497,7 +536,7 @@ class WebIntroTest {
             assertTrue("$dir/LICENSE keeps ${credit.copyright}", read("$dir/LICENSE").contains(credit.copyright))
             assertTrue("$dir/NOTICE.md names commit ${credit.commit}", read("$dir/NOTICE.md").contains(credit.commit))
             for (f in files.filter { it.endsWith(".html") || it.endsWith(".js") || it.endsWith(".css") }) {
-                val text = read("$dir/$f")
+                val text = withoutNames(read("$dir/$f"))
                 for (bad in listOf(
                     "http:", "https:", "//cdn", "@import", "@font-face", "fetch(", "XMLHttpRequest", "WebSocket", "EventSource", "sendBeacon",
                     "WebTransport", "RTCPeerConnection", "importScripts", "import(", "Worker(", "serviceWorker", "postMessage", "window.open",
@@ -511,9 +550,45 @@ class WebIntroTest {
                 assertFalse("$dir/$f has a //host address", Regex("""(src|href|action)\s*=\s*["'`]?\s*//|url\(\s*["']?\s*//""").containsMatchIn(text))
             }
         }
-        // The look that did not pass its review is not shipped.
-        assertTrue("科技檔案授權 (access) is not shipped", assetFiles("intro-web").none { it.startsWith("access/") })
-        assertNotNull(OpenSourceLicences.portedLooks.singleOrNull { it.key == "sakura" })
+        // Every shipped look is credited, and every credited one is shipped.
+        assertEquals(WebLook.entries.map { it.key }, OpenSourceLicences.portedLooks.map { it.key })
+        assertEquals(WebLook.entries.map { it.key }.toSet(), assetFiles("intro-web").map { it.substringBefore('/') }.toSet())
+        assertNotNull(OpenSourceLicences.portedLooks.singleOrNull { it.key == "access" })
+    }
+
+    @Test fun onlyNamesThatAreNeverFetchedAreLetThroughTheScan() {
+        // 科技檔案授權 names the SVG namespace (createElementNS, its grain picture's xmlns) and credits its source in a header.
+        val js = read("intro-web/access/splash.js")
+        assertTrue(js.contains("'http://www.w3.org/2000/svg'"))
+        assertFalse(withoutNames(js).contains("http:"))
+        assertFalse(withoutNames(js).contains("https:"))
+        assertFalse(withoutNames(read("intro-web/access/splash.css")).contains("http"))
+        // The same words anywhere else still fail it.
+        for (bad in listOf(
+            "<script src=\"http://www.w3.org/2000/svg.js\"></script>",
+            "img.src = 'http://www.w3.org/2000/svg/x.png'",
+            "img.src = 'http://www.w3.org/2000/svg'",
+            "<img src=\"http://www.w3.org/2000/svg\">",
+            "var u = 'https://github.com/x/y'",
+            "// Source: https://github.com/x/y",
+            "/* a */\n * Source: https://github.com/x/y\n",
+            " * Source: https://github.com/x/y/raw/main/z.js\n",
+        )) {
+            assertTrue(bad, withoutNames(bad).contains("http"))
+        }
+    }
+
+    /**
+     * [text] without the addresses a page carries only as names, never fetched: the SVG namespace as an `xmlns` value (a `data:`
+     * picture's) or a variable's value (for `createElementNS`), and the author's repository on a block comment's `Source:` credit
+     * line. Every other `http:` or `https:` is left for the scan to fail.
+     */
+    private fun withoutNames(text: String): String {
+        val svg = text.replace(Regex("""(xmlns=|(?:var|let|const)\s+\w+\s*=\s*)(['"])http://www\.w3\.org/2000/svg\2"""), "$1$2$2")
+        return Regex("""(?m)^ \* Source: https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$""").replace(svg) { m ->
+            val at = m.range.first
+            if (svg.lastIndexOf("/*", at) > svg.lastIndexOf("*/", at)) "" else m.value
+        }
     }
 
     /**
@@ -538,6 +613,11 @@ class WebIntroTest {
             "wave/index.html" to "92e5ae25e7020873aeb76ad58fc3a3d74f30a4f155879ce0a3368c1f5bc33098",
             "wave/wave.css" to "f3a3cf90a71a3a109e647bbd580ab958076f39bb090927b32c5db28e26dae943",
             "wave/wave.js" to "4c13a4f96d4500c1dfbbb2c6dd8be9943e728455bb8a25ccb03e583be72d4096",
+            "access/LICENSE" to "9bbdfb8e1b847a8a9f614b95110fff653733ecd1fe86d04ac8836788f71ec736",
+            "access/NOTICE.md" to "2143bbcda7ae16d3dfa418ab7366d0a8b9ccebec03d659af9cf3cd50989054d9",
+            "access/index.html" to "94a6270220f76eade2535aa802d162965559d493db03e1d82e0c8e11c7cdb09b",
+            "access/splash.css" to "adf87d59d5c31bddceaa6215e2fefd9642bf619b4064dbaf4c4deffe0ad80682",
+            "access/splash.js" to "b012ad8a9861b6b2042cebd18e2be377fb3e7ed744885ebf91f298d105729bd4",
         )
         assertEquals(reviewed.keys, assetFiles("intro-web"))
         for ((path, sha) in reviewed) assertEquals("intro-web/$path is the reviewed file", sha, sha256("intro-web/$path"))

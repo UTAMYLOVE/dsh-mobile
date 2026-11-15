@@ -112,6 +112,11 @@ internal object OpenSourceLicences {
             "b75f3e3e5346b48156c2193ca1c11ec3a78a60af", "Copyright (c) 2026 bigfatorangecatjohn",
             R.string.look_intro_style_web_wave, R.string.licenses_ported_wave_changes,
         ),
+        PortedLook(
+            "access", "dsh-startup-screen", "沈宏宏", "https://github.com/6shenhonghong9/dsh-startup-screen",
+            "7f3d2837c1aaef8293abc69093b0a35c80d0f0e8", "Copyright (c) 2026 沈宏宏",
+            R.string.look_intro_style_web_access, R.string.licenses_ported_access_changes,
+        ),
     )
 }
 

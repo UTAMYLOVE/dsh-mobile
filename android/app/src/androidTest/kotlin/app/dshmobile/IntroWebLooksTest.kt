@@ -41,11 +41,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * The dsh community startup looks (櫻花動漫風, 粉色霓虹敘事, 光點聚形波浪) on a real Android WebView, which Robolectric cannot
- * render (WebIntroTest covers the rest there). Each look plays with a test picture in its locked-down WebView, a few seconds in
- * UiAutomator takes a screenshot (portrait, and landscape in a second pass) into the app's external files dir, intro-shots/,
- * and a tap (or back) must end the overlay early and leave no WebView behind. The screenshots are also copied to
- * /data/local/tmp/intro-shots, which outlives the app's uninstall after the run, so CI can pull them for the owner.
+ * The dsh community startup looks (櫻花動漫風, 粉色霓虹敘事, 光點聚形波浪, 科技檔案授權) on a real Android WebView, which
+ * Robolectric cannot render (WebIntroTest covers the rest there). Each look plays with a test picture in its locked-down
+ * WebView, a few seconds in UiAutomator takes a screenshot (portrait, and landscape in a second pass) into the app's external
+ * files dir, intro-shots/, and a tap (or back) must end the overlay early and leave no WebView behind. The screenshots are also
+ * copied to /data/local/tmp/intro-shots, which outlives the app's uninstall after the run, so CI can pull them for the owner.
  *
  * Needs no dsh: the looks play in a bare activity, the way the shell hosts them, with the same StartupIntro.
  */
@@ -63,9 +63,11 @@ class IntroWebLooksTest {
     @Test fun sakuraPlaysAndATapEndsIt() = play(IntroStyle.WEB_SAKURA, WebLook.SAKURA, "櫻花動漫風", landscape = false)
     @Test fun neonPlaysAndATapEndsIt() = play(IntroStyle.WEB_NEON, WebLook.NEON, "粉色霓虹敘事", landscape = false)
     @Test fun wavePlaysAndATapEndsIt() = play(IntroStyle.WEB_WAVE, WebLook.WAVE, "光點聚形波浪", landscape = false)
+    @Test fun accessPlaysAndATapEndsIt() = play(IntroStyle.WEB_ACCESS, WebLook.ACCESS, "科技檔案授權", landscape = false)
     @Test fun sakuraFitsLandscape() = play(IntroStyle.WEB_SAKURA, WebLook.SAKURA, "櫻花動漫風", landscape = true)
     @Test fun neonFitsLandscape() = play(IntroStyle.WEB_NEON, WebLook.NEON, "粉色霓虹敘事", landscape = true)
     @Test fun waveFitsLandscape() = play(IntroStyle.WEB_WAVE, WebLook.WAVE, "光點聚形波浪", landscape = true)
+    @Test fun accessFitsLandscape() = play(IntroStyle.WEB_ACCESS, WebLook.ACCESS, "科技檔案授權", landscape = true)
 
     private fun play(style: IntroStyle, look: WebLook, title: String, landscape: Boolean) {
         if (landscape) {

@@ -67,6 +67,7 @@ fun StartupIntro(
         IntroStyle.WEB_SAKURA -> CommunityIntro(intro, WebLook.SAKURA, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
         IntroStyle.WEB_NEON -> CommunityIntro(intro, WebLook.NEON, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
         IntroStyle.WEB_WAVE -> CommunityIntro(intro, WebLook.WAVE, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
+        IntroStyle.WEB_ACCESS -> CommunityIntro(intro, WebLook.ACCESS, picture, reducedMotion, pictureExpected, fx, onOpaqueChange, onDone)
     }
 }
 

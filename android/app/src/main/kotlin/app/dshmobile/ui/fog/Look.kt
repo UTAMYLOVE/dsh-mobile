@@ -54,6 +54,8 @@ enum class IntroStyle(val id: String, val web: WebLook? = null) {
     WEB_NEON("web-neon", WebLook.NEON),
     /** 光點聚形波浪 (bigfatorangecatjohn/opening-free-0.21.0): a wave of light dots gathers into your picture and the welcome. */
     WEB_WAVE("web-wave", WebLook.WAVE),
+    /** 科技檔案授權 (6shenhonghong9/dsh-startup-screen): a black opening, a warm-white tech archive, an access check of you, the welcome. */
+    WEB_ACCESS("web-access", WebLook.ACCESS),
     ;
 
     companion object {

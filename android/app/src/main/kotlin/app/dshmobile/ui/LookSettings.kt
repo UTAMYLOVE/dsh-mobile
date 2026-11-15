@@ -185,6 +185,7 @@ private fun styleWords(style: IntroStyle): Pair<Int, Int> = when (style) {
     IntroStyle.WEB_SAKURA -> R.string.look_intro_style_web_sakura to R.string.look_intro_style_web_sakura_hint
     IntroStyle.WEB_NEON -> R.string.look_intro_style_web_neon to R.string.look_intro_style_web_neon_hint
     IntroStyle.WEB_WAVE -> R.string.look_intro_style_web_wave to R.string.look_intro_style_web_wave_hint
+    IntroStyle.WEB_ACCESS -> R.string.look_intro_style_web_access to R.string.look_intro_style_web_access_hint
 }
 
 @Composable
