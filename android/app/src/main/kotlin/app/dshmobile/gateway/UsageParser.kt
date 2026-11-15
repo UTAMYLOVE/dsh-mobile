@@ -66,9 +66,11 @@ object UsageParser {
     }
 
     /** Usage fields of a `message_start` (inside `message`) or `message_delta` event; null for any other event or bad JSON. */
+    fun fromSseEvent(p: Provider, data: String): UsageUpdate? = parseObject(data)?.let { usageOf(p, it) }
+
+    /** [fromSseEvent] for an event already parsed. */
     @Suppress("UNUSED_PARAMETER") // both providers share one format
-    fun fromSseEvent(p: Provider, data: String): UsageUpdate? {
-        val event = parseObject(data) ?: return null
+    internal fun usageOf(p: Provider, event: JsonObject): UsageUpdate? {
         val usage = when ((event["type"] as? JsonPrimitive)?.content) {
             "message_start" -> (event["message"] as? JsonObject)?.get("usage")
             "message_delta" -> event["usage"]
@@ -77,7 +79,17 @@ object UsageParser {
         return toUpdate(usage).takeIf { it != UsageUpdate() }
     }
 
-    private fun parseObject(text: String): JsonObject? =
+    /**
+     * UTF-8 bytes of the generated content a `content_block_delta` carried (`text`, tool input `partial_json`, `thinking`); 0 for
+     * any other event. A stream cut before its final `message_delta` has no other trace of its output.
+     */
+    internal fun streamedBytes(event: JsonObject): Long {
+        if ((event["type"] as? JsonPrimitive)?.content != "content_block_delta") return 0
+        val delta = event["delta"] as? JsonObject ?: return 0
+        return STREAMED_FIELDS.sumOf { k -> (delta[k] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(::utf8Length) ?: 0L }
+    }
+
+    internal fun parseObject(text: String): JsonObject? =
         try {
             json.parseToJsonElement(text) as? JsonObject
         } catch (_: IllegalArgumentException) {
@@ -93,16 +105,40 @@ object UsageParser {
     )
 
     private fun JsonObject.long(key: String): Long? = (get(key) as? JsonPrimitive)?.longOrNull
+
+    private val STREAMED_FIELDS = listOf("text", "partial_json", "thinking")
+
+    private fun utf8Length(s: String): Long {
+        var n = 0L
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            n += when {
+                c.code < 0x80 -> 1
+                c.code < 0x800 -> 2
+                Character.isHighSurrogate(c) && i + 1 < s.length && Character.isLowSurrogate(s[i + 1]) -> { i++; 4 }
+                else -> 3
+            }
+            i++
+        }
+        return n
+    }
 }
 
 /**
  * Listens to an SSE byte stream (fed in arbitrary pieces) and accumulates the usage in its `data:` lines.
  * Each line is capped so a malformed stream cannot grow memory.
+ *
+ * The output count arrives only in the final `message_delta`; until then `message_start` says ~1. A reply stopped or cut off
+ * before the end (STOP, a lost connection) used to book that 1, though the provider bills every token it generated (thousands of
+ * thinking tokens at high effort). Without the final count, the output is estimated from the streamed content instead.
  */
 class SseUsageScanner(private val provider: Provider) {
     private val accumulator = UsageAccumulator()
     private val line = java.io.ByteArrayOutputStream()
     private var skipping = false
+    private var sawFinal = false
+    private var streamedBytes = 0L
 
     fun feed(bytes: ByteArray, offset: Int, length: Int) {
         for (i in offset until offset + length) {
@@ -122,18 +158,30 @@ class SseUsageScanner(private val provider: Provider) {
         }
     }
 
-    fun usage(): Usage? = accumulator.current()
+    /**
+     * The usage seen so far. Without the final output count, one token per [BYTES_PER_TOKEN] bytes of streamed content (about
+     * one per Chinese character). Only an estimate, and low when thinking is summarized or omitted: the provider bills the full
+     * thinking, which it does not stream.
+     */
+    fun usage(): Usage? = accumulator.current()?.let { u ->
+        if (sawFinal) u else u.copy(outputTokens = maxOf(u.outputTokens, streamedBytes / BYTES_PER_TOKEN))
+    }
 
     private fun finishLine() {
         val text = line.toString(Charsets.UTF_8).trimEnd('\r')
         if (!text.startsWith("data:")) return
-        val data = text.removePrefix("data:").removePrefix(" ")
-        UsageParser.fromSseEvent(provider, data)?.let(accumulator::add)
+        val event = UsageParser.parseObject(text.removePrefix("data:").removePrefix(" ")) ?: return
+        UsageParser.usageOf(provider, event)?.let { update ->
+            accumulator.add(update)
+            if (update.outputTokens != null && (event["type"] as? JsonPrimitive)?.content == "message_delta") sawFinal = true
+        }
+        streamedBytes += UsageParser.streamedBytes(event)
     }
 
     private companion object {
         const val NEWLINE = '\n'.code.toByte()
         const val MAX_LINE_BYTES = 1 shl 20
+        const val BYTES_PER_TOKEN = 3L
     }
 }
 

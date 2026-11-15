@@ -84,6 +84,35 @@ class UsageParserTest {
         assertEquals(Usage(inputTokens = 0, outputTokens = 9), scanner.usage())
     }
 
+    private fun scan(vararg events: String): Usage? {
+        val scanner = SseUsageScanner(Provider.ANTHROPIC)
+        val bytes = events.joinToString("") { "data: $it\n\n" }.toByteArray()
+        scanner.feed(bytes, 0, bytes.size)
+        return scanner.usage()
+    }
+
+    private val start = """{"type":"message_start","message":{"usage":{"input_tokens":100,"output_tokens":1}}}"""
+    private val text = """{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"${"a".repeat(300)}"}}"""
+    private val thinking = """{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"${"想".repeat(30)}"}}"""
+    private val toolInput = """{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"a.md\"}"}}"""
+
+    /** H6: a reply stopped before its final `message_delta` booked ~1 output token; what it streamed is billed too. */
+    @Test fun aStreamCutBeforeItsFinalCountEstimatesItsOutputFromTheDeltas() {
+        // 300 ASCII bytes, 30 Chinese characters (90 bytes) and 15 bytes of tool input: 405 bytes, one token per 3.
+        val u = scan(start, thinking, text, toolInput)
+        assertEquals(Usage(inputTokens = 100, outputTokens = 135), u)
+    }
+
+    @Test fun theFinalCountWinsOverTheEstimate() {
+        val u = scan(start, thinking, text, """{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}""")
+        assertEquals(42L, u?.outputTokens)
+    }
+
+    @Test fun aCutStreamWithoutDeltasKeepsWhatMessageStartSaid() {
+        assertEquals(Usage(inputTokens = 100, outputTokens = 1), scan(start, """{"type":"ping"}"""))
+        assertNull(scan(text))
+    }
+
     @Test fun scannerSurvivesAnOversizedLine() {
         val scanner = SseUsageScanner(Provider.ANTHROPIC)
         val huge = ByteArray(2 shl 20) { 'x'.code.toByte() }

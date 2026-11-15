@@ -358,6 +358,20 @@ class LocalGatewayTest {
         assertEquals(partial, meter.todayUsd(), 1e-12)
     }
 
+    /** H6: a stream cut before its final count books the output it had streamed, not the ~1 token of `message_start`. */
+    @Test fun anAbortedStreamWithDeltasBooksTheirOutput() {
+        startGateway()
+        val delta = """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"${"a".repeat(300)}"}}"""
+        // MockWebServer cuts after half the body: the start and the delta are sent, the final message_delta never is.
+        val body = padded(sseEvent(messageStart), 1000) + sseEvent(delta) + padded("", 3000) + sseEvent(messageDelta)
+        anthropicUpstream.enqueue(sseResponse(body).setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY))
+        runCatching { postJson("/anthropic/v1/messages", """{"model":"claude-opus-5-5","stream":true}""").use { it.text() } }
+        val streamed = PriceTable().costUsd(Provider.ANTHROPIC, "claude-opus-5-5", Usage(inputTokens = 100, outputTokens = 100), clock.instant())
+        awaitTrue { meter.todayUsd() > 0 }
+        Thread.sleep(300)
+        assertEquals(streamed, meter.todayUsd(), 1e-12)
+    }
+
     @Test fun countsUsageOnceWhenClientCancels() {
         startGateway()
         val first = padded(sseEvent(messageStart), 200)
