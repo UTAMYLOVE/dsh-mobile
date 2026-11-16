@@ -842,11 +842,14 @@ class ThemeScenes(
         }
     }
 
-    /** dsh's detailed status in Settings: a slow health check, with 強制結束 offered. */
+    /** dsh's detailed status in Settings (SettingsScreen.kt:546, inside the tab's Surface at :520): a slow health check, with 強制結束 offered. */
     fun dshStatus() = show(Shot(crop = ROOT)) {
         Stage {
-            Column(Modifier.padding(LocalPagePadding.current)) {
-                DshStatusView(DshStatus(DshPhase.HEALTH_CHECK, sinceMs = 0, port = 38123), onForceRestart = {}, onOpenAppSettings = {}, now = { 95_000L })
+            // SettingsScreen.kt:520: the settings tab's Surface is what gives DshStatusView's plain Text its ink.
+            Surface(color = Color.Transparent, contentColor = Sakura.Text) {
+                Column(Modifier.padding(LocalPagePadding.current)) {
+                    DshStatusView(DshStatus(DshPhase.HEALTH_CHECK, sinceMs = 0, port = 38123), onForceRestart = {}, onOpenAppSettings = {}, now = { 95_000L })
+                }
             }
         }
     }
