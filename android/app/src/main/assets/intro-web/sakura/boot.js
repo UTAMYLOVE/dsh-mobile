@@ -159,6 +159,8 @@
       reduced: reduced === '1' ? true : (reduced === '0' ? false : null),
       skippable: get('skippable') !== '0',
       picture: get('picture') === '1',
+      // [DSH Mobile] The home screen's 對齊 for the background (top / center / bottom), so the hand-off matches it.
+      align: get('align') === 'top' ? '0%' : (get('align') === 'bottom' ? '100%' : '50%'),
       festival: get('festival'),
     }
   }
@@ -252,6 +254,7 @@
       var bgImg = doc.createElement('img')
       bgImg.alt = ''
       bgImg.src = 'picture.img'
+      bgImg.style.objectPosition = '50% ' + P.align
       bg.appendChild(bgImg)
       var faceImg = doc.createElement('img')
       faceImg.alt = ''

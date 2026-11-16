@@ -42,7 +42,7 @@ This folder contains the startup animation from **dsh-startup-animation** by Kyl
 ## Changes
 
 1. **Parameters come from the query string**, not from the dsh host's `window.__dshsConfig`.
-   - The parameters are `?name=&welcome=&number=&level=&seconds=&reduced=0|1&skippable=0|1&picture=1|0&lang=zh-TW`, plus an optional `festival=auto|off|sakura|snow|newyear`.
+   - The parameters are `?name=&welcome=&number=&level=&seconds=&reduced=0|1&skippable=0|1&picture=1|0&align=top|center|bottom&lang=zh-TW`, plus an optional `festival=auto|off|sakura|snow|newyear`.
    - Text is limited to 24 characters (grapheme clusters), with control characters removed.
    - Text is only written with `textContent` or an `aria-label`, never as HTML.
    - Only constant markup still goes through `innerHTML`.
@@ -51,6 +51,7 @@ This folder contains the startup animation from **dsh-startup-animation** by Kyl
    - The original's `<img src="/dsh-startup/bg">` and `<img src="/dsh-startup/avatar">` (dsh host routes) are replaced.
    - With `picture=1`, the background uses the relative `picture.img` (the user's whole picture), and the avatar uses the relative `avatar.img`: a 512×512 square the app cuts round the face, so a tall picture shows its face in the avatar, not the middle of the picture.
    - If `avatar.img` fails to load, the avatar uses `picture.img` instead.
+   - The background picture is placed by `align` (`top`, `center` or `bottom`; anything else is `center`), the same vertical placement the app's home screen uses for that picture, so the hand-off at the end matches it on a phone held sideways too. It only sets the image's `object-position` to `50% 0%`, `50% 50%` or `50% 100%`. The original always centred it.
    - With `picture=0`, or if `picture.img` fails to load as well, the stand-ins drawn in code are used (see the asset table).
    - When there is no picture to wait for, the entrance starts at once. The original always waited for its two images, with a 1.2 s cap.
 3. **Words.**

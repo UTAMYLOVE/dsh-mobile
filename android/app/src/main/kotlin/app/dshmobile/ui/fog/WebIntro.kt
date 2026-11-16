@@ -144,8 +144,11 @@ object IntroWeb {
     const val CSP = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; " +
         "connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
 
-    /** The page for [look], told the user's words and choices in its query (the contract every bundle reads). */
-    fun url(look: WebLook, intro: Intro, reduced: Boolean, picture: Boolean): String = Uri.Builder()
+    /**
+     * The page for [look], told the user's words and choices in its query (the contract every bundle reads). [align] is the
+     * home screen's 對齊 for the picture: a page that shows the whole picture full screen places it the same way.
+     */
+    fun url(look: WebLook, intro: Intro, reduced: Boolean, picture: Boolean, align: PictureAlign = PictureAlign.CENTER): String = Uri.Builder()
         .scheme("https").authority(HOST).path("$PREFIX${look.key}/index.html")
         .appendQueryParameter("name", intro.name.trim())
         .appendQueryParameter("welcome", intro.welcome.trim())
@@ -155,6 +158,7 @@ object IntroWeb {
         .appendQueryParameter("reduced", if (reduced) "1" else "0")
         .appendQueryParameter("skippable", if (intro.skippable) "1" else "0")
         .appendQueryParameter("picture", if (picture) "1" else "0")
+        .appendQueryParameter("align", align.id)
         .appendQueryParameter("lang", "zh-TW")
         .build().toString()
 
@@ -548,7 +552,7 @@ internal fun WebIntro(
         val given = picture != null && requests.hasPicture
         // Told picture=0, the page gets neither file (a picture that went away just now takes its avatar with it).
         if (!given) withContext(Dispatchers.Main.immediate) { requests.prepared(null, null) }
-        withContext(Dispatchers.Main.immediate) { web.loadUrl(IntroWeb.url(look, intro, reducedMotion, given)) }
+        withContext(Dispatchers.Main.immediate) { web.loadUrl(IntroWeb.url(look, intro, reducedMotion, given, chosen.align)) }
         if (withTimeoutOrNull(IntroWeb.FIRST_FRAME_MS) { snapshotFlow { run.visible }.first { it } } == null) {
             broke()
             return@LaunchedEffect

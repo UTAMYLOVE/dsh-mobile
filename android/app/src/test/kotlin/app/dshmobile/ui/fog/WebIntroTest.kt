@@ -83,7 +83,7 @@ class WebIntroTest {
         assertEquals("https", url.scheme)
         assertEquals("appassets.androidplatform.net", url.authority)
         assertEquals("/assets/intro-web/neon/index.html", url.path)
-        assertEquals(listOf("name", "welcome", "number", "level", "seconds", "reduced", "skippable", "picture", "lang"), url.queryParameterNames.toList())
+        assertEquals(listOf("name", "welcome", "number", "level", "seconds", "reduced", "skippable", "picture", "align", "lang"), url.queryParameterNames.toList())
         assertEquals("小雨 & co", url.getQueryParameter("name"))
         assertEquals("早安", url.getQueryParameter("welcome"))
         assertEquals("No.7", url.getQueryParameter("number"))
@@ -92,6 +92,7 @@ class WebIntroTest {
         assertEquals("1", url.getQueryParameter("reduced"))
         assertEquals("0", url.getQueryParameter("skippable"))
         assertEquals("1", url.getQueryParameter("picture"))
+        assertEquals("center", url.getQueryParameter("align"))
         assertEquals("zh-TW", url.getQueryParameter("lang"))
         assertNull(url.fragment)
     }
@@ -109,11 +110,13 @@ class WebIntroTest {
         assertEquals("3.0", Uri.parse(IntroWeb.url(WebLook.WAVE, Intro(seconds = Float.NaN), false, false)).getQueryParameter("seconds"))
         val access = Uri.parse(IntroWeb.url(WebLook.ACCESS, Intro(name = "小雨", seconds = 6.5f), reduced = false, picture = true))
         assertEquals("/assets/intro-web/access/index.html", access.path)
-        assertEquals(listOf("name", "welcome", "number", "level", "seconds", "reduced", "skippable", "picture", "lang"), access.queryParameterNames.toList())
+        assertEquals(listOf("name", "welcome", "number", "level", "seconds", "reduced", "skippable", "picture", "align", "lang"), access.queryParameterNames.toList())
         assertEquals("小雨", access.getQueryParameter("name"))
         assertEquals("6.5", access.getQueryParameter("seconds"))
         assertEquals("1", access.getQueryParameter("picture"))
         assertNull(access.getQueryParameter("interact")) // the page's own tap-to-go-on steps stay off
+        // The home screen's 對齊 goes with it, so a full-screen picture is placed the same way.
+        for (a in PictureAlign.entries) assertEquals(a.id, Uri.parse(IntroWeb.url(WebLook.SAKURA, Intro(), false, true, a)).getQueryParameter("align"))
         // Hostile words travel as data: encoded in the query, never as markup or another parameter.
         val odd = Uri.parse(IntroWeb.url(WebLook.SAKURA, Intro(name = "<img src=x>&picture=0#done"), false, true))
         assertEquals("<img src=x>&picture=0#done", odd.getQueryParameter("name"))
@@ -758,9 +761,9 @@ class WebIntroTest {
             "neon/neon.css" to "10c3709be24eedec4d01d46e34f340112b09672480911f62f2518e0a8fe2420a",
             "neon/neon.js" to "0143e593a78892f4b469041d5e7bad0bf8b810215d4bed12e4565eea0c071e0f",
             "sakura/LICENSE" to "9df9e9dee7f674175ee6779a546577e34dc8a807ff51df15688f8cd936d075eb",
-            "sakura/NOTICE.md" to "b5c668ef9ec44d91a4a38515557b0d640a4c78474ef6d955bef3a7b12256eb2f",
+            "sakura/NOTICE.md" to "582de0de2ec498d5dc1437c4864c47baad9bd22ff6300ef80012f40d2104506a",
             "sakura/boot.css" to "4ff12472f84e8b540d9b1715de3f9d818624d06861b06d25b6d12e289324d6eb",
-            "sakura/boot.js" to "8b74486a5eb51a6835aca3f37b8c732506200bd3ecd55bbccda18833da38d5dd",
+            "sakura/boot.js" to "e61cbca757c0d98a3f0a3f26c13e9d2f4d6af0de09d7b05be2f228ada6f83fa9",
             "sakura/index.html" to "a4c8d82c75a1e8949a090c0cb42193647c5bb33440f88571b3955629c4b7e570",
             "wave/LICENSE" to "bd4901eabfc18ad33b500c643150a930860076868da232efd36fefe8c0e6fdef",
             "wave/NOTICE.md" to "604a02c8142c88c7e97c0ab575e5d95858904139ba4bbaed6b0c160d69437698",
