@@ -115,8 +115,9 @@ class WebIntroTest {
         assertEquals("6.5", access.getQueryParameter("seconds"))
         assertEquals("1", access.getQueryParameter("picture"))
         assertNull(access.getQueryParameter("interact")) // the page's own tap-to-go-on steps stay off
-        // The home screen's 對齊 goes with it, so a full-screen picture is placed the same way.
-        for (a in PictureAlign.entries) assertEquals(a.id, Uri.parse(IntroWeb.url(WebLook.SAKURA, Intro(), false, true, a)).getQueryParameter("align"))
+        // The home screen's 圖片對齊 goes with it, so a full-screen picture is placed the same way. The words are the ones
+        // sakura/boot.js looks for; anything else reads as center there.
+        assertEquals(listOf("top", "center", "bottom"), PictureAlign.entries.map { Uri.parse(IntroWeb.url(WebLook.SAKURA, Intro(), false, true, it)).getQueryParameter("align") })
         // Hostile words travel as data: encoded in the query, never as markup or another parameter.
         val odd = Uri.parse(IntroWeb.url(WebLook.SAKURA, Intro(name = "<img src=x>&picture=0#done"), false, true))
         assertEquals("<img src=x>&picture=0#done", odd.getQueryParameter("name"))
@@ -571,6 +572,12 @@ class WebIntroTest {
         assertEquals("0", Uri.parse(shadowOf(web).lastLoadedUrl).getQueryParameter("picture"))
         assertBlocked(client(web).shouldInterceptRequest(web, request("${base}neon/picture.img"))!!, "the picture with the portrait off")
         assertBlocked(client(web).shouldInterceptRequest(web, request("${base}neon/avatar.img"))!!, "the avatar with the portrait off")
+    }
+
+    @Test fun thePageIsToldTheHomeScreensPictureAlignment() {
+        val intro = Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_SAKURA)
+        play(intro, Look(align = PictureAlign.BOTTOM, intro = intro))
+        assertEquals("bottom", Uri.parse(shadowOf(web()).lastLoadedUrl).getQueryParameter("align"))
     }
 
     @Test fun noAvatarGoesToThePageWithoutAPicture() {
