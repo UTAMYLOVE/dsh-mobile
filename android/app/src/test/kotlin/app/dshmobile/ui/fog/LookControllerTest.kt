@@ -166,8 +166,52 @@ class LookControllerTest {
 
     @Test fun aPictureWhoseFileIsGoneIsForgotten() {
         val prefs = InMemorySharedPreferences()
-        LookStore(prefs).save(Look(picture = 99L))
-        assertFalse(LookController(LookStore(prefs), tmp.newFolder("look")).look.value.hasPicture)
+        LookStore(prefs).save(Look(picture = 99L, avatar = AvatarCrop(.3f, .3f, .3f)))
+        val look = LookController(LookStore(prefs), tmp.newFolder("look")).look.value
+        assertFalse(look.hasPicture)
+        assertEquals(null, look.avatar)
+    }
+
+    // 調整頭像: a square chosen for one picture framed something else on the next one.
+    @Test fun aNewPictureOrRemovingItOrRestoringDefaultsGoesBackToAutomatic() = runBlocking {
+        val prefs = InMemorySharedPreferences()
+        val c = LookController(LookStore(prefs), tmp.newFolder("look"))
+        val mine = AvatarCrop(.3f, .6f, .25f)
+        c.setPicture { ByteArrayInputStream(png(40, 80)) }
+        c.update { it.copy(avatar = mine) }
+        assertEquals(mine, LookStore(prefs).load().avatar)
+        c.setPicture { ByteArrayInputStream(png(60, 80)) }
+        assertEquals(null, c.look.value.avatar)
+        assertEquals(null, LookStore(prefs).load().avatar)
+        c.update { it.copy(avatar = mine) }
+        c.restoreDefaults()
+        assertEquals(null, c.look.value.avatar)
+        assertTrue(c.look.value.hasPicture)
+        c.update { it.copy(avatar = mine) }
+        c.removePicture()
+        assertEquals(null, c.look.value.avatar)
+        assertEquals(null, LookStore(prefs).load().avatar)
+        // A picture that is not one changes nothing, the square included.
+        c.setPicture { ByteArrayInputStream(png(40, 80)) }
+        c.update { it.copy(avatar = mine) }
+        assertFalse(c.setPicture { ByteArrayInputStream("not a picture".toByteArray()) })
+        assertEquals(mine, c.look.value.avatar)
+    }
+
+    @Test fun theGuessIsReadyAfterPickingAndGoesWithThePicture() = runBlocking {
+        val dir = tmp.newFolder("look")
+        val c = LookController(LookStore(InMemorySharedPreferences()), dir)
+        assertTrue(c.setPicture { ByteArrayInputStream(png(90, 160)) })
+        val v = c.look.value.picture
+        // Worked out while picking, so the next start reads it at once.
+        assertEquals(listOf("picture.jpg.face-$v.txt"), AvatarGuess.files(c.pictureFile).map { it.name })
+        assertEquals(AvatarGuess.auto(c.pictureFile, v), AvatarGuess.peek(c.pictureFile, v))
+        AvatarCuts.cut(c.pictureFile, c.pictureFile, v, 0, 55, null)
+        assertEquals(1, AvatarCuts.files(c.pictureFile).size)
+        c.removePicture()
+        assertEquals(emptyList<java.io.File>(), AvatarGuess.files(c.pictureFile))
+        assertEquals(emptyList<java.io.File>(), AvatarCuts.files(c.pictureFile))
+        assertEquals(listOf<String>(), dir.list()!!.toList())
     }
 
     @Test fun previewPlaysTheIntroAgain() {

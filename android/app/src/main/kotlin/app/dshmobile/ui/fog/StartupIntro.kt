@@ -131,7 +131,7 @@ private fun SigilIntro(
             val mm = IntroMeasure(measurer, density.density, density.fontScale, lay.s, coverage)
             val texts = IntroTexts(mm, lay, words, compact = marks.compact)
             IntroScene(
-                lay, marks, level, pic, intro.portrait, .5f, (1f + align.bias) / 2f, windowFocus(align), fx, reducedMotion, texts,
+                lay, marks, level, pic, intro.portrait, .5f, (1f + align.bias) / 2f, avatar, fx, reducedMotion, texts,
                 intro.skippable,
             )
         }
@@ -197,16 +197,6 @@ private fun SigilIntro(
         Spacer(Modifier.fillMaxSize().graphicsLayer { alpha = run.exitFade(40f) }.drawBehind { drawName(scene, ms()) })
         IntroSemantics(scene, intro, words, phase, reducedMotion, skipLabel)
     }
-}
-
-/**
- * The part of the picture the identity window frames, from the picture's alignment: a typical full-body picture has the face in
- * its upper third, so the centred default looks at 35 % of its height, not the middle.
- */
-private fun windowFocus(align: PictureAlign): Float = when (align) {
-    PictureAlign.TOP -> .25f
-    PictureAlign.CENTER -> .35f
-    PictureAlign.BOTTOM -> .65f
 }
 
 /** The data ring's text written once round its circle into a layer, which the sigil then turns as a whole. */

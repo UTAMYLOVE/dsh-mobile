@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * 外觀主題 (the owner, 2026-11-15: 「加進去二次元版粉粉嫩嫩的 顏色一樣這六種」, and 「所有功能都要可調」). [COSY] is the 0.8.0
@@ -107,8 +109,69 @@ data class Look(
     val opacity: Int = 80,
     val align: PictureAlign = PictureAlign.CENTER,
     val intro: Intro = Intro(),
+    /**
+     * The avatar square (調整頭像): which part of the picture every small round or square spot shows (the startup looks'
+     * portraits and identity windows, and the community looks' avatar.img). Null is 自動: the app's own guess for the picture
+     * ([AvatarGuess]). A new picture, removing it and 恢復預設 all go back to 自動. Full-screen backdrops keep [align].
+     */
+    val avatar: AvatarCrop? = null,
 ) {
     val hasPicture: Boolean get() = picture != 0L
+}
+
+/**
+ * The avatar square on a picture: its centre ([x], [y], 0..1 of the picture's width and height) and its side ([size], a share
+ * of the picture's short side). [avatarSquare] turns it into pixels; [fitted] keeps it inside a picture of a given shape.
+ */
+data class AvatarCrop(val x: Float, val y: Float, val size: Float) {
+    /**
+     * This crop kept whole inside a [width] × [height] picture: the side within [MIN_SIZE]..1 of the short side and the centre
+     * moved just enough that the square never leaves the picture (a value that is not a number reads as the middle, or the
+     * whole short side).
+     */
+    fun fitted(width: Int, height: Int): AvatarCrop {
+        val w = width.coerceAtLeast(1).toFloat()
+        val h = height.coerceAtLeast(1).toFloat()
+        val s = (if (size.isFinite()) size else 1f).coerceIn(MIN_SIZE, 1f)
+        val side = s * min(w, h)
+        return AvatarCrop(within(x, side / 2f / w), within(y, side / 2f / h), s)
+    }
+
+    companion object {
+        /** The smallest side, as a share of the picture's short side (a face in a group photo). */
+        const val MIN_SIZE = .05f
+        /** The whole short side, centred: what a spot shows when nothing better is known. */
+        val WHOLE = AvatarCrop(.5f, .5f, 1f)
+
+        /** [v] (0..1) kept [half] away from both edges; the middle when there is no room to move. */
+        private fun within(v: Float, half: Float): Float {
+            val c = if (v.isFinite()) v else .5f
+            return if (half >= .5f) .5f else c.coerceIn(half, 1f - half)
+        }
+    }
+}
+
+/** The avatar square in a picture's pixels: [side] × [side] from ([left], [top]). */
+data class AvatarSquare(val left: Int, val top: Int, val side: Int) {
+    /** Its centre, as a share of a picture [width] wide. */
+    fun centerX(width: Int): Float = (left + side / 2f) / width.coerceAtLeast(1)
+    /** Its centre, as a share of a picture [height] high. */
+    fun centerY(height: Int): Float = (top + side / 2f) / height.coerceAtLeast(1)
+}
+
+/**
+ * The one place a crop becomes pixels: the square [crop] picks on a [width] × [height] picture, always whole and inside it (at
+ * least 1 px). Every portrait, avatar and identity window, drawn by the app or served to a community look, is cut with this.
+ */
+fun avatarSquare(width: Int, height: Int, crop: AvatarCrop): AvatarSquare {
+    val w = width.coerceAtLeast(1)
+    val h = height.coerceAtLeast(1)
+    val short = min(w, h)
+    val f = crop.fitted(w, h)
+    val side = (f.size * short).roundToInt().coerceIn(1, short)
+    val left = (f.x * w - side / 2f).roundToInt().coerceIn(0, w - side)
+    val top = (f.y * h - side / 2f).roundToInt().coerceIn(0, h - side)
+    return AvatarSquare(left, top, side)
 }
 
 val LocalLook: ProvidableCompositionLocal<Look> = staticCompositionLocalOf { Look() }
@@ -145,18 +208,46 @@ object LookPictures {
 
     private fun recolouredFile(file: File, version: Long, six: Int, aqua: Int) = File(file.parentFile, "${file.name}.six-$version-$six-$aqua.jpg")
 
+    /**
+     * The picture exactly as the app shows it, as a file: the kept recoloured copy at [six] and [aqua] (made and kept now when
+     * there is none yet, so call this off the main thread), or the picture itself at 六色 0. Null when there is no picture; the
+     * picture itself when it cannot be recoloured (it cannot be read: the app shows nothing then either).
+     */
+    suspend fun shownFile(file: File, version: Long, six: Int, aqua: Int): File? {
+        if (!file.isFile) return null
+        if (six <= 0) return file
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching { BitmapFactory.decodeFile(file.path, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return file
+        val copy = recolouredFile(file, version, six, aqua)
+        if (!copy.isFile || copy.length() == 0L) {
+            // Already in memory (the background showed it) with its copy kept then; else made and kept now.
+            load(file, version, six, aqua)
+            if (!copy.isFile || copy.length() == 0L) {
+                val made = withContext(Dispatchers.Default) {
+                    runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()?.let { src ->
+                        SixColour.recolour(src, six / 100f, aqua / 100f).also { src.recycle() }
+                    }
+                }
+                if (made != null) { keep(file, made, copy); made.recycle() }
+            }
+        }
+        return if (copy.isFile && copy.length() > 0L) copy else file
+    }
+
     /** Every recoloured copy of [file] (removed with the picture, and replaced when the picture or its strengths change). */
     fun copies(file: File): List<File> = file.parentFile?.listFiles { f -> f.name.startsWith("${file.name}.six-") }?.toList().orEmpty()
 
     /** True when [file] holds a PNG: the picture was kept as PNG because it has transparent parts (LookController.setPicture). */
-    private fun isPng(file: File) = runCatching { file.inputStream().use { it.read() == 0x89 } }.getOrDefault(false)
+    internal fun isPng(file: File) = runCatching { file.inputStream().use { it.read() == 0x89 } }.getOrDefault(false)
 
     private fun keep(file: File, bitmap: Bitmap, to: File) = runCatching {
         copies(file).forEach { it.delete() }
         val tmp = File(to.path + ".tmp")
         // A cut-out picture's recoloured copy stays PNG too, or its transparent parts come back as a dark block.
-        tmp.outputStream().use { bitmap.compress(if (isPng(file)) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it) }
-        if (!tmp.renameTo(to)) tmp.delete()
+        val written = tmp.outputStream().use { bitmap.compress(if (isPng(file)) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it) }
+        // An empty copy would be streamed to a community look as its picture: only a whole one is kept.
+        if (!written || tmp.length() == 0L || !tmp.renameTo(to)) tmp.delete()
     }
 }
 
@@ -203,11 +294,26 @@ class LookStore(private val prefs: SharedPreferences) {
                 portrait = bool(INTRO_PORTRAIT, di.portrait),
                 style = IntroStyle.of(prefs.getString(INTRO_STYLE, null)),
             ),
+            avatar = avatar(),
         )
     }
 
+    /** The stored avatar square, or null (自動) when any part of it is missing or not a sensible value. */
+    private fun avatar(): AvatarCrop? {
+        if (!prefs.contains(AVATAR_X) || !prefs.contains(AVATAR_Y) || !prefs.contains(AVATAR_SIZE)) return null
+        val x = runCatching { prefs.getFloat(AVATAR_X, Float.NaN) }.getOrDefault(Float.NaN)
+        val y = runCatching { prefs.getFloat(AVATAR_Y, Float.NaN) }.getOrDefault(Float.NaN)
+        val size = runCatching { prefs.getFloat(AVATAR_SIZE, Float.NaN) }.getOrDefault(Float.NaN)
+        if (x !in 0f..1f || y !in 0f..1f || size !in AvatarCrop.MIN_SIZE..1f) return null
+        return AvatarCrop(x, y, size)
+    }
+
     fun save(look: Look) {
-        prefs.edit()
+        val edit = prefs.edit()
+        val avatar = look.avatar?.takeIf { it.x in 0f..1f && it.y in 0f..1f && it.size in AvatarCrop.MIN_SIZE..1f }
+        if (avatar == null) edit.remove(AVATAR_X).remove(AVATAR_Y).remove(AVATAR_SIZE)
+        else edit.putFloat(AVATAR_X, avatar.x).putFloat(AVATAR_Y, avatar.y).putFloat(AVATAR_SIZE, avatar.size)
+        edit
             .putString(STYLE, look.style.id)
             .putBoolean(PETALS, look.petals).putBoolean(SPARKLES, look.sparkles).putBoolean(HEARTS, look.hearts).putBoolean(CLOUDS, look.clouds)
             .putInt(AMOUNT, look.amount.coerceIn(0, 100)).putInt(SPEED, look.speed.coerceIn(0, 100))
@@ -245,6 +351,9 @@ class LookStore(private val prefs: SharedPreferences) {
         private const val INTRO_SKIP = "look_intro_skip"
         private const val INTRO_PORTRAIT = "look_intro_portrait"
         private const val INTRO_STYLE = "look_intro_style"
+        private const val AVATAR_X = "look_avatar_x"
+        private const val AVATAR_Y = "look_avatar_y"
+        private const val AVATAR_SIZE = "look_avatar_size"
     }
 }
 
@@ -253,7 +362,7 @@ class LookStore(private val prefs: SharedPreferences) {
  * kept only in the app's private files ([dir]), scaled down once ([MAX_SIDE]); it is never bundled or uploaded.
  */
 class LookController(private val store: LookStore, private val dir: File, private val now: () -> Long = System::currentTimeMillis) {
-    private val _look = MutableStateFlow(store.load().let { if (it.hasPicture && !File(dir, PICTURE_FILE).isFile) it.copy(picture = 0L) else it })
+    private val _look = MutableStateFlow(store.load().let { if (it.hasPicture && !File(dir, PICTURE_FILE).isFile) it.copy(picture = 0L, avatar = null) else it })
     val look: StateFlow<Look> = _look.asStateFlow()
 
     /** Bumped by 「預覽」 in Settings: the shell plays the startup animation once more. */
@@ -269,7 +378,7 @@ class LookController(private val store: LookStore, private val dir: File, privat
         store.save(next)
     }
 
-    /** Every choice back to its default; the picture (the user's own content, not a setting) stays. */
+    /** Every choice back to its default (the avatar square to 自動 too); the picture (the user's own content, not a setting) stays. */
     fun restoreDefaults() = update { Look(picture = it.picture) }
 
     fun previewIntro() { _introTick.value++ }
@@ -292,14 +401,20 @@ class LookController(private val store: LookStore, private val dir: File, privat
             bitmap.recycle()
             tmp.delete()
         }
-        update { it.copy(picture = now().coerceAtLeast(it.picture + 1)) }
+        // A new picture starts with 自動 for its avatar square: the old one's square framed another picture (and its cut goes).
+        update { it.copy(picture = now().coerceAtLeast(it.picture + 1), avatar = null) }
+        AvatarCuts.files(pictureFile).forEach { it.delete() }
+        // The guess is worked out now, while the user looks at the new background, so the next start has it at once.
+        runCatching { AvatarGuess.auto(pictureFile, _look.value.picture) }
         true
     }
 
     suspend fun removePicture() = withContext(Dispatchers.IO) {
         pictureFile.delete()
         LookPictures.copies(pictureFile).forEach { it.delete() }
-        update { it.copy(picture = 0L) }
+        AvatarGuess.files(pictureFile).forEach { it.delete() }
+        AvatarCuts.files(pictureFile).forEach { it.delete() }
+        update { it.copy(picture = 0L, avatar = null) }
     }
 
     companion object {

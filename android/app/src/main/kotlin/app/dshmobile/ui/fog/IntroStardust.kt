@@ -488,13 +488,18 @@ internal class StardustFocus(val fx: Float, val fy: Float, val tx: Float, val ty
 
 /**
  * Where the picture's crop is held, [hk] into a hand-off through the host's iris (a tap, or SAVER's crossfade; the look's own
- * light iris draws the home crop itself). Upright, on the face ([faceY]) while the camera pushes in, easing to the home screen's
- * own crop ([homeY], ContentScale.Crop with the 對齊 bias). On a wide screen the face is put right behind the portrait ([portX],
- * [portY] of the screen), where the frosted disc covers it: in the middle it showed a second, giant face beside the words.
+ * light iris draws the home crop itself). Upright, on the face ([faceX], [faceY]: the avatar square's centre) while the camera
+ * pushes in, easing to the home screen's own crop ([homeY], ContentScale.Crop with the 對齊 bias, centred across). On a wide
+ * screen the face is put right behind the portrait ([portX], [portY] of the screen), where the frosted disc covers it: in the
+ * middle it showed a second, giant face beside the words.
  */
-internal fun stardustFocus(wide: Boolean, faceY: Float, homeY: Float, hk: Float, portX: Float = .29f, portY: Float = .5f): StardustFocus =
-    if (wide) StardustFocus(.5f, lerp(faceY, homeY, hk), lerp(portX, .5f, hk), lerp(portY, homeY, hk))
-    else lerp(faceY, homeY, hk).let { StardustFocus(.5f, it, .5f, it) }
+internal fun stardustFocus(
+    wide: Boolean, faceY: Float, homeY: Float, hk: Float, portX: Float = .29f, portY: Float = .5f, faceX: Float = .5f,
+): StardustFocus {
+    val fx = lerp(faceX, .5f, hk)
+    return if (wide) StardustFocus(fx, lerp(faceY, homeY, hk), lerp(portX, .5f, hk), lerp(portY, homeY, hk))
+    else lerp(faceY, homeY, hk).let { StardustFocus(fx, it, fx, it) }
+}
 
 /**
  * How much more a wide screen zooms in so the picture's face ([fx], [fy]) can sit at ([tx], [ty]) of the screen with the screen
@@ -539,14 +544,16 @@ internal class StardustScene(
     private val sky = introSky(h)
     private val place = Placement()
     private val homePlace = Placement()
-    private val faceY = faceFocus(sc.align)
+    /** The avatar square on the picture (調整頭像, or the app's guess): the portrait shows it and the camera pushes in on it. */
+    private val faceX = pic?.let { avatarSquare(it.width, it.height, sc.avatar).centerX(it.width) } ?: .5f
+    private val faceY = pic?.let { avatarSquare(it.width, it.height, sc.avatar).centerY(it.height) } ?: .5f
     private val homeY = (1f + sc.align.bias) / 2f
     /** A wide screen zooms in further, so the face can sit behind the portrait (see [stardustFocus]). */
     private val wideZoom = pic?.takeIf { lay.wide }?.let {
-        stardustWideZoom(it.width.toFloat(), it.height.toFloat(), w, h, .5f, faceY, lay.c.x / w, lay.c.y / h)
+        stardustWideZoom(it.width.toFloat(), it.height.toFloat(), w, h, faceX, faceY, lay.c.x / w, lay.c.y / h)
     } ?: 1f
-    /** The portrait: the picture's face cropped round (with 歡迎畫面用背景圖當頭像 on), else the monogram plate. */
-    private val face: ImageBitmap? = pic?.takeIf { portrait }?.let { faceCrop(it, (2f * lay.r).roundToInt(), faceY) }
+    /** The portrait: the avatar square cropped round (with 歡迎畫面用背景圖當頭像 on), else the monogram plate. */
+    private val face: ImageBitmap? = pic?.takeIf { portrait }?.let { faceCrop(it, (2f * lay.r).roundToInt(), sc.avatar) }
     /**
      * A blurred copy of the picture (about 3.5 dp a pixel on screen, then a soft box blur), drawn behind the portrait as frosted
      * glass: the picture's own face sat right behind the portrait, so the face showed twice. Not on SAVER (a layer every frame).
@@ -779,7 +786,7 @@ internal class StardustScene(
             glows(.6f * veil, ms)
             return@with
         }
-        val f = stardustFocus(lay.wide, faceY, homeY, cam, lay.c.x / w, (lay.c.y + sdy) / h)
+        val f = stardustFocus(lay.wide, faceY, homeY, cam, lay.c.x / w, (lay.c.y + sdy) / h, faceX)
         val z = tl.zoom(ms, cam, reduced) * lerp(wideZoom, 1f, cam)
         cover(p.width.toFloat(), p.height.toFloat(), w, h, z, f.fx, f.fy, f.tx * w, f.ty * h, place)
         val a = homeAlpha * inK
@@ -1746,25 +1753,14 @@ private fun Offset.rotated(deg: Float): Offset {
 }
 
 /**
- * Where a picture's face usually is, by the 對齊 setting (a full-body picture has the face in its upper third: in the owner's
- * own picture at 27 % of the height).
+ * The portrait's picture: the avatar square ([crop], cut with [avatarSquare]: the one chosen in 調整頭像, or the app's guess),
+ * scaled to [px] once by halving (a single big downscale shimmers). Null when the picture cannot be read (the plate shows
+ * instead).
  */
-private fun faceFocus(align: PictureAlign): Float = when (align) {
-    PictureAlign.TOP -> .25f
-    PictureAlign.CENTER -> .29f
-    PictureAlign.BOTTOM -> .65f
-}
-
-/**
- * The portrait's picture: a square round the face ([fy] of the height, centred across), .6 of the picture's short side, scaled
- * to [px] once by halving (a single big downscale shimmers). Null when the picture cannot be read (the plate shows instead).
- */
-internal fun faceCrop(picture: ImageBitmap, px: Int, fy: Float): ImageBitmap? = runCatching {
+internal fun faceCrop(picture: ImageBitmap, px: Int, crop: AvatarCrop): ImageBitmap? = runCatching {
     val src = picture.asAndroidBitmap()
-    val side = (min(src.width, src.height) * .60f).roundToInt().coerceAtLeast(1)
-    val left = (src.width / 2 - side / 2).coerceIn(0, src.width - side)
-    val top = (src.height * fy - side / 2f).roundToInt().coerceIn(0, src.height - side)
-    var b = Bitmap.createBitmap(src, left, top, side, side)
+    val sq = avatarSquare(src.width, src.height, crop)
+    var b = Bitmap.createBitmap(src, sq.left, sq.top, sq.side, sq.side)
     while (b.width / 2 >= px * 2) b = Bitmap.createScaledBitmap(b, b.width / 2, b.height / 2, true)
     Bitmap.createScaledBitmap(b, px.coerceAtLeast(1), px.coerceAtLeast(1), true).asImageBitmap()
 }.getOrNull()

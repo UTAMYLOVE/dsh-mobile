@@ -539,6 +539,15 @@
     <string name="look_align_top">上</string>
     <string name="look_align_center">中</string>
     <string name="look_align_bottom">下</string>
+    <string name="look_avatar">調整頭像</string>
+    <string name="look_avatar_now_auto">自動找臉</string>
+    <string name="look_avatar_now_own">已照你調的位置</string>
+    <string name="look_avatar_hint">啟動動畫裡圓圓的小頭像，會顯示圓框裡的這一塊。拖動圓框換位置，兩指捏合或拉「大小」放大縮小。</string>
+    <string name="look_avatar_loading">圖片準備中…</string>
+    <string name="look_avatar_size">大小</string>
+    <string name="look_avatar_auto">自動</string>
+    <string name="look_avatar_done">完成</string>
+    <string name="look_avatar_frame">你的圖和頭像圓框，拖動可以移動圓框</string>
     <string name="look_intro">啟動動畫</string>
     <string name="look_intro_hint">打開 App 時播一段小動畫，樣式在下面選。預設的「櫻紋陣」是一段「授權」：需要訪問許可 → 身份確認 → 核驗通過 → 歡迎你。DSH 同時在背景啟動，不會變慢。</string>
     <string name="look_intro_on">打開時播放</string>

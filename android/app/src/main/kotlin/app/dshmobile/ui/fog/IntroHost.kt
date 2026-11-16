@@ -100,6 +100,10 @@ class IntroRun internal constructor() {
     var picture: ImageBitmap? = null
         internal set
 
+    /** The avatar square chosen in 調整頭像 (or the app's guess), decided with [picture]; null when only its shape is known. */
+    var avatar: AvatarCrop? = null
+        internal set
+
     internal var finished = false
     internal val decided = mutableStateOf(false)
 
@@ -128,6 +132,9 @@ object IntroHostConst {
     const val STILL_SHOW_MS = 2500
     const val STILL_FADE_MS = 150f
 }
+
+/** How long a run waits, after the picture, for the avatar guess of a picture never guessed before. */
+private const val AVATAR_WAIT_MS = 300L
 
 /**
  * What the host needs to know of one run of a look, in ms on the run's clock.
@@ -163,7 +170,15 @@ class IntroScope internal constructor(
     val fx: IntroFx,
     /** Where the picture's crop is held (the 對齊 setting), the same as the home screen's. */
     val align: PictureAlign,
-)
+    avatar: AvatarCrop? = null,
+) {
+    /**
+     * The part of [picture] every portrait, avatar and identity window shows (cut with [avatarSquare]): the square chosen in
+     * 調整頭像, else the app's guess, else (before the guess is known) the rule for the picture's shape. Full-screen backdrops
+     * keep [align].
+     */
+    val avatar: AvatarCrop = avatar ?: picture?.let { AvatarGuess.heuristic(it.width, it.height) } ?: AvatarCrop.WHOLE
+}
 
 /** How rich a look may be: FULL with blur on, BALANCED with ambient motion (or reduced motion), SAVER otherwise. */
 @Composable
@@ -217,6 +232,10 @@ internal fun IntroHost(
     val opaque by rememberUpdatedState(onOpaqueChange)
     val latestPicture by rememberUpdatedState(picture)
     val latestTiming by rememberUpdatedState(timing)
+    // The avatar square: the one chosen in 調整頭像, else the guess for the picture, which may still be on its way.
+    val look = LocalLook.current
+    val avatarExpected = look.hasPicture && look.avatar == null && LocalLookPicture.current != null
+    val latestAvatar by rememberUpdatedState(rememberAvatarCrop(look))
     val level = rememberIntroLevel(reducedMotion)
     val totalMs = (intro.seconds.coerceIn(Intro.MIN_SECONDS, Intro.MAX_SECONDS) * 1000).roundToInt()
     val run = remember { IntroRun() }
@@ -235,6 +254,12 @@ internal fun IntroHost(
         // A picture that is on its way gets up to 400 ms (the screen stays the plain blush of the window meanwhile).
         if (pictureExpected && latestPicture == null) withTimeoutOrNull(400) { snapshotFlow { latestPicture }.first { it != null } }
         run.picture = latestPicture
+        // The guess is kept next to the picture, so it is normally known by now; only a picture never guessed before (picked
+        // with an older app) gets a moment for it, then the rule for its shape stands in (IntroScope.avatar).
+        if (run.picture != null && avatarExpected && latestAvatar == null) {
+            withTimeoutOrNull(AVATAR_WAIT_MS) { snapshotFlow { latestAvatar }.first { it != null } }
+        }
+        run.avatar = latestAvatar.takeIf { run.picture != null }
         run.decided.value = true
         if (reducedMotion) {
             run.msState.floatValue = latestTiming.still
@@ -290,7 +315,6 @@ internal fun IntroHost(
     val density = LocalDensity.current
     val insetTop = WindowInsets.safeDrawing.getTop(density).toFloat()
     val insetBottom = WindowInsets.safeDrawing.getBottom(density).toFloat()
-    val look = LocalLook.current
 
     BoxWithConstraints(
         Modifier
@@ -357,8 +381,8 @@ internal fun IntroHost(
         if (!run.decided.value) return@BoxWithConstraints
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
-        val scope = remember(w, h, density, insetTop, insetBottom, level, reducedMotion, run.picture, fx, look.align) {
-            IntroScope(run, run.picture, w, h, density, insetTop, insetBottom, level, reducedMotion, fx, look.align)
+        val scope = remember(w, h, density, insetTop, insetBottom, level, reducedMotion, run.picture, fx, look.align, run.avatar) {
+            IntroScope(run, run.picture, w, h, density, insetTop, insetBottom, level, reducedMotion, fx, look.align, run.avatar)
         }
         scope.content()
         if (announce != null) {
