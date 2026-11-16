@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -39,6 +41,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -168,7 +172,8 @@ private fun PictureSettings(controller: LookController, look: Look) {
  */
 @Composable
 private fun AvatarRow(controller: LookController, look: Look) {
-    var open by remember { mutableStateOf(false) }
+    // Kept like the frame below when Android rebuilds the screen (the app sent to the back and brought back).
+    var open by rememberSaveable { mutableStateOf(false) }
     val picture = rememberLookPicture(look)
     val crop = rememberAvatarCrop(look)
     val label = stringResource(R.string.look_avatar)
@@ -198,8 +203,8 @@ private fun AvatarRow(controller: LookController, look: Look) {
  */
 @Composable
 private fun AvatarDialog(controller: LookController, look: Look, picture: ImageBitmap?, onClose: () -> Unit) {
-    // Null follows 自動 (the guess); the frame becomes the user's own as soon as it is moved.
-    val working = remember { mutableStateOf(look.avatar) }
+    // Null follows 自動 (the guess); the frame becomes the user's own as soon as it is moved. Kept when the screen is rebuilt.
+    val working = rememberSaveable(stateSaver = AvatarCropSaver) { mutableStateOf(look.avatar) }
     val guess = rememberAvatarCrop(look.copy(avatar = null))
     val crop = working.value ?: guess
     AlertDialog(
@@ -207,7 +212,9 @@ private fun AvatarDialog(controller: LookController, look: Look, picture: ImageB
         modifier = Modifier.testTag(LookTags.AVATAR_DIALOG),
         title = { Text(stringResource(R.string.look_avatar)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Scrolls when it does not fit (a small phone turned sideways): the dialog's buttons stay, and 大小 and the live
+            // avatar can still be reached instead of being cut off under the picture.
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(R.string.look_avatar_hint), style = MaterialTheme.typography.bodySmall)
                 if (picture == null || crop == null) {
                     Text(stringResource(R.string.look_avatar_loading), color = Sakura.TextSecondary)
@@ -248,6 +255,12 @@ private fun AvatarDialog(controller: LookController, look: Look, picture: ImageB
         },
     )
 }
+
+/** A chosen avatar square as three numbers (null, 自動, is not saved: the dialog starts from the look's own again). */
+private val AvatarCropSaver = Saver<AvatarCrop?, FloatArray>(
+    save = { c -> c?.let { floatArrayOf(it.x, it.y, it.size) } },
+    restore = { v -> if (v.size == 3) AvatarCrop(v[0], v[1], v[2]) else null },
+)
 
 /**
  * The picture, as large as fits (at most 300 dp high), under a soft white veil with a round hole: the avatar. A drag moves the

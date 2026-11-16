@@ -44,10 +44,12 @@ object AvatarGuess {
     /** A picture at least this many times as tall as it is wide is a tall (full-body) picture. */
     const val TALL = 1.2f
     private const val MAX_FACES = 4
+    /** A copy shorter than this on its short side has no face to find (and the finder is not asked to look at a sliver). */
+    private const val MIN_DETECT_SIDE = 32
 
     private val lock = Mutex()
-    @Volatile private var key: Pair<String, Long>? = null
-    @Volatile private var cached: AvatarCrop? = null
+    /** The last guess with the picture (path, version) it is for, as one value, so [peek] never pairs one with another's. */
+    @Volatile private var known: Pair<Pair<String, Long>, AvatarCrop>? = null
 
     /**
      * The rule for when no face is found: a tall picture (h / w ≥ [TALL]) centred at (0.5, 0.21) with a side of 0.55 of its
@@ -77,6 +79,7 @@ object AvatarGuess {
         val k = min(1f, DETECT_SIDE.toFloat() / max(picture.width, picture.height))
         val dw = (max(2, (picture.width * k).roundToInt()) / 2) * 2
         val dh = max(1, (picture.height * k).roundToInt())
+        if (min(dw, dh) < MIN_DETECT_SIDE) return@runCatching null
         val small = Bitmap.createBitmap(dw, dh, Bitmap.Config.RGB_565)
         try {
             Canvas(small).apply {
@@ -99,7 +102,7 @@ object AvatarGuess {
     fun guess(picture: Bitmap): AvatarCrop = detect(picture) ?: heuristic(picture.width, picture.height)
 
     /** The guess for [file] at [version] if it is already known in memory (no reading, no waiting), else null. */
-    fun peek(file: File?, version: Long): AvatarCrop? = if (file != null && key == (file.path to version)) cached else null
+    fun peek(file: File?, version: Long): AvatarCrop? = known?.takeIf { file != null && it.first == (file.path to version) }?.second
 
     /**
      * The guess for the picture in [file] at [version]: from memory, from the copy kept next to the picture, or worked out now
@@ -107,13 +110,12 @@ object AvatarGuess {
      */
     suspend fun auto(file: File, version: Long): AvatarCrop? = lock.withLock {
         val want = file.path to version
-        if (key == want) cached?.let { return@withLock it }
+        known?.takeIf { it.first == want }?.let { return@withLock it.second }
         val made = withContext(Dispatchers.Default) {
             val kept = guessFile(file, version)
             read(kept) ?: compute(file)?.also { write(file, kept, it) }
         } ?: return@withLock null
-        cached = made
-        key = want
+        known = want to made
         made
     }
 
@@ -183,7 +185,13 @@ object AvatarCuts {
      * see-through parts. Kept under a name with [version], the strengths and the square; an older cut is deleted when a new one
      * is made. Null when the picture cannot be read. Off the main thread.
      */
-    fun cut(file: File, shown: File, version: Long, six: Int, aqua: Int, crop: AvatarCrop?): File? = runCatching {
+    fun cut(file: File, shown: File, version: Long, six: Int, aqua: Int, crop: AvatarCrop?): File? = synchronized(this) { cutNow(file, shown, version, six, aqua, crop) }
+
+    /**
+     * [cut], one at a time: two runs cutting at once (a 預覽 started while the last run's cut is still being made) wrote the same
+     * temporary file and deleted each other's cut.
+     */
+    private fun cutNow(file: File, shown: File, version: Long, six: Int, aqua: Int, crop: AvatarCrop?): File? = runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(shown.path, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
@@ -201,8 +209,9 @@ object AvatarCuts {
         files(file).forEach { it.delete() }
         val tmp = File(out.path + ".tmp")
         try {
-            tmp.outputStream().use { square.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it) }
-            if (!tmp.renameTo(out)) return@runCatching null
+            val written = tmp.outputStream().use { square.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it) }
+            // An empty or broken cut would be kept and streamed to every later run as avatar.img: only a whole one is kept.
+            if (!written || tmp.length() == 0L || !tmp.renameTo(out)) return@runCatching null
         } finally {
             square.recycle()
             tmp.delete()

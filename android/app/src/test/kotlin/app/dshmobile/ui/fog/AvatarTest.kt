@@ -88,7 +88,8 @@ class AvatarTest {
     }
 
     @Test fun theFaceFinderIsBestEffortAndTheGuessAlwaysFits() {
-        for ((w, h) in listOf(540 to 960, 960 to 540, 600 to 600, 41 to 83)) {
+        // Tiny and sliver pictures too: the finder is not asked to look at them, and the rule still fits.
+        for ((w, h) in listOf(540 to 960, 960 to 540, 600 to 600, 41 to 83, 1 to 1, 2 to 1, 3 to 500, 500 to 3)) {
             val b = gradient(w, h)
             // Under Robolectric the face finder may find nothing; on a phone it finds no face in a plain gradient either.
             AvatarGuess.detect(b)?.let { found ->

@@ -7,8 +7,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -77,14 +79,17 @@ class LookSettingsTest {
     // ---- 調整頭像 ----
 
     /** An invented tall picture (a blush to aqua gradient, 180 × 320) picked before the settings show. */
-    private fun showWithPicture(): LookController {
+    private fun showWithPicture(restoration: StateRestorationTester? = null): LookController {
         val bitmap = Bitmap.createBitmap(180, 320, Bitmap.Config.ARGB_8888).apply {
             for (y in 0 until 320) for (x in 0 until 180) setPixel(x, y, android.graphics.Color.rgb(254 - y / 4, 223, 225 + y / 40))
         }
         val bytes = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }.toByteArray()
         val c = LookController(LookStore(InMemorySharedPreferences()), tmp.newFolder("look"))
         runBlocking { assertTrue(c.setPicture { ByteArrayInputStream(bytes) }) }
-        rule.setContent { SakuraTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LookSettings(c) } } }
+        val content: @androidx.compose.runtime.Composable () -> Unit = {
+            SakuraTheme { Column(Modifier.verticalScroll(rememberScrollState())) { LookSettings(c) } }
+        }
+        if (restoration != null) restoration.setContent(content) else rule.setContent(content)
         return c
     }
 
@@ -141,6 +146,32 @@ class LookSettingsTest {
         rule.onNodeWithTag(LookTags.AVATAR_DONE).performClick()
         assertNull(c.look.value.avatar)
         rule.onNodeWithText("自動找臉").assertExists()
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(qualifiers = "w800dp-h360dp-land")
+    @Test fun onAPhoneTurnedSidewaysTheSizeAndTheLiveAvatarCanStillBeReached() {
+        val c = showWithPicture()
+        openAvatar()
+        rule.onNodeWithTag(LookTags.AVATAR_SIZE).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag(LookTags.AVATAR_LIVE, useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag(LookTags.AVATAR_SIZE).performSemanticsAction(SemanticsActions.SetProgress) { it(.4f) }
+        rule.onNodeWithTag(LookTags.AVATAR_DONE).assertIsDisplayed().performClick()
+        assertEquals(.4f, c.look.value.avatar!!.size, .01f)
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun aHalfMovedFrameSurvivesTheScreenBeingRebuilt() {
+        val restoration = StateRestorationTester(rule)
+        val c = showWithPicture(restoration)
+        openAvatar()
+        rule.onNodeWithTag(LookTags.AVATAR_SIZE).performSemanticsAction(SemanticsActions.SetProgress) { it(.3f) }
+        restoration.emulateSavedInstanceStateRestore()
+        // Still open, still the user's own frame, and nothing saved until 完成.
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag(LookTags.AVATAR_PICTURE).fetchSemanticsNodes().isNotEmpty() }
+        assertNull(c.look.value.avatar)
+        rule.onNodeWithTag(LookTags.AVATAR_DONE).performClick()
+        assertEquals(.3f, c.look.value.avatar!!.size, .01f)
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)

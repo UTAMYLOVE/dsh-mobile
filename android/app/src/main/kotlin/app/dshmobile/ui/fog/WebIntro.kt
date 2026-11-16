@@ -55,6 +55,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import app.dshmobile.R
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -534,11 +535,15 @@ internal fun WebIntro(
         launch { delay(IntroWeb.MAX_MS); end() }
         if (picture != null) {
             // Off the main thread, and never on the WebView's request thread: a big picture is decoded (and recoloured, cut and
-            // kept) only when its files are not kept yet. A picture not ready in time is left out of this run.
-            val ready = withTimeoutOrNull(IntroWeb.PREPARE_MS) { runCatching { IntroWebPictures.prepare(picture, chosen) }.getOrNull() }
+            // kept) only when its files are not kept yet. A picture not ready in time is left out of this run: the wait ends at
+            // PREPARE_MS even while a decode, which cannot be stopped half way, goes on (what it makes is kept for the next run).
+            val pending = async { runCatching { IntroWebPictures.prepare(picture, chosen) }.getOrNull() }
+            val ready = withTimeoutOrNull(IntroWeb.PREPARE_MS) { pending.await() }
             withContext(Dispatchers.Main.immediate) { requests.prepared(ready?.picture, ready?.avatar) }
         }
         val given = picture != null && requests.hasPicture
+        // Told picture=0, the page gets neither file (a picture that went away just now takes its avatar with it).
+        if (!given) withContext(Dispatchers.Main.immediate) { requests.prepared(null, null) }
         withContext(Dispatchers.Main.immediate) { web.loadUrl(IntroWeb.url(look, intro, reducedMotion, given)) }
         if (withTimeoutOrNull(IntroWeb.FIRST_FRAME_MS) { snapshotFlow { run.visible }.first { it } } == null) {
             broke()
