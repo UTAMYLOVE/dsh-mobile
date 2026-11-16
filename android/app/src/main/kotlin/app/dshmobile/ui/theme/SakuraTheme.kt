@@ -25,7 +25,7 @@ object Sakura {
     val Border = Primary
 }
 
-private val SakuraColors = lightColorScheme(
+internal val SakuraColors = lightColorScheme(
     primary = Sakura.Primary,
     onPrimary = Sakura.Text, // white on #DC9FB4 is too faint to read
     primaryContainer = Sakura.White,
@@ -59,7 +59,7 @@ private val SakuraColors = lightColorScheme(
 )
 
 /** No square corners: fields 12, chips 16, panels 22, pop-up cards 30 dp; Material 3 buttons are already capsules. */
-private val SakuraShapes = Shapes(
+internal val SakuraShapes = Shapes(
     extraSmall = RoundedCornerShape(12.dp),
     small = RoundedCornerShape(16.dp),
     medium = RoundedCornerShape(22.dp),

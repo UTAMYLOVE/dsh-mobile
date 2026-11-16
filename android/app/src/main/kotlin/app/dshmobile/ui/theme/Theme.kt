@@ -1,5 +1,8 @@
 package app.dshmobile.ui.theme
 
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.Shapes
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.staticCompositionLocalOf
 import app.dshmobile.ui.fog.IntroStyle
@@ -48,3 +51,6 @@ enum class WarStyle(val id: String) { BRIDGE("bridge"), OFFICE("office"), LOBBY(
 
 /** The war layout to draw. Default CLASSIC: a test or screen that provides nothing gets today's war room. */
 val LocalWarStyle: ProvidableCompositionLocal<WarStyle> = staticCompositionLocalOf { WarStyle.CLASSIC }
+
+/** The Material 3 colours and shapes a theme hands to MaterialTheme (built by materialOf in ThemeColors.kt). */
+@Immutable data class MaterialSkin(val scheme: ColorScheme, val shapes: Shapes)
