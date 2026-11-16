@@ -72,6 +72,7 @@ Every change in the code is marked `[DSH Mobile]`.
 5. **Pictures.**
    - With `picture=1`, the user's picture replaces the window scene. It is loaded once from the relative `picture.img`, then blurred into focus exactly as the scene was.
    - It also takes the desktop pet's place above the login card and under the HUD title. It sits in the pet's container, with the pet's height, shadow, drop shadow and bob, cropped to a circle with a pink ring (`.dshm-pet-photo`).
+   - That small round picture is `avatar.img`: a 512×512 square that the app cuts around the face in the picture. A tall picture used to show the body there, not the face. If `avatar.img` fails to load, `picture.img` is used; if that fails too, there is no round picture, as before. Each file is asked for once. The blurred background is always `picture.img`.
    - As with the pet, this block appears only once the image has loaded, and never on an error.
    - With `picture=0`, or on an error, the original's CSS fallback scene is shown and there is no avatar.
 6. **End signal.**
@@ -90,9 +91,12 @@ Every change in the code is marked `[DSH Mobile]`.
    - The original centred the HUD log panel and the signature with `transform: translateX(-50%)`. Their entrance animation (fill-mode `both`) replaces that transform, so they started at the middle of the screen and ran to the right. On a 412 px phone the log panel ran off the screen. Both are now centred with margins.
    - Portrait widths get a one-column preload list and wrapping footer and byline lines.
    - Short (landscape) heights get a smaller picture, a tighter login card, and the HUD text moved above the log panel.
-   - The app's WebView tells the page a height of 0, so a height test alone also matched every portrait phone in the app. The landscape rules therefore also need a width over 600 px. For the same reason, in the app the short-portrait rule below applies to every portrait phone.
+   - The app's WebView used to tell the page a height of 0, so a height test alone also matched every portrait phone. The landscape rules therefore also need a width over 600 px. The app now gives the WebView the phone's real height, and the rules below were checked that way.
+   - In landscape the HUD text starts at least 36 px from the top, so with a height of 0 it still stays below the top bar.
    - The original put the skip hint at the bottom right, on top of the frame's bottom-right tag (here the user's `number`, or DSH). It is now centred just above the signature line. In landscape, where the log panel reaches down to the frame's bottom bar, it sits in the top bar, left of OPTICS.
    - Short portrait phones (up to 740 px tall, such as 320×640) get the original's own compact picture size (92 px) in the HUD, with the HUD lines a little closer and higher. A long welcome or name no longer runs into the log panel.
+   - On those phones the log panel also sits 6 px higher, so it no longer brushes the skip hint as it slides in.
+   - Very short landscape phones (up to 400 px tall, such as 640×320 and 780×360) get a smaller picture (46 px), a denser login card, closer HUD lines and a slightly higher log panel. Before, at 640×320 the picture went off the top of the screen, the card's status line off the bottom, and the welcome words and name sat on the log panel.
    - A name or welcome that has to wrap is split into even lines (`text-wrap: balance`), so a long name never leaves one letter on a line of its own.
    - Nothing else in the layout was changed.
 10. **One small robustness fix.**
@@ -115,7 +119,7 @@ Every change in the code is marked `[DSH Mobile]`.
 
 ## Hosting notes for the app
 
-- Serve `index.html`, `neon.css` and `neon.js`, plus the user's picture as `picture.img` when `picture=1`, all from the same folder.
+- Serve `index.html`, `neon.css` and `neon.js` from one folder. With `picture=1`, serve next to them the user's picture as `picture.img` and the face square as `avatar.img`.
 - The page makes no other request.
 - The original pace is about 42 s. `seconds` makes it shorter, down to about 4 s.
 - Without a tap on SIGN IN, the login auto-continues 6 s after the password is typed (scaled with `seconds`). By then the code → HUD stage's slot has passed, so that stage is skipped. This is the original's behaviour. Tapping SIGN IN when it lights up plays the full story.

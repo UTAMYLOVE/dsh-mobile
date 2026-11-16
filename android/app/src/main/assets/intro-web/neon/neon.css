@@ -1197,7 +1197,8 @@ body {
    through the fade, as the original showed the dsh main window. */
 html.dshm-reveal, html.dshm-reveal body { background: transparent; }
 
-/* The user's picture in the desktop pet's place: the pet's height, shadow, drop shadow and bob, cropped round. */
+/* The user's picture in the desktop pet's place: the pet's height, shadow, drop shadow and bob, cropped round. It is the
+   app's face square (avatar.img), or picture.img if that fails to load. */
 .dshm-pet-photo {
   width: var(--dshsplash-pet-h);
   object-fit: cover;
@@ -1239,18 +1240,21 @@ html.dshm-reveal, html.dshm-reveal body { background: transparent; }
 @media (max-width: 600px) and (max-height: 740px) {
   .dshsplash-ios { gap: 10px; padding-bottom: 40px; }
   .dshsplash-ios .dshsplash-pet { --dshsplash-pet-h: 92px; }
+  /* the log panel slides in from 14 px lower; 6 px higher, it no longer brushes the skip hint on the way */
+  .dshsplash-ios-panel { bottom: calc(11% + 6px); }
 }
 
 /* Landscape phones (short screens): smaller picture, tighter login card, HUD text above the log panel. The app's WebView
-   tells CSS a height of 0, so a height test alone also caught every portrait phone there (the skip hint then sat on AR
-   and on the HUD title); the width test keeps these rules to landscape. */
+   used to tell CSS a height of 0, so a height test alone also caught every portrait phone there (the skip hint then sat
+   on AR and on the HUD title); the width test keeps these rules to landscape. */
 @media (max-height: 520px) and (min-width: 601px) {
   .dshsplash-pet { --dshsplash-pet-h: 64px; }
   .dshsplash-login { gap: 6px; padding: 2vh 4vw; }
   .dshsplash-login-card { padding: 14px 20px 12px; }
   .dshsplash-login-field { margin-top: 10px; }
   .dshsplash-login-submit { margin-top: 12px; }
-  .dshsplash-ios { justify-content: flex-start; padding-top: 15vh; gap: 8px; }
+  /* max(): with the old zero-height WebView 15vh was 0 and the HUD title sat in the top bar */
+  .dshsplash-ios { justify-content: flex-start; padding-top: max(15vh, 36px); gap: 8px; }
   .dshsplash-ios-title { font-size: clamp(22px, 9vh, 40px); }
   .dshsplash-ios-panel { bottom: 9%; padding: 8px 14px; }
   .dshsplash-ios-log { line-height: 1.45; }
@@ -1258,6 +1262,24 @@ html.dshm-reveal, html.dshm-reveal body { background: transparent; }
   .dshsplash-console-rows { margin: 8px 0 2px; }
   /* the log panel reaches down to the frame's bottom bar here, so the skip hint goes in the top bar, left of OPTICS */
   .dshsplash-skip { top: 9px; bottom: auto; left: auto; right: 108px; margin: 0; }
+}
+
+/* Very short landscape phones (about 320-360 px tall, now that the app's WebView reports the real height): the picture
+   over the login card and the card itself no longer fit in the height, so the picture went off the top and the card's
+   status line off the bottom; in the HUD the welcome words and name sat on the log panel. Smaller picture, a denser
+   card, HUD lines a little closer and the log panel a little higher. */
+@media (max-height: 400px) and (min-width: 601px) {
+  .dshsplash-pet { --dshsplash-pet-h: 46px; }
+  .dshsplash-login { gap: 2px; padding: 4px 4vw; }
+  .dshsplash-login-card { padding: 10px 18px 8px; }
+  .dshsplash-login-field { margin-top: 6px; padding-bottom: 5px; }
+  .dshsplash-login-value { margin-top: 4px; }
+  .dshsplash-login-dots { margin-top: 8px; }
+  .dshsplash-login-submit { margin-top: 8px; padding: 7px 16px; }
+  .dshsplash-login-status { margin-top: 5px; line-height: 1.4; }
+  .dshsplash-ios { gap: 5px; }
+  .dshsplash-ios-title { font-size: clamp(22px, 8vh, 34px); }
+  .dshsplash-ios-panel { bottom: 11%; }
 }
 
 /* Reduced motion: the still frame. Every animation and transition inside the splash is off, and what only becomes

@@ -39,7 +39,7 @@ This folder holds the boot animation from **dsh-opening-free** (repository `open
 
 | Original asset | Origin and licence | Decision |
 |---|---|---|
-| `assets/whale.png` (128,820 B). This is the mark the dots gather into, which then "freezes into ink". | The official DeepSeek whale logo, a trademark of 深度求索. The README calls it a fan tribute, "不要商用". The MIT licence does not cover it. | **Dropped.** It is replaced by the user's own picture (`picture.img`) in a round mark. With no picture, or if the picture fails to load, a disc is drawn in code in the original's own near-black ink, with the first character of the user's name (or of the welcome words) cut out. |
+| `assets/whale.png` (128,820 B). This is the mark the dots gather into, which then "freezes into ink". | The official DeepSeek whale logo, a trademark of 深度求索. The README calls it a fan tribute, "不要商用". The MIT licence does not cover it. | **Dropped.** It is replaced by the user's own face (`avatar.img`, else `picture.img`) in a round mark. With no picture, or if neither file loads, a disc is drawn in code in the original's own near-black ink, with the first character of the user's name (or of the welcome words) cut out. |
 | `assets/boot-{zh,en,ru,ja}.ogg` and `boot-*-short.ogg` (8 files) | An offline mix of three things: TTS voices (Kokoro-82M, Apache-2.0; for Russian, Silero v5, CC BY-NC-SA, non-commercial), a whale-call sample cut from a copyrighted reference film the author kept out of the repository, and synthesised effects. | **Dropped.** The animation is silent. The original already fell back to the page clock when autoplay blocked the sound, and that fallback is now the only clock. |
 | `assets/*.sequence.json` (8) | The author's timing data. MIT. | Kept as numbers only: the Chinese short and full cuts. |
 | Voice lines and on-screen words: 「欢迎回来，指挥员」, 「访问协议」 and the others | The author's text. | The salute is now the user's welcome words and name. The step captions are in Traditional Chinese. |
@@ -61,6 +61,8 @@ This folder holds the boot animation from **dsh-opening-free** (repository `open
    - `prepareWhale` became `prepareMark`. The original read the whale PNG and cut out the dark whale by luminance.
    - Now the silhouette is drawn in code, black on a clear canvas, and goes through the same threshold and bounding-box loop.
    - With the user's picture, the silhouette is a disc. The ink body is the picture: cropped to a square from the middle (for a tall picture, from 35 % down, where faces usually are) and laid over the disc. The blue and violet nebulas are then laid on at a third of their strength, so the picture keeps its own colours.
+   - The round mark is a small portrait, so it shows `avatar.img`: the app's 512×512 square, already cut around the face. It is square, so it is used whole. Before, the mark showed the middle of `picture.img`, which for a tall full-body picture was the chest, not the face.
+   - If `avatar.img` does not load, the mark uses `picture.img`, cropped as above. If that does not load either, it is the drawn disc. The whole chain has 1.5 s, as the single picture had before.
    - Without a picture, the ink body is the original's gradient at full strength, with one character cut out.
    - Everything after the silhouette is the original's, unchanged:
      - the CRT scanlines and top sheen
@@ -115,7 +117,7 @@ This folder holds the boot animation from **dsh-opening-free** (repository `open
 
 ## Hosting notes for the app
 
-- Serve `index.html`, `wave.css` and `wave.js` from one folder. With `picture=1`, also serve the user's picture there as `picture.img`.
+- Serve `index.html`, `wave.css` and `wave.js` from one folder. With `picture=1`, also serve there the 512×512 face square as `avatar.img` and the user's whole picture as `picture.img`. The page asks for `picture.img` only when `avatar.img` fails to load.
 - In tests the page made exactly these requests and nothing else.
 - Running times:
   - The short cut takes 3.808 s, or `seconds` when it is given, counted from the first frame on screen.

@@ -3,10 +3,11 @@
    marked "[DSH Mobile]" below. The scene, its timings and its random particle recipes are the original's.
 
    What changed, in short: the parameters come from this page's query string instead of the dsh host
-   (window.__dshsConfig); the two pictures are the user's own picture.img (or a code-drawn stand-in); the greeting is
-   the user's welcome words; the exit is timed by `seconds` instead of waiting for the dsh home screen; at the end it
-   calls window.DSHM.done() and sets location.hash = '#done'. Removed: the sessionStorage "played in the last 60 s"
-   mark, the dsh home screen's module assembly, the eco/fancy tiers and the birthday easter egg.
+   (window.__dshsConfig); the two pictures are the user's own picture.img (background) and avatar.img (the square
+   cut round the face), or code-drawn stand-ins; the greeting is the user's welcome words; the exit is timed by
+   `seconds` instead of waiting for the dsh home screen; at the end it calls window.DSHM.done() and sets
+   location.hash = '#done'. Removed: the sessionStorage "played in the last 60 s" mark, the dsh home screen's module
+   assembly, the eco/fancy tiers and the birthday easter egg.
 
    DSH 启动动画（页面侧）。宿主插件把它作为 /dsh-startup/boot.js 提供，并在 </body> 前以 defer 注入。
    启动页 DOM 全部由本文件创建，收尾时自行清理；任何异常都会立刻把主界面放出来，绝不留白屏。
@@ -242,8 +243,9 @@
         '<div class="dshs-bar"><span></span><i class="dshs-orb"></i><i class="dshs-orb"></i></div>' +
       '</div>'
 
-    // [DSH Mobile] Background and avatar: the user's picture (served by the app as picture.img) in both places,
-    // as the original showed its two pictures; without one, the code-drawn stand-ins.
+    // [DSH Mobile] Background and avatar: the user's own pictures, as the original showed its two pictures. The
+    // background is the whole picture (served by the app as picture.img); the avatar is avatar.img, the app's
+    // 512 x 512 square cut round the face. Without a picture, the code-drawn stand-ins.
     var bg = box.querySelector('.dshs-bg')
     var avatar = box.querySelector('.dshs-avatar')
     if (P.picture) {
@@ -253,11 +255,15 @@
       bg.appendChild(bgImg)
       var faceImg = doc.createElement('img')
       faceImg.alt = ''
-      faceImg.src = 'picture.img'
+      faceImg.src = 'avatar.img'
       avatar.insertBefore(faceImg, avatar.firstChild)
-      // If the picture cannot be read, fall back exactly as if there were none.
+      // If a picture cannot be read, fall back exactly as if there were none. The avatar first tries the whole
+      // picture: avatar.img -> picture.img -> the stand-in.
       bgImg.addEventListener('error', function () { plainBackground(bg) }, { once: true })
-      faceImg.addEventListener('error', function () { plainAvatar(avatar) }, { once: true })
+      faceImg.addEventListener('error', function () {
+        faceImg.addEventListener('error', function () { plainAvatar(avatar) }, { once: true })
+        faceImg.src = 'picture.img'
+      }, { once: true })
     } else {
       plainBackground(bg)
       plainAvatar(avatar)

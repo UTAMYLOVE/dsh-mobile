@@ -62,9 +62,9 @@ Two things are kept: the grain texture, which is an inline SVG `feTurbulence` da
 
 ### Look
 
-- Where the whale appeared (the black ident, the step 3 "drawn in one stroke" mark, and the welcome card), the user's `picture.img` now shows when `picture=1`. It sits in a thin square frame.
+- Where the whale appeared (the black ident, the step 3 "drawn in one stroke" mark, and the welcome card), the user's picture now shows when `picture=1`. It sits in a thin square frame. Since 2026-11-16 this is `avatar.img` (see below).
   - On step 3 the frame is drawn as one stroke first and the picture then fades in. This replaces "outline, then fill".
-  - If there is no picture, or it fails to load, a plain drawn head-and-shoulders figure is used. That figure is filled after its outline is drawn, like the whale.
+  - If there is no picture, or neither `avatar.img` nor `picture.img` loads, a plain drawn head-and-shoulders figure is used. That figure is filled after its outline is drawn, like the whale.
 - Brand text:
 
   | Original | Now |
@@ -84,10 +84,40 @@ Two things are kept: the grain texture, which is an inline SVG `feTurbulence` da
   - The key hint 「按 Enter / Space，或点击按钮继续」 is now 「點一下按鈕繼續」, and it shows only when the step really waits (`interact=1`).
 - Fonts: Android's `sans-serif-condensed` and the Traditional Chinese Noto names are placed first in the stacks. The original lists follow, unchanged.
 - Phone layout:
-  - Two media queries were added: portrait (`max-width: 600px`) and landscape (`max-height: 520px`). They only move and resize the existing pieces so nothing overlaps on a 412×915 or 915×412 screen.
+  - Two sets of phone rules were added: portrait (width up to 600px) and landscape (height up to 520px). They only move and resize the existing pieces so nothing overlaps on a phone screen. Since the layout fixes below they are container queries on the page's own full-screen box, not media queries.
   - A small fit step scales down the font of a one-line text that would run past the screen edge. This covers the status line, the mono subtitle, the ident text and the WELCOME lines.
   - The wide letter-spacing comes from the original CSS, where `text-indent` is inherited by every per-letter span. It is kept as it is.
 - The hex waterfall is written with `textContent` and `white-space: pre`. The original used `innerHTML` with `<br>`.
 - The ID card and the hint are written with `textContent`. The original used `innerHTML`.
+
+### Layout fixes (2026-11-15)
+
+All of these are in `splash.css`. Nothing else changed.
+
+1. The phone rules now ask the page's own full-screen box for its size, not the viewport. The root has `container-type: size`, the rules use `@container` instead of `@media`, and heights use `cqh` and `cqmax` instead of `vh` and `vmax`.
+   - Why: in the app's WebView the viewport height reads as 0. So every phone, held upright too, got the landscape rules, and anything sized in `vh` was 0.
+   - What that looked like on the CI emulator (320×640): the step count, the English subtitle and POWERED BY DSH were drawn on top of each other at the bottom, the big Chinese step title was missing (font size 0), and the verification ring was missing (size 0).
+2. Portrait screens under 700px tall (900px since 2026-11-16, see below): the hex digits of step 4 moved from under the clock line to the empty space under the picture (`top: 61%`, `height: 104px`). They used to run over the REV/clock line and the step title.
+3. Portrait: the letter-spaced name under the picture and the welcome line stay 16px inside each screen edge and wrap onto a centred second line when they are too long. A long Latin name used to run to both screen edges, with one letter left alone on a second line.
+4. Landscape: the middle column moved down so it no longer runs over the REV/clock line.
+   - The step title column moved from 32% to 50% of the height, the ring from 30% to 48%, the buttons from 44% to 58%, and WELCOME from 45% to 54%.
+   - The hex digits are narrower on narrower screens (at most half the width minus 222px, and 200px at most), so they no longer run over the English subtitle line.
+5. Screens that are both short and narrow (a 640×320 phone on its side, split screen):
+   - Up to 720px wide: the bottom line's small letters use the portrait size (8px), and the ID line uses 9px, so the step count, the subtitle and POWERED BY DSH fit side by side.
+   - Up to 600px wide: the subtitle moves up a line, and the ID line and the orange voice bars go above it.
+6. Very short screens (under 340px tall, for example a phone on its side under the status bar):
+   - The brand block, the picture, WELCOME and the ID card values are smaller, and the REV line and step bars sit higher.
+   - The middle column hangs from just under the step bars instead of being centred, so it grows downwards when the picture comes in. The ring and the buttons follow it.
+
+### Avatar and full-height WebView (2026-11-16)
+
+1. All three picture spots are small squares (the black ident, the step 3 mark under the title, the welcome card), so they now show `avatar.img`: the 512×512 square around the face that the app serves next to `picture.img`. If `avatar.img` fails to load, the same spot loads `picture.img`; if that fails too, the drawn figure is used. With `picture=0` neither file is asked for. This page has no large background picture, so nothing else uses `picture.img`. Change in `splash.js` (`makeMark()`).
+2. The app's WebView now has the real phone height, so the page sees an ordinary viewport. Every size was checked again in that mode. The changes below are in `splash.css`, plus two lines in `splash.js`.
+   - Step 5 on upright screens: the ring's top arc ran through the REV/clock line and the step bars on short screens (320×616, 320×640, 360×640). The ring now starts below the step bars, and the step title moves down with it (with a short slide) so it stays in the ring's centre.
+   - Step 5 on upright screens: the ring cut the first and last letters of the step title and of its English line. While the ring is shown, these two lines are sized from the ring so they fit inside it, and the hidden caret no longer takes room, so the title is centred. `splash.js` measures the two lines again when the ring comes in.
+   - Step 4 on upright screens: the hex digits moved under the picture only on screens under 700px tall, so at 701–900px tall (360×720) they still ran over the REV/clock line. The limit is now 900px.
+   - Step 4 on screens around 600px tall (320×600 to 320×616): the hex window reached about 3px into the ID CONFIRMED line. Its height is now limited so it ends above that line.
+   - Very short landscape screens (640×320): the ring's upper left arc ran through the clock. The ring is a little smaller there (72% of the height instead of 78%), and the REV/clock line uses 8px letters, so the arc passes to the right of the clock.
+   - In landscape the ring still crosses the middle of the step title. The ring is limited by the screen height there, so the title cannot fit inside it; the title is drawn above the ring and stays readable.
 
 Credit for the design, motion and code: 沈宏宏 (MIT). The original README says its visual style references an anime work. Only the author's own code is used here.

@@ -95,6 +95,11 @@ body {
      里面的 backdrop-filter 就只能采到自己内部，页面内容全被排除，
      表现是「底板透明了但背景一点没糊」。layout/style 不影响采样。 */
   contain: layout style;
+  /* DSHM: the phone rules at the end ask this box for its size (@container)
+     and the height-based sizes use cqh, not vh. In the app's WebView the
+     viewport height reads as 0 (every max-height media query matched and vh
+     was 0), while this fixed full-screen box has its real size. */
+  container-type: size;
 }
 
 /* 逐字渐显（typeIn）：用不透明度而非截断，居中排版不会左右抖动 */
@@ -507,8 +512,8 @@ body {
   position: absolute;
   left: 50%;
   top: 45%;
-  width: min(56vw, 86vh, 1040px);
-  height: min(56vw, 86vh, 1040px);
+  width: min(56vw, 86cqh, 1040px); /* DSHM: cqh, was vh (see #dsh-startup-root) */
+  height: min(56vw, 86cqh, 1040px);
   transform: translate(-50%, -50%);
   z-index: 16;
   opacity: 0;
@@ -786,9 +791,9 @@ body {
   position: absolute;
   left: 50%;
   top: 45%;
-  width: 128vmax;
-  height: 128vmax;
-  margin: -64vmax 0 0 -64vmax;
+  width: 128cqmax; /* DSHM: cqmax, was vmax (see #dsh-startup-root) */
+  height: 128cqmax;
+  margin: -64cqmax 0 0 -64cqmax;
   border-radius: 50%;
   z-index: 62;
   opacity: 0;
@@ -1171,8 +1176,9 @@ body {
 
 /* ── DSHM: phone portrait (412 x 915 CSS px and narrower) ──────────────────
    The original layout is for a wide desktop window. These rules only move and
-   resize things so nothing overlaps or runs off a phone screen. */
-@media (max-width: 600px) {
+   resize things so nothing overlaps or runs off a phone screen. They ask the
+   root box for its size (@container, see #dsh-startup-root), not the viewport. */
+@container (max-width: 600px) {
   .dsu-brand { left: 26px; top: 36px; }
   .dsu-brand-1 { font-size: 31px; }
   .dsu-brand-2 { font-size: 13px; }
@@ -1195,8 +1201,9 @@ body {
   .dsu-sub-en { font-size: min(13px, 3vw); letter-spacing: 0.4em; text-indent: 0.4em; }
   .dsu-rule.dsu-in { width: 82vw; }
 
-  .dsu-reticle { width: min(118vw, 64vh); height: min(118vw, 64vh); }
+  .dsu-reticle { width: min(118vw, 64cqh); height: min(118vw, 64cqh); }
   .dsu-hex { right: 18px; top: 19%; width: 200px; height: 118px; font-size: 9px; }
+  .dsu-logolabel { max-width: calc(100cqw - 32px); text-align: center; }
 
   .dsu-action { top: 61%; }
   .dsu-card { min-width: min(300px, 80vw); }
@@ -1204,7 +1211,7 @@ body {
 
   .dsu-w1 { font-size: min(40px, 9vw); }
   .dsu-w2 { font-size: min(27px, 6.4vw); }
-  .dsu-w4 { font-size: 15px; letter-spacing: 0.2em; text-indent: 0.2em; text-align: center; }
+  .dsu-w4 { font-size: 15px; letter-spacing: 0.2em; text-indent: 0.2em; text-align: center; max-width: calc(100cqw - 32px); }
 
   .dsu-idline { right: 18px; bottom: 128px; font-size: 10px; letter-spacing: 0.16em; }
   .dsu-voice { left: 26px; bottom: 128px; }
@@ -1217,8 +1224,47 @@ body {
   .dsu-progress { width: 46vw; }
 }
 
-/* ── DSHM: phone landscape (915 x 412 CSS px and other short screens) ───── */
-@media (max-height: 520px) {
+/* ── [DSH Mobile] portrait, step 5 (the verification ring) ──────────────────
+   The ring's top, with the dot at the end of its arc (0.3925 of its box),
+   stays under the step bars (top 162px, 2px tall), and the step title moves
+   down with it (top 47% is where the title sits), so the title stays in the
+   ring's centre. The title and its English line are sized from the ring
+   (--ret, the ring's box) so that they fit inside it, and the hidden caret
+   gives up its room so the title is centred (splash.js measures the title
+   again once the ring is in). All of this holds while the middle column
+   fades out at the end (.dsu-off). Before, on 320 x 640 and 360 x 640 the arc ran
+   through the REV/clock line and the step bars, and the ring cut the first
+   and last letters of the title and of the English line. */
+@container (max-width: 600px) and (min-height: 521px) {
+  .dsu-reticle,
+  .dsu-center { --ret: min(118vw, 64cqh); }
+  .dsu-reticle { width: var(--ret); height: var(--ret); top: max(47%, calc(172px + 0.3925 * var(--ret))); }
+  .dsu-center { transition: opacity 340ms ease, top 420ms ease; }
+  #dsh-startup-root:has(> .dsu-reticle.dsu-in) .dsu-center,
+  .dsu-center.dsu-off { top: max(47%, calc(172px + 0.3925 * var(--ret))); }
+  #dsh-startup-root:has(> .dsu-reticle.dsu-in) .dsu-caret,
+  .dsu-center.dsu-off .dsu-caret { display: none; }
+  #dsh-startup-root:has(> .dsu-reticle.dsu-in) .dsu-status.dsu-zhline,
+  .dsu-center.dsu-off .dsu-status.dsu-zhline { font-size: min(40px, 0.052 * var(--ret)); }
+  #dsh-startup-root:has(> .dsu-reticle.dsu-in) .dsu-sub-en,
+  .dsu-center.dsu-off .dsu-sub-en { font-size: min(13px, 0.0213 * var(--ret)); }
+}
+
+/* ── DSHM: short portrait (320 x 640 and the like) ──────────────────────────
+   Under 900px there is no room for the hex waterfall between the clock line
+   and the step title, so it goes to the empty band under the picture.
+   [DSH Mobile] was 700px: at 701-900px tall (360 x 720) the digits still ran
+   over the REV/clock line. The height keeps the window's bottom (100% -
+   146px) above the ID CONFIRMED line (bottom 128px) on screens around 600px
+   tall, where it used to reach 3px into it. */
+@container (max-width: 600px) and (max-height: 900px) {
+  .dsu-hex { top: 61%; height: min(104px, calc(39cqh - 146px)); }
+}
+
+/* ── DSHM: phone landscape (915 x 412 CSS px and other short screens) ─────
+   The middle column (step title, picture, WELCOME) sits below the clock line
+   and the step bars, and the buttons below the middle column. */
+@container (max-height: 520px) {
   .dsu-brand { left: 32px; top: 22px; }
   .dsu-brand-1 { font-size: 24px; }
   .dsu-brand-2 { font-size: 11px; }
@@ -1235,21 +1281,21 @@ body {
   .dsu-black-zh { font-size: 28px; }
   .dsu-black-en { font-size: 23px; }
 
-  .dsu-center { top: 32%; }
+  .dsu-center { top: 50%; }
   .dsu-status { font-size: 34px; }
-  .dsu-status.dsu-zhline { font-size: min(32px, 7.6vh); }
+  .dsu-status.dsu-zhline { font-size: min(32px, 7.6cqh); }
   .dsu-sub-en { font-size: 11px; }
   .dsu-rule.dsu-in { width: min(560px, 50vw); }
   .dsu-logo.dsu-in { height: 84px; }
   .dsu-logo .dsu-mark { width: 58px; height: 58px; }
 
-  .dsu-reticle { top: 30%; width: min(56vw, 78vh); height: min(56vw, 78vh); }
-  .dsu-hex { right: 30px; top: 18%; width: 200px; height: 104px; font-size: 9px; }
+  .dsu-reticle { top: 48%; width: min(56vw, 78cqh); height: min(56vw, 78cqh); }
+  .dsu-hex { right: 30px; top: 18%; width: min(200px, calc(50cqw - 222px)); height: 104px; font-size: 9px; }
 
-  .dsu-action { top: 44%; gap: 8px; }
+  .dsu-action { top: 58%; gap: 8px; }
   .dsu-btn { font-size: 14px; }
 
-  .dsu-welcome { top: 45%; }
+  .dsu-welcome { top: 54%; }
   .dsu-w1 { font-size: 30px; }
   .dsu-w2 { font-size: 22px; }
   .dsu-w3 { gap: 6px; }
@@ -1262,4 +1308,45 @@ body {
   .dsu-stepcount { left: 32px; bottom: 22px; font-size: 10px; }
   .dsu-foot { right: 32px; bottom: 22px; font-size: 10px; }
   .dsu-progress { bottom: 8px; }
+}
+
+/* ── DSHM: short and narrow (split screen, the 320 x 640 emulator turned
+   sideways): the bottom line is too narrow for the step count, the subtitle
+   and POWERED BY DSH side by side at the landscape sizes, so their small
+   letters get the portrait sizes; under 600px the subtitle moves up a line
+   and the ID line and voice bars go above it. ─────────────────────────── */
+@container (max-height: 520px) and (max-width: 720px) {
+  .dsu-stepcount, .dsu-foot { font-size: 8px; letter-spacing: 0.14em; }
+  .dsu-sub-en2 { font-size: 8px; letter-spacing: 0.22em; text-indent: 0.22em; }
+  .dsu-idline { font-size: 9px; }
+}
+@container (max-height: 520px) and (max-width: 600px) {
+  .dsu-subtitle { bottom: 42px; }
+  .dsu-idline { bottom: 84px; }
+  .dsu-voice { bottom: 80px; }
+}
+
+/* ── DSHM: very short (landscape under 340px, e.g. under a status bar) ──────
+   A smaller brand block, picture and WELCOME; the middle column hangs from
+   just under the step bars (it grows downwards when the picture comes in)
+   and the buttons sit right under the step title, so everything fits
+   between the step bars and the subtitle. ─────────────────────────────── */
+@container (max-height: 340px) {
+  .dsu-brand-1 { font-size: 20px; }
+  .dsu-brand-2 { font-size: 10px; }
+  .dsu-brand-3 { font-size: 19px; }
+  .dsu-meta { top: 78px; }
+  .dsu-slats { top: 94px; }
+  .dsu-center { top: 98px; transform: none; }
+  .dsu-logo.dsu-in { height: 70px; }
+  .dsu-logo .dsu-mark { width: 48px; height: 48px; }
+  /* [DSH Mobile] a slightly smaller ring and REV/clock line, so the ring's
+     upper left arc passes right of the clock on a 640 x 320 screen */
+  .dsu-reticle { top: 114px; width: min(56vw, 72cqh); height: min(56vw, 72cqh); }
+  .dsu-meta { font-size: 8px; letter-spacing: 0.06em; }
+  .dsu-action { top: 150px; gap: 4px; }
+  .dsu-card-row b { font-size: 13px; }
+  .dsu-w1 { font-size: 24px; }
+  .dsu-w2 { font-size: 18px; }
+  .dsu-w3 .dsu-mark { width: 44px; height: 44px; }
 }

@@ -70,12 +70,17 @@
 
   /** The user's picture, served by the app next to this page. */
   const PICTURE_PATH = 'picture.img'
+  /**
+   * [DSH Mobile] With picture=1 the app also serves avatar.img: a 512x512 square already cut around the face in the
+   * picture. The small round picture uses it; the blurred full-screen background stays picture.img.
+   */
+  const AVATAR_PATH = 'avatar.img'
 
-  /** Loads the picture once and remembers the answer, so a missing picture is asked for only once. */
-  let pictureProbe = null
-  function pictureReady() {
-    if (pictureProbe === null) {
-      pictureProbe = new Promise((resolve) => {
+  /** Loads an image once and remembers the answer, so a missing file is asked for only once. */
+  const imageProbes = new Map()
+  function imageReady(path) {
+    if (!imageProbes.has(path)) {
+      imageProbes.set(path, new Promise((resolve) => {
         if (typeof Image === 'undefined') {
           resolve(false)
           return
@@ -84,10 +89,20 @@
         probe.decoding = 'async'
         probe.onload = () => resolve(true)
         probe.onerror = () => resolve(false)
-        probe.src = PICTURE_PATH
-      })
+        probe.src = path
+      }))
     }
-    return pictureProbe
+    return imageProbes.get(path)
+  }
+  function pictureReady() {
+    return imageReady(PICTURE_PATH)
+  }
+  /**
+   * [DSH Mobile] The file for the small round picture: avatar.img, or picture.img if avatar.img fails to load, or
+   * null if both fail (then no picture is shown there, as before).
+   */
+  function avatarSource() {
+    return imageReady(AVATAR_PATH).then((ok) => ok ? AVATAR_PATH : pictureReady().then((ok2) => ok2 ? PICTURE_PATH : null))
   }
 
   // ─────────────────────────── [DSH Mobile] tiny DOM helpers ───────────────────────────
@@ -889,6 +904,8 @@
    * The original looped a dsh-pet animation here, fetched from the dsh-pet plugin's HTTP route, and showed nothing
    * when that failed. Here the user's picture takes that place, in the pet's container with the pet's shadow, drop
    * shadow and bob. Like the original, the block only appears once the image has loaded, and never on an error.
+   * [DSH Mobile] It shows the face square avatar.img; if that fails, picture.img; if both fail, nothing (see
+   * avatarSource).
    */
   function PictureCompanion(props) {
     if (!props.picture) return null
@@ -908,9 +925,9 @@
     return {
       node,
       mounted: () => {
-        pictureReady().then((ok) => {
+        avatarSource().then((src) => {
           if (cancelled) return
-          if (ok) image.src = PICTURE_PATH
+          if (src !== null) image.src = src
           else node.remove()
         })
       },

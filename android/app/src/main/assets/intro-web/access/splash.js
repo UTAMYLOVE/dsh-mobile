@@ -14,8 +14,9 @@
  *  - parameters come from the URL query string, not from a DSH host;
  *  - silent: no voice files, no sound effects, no speech synthesis; each line's
  *    original voice length is kept as a silent beat so the timing stays the same;
- *  - the DeepSeek whale and wordmarks are gone: the user's picture (picture.img)
- *    or a plain drawn figure stands where the whale was; brand text is DSH MOBILE;
+ *  - the DeepSeek whale and wordmarks are gone: the user's picture (avatar.img,
+ *    else picture.img) or a plain drawn figure stands where the whale was;
+ *    brand text is DSH MOBILE;
  *  - on-screen Chinese is Traditional; names/greeting come from the app;
  *  - no storage, no network, no desktop title-bar hack, no replay/re-inject,
  *    no app-backdrop blur; finishing calls window.DSHM.done() and sets #done.
@@ -192,8 +193,9 @@
   }
 
   /* DSHM: replaces svgWhale(). With picture=1 it is the user's picture
-     (picture.img, served by the app) inside a thin square frame; without one,
-     or if the picture fails to load, the drawn FIGURE_PATH in currentColor. */
+     inside a thin square frame ([DSH Mobile] avatar.img, the face square the
+     app serves next to picture.img); without one, or if neither loads, the
+     drawn FIGURE_PATH in currentColor. */
   var SVG_NS = 'http://www.w3.org/2000/svg'
   function svgFigure() {
     var svg = document.createElementNS(SVG_NS, 'svg')
@@ -217,13 +219,20 @@
     img.alt = ''
     img.decoding = 'async'
     img.draggable = false
+    /* [DSH Mobile] every mark is a small square, so it shows avatar.img (the
+       app's 512x512 square cut around the face). If that fails, picture.img;
+       if that fails too, the drawn figure. */
     img.addEventListener('error', function () {
+      if (img.getAttribute('src') === 'avatar.img') {
+        img.src = 'picture.img'
+        return
+      }
       /* 拿不到图就退回画出来的人形 */
       box.classList.remove('dsu-mark-pic')
       box.textContent = ''
       box.appendChild(svgFigure())
     })
-    img.src = 'picture.img'
+    img.src = 'avatar.img'
     box.appendChild(img)
     var frame = document.createElementNS(SVG_NS, 'svg')
     frame.setAttribute('viewBox', '0 0 50 50')
@@ -796,6 +805,10 @@
           ui.logo.classList.remove('dsu-in')
           ui.dots.hidden = true
           ui.reticle.classList.add('dsu-in')
+          /* [DSH Mobile] the phone CSS sizes the title from the ring while the
+             ring is in, so measure the two lines again */
+          fit(ui.status)
+          fit(ui.subEn)
           sweep()
         }
         if (step.hex) startHex()

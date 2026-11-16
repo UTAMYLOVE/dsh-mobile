@@ -35,7 +35,7 @@ This folder contains the startup animation from **dsh-startup-animation** by Kyl
 | Original asset | Origin and licence | Decision |
 |---|---|---|
 | `assets/bizhi.jpg` (1259×890, 222,991 B): the background and the dsh wallpaper | Third-party fan art of 和栗薰子 (Waguri Kaoruko, from 『薫る花は凛と咲く』), signed "Mailaohuya". It is not covered by the MIT licence, and no licence is given for it. | **Dropped.** It is replaced by the user's own picture (`picture.img`). With no picture, a plain light ground drawn in CSS takes its place (`.dshs-bg.is-plain`), using the original's own white, pink and lavender. |
-| `assets/toxiang.jpg` (1259×1259, 119,513 B): the avatar | An anime girl with cat ears. The origin is unknown, it is not covered by the MIT licence, and no licence is given for it. | **Dropped.** It is replaced by the user's own picture. With no picture, a CSS stand-in is shown: the first character of the user's name, or, when there is no name, a five-petal blossom built from the original's own sakura-petal shape and colours. |
+| `assets/toxiang.jpg` (1259×1259, 119,513 B): the avatar | An anime girl with cat ears. The origin is unknown, it is not covered by the MIT licence, and no licence is given for it. | **Dropped.** It is replaced by the face square of the user's own picture (`avatar.img`). With no picture, a CSS stand-in is shown: the first character of the user's name, or, when there is no name, a five-petal blossom built from the original's own sakura-petal shape and colours. |
 | Default greeting 「你好，我是和栗薰子，欢迎使用Deepseek Harness」 | Text naming the character. It was used only by the dsh home-screen headline, not by the animation. | **Dropped**, together with `client.js`. |
 | Audio, video, fonts | The original has none. Text uses the system fonts (`system-ui` …). | Nothing to do. The animation is silent. |
 
@@ -49,8 +49,9 @@ This folder contains the startup animation from **dsh-startup-animation** by Kyl
    - `number`, `level` and `lang` are accepted and ignored. The original screen shows none of them, and the text is always in Traditional Chinese.
 2. **Pictures.**
    - The original's `<img src="/dsh-startup/bg">` and `<img src="/dsh-startup/avatar">` (dsh host routes) are replaced.
-   - With `picture=1`, both the background and the avatar use the relative `picture.img`.
-   - With `picture=0`, or if `picture.img` fails to load, the stand-ins drawn in code are used (see the asset table).
+   - With `picture=1`, the background uses the relative `picture.img` (the user's whole picture), and the avatar uses the relative `avatar.img`: a 512×512 square the app cuts round the face, so a tall picture shows its face in the avatar, not the middle of the picture.
+   - If `avatar.img` fails to load, the avatar uses `picture.img` instead.
+   - With `picture=0`, or if `picture.img` fails to load as well, the stand-ins drawn in code are used (see the asset table).
    - When there is no picture to wait for, the entrance starts at once. The original always waited for its two images, with a 1.2 s cap.
 3. **Words.**
    - The greeting is the user's `welcome`.
@@ -116,6 +117,6 @@ This folder contains the startup animation from **dsh-startup-animation** by Kyl
 
 ## Hosting notes for the app
 
-- Serve `index.html`, `boot.css`, `boot.js` and, when `picture=1`, the user's picture as `picture.img`, all from the same folder.
+- Serve `index.html`, `boot.css`, `boot.js` and, when `picture=1`, the user's picture as `picture.img` and the square cut round the face as `avatar.img`, all from the same folder.
 - The page makes no other request.
 - Keep a ceiling of your own as well. If the WebView never runs the script, nothing can signal done.

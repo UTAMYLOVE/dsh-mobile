@@ -389,7 +389,8 @@
       const ictx = ink.getContext('2d');
       /* [DSH Mobile] With the user's picture the body is the picture, cropped to a square (from the middle; a tall
        * picture from a little above the middle, where faces usually are) and laid over the silhouette's box. The
-       * nebulas then go on at a third of their strength so the picture keeps its own colours. */
+       * nebulas then go on at a third of their strength so the picture keeps its own colours. avatar.img (see boot)
+       * is already square, so it is used whole; the crop only applies to the picture.img fallback. */
       let dress = 1;
       if (picture) {
         const iw = picture.naturalWidth;
@@ -1480,26 +1481,37 @@
   // Last resort: whatever happens, the app is told well after the run should have ended.
   setTimeout(signalDone, ((P.seconds || MODE.cue.total) + 6) * 1000);
 
+  /* [DSH Mobile] The round mark is a small portrait, so it shows avatar.img: the app's 512 x 512 square already cut
+   * around the face. If that does not load, picture.img (cropped as in prepareMark); if that fails too, the drawn
+   * stand-in. The whole chain still gets 1.5 s. */
   function boot() {
     if (!P.picture) {
       start(null);
       return;
     }
     let settled = false;
-    const img = new Image();
-    const go = (ok) => {
+    const go = (img) => {
       if (settled) return;
       settled = true;
-      start(ok && img.naturalWidth > 0 && img.naturalHeight > 0 ? img : null);
+      start(img);
     };
-    img.onload = () => {
-      // decode() keeps the first drawImage of a large picture off the first frames
-      if (typeof img.decode === 'function') img.decode().then(() => go(true), () => go(true));
-      else go(true);
+    const load = (src, next) => {
+      if (settled) return;
+      const img = new Image();
+      const ok = () => {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) go(img);
+        else next();
+      };
+      img.onload = () => {
+        // decode() keeps the first drawImage of a large picture off the first frames
+        if (typeof img.decode === 'function') img.decode().then(ok, ok);
+        else ok();
+      };
+      img.onerror = next;
+      img.src = src;
     };
-    img.onerror = () => go(false);
-    setTimeout(() => go(false), 1500);
-    img.src = 'picture.img';
+    setTimeout(() => go(null), 1500);
+    load('avatar.img', () => load('picture.img', () => go(null)));
   }
 
   if (document.body) boot();
