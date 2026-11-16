@@ -17,7 +17,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
-import java.util.TimeZone
 
 /**
  * Every existing setting keeps its place (owner O5, R4): the settings tab (embedded, 進階設定 open, a test picture, 粉嫩二次元)
@@ -30,12 +29,10 @@ import java.util.TimeZone
 class SettingsOrderSnapshotTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
-    private val zone: TimeZone = TimeZone.getDefault()
     private val scenes by lazy { ThemeScenes(rule) }
 
     @After fun tearDown() {
         scenes.close()
-        TimeZone.setDefault(zone)
     }
 
     @Test fun everySettingKeepsItsLabelAndPlace() {

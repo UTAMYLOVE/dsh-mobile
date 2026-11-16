@@ -25,11 +25,14 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteractionCollection
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -94,6 +97,7 @@ import app.dshmobile.service.RunningDsh
 import app.dshmobile.system.PhantomState
 import app.dshmobile.ui.DshStatusView
 import app.dshmobile.ui.LicensesPage
+import app.dshmobile.ui.LicensesTags
 import app.dshmobile.ui.LookSettings
 import app.dshmobile.ui.LookTags
 import app.dshmobile.ui.MainOps
@@ -197,6 +201,7 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.roundToInt
 
 typealias SceneRule = AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, ComponentActivity>
 
@@ -207,13 +212,15 @@ typealias SceneWrap = @Composable (@Composable () -> Unit) -> Unit
  * The screens every theme test draws, built the same way each time from invented data (小雨, 主代理人, 研究員, 寫手, 審稿員) and
  * pictures made here. Each scene sets [rule]'s content inside [wrap] (by default `FogTheme(effects)`, today's CLASSIC look), waits
  * until nothing more will change, and remembers how [snap] must take its picture: the whole window, a tall page cropped to its
- * measured height (`scene-root`), a dialog's own window over the activity, or with the shell header's live clock blanked.
+ * measured height (`scene-root`), a dialog's own window over the activity, or with the shell header's live clock blanked. A page
+ * that fills its window is shown whole by giving its test a window tall enough and checking it with [assertWhole].
  *
- * Determinism: every scene sets the default time zone to Asia/Taipei; the war scenes pin Robolectric's clock to [NOW] before
- * `setContent` (AgentsTab's `System.currentTimeMillis()` follows it only where Robolectric instruments `app.dshmobile.ui.agents`:
- * the war tests' `@Config(instrumentedPackages)`); text, models and prices that depend on the wall clock are avoided (Claude models
- * in the war room, whose price does not change with the hour; forecasts dated 2099); random ids are replaced (the bookshelf);
- * the more-features shell header's own clock, which reads the JVM's clock, is blanked.
+ * Determinism: every scene sets the default time zone to Asia/Taipei ([close] puts the previous one back); the war scenes pin
+ * Robolectric's clock to [NOW] before `setContent` (AgentsTab's `System.currentTimeMillis()` follows it only where Robolectric
+ * instruments `app.dshmobile.ui.agents`: the war tests' `@Config(instrumentedPackages)`; [war] fails when it does not); text,
+ * models and prices that depend on the wall clock are avoided (Claude models in the war room, whose price does not change with
+ * the hour; forecasts dated 2099); random ids are replaced (the bookshelf); the more-features shell header's own clock, which
+ * reads the JVM's clock, is blanked.
  */
 class ThemeScenes(
     private val rule: SceneRule,
@@ -224,8 +231,8 @@ class ThemeScenes(
 
     /** How [snap] takes the current scene's picture. */
     private class Shot(
-        /** Crop to the bounds of the node tagged [ROOT] (a tall page measured at its full height). */
-        val crop: Boolean = false,
+        /** Crop to the bounds of the node with this tag ([ROOT]: a tall page measured at its full height). */
+        val crop: String? = null,
         /** Draw the shown dialogs' windows over the activity's. */
         val dialogs: Boolean = false,
         /** Only the newest dialog's window (a full-screen dialog). */
@@ -236,14 +243,22 @@ class ThemeScenes(
 
     private var shot = Shot()
     private val scopes = ArrayList<CoroutineScope>()
-    private val temp: File by lazy { Files.createTempDirectory("scenes").toFile() }
+    private var tempDir: File? = null
+    private val temp: File get() = tempDir ?: Files.createTempDirectory("scenes").toFile().also { tempDir = it }
 
-    /** Ends what the scenes started (the war room's session tree); call from `@After`. */
+    /** The JVM's default time zone before the scenes set Asia/Taipei; [close] puts it back. */
+    private val zone: TimeZone = TimeZone.getDefault()
+
+    /**
+     * Ends what the scenes started (the war room's session tree, a launched MainActivity, the temp files) and puts back the
+     * default time zone, so Asia/Taipei never leaks into the test classes that run after this one; call from `@After`.
+     */
     fun close() {
         main?.let { m -> runCatching { m.pause().stop().destroy() } }
         if (main != null) ApplicationProvider.getApplicationContext<DshMobileApp>().shellSessions.detach()
         scopes.forEach { it.cancel() }
-        temp.deleteRecursively()
+        tempDir?.deleteRecursively()
+        TimeZone.setDefault(zone)
     }
 
     // ---- taking the picture ------------------------------------------------------------------------------------------------
@@ -252,7 +267,10 @@ class ThemeScenes(
      * The current scene as a bitmap (the decorView drawn as ChatHomeTest does, plus the scene's dialogs, crop and masks); also
      * written to `<dshm.shots>/<name>.png` when that property is set.
      */
-    fun snap(name: String): Bitmap {
+    fun snap(name: String): Bitmap = snap(name, rows = null)
+
+    /** [snap], cropped to [rows] of the window (the settings tab's halves) instead of the scene's own crop. */
+    private fun snap(name: String, rows: IntRange?): Bitmap {
         rule.waitForIdle()
         val decor = rule.activity.window.decorView
         var bitmap = if (shot.dialogOnly) drawWindow(dialogWindows().last()) else drawWindow(decor)
@@ -278,16 +296,46 @@ class ThemeScenes(
                 }
             }
         }
-        if (shot.crop) {
-            val r = rule.onNodeWithTag(ROOT, useUnmergedTree = true).fetchSemanticsNode().boundsInWindow
-            val left = r.left.toInt().coerceAtLeast(0)
-            val top = r.top.toInt().coerceAtLeast(0)
-            val w = (Math.round(r.right) - left).coerceAtMost(bitmap.width - left)
-            val h = (Math.round(r.bottom) - top).coerceAtMost(bitmap.height - top)
-            bitmap = Bitmap.createBitmap(bitmap, left, top, w, h)
+        val crop: Rect? = when {
+            rows != null -> Rect(0f, rows.first.toFloat(), bitmap.width.toFloat(), rows.last + 1f)
+            // The node's own bounds, not clipped to the window. A page longer than its window either lies past it or is
+            // squeezed into it, reaching its bottom edge: both fail below instead of turning into a cut golden.
+            shot.crop != null -> rule.onNodeWithTag(shot.crop!!, useUnmergedTree = true).fetchSemanticsNode().let { n ->
+                Rect(n.positionInWindow.x, n.positionInWindow.y, n.positionInWindow.x + n.size.width, n.positionInWindow.y + n.size.height)
+            }
+            else -> null
+        }
+        if (crop != null) {
+            val left = crop.left.toInt()
+            val top = crop.top.toInt()
+            val right = Math.round(crop.right)
+            val bottom = Math.round(crop.bottom)
+            // A crop by tag must end inside the window: one that reaches its bottom edge may have been squeezed to fit it.
+            val inside = if (rows != null) bottom <= bitmap.height else bottom < bitmap.height
+            check(left >= 0 && top >= 0 && right <= bitmap.width && inside && right > left && bottom > top) {
+                "$name does not fit its ${bitmap.width} × ${bitmap.height} window: $crop (give its test a taller window)"
+            }
+            bitmap = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
         }
         System.getProperty("dshm.shots")?.let { dir -> PixelCompare.write(bitmap, File(dir, "$name.png")) }
         return bitmap
+    }
+
+    /**
+     * Fails unless nothing under the node tagged [tag] (itself included) scrolls vertically: the window holds all of that page or
+     * sheet, so its golden pins every row of it (plan: tall pages at their full measured height).
+     */
+    fun assertWhole(tag: String) {
+        rule.waitForIdle()
+        val scrolls = rule.onAllNodes(scrollsY and (hasTestTag(tag) or hasAnyAncestor(hasTestTag(tag))), useUnmergedTree = true)
+            .fetchSemanticsNodes()
+        check(scrolls.isNotEmpty()) { "nothing scrolls under $tag: the check would prove nothing" }
+        scrolls.forEach { n ->
+            val range = n.config[SemanticsProperties.VerticalScrollAxisRange]
+            check(range.value() == 0f && range.maxValue() == 0f) {
+                "a list under $tag scrolls (at ${range.value()} of ${range.maxValue()}): its window is too short for all of it"
+            }
+        }
     }
 
     /** The dialogs' windows (an application sub-window each, over the activity's), oldest first. */
@@ -554,7 +602,7 @@ class ThemeScenes(
     }
 
     /** The pull-out data panel on its own (its four tiles, the spirits, the speed curve, the decisions and the files). */
-    fun dataPanel() = show(Shot(crop = true)) {
+    fun dataPanel() = show(Shot(crop = ROOT)) {
         Stage {
             Column(Modifier.padding(LocalPagePadding.current)) {
                 ChatDataPanel(
@@ -571,14 +619,14 @@ class ThemeScenes(
     }
 
     /** The context bar (上下文 and its fill) on its own: the app keeps it but no page shows it today. */
-    fun contextBar() = show(Shot(crop = true)) {
+    fun contextBar() = show(Shot(crop = ROOT)) {
         Stage { Column(Modifier.padding(LocalPagePadding.current)) { ContextBar(.42f, "上下文 42% · 84K / 200K") } }
     }
 
     // ---- pages -------------------------------------------------------------------------------------------------------------
 
     /** 外觀主題 as Settings shows it: its glass panel (SettingsScreen's Section) over the backdrop, at its full height. */
-    fun settingsLook(controller: LookController = lookController()) = show(Shot(crop = true)) {
+    fun settingsLook(controller: LookController = lookController()) = show(Shot(crop = ROOT)) {
         Stage(backdrop = true) {
             Column(Modifier.padding(LocalPagePadding.current)) {
                 FogPanel(title = stringResource(R.string.set_section_look), en = stringResource(R.string.set_en_look), index = 3, modifier = Modifier.fillMaxWidth()) {
@@ -596,7 +644,7 @@ class ThemeScenes(
         val c = lookController()
         if (kawaii) c.update { it.copy(style = BackdropStyle.KAWAII, petals = true, sparkles = true, hearts = true, clouds = true) }
         if (picture) setPicture(c)
-        show(Shot(crop = true), wrapWith) { Box(Modifier.background(Sakura.Background).testTag(ROOT)) { LookSettings(c) } }
+        show(Shot(crop = ROOT), wrapWith) { Box(Modifier.background(Sakura.Background).testTag(ROOT)) { LookSettings(c) } }
     }
 
     /** 調整頭像: the avatar editor dialog, in its own window. */
@@ -625,8 +673,61 @@ class ThemeScenes(
         waitForPicture()
     }
 
-    /** The open-source licences page (the top of it, as it opens). */
-    fun licences() = show { LicensesPage(onClose = {}) }
+    /**
+     * [settingsAll]'s upper half, at the top of the tab: from the shell's header down to 外觀主題's panel (金鑰, 代理人, 模型),
+     * which F6's rows at the top of 外觀主題 never move. Its window must hold all of it above the dock.
+     */
+    fun snapSettingsUpper(name: String): Bitmap {
+        val range = settingsScroll().config[SemanticsProperties.VerticalScrollAxisRange]
+        check(range.value() == 0f) { "the settings tab is not at its top (${range.value()})" }
+        val look = panelTop(R.string.set_section_look)
+        check(look <= dockTop() - px(DOCK_FADE_DP)) { "$name: 外觀主題 starts at $look, under the dock's fade (${dockTop()}): give its test a taller window" }
+        return snap(name, 0 until look)
+    }
+
+    /**
+     * [settingsAll]'s lower half, scrolled to the end of the tab: from 效果強度's panel down to the dock (效果強度 … 套用並重啟).
+     * Taken from the end, every row of it sits at the same place in the window, over the same backdrop, however much F6 adds to
+     * 外觀主題 above it. Its window must hold all of it below the header.
+     */
+    fun snapSettingsLower(name: String): Bitmap {
+        val range = settingsScroll().config[SemanticsProperties.VerticalScrollAxisRange]
+        rule.onNode(settingsColumn, useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, range.maxValue() - range.value()) }
+        rule.waitForIdle()
+        val end = settingsScroll().config[SemanticsProperties.VerticalScrollAxisRange]
+        check(end.value() == end.maxValue()) { "the settings tab did not reach its end (${end.value()} of ${end.maxValue()})" }
+        val effects = panelTop(R.string.set_section_effects)
+        val stage = rule.onNodeWithTag(Tags.SHELL_STAGE, useUnmergedTree = true).fetchSemanticsNode().positionInWindow.y.roundToInt()
+        check(effects >= stage + px(TOP_FADE_DP)) { "$name: 效果強度 starts at $effects, under the header's fade ($stage): give its test a taller window" }
+        return snap(name, effects until dockTop())
+    }
+
+    /** The settings tab's own scrolling column (the only vertical scroll on the stage). */
+    private val settingsColumn = scrollsY and hasAnyAncestor(hasTestTag(Tags.SHELL_STAGE))
+
+    private fun settingsScroll() = rule.onAllNodes(settingsColumn, useUnmergedTree = true).fetchSemanticsNodes().single()
+
+    /** The top of the settings panel titled [title] in the window: its title row sits [PANEL_TOP_DP] inside the glass. */
+    private fun panelTop(title: Int): Int {
+        val text = ApplicationProvider.getApplicationContext<android.content.Context>().getString(title)
+        val heading = rule.onAllNodes(hasText(text, substring = false) and hasAnyAncestor(hasTestTag(Tags.SHELL_STAGE)), useUnmergedTree = true)
+            .fetchSemanticsNodes().single()
+        return heading.positionInWindow.y.roundToInt() - px(PANEL_TOP_DP)
+    }
+
+    private fun dockTop(): Int = rule.onNodeWithTag(Tags.DOCK, useUnmergedTree = true).fetchSemanticsNode().positionInWindow.y.roundToInt()
+
+    private fun px(dp: Int): Int = Math.round(dp * rule.density.density)
+
+    /** The open-source licences page; [open]: that licence's full text shown, and the picture cropped to it. */
+    fun licences(open: String? = null) {
+        show(Shot(crop = open?.let { LicensesTags.TEXT + it })) { LicensesPage(onClose = {}) }
+        if (open != null) {
+            rule.onNodeWithTag(LicensesTags.SHOW + open).performClick()
+            rule.waitForIdle()
+        }
+    }
 
     /** A locked conversation: 「這個對話已鎖定」 and 解鎖. */
     fun lock() = show { Shell { LockedPage(onUnlock = {}) } }
@@ -646,7 +747,7 @@ class ThemeScenes(
     /** 總覽 at its full height: the spend ring and cells, the weather card, the war strip, the agents and heartbeat, reminders, recent. */
     fun overview() {
         val weather = weatherService()
-        show(Shot(crop = true)) {
+        show(Shot(crop = ROOT)) {
             Stage {
                 OverviewScreen(
                     overviewState, {}, {}, weather = { WeatherCard(weather) },
@@ -660,7 +761,7 @@ class ThemeScenes(
     /** The weather card on its own (a report from fixed, invented forecasts). */
     fun weatherCard() {
         val weather = weatherService()
-        show(Shot(crop = true)) { Stage { Column(Modifier.padding(LocalPagePadding.current)) { WeatherCard(weather) } } }
+        show(Shot(crop = ROOT)) { Stage { Column(Modifier.padding(LocalPagePadding.current)) { WeatherCard(weather) } } }
         waitFor(hasTestTag(WeatherTags.CHART))
     }
 
@@ -734,7 +835,7 @@ class ThemeScenes(
     }
 
     /** dsh's detailed status in Settings: a slow health check, with 強制結束 offered. */
-    fun dshStatus() = show(Shot(crop = true)) {
+    fun dshStatus() = show(Shot(crop = ROOT)) {
         Stage {
             Column(Modifier.padding(LocalPagePadding.current)) {
                 DshStatusView(DshStatus(DshPhase.HEALTH_CHECK, sinceMs = 0, port = 38123), onForceRestart = {}, onOpenAppSettings = {}, now = { 95_000L })
@@ -743,7 +844,7 @@ class ThemeScenes(
     }
 
     /** The cards above and under the conversation: the long-chat nudge, the todo bar (open) and the three-stance card. */
-    fun workCards() = show(Shot(crop = true)) {
+    fun workCards() = show(Shot(crop = ROOT)) {
         Stage {
             Column(Modifier.padding(LocalPagePadding.current), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 LongChatNudge(onNew = {}, onLater = {})
@@ -772,7 +873,7 @@ class ThemeScenes(
     /** What `present` handed over: files with an inline drawing (and one that cannot be read), and a deep-research report. */
     fun resultCards() {
         val ws = workspace()
-        show(Shot(crop = true)) {
+        show(Shot(crop = ROOT)) {
             Stage {
                 Column(Modifier.padding(LocalPagePadding.current), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PresentCard("c1", presentedFiles, null, ws, {}, {})
@@ -873,13 +974,18 @@ class ThemeScenes(
         recorder.note("派出", "寫手 · 週報")
         t = NOW - 10_000
         recorder.note("錯誤", "rm -rf data/ · 已擋下")
-        show(Shot(crop = true)) {
+        show(Shot(crop = ROOT)) {
             Stage {
                 AgentsTab(
                     agents, tree, scope, 6, onOpenParent = {}, recorder = recorder, openId = "lead", lead = flowOf(null),
                     todayUsd = 1.85, limits = "並行上限 6 · 團隊 3 · 深度 2", alertUsd = 5.0, team = 3,
                 )
             }
+        }
+        // AgentsTab's clock follows the pinned SystemClock only where Robolectric instruments the war room's package.
+        check(rule.onAllNodes(hasText("● " + clockText())).fetchSemanticsNodes().isNotEmpty()) {
+            "the war room's clock is not pinned to ThemeScenes.NOW (${clockText()}): " +
+                "add @Config(instrumentedPackages = [\"app.dshmobile.ui.agents\"]) until F10's AgentsTab(now)"
         }
         if (listMode) {
             rule.onNodeWithTag(Tags.WAR_LIST_TOGGLE).performClick()
@@ -984,6 +1090,16 @@ class ThemeScenes(
 
         /** The tag of a tall page's root: [snap] crops to it. */
         const val ROOT = "scene-root"
+
+        /** A node that scrolls vertically (a scrolling column or a lazy list). */
+        private val scrollsY = SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)
+
+        /** FogPanel's top padding (FogPanel.kt): a settings panel's title row starts this far inside its glass. */
+        private const val PANEL_TOP_DP = 16
+        /** FogShell's `DockFade`: the band above the dock over which a page fades out. */
+        private const val DOCK_FADE_DP = 24
+        /** FogShell's `TopFade`: the fade at the top of the page viewport, under the header. */
+        private const val TOP_FADE_DP = 16
 
         /** [NOW] as the war room's clock shows it (WarOps' `HH:mm:ss` in Asia/Taipei). */
         fun clockText(): String = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.of("Asia/Taipei")).format(Instant.ofEpochMilli(NOW))

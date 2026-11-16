@@ -14,15 +14,19 @@ import kotlin.math.max
  * pixel differs by more than [WORST] (two palette roles differ by at least 27 in some channel, so a swapped role still fails).
  *
  * A missing golden is written to `app/build/classic-golden/` and fails (copy it into `src/test/resources/classic`); a mismatch
- * writes `app/build/classic-diff/<name>-actual.png` and `-diff.png` and fails with the first ten differing pixels and the CPU.
+ * writes `app/build/classic-diff/<name>-actual.png` and `-diff.png` and fails with the first ten differing pixels, where the worst
+ * channel difference is, and the CPU.
  */
 object PixelCompare {
     const val LEVEL = 2
     const val SHARE = 0.001
     const val WORST = 16
 
-    /** What two bitmaps of the same size differ by. [first] lists up to ten differing pixels, `x,y expected→actual`. */
-    class Diff(val total: Int, val differing: Int, val worst: Int, val first: List<String>, val mask: BooleanArray) {
+    /**
+     * What two bitmaps of the same size differ by. [first] lists up to ten differing pixels and [worstAt] the pixel with the
+     * largest channel difference, each as `x,y expected→actual`.
+     */
+    class Diff(val total: Int, val differing: Int, val worst: Int, val first: List<String>, val mask: BooleanArray, val worstAt: String? = null) {
         val passes: Boolean get() = differing <= total * SHARE && worst <= WORST
     }
 
@@ -44,6 +48,7 @@ object PixelCompare {
         val mask = BooleanArray(w * h)
         var differing = 0
         var worst = 0
+        var worstAt: String? = null
         val first = ArrayList<String>()
         for (i in e.indices) {
             val pe = e[i]
@@ -51,14 +56,17 @@ object PixelCompare {
             if (pe == pa) continue
             var d = 0
             for (shift in intArrayOf(24, 16, 8, 0)) d = max(d, abs(((pe ushr shift) and 0xFF) - ((pa ushr shift) and 0xFF)))
-            if (d > worst) worst = d
+            if (d > worst) {
+                worst = d
+                worstAt = "${i % w},${i / w} ${hex(pe)}→${hex(pa)}"
+            }
             if (d > LEVEL) {
                 differing++
                 mask[i] = true
                 if (first.size < 10) first += "${i % w},${i / w} ${hex(pe)}→${hex(pa)}"
             }
         }
-        return Diff(w * h, differing, worst, first, mask)
+        return Diff(w * h, differing, worst, first, mask, worstAt)
     }
 
     /** Fails unless [actual] matches the golden [name] (see the class comment); a missing golden is written out and fails. */
@@ -85,7 +93,7 @@ object PixelCompare {
         write(diffPicture(expected, d), File(dir, "$name-diff.png"))
         fail(
             "$name differs from $folder/$name.png: ${d.differing} of ${d.total} pixels (allowed ${(d.total * SHARE).toInt()}), " +
-                "worst channel difference ${d.worst} (allowed $WORST); first: ${d.first.joinToString("; ")}; CPU: ${cpu()}; " +
+                "worst channel difference ${d.worst} (allowed $WORST) at ${d.worstAt}; first: ${d.first.joinToString("; ")}; CPU: ${cpu()}; " +
                 "pictures in ${dir.path}",
         )
     }

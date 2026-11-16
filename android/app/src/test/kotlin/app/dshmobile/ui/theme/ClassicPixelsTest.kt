@@ -5,6 +5,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import app.dshmobile.ui.LicensesTags
+import app.dshmobile.ui.chat.HelperTags
 import app.dshmobile.ui.shell.Tags
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -15,26 +17,37 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import java.util.TimeZone
 
 /**
  * 原本的樣子, frozen: every key screen as the app draws it today, compared with its golden in `src/test/resources/classic` (see
  * [PixelCompare] for the tolerance). A CLASSIC golden never changes; a mismatch is a bug in the change, never a reason to update
  * the golden (plan §4.4; the one documented exception is F6's `settings-look`).
  *
- * 320 × 640 at mdpi (one pixel per dp); tall pages are laid out in a 3,000 dp window and cropped to their measured height, and
- * the chat in a window tall enough for its whole conversation.
+ * 320 × 640 at mdpi (one pixel per dp). Every page is pinned whole: tall pages are laid out in a 3,000 dp window and cropped to
+ * their measured height; pages and sheets that fill their window are laid out in one tall enough for all of them, which
+ * [ThemeScenes.assertWhole] checks; the chat in a window tall enough for its whole conversation; the settings tab, longer than
+ * any window, as its top at 640 and its two halves around 外觀主題 ([ThemeScenes.snapSettingsUpper] / `Lower`).
  */
 private const val WINDOW = "w320dp-h640dp-mdpi"
 /** Tall pages: laid out in this window, cropped to their measured height. */
 private const val TALL = "w320dp-h3000dp-mdpi"
 /** The chat, tall enough for its whole conversation. */
+private const val CHAT_WINDOW = "w320dp-h2100dp-mdpi"
+/** 對話紀錄's home and 小幫手: all of the page above the dock. */
+private const val PAGE_WINDOW = "w320dp-h1000dp-mdpi"
+/** The list, its sheet, a project, the projects and the ＋ sheet: all of the page or sheet above the dock. */
+private const val SHELL_WINDOW = "w320dp-h1300dp-mdpi"
+/** The model menu with all its chips above the dock's extras. */
+private const val MENU_WINDOW = "w320dp-h900dp-mdpi"
+/** The licences page, whole. */
+private const val LICENCES_WINDOW = "w320dp-h3700dp-mdpi"
+/** Either half of the settings tab (金鑰 … 模型; 效果強度 … 套用並重啟) between the header and the dock. */
+private const val SETTINGS_WINDOW = "w320dp-h3300dp-mdpi"
 /**
  * AgentsTab reads `System.currentTimeMillis()` for the war room's clock; instrumented by Robolectric, that call follows the
  * pinned SystemClock (ThemeScenes.NOW) instead of the wall clock (F10 replaces this with AgentsTab's `now`).
  */
 private const val WAR_PACKAGE = "app.dshmobile.ui.agents"
-private const val CHAT_WINDOW = "w320dp-h2100dp-mdpi"
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = WINDOW)
@@ -42,7 +55,6 @@ private const val CHAT_WINDOW = "w320dp-h2100dp-mdpi"
 class ClassicPixelsTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
-    private val zone: TimeZone = TimeZone.getDefault()
     private lateinit var scenes: ThemeScenes
 
     @Before fun setUp() {
@@ -51,7 +63,6 @@ class ClassicPixelsTest {
 
     @After fun tearDown() {
         scenes.close()
-        TimeZone.setDefault(zone)
     }
 
     private fun check(name: String) = PixelCompare.assertMatches(name, scenes.snap(name))
@@ -59,6 +70,7 @@ class ClassicPixelsTest {
     /** A scene at FULL, the frame clock held: the frame at 0 ms and the one at 1,000 ms. */
     private fun atFull(name: String, scene: ThemeScenes.() -> Unit) {
         rule.mainClock.autoAdvance = false
+        scenes.close()
         scenes = ThemeScenes(rule, ThemeScenes.FULL)
         scenes.scene()
         val first = scenes.snap("$name-full-0")
@@ -81,17 +93,21 @@ class ClassicPixelsTest {
         PixelCompare.assertMatches("chat", shot)
     }
 
-    @Test fun home() { scenes.home(); check("home") }
+    @Config(qualifiers = PAGE_WINDOW)
+    @Test fun home() { scenes.home(); scenes.assertWhole(Tags.SHELL_STAGE); check("home") }
 
-    @Test fun list() { scenes.list(sheetOpen = false); check("list") }
+    @Config(qualifiers = SHELL_WINDOW)
+    @Test fun list() { scenes.list(sheetOpen = false); scenes.assertWhole(Tags.SHELL_STAGE); check("list") }
 
-    @Test fun listSheet() { scenes.list(sheetOpen = true); check("list-sheet") }
+    @Config(qualifiers = SHELL_WINDOW)
+    @Test fun listSheet() { scenes.list(sheetOpen = true); scenes.assertWhole(Tags.SHELL_STAGE); check("list-sheet") }
 
     @Test fun renameCard() { scenes.renameCard(); check("rename") }
 
     @Test fun deleteCard() { scenes.deleteCard(); check("delete") }
 
-    @Test fun plusSheet() { scenes.plusSheet(); check("plus-sheet") }
+    @Config(qualifiers = SHELL_WINDOW)
+    @Test fun plusSheet() { scenes.plusSheet(); scenes.assertWhole(Tags.PLUS_SHEET); check("plus-sheet") }
 
     @Test fun prompt() { scenes.prompt(); check("prompt") }
 
@@ -137,7 +153,26 @@ class ClassicPixelsTest {
 
     @Test fun settingsAll() { scenes.settingsAll(); check("settings-all") }
 
-    @Test fun licences() { scenes.licences(); check("licences") }
+    /**
+     * The rest of the settings tab, in two halves F6's rows at the top of 外觀主題 cannot move: 金鑰 … 模型 at the top of the
+     * tab, and 效果強度 … 套用並重啟 scrolled to its end (外觀主題 itself is settings-look and the flat goldens).
+     */
+    @Config(qualifiers = SETTINGS_WINDOW)
+    @Test fun settingsAllHalves() {
+        scenes.settingsAll()
+        val upper = scenes.snapSettingsUpper("settings-all-upper")
+        val lower = scenes.snapSettingsLower("settings-all-lower")
+        // Both are compared (and written out when missing) before either failure is reported.
+        val failures = listOf("settings-all-upper" to upper, "settings-all-lower" to lower).mapNotNull { (n, b) -> runCatching { PixelCompare.assertMatches(n, b) }.exceptionOrNull() }
+        failures.firstOrNull()?.let { throw it }
+    }
+
+    @Config(qualifiers = LICENCES_WINDOW)
+    @Test fun licences() { scenes.licences(); scenes.assertWhole(LicensesTags.PAGE); check("licences") }
+
+    /** A licence's full text open: the fixed-width block (cropped to it). */
+    @Config(qualifiers = LICENCES_WINDOW)
+    @Test fun licenceText() { scenes.licences(open = "commonmark"); check("licences-text") }
 
     @Test fun lock() { scenes.lock(); check("lock") }
 
@@ -154,11 +189,14 @@ class ClassicPixelsTest {
 
     @Test fun library() { scenes.library(); check("library") }
 
-    @Test fun project() { scenes.project(); check("project") }
+    @Config(qualifiers = SHELL_WINDOW)
+    @Test fun project() { scenes.project(); scenes.assertWhole(Tags.SHELL_STAGE); check("project") }
 
-    @Test fun projects() { scenes.projects(); check("projects") }
+    @Config(qualifiers = SHELL_WINDOW)
+    @Test fun projects() { scenes.projects(); scenes.assertWhole(Tags.SHELL_STAGE); check("projects") }
 
-    @Test fun helpers() { scenes.helpers(); check("helpers") }
+    @Config(qualifiers = PAGE_WINDOW)
+    @Test fun helpers() { scenes.helpers(); scenes.assertWhole(HelperTags.PAGE); check("helpers") }
 
     @Config(qualifiers = TALL)
     @Test fun dshStatus() { scenes.dshStatus(); check("dsh-status") }
@@ -183,7 +221,16 @@ class ClassicPixelsTest {
     @Config(qualifiers = TALL)
     @Test fun contextBar() { scenes.contextBar(); check("context-bar") }
 
-    @Test fun chatExtras() { scenes.chatExtras(); check("chat-extras") }
+    @Config(qualifiers = MENU_WINDOW)
+    @Test fun chatExtras() {
+        scenes.chatExtras()
+        // The whole model menu, its effort and review chips included, shows above the dock and its fade.
+        val menu = rule.onNodeWithTag(Tags.MODEL_MENU).fetchSemanticsNode().boundsInRoot
+        val dock = rule.onNodeWithTag(Tags.DOCK).fetchSemanticsNode().boundsInRoot
+        assertTrue("the model menu (${menu.bottom}) ends above the dock's fade (${dock.top})", menu.bottom <= dock.top - 24f * rule.density.density)
+        rule.onNodeWithTag(Tags.REVIEW_OPTION + app.dshmobile.chat.ReviewRounds.MAX).assertIsDisplayed()
+        check("chat-extras")
+    }
 
     @Test fun chatBanners() { scenes.chatBanners(); check("chat-banners") }
 
