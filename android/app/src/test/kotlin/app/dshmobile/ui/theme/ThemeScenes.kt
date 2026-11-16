@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -22,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -625,12 +627,18 @@ class ThemeScenes(
 
     // ---- pages -------------------------------------------------------------------------------------------------------------
 
-    /** 外觀主題 as Settings shows it: its glass panel (SettingsScreen's Section) over the backdrop, at its full height. */
+    /**
+     * 外觀主題 as Settings shows it, over the backdrop at its full height: SettingsScreen's transparent Surface (whose
+     * `contentColor = Sakura.Text` is what inks LookSettings' plain Text) around its Section (the glass panel).
+     */
     fun settingsLook(controller: LookController = lookController()) = show(Shot(crop = ROOT)) {
         Stage(backdrop = true) {
-            Column(Modifier.padding(LocalPagePadding.current)) {
-                FogPanel(title = stringResource(R.string.set_section_look), en = stringResource(R.string.set_en_look), index = 3, modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { LookSettings(controller) }
+            // SettingsScreen.kt:520: the settings tab's Surface is what gives LookSettings' plain Text its ink.
+            Surface(color = Color.Transparent, contentColor = Sakura.Text) {
+                Column(Modifier.padding(LocalPagePadding.current)) {
+                    FogPanel(title = stringResource(R.string.set_section_look), en = stringResource(R.string.set_en_look), index = 3, modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { LookSettings(controller) }
+                    }
                 }
             }
         }
@@ -965,6 +973,7 @@ class ThemeScenes(
         val deadline = System.nanoTime() + 10_000_000_000L
         while ((tree.state.value.summaries.size < 3 || tree.state.value.projections.size < 3 || agents.rows.value.size < 2) && System.nanoTime() < deadline) Thread.sleep(5)
         check(tree.state.value.projections.size == 3) { "the war room's tree never loaded" }
+        check(agents.rows.value.size >= 2) { "the war room's agents never loaded (${agents.rows.value.size} rows)" }
         var t = NOW - 60_000
         val recorder = WarRoomRecorder(clock = { t })
         warSamples(tree.state.value).forEach { s -> recorder.sample(s); t += 5_000 }
