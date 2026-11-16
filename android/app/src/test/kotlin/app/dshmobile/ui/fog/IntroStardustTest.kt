@@ -427,13 +427,27 @@ class IntroStardustTest {
         assertTrue("with the pop the disc is light: $before → $after", after > before + 20f && after > 215f)
     }
 
-    @Test fun thePortraitFramesThePicturesFace() {
-        // An invented portrait picture: blush, with a green dot where a face would be (50 %, 29 %).
+    @Test fun thePortraitFramesTheGuessedFace() {
+        // An invented tall picture, no square chosen (自動): blush, with a green dot where the guess for a full-body picture puts
+        // the face (50 %, 21 %).
         val bmp = Bitmap.createBitmap(500, 800, Bitmap.Config.ARGB_8888).apply {
             eraseColor(0xFFFEDFE1.toInt())
-            for (y in 0 until 800) for (x in 0 until 500) if ((x - 250) * (x - 250) + (y - 232) * (y - 232) <= 12 * 12) setPixel(x, y, 0xFF00C800.toInt())
+            for (y in 0 until 800) for (x in 0 until 500) if ((x - 250) * (x - 250) + (y - 168) * (y - 168) <= 12 * 12) setPixel(x, y, 0xFF00C800.toInt())
         }
-        val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 2000, picture = bmp.asImageBitmap()).single()
+        assertPortraitCentredOnGreen(play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 2000, picture = bmp.asImageBitmap()).single())
+    }
+
+    @Test fun thePortraitFramesTheSquareChosenInTheSettings() {
+        // The same kind of picture with the face low and to the left (30 %, 62 %), and 調整頭像 set there: the portrait follows.
+        val bmp = Bitmap.createBitmap(500, 800, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(0xFFFEDFE1.toInt())
+            for (y in 0 until 800) for (x in 0 until 500) if ((x - 150) * (x - 150) + (y - 496) * (y - 496) <= 12 * 12) setPixel(x, y, 0xFF00C800.toInt())
+        }
+        val look = Look(avatar = AvatarCrop(.30f, .62f, .30f))
+        assertPortraitCentredOnGreen(play(Intro(enabled = true, name = "小雨", seconds = 3f, style = IntroStyle.STARDUST), 2000, picture = bmp.asImageBitmap(), look = look).single())
+    }
+
+    private fun assertPortraitCentredOnGreen(frame: Bitmap) {
         // Green in the portrait only (the full-screen backdrop's own dot is blended with the blush and softened, never this pure).
         var sx = 0L; var sy = 0L; var n = 0
         for (y in 0 until frame.height) for (x in 0 until frame.width) {

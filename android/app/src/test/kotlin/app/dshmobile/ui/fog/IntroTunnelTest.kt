@@ -595,10 +595,10 @@ class IntroTunnelTest {
     }
 
     @Test fun thePictureGrowsInTheCoreAndOpensOntoTheStage() {
-        // An invented picture: blush, with a large green disc a little under where a face would be.
+        // An invented tall picture: blush, with a large green disc round where the guess for a full-body picture puts the face.
         val bmp = Bitmap.createBitmap(500, 1000, Bitmap.Config.ARGB_8888).apply {
             eraseColor(0xFFFEDFE1.toInt())
-            for (y in 0 until 1000) for (x in 0 until 500) if ((x - 250) * (x - 250) + (y - 500) * (y - 500) <= 160 * 160) setPixel(x, y, 0xFF00C800.toInt())
+            for (y in 0 until 1000) for (x in 0 until 500) if ((x - 250) * (x - 250) + (y - 210) * (y - 210) <= 160 * 160) setPixel(x, y, 0xFF00C800.toInt())
         }
         val t = TunnelTimeline.of(3000f)
         val (cruise, dash, welcome) = play(tunnel(), (t.loginAt + 200f).toLong(), (t.dashAt + 30f).toLong(), 2400, picture = bmp.asImageBitmap())

@@ -1,6 +1,9 @@
 package app.dshmobile.ui.fog
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.net.Uri
 import android.os.Looper
 import android.view.View
@@ -33,6 +36,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.fakes.RoboWebSettings
 import java.io.File
 
@@ -173,7 +177,8 @@ class WebIntroTest {
     }
 
     @Test fun everythingElseIsBlocked() {
-        val req = requests(tmp.newFile("picture.jpg").apply { writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1, 2, 3)) })
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1, 2, 3)
+        val req = IntroWebRequests(context, tmp.newFile("picture.jpg").apply { writeBytes(jpeg) }, tmp.newFile("avatar.jpg").apply { writeBytes(jpeg) })
         listOf(
             "https://appassets.androidplatform.net/assets/licenses/fonts-OFL.txt",
             "https://appassets.androidplatform.net/assets/intro-web.html",
@@ -182,6 +187,11 @@ class WebIntroTest {
             "https://appassets.androidplatform.net/assets/intro-web/%2e%2e/licenses",
             "https://appassets.androidplatform.net/assets/intro-web/sakura/sub/index.html",
             "https://appassets.androidplatform.net/assets/intro-web/sakura/x/picture.img",
+            "https://appassets.androidplatform.net/assets/intro-web/sakura/x/avatar.img",
+            "https://appassets.androidplatform.net/assets/intro-web/unknown/avatar.img",
+            "https://appassets.androidplatform.net/assets/intro-web/unknown/picture.img",
+            "https://appassets.androidplatform.net/assets/intro-web/avatar.img",
+            "https://appassets.androidplatform.net/assets/avatar.img",
             "https://appassets.androidplatform.net/assets/intro-web/sakura/NOTICE.md",
             "https://appassets.androidplatform.net/assets/intro-web/sakura/LICENSE",
             "https://appassets.androidplatform.net/assets/intro-web/sakura/.hidden.js",
@@ -225,6 +235,28 @@ class WebIntroTest {
         assertBlocked(requests(File(tmp.root, "gone.jpg")).respond(Uri.parse("${base}sakura/picture.img")), "a removed picture")
         file.writeBytes(ByteArray(0))
         assertBlocked(requests(file).respond(Uri.parse("${base}sakura/picture.img")), "an empty picture")
+    }
+
+    @Test fun theAvatarIsItsOwnPreparedFileAndOnlyWhenThereIsOne() {
+        val picture = tmp.newFile("shown.jpg").apply { writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1, 2)) }
+        val png = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 13, 10, 26, 10, 0, 0, 0, 13)
+        val avatar = tmp.newFile("cut.png").apply { writeBytes(png) }
+        for (look in WebLook.entries) {
+            val r = IntroWebRequests(context, picture, avatar).respond(Uri.parse("$base${look.key}/avatar.img"))
+            assertEquals(200, r.statusCode)
+            assertEquals("image/png", r.mimeType)
+            assertEquals(IntroWeb.CSP, r.responseHeaders["Content-Security-Policy"])
+            assertEquals(png.toList(), body(r).toList())
+        }
+        assertBlocked(IntroWebRequests(context, picture, null).respond(Uri.parse("${base}sakura/avatar.img")), "no avatar")
+        assertBlocked(IntroWebRequests(context, null, null).respond(Uri.parse("${base}sakura/avatar.img")), "no picture")
+        assertBlocked(IntroWebRequests(context, picture, File(tmp.root, "gone.png")).respond(Uri.parse("${base}sakura/avatar.img")), "a removed avatar")
+        // Handed over once prepared (before the page loads).
+        val later = IntroWebRequests(context, null)
+        assertFalse(later.hasPicture)
+        later.prepared(picture, avatar)
+        assertTrue(later.hasPicture)
+        assertEquals(200, later.respond(Uri.parse("${base}wave/avatar.img")).statusCode)
     }
 
     @Test fun theClientSendsEveryRequestThroughTheFilterAndFollowsNoNavigation() {
@@ -404,24 +436,143 @@ class WebIntroTest {
         assertEquals(1, done)
     }
 
-    @Test fun theUsersOwnPictureGoesToThePageWhenTheWelcomeMayUseIt() {
-        val file = tmp.newFile("picture.jpg").apply { writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1, 2, 3, 4, 5)) }
+    /**
+     * The page's URL once the run has loaded it: with a picture its files are prepared off the main thread first, so the test
+     * lets the main thread run until then.
+     */
+    private fun loaded(web: WebView): Uri {
+        repeat(1_000) {
+            shadowOf(web).lastLoadedUrl?.let { return Uri.parse(it) }
+            Thread.sleep(10)
+            shadowOf(Looper.getMainLooper()).idle()
+        }
+        throw AssertionError("the page was never loaded")
+    }
+
+    /**
+     * An invented square picture kept as the app keeps it (its own folder): blue top left, pink top right, aqua bottom left and
+     * white bottom right; with [seeThrough] a see-through corner, kept as PNG.
+     */
+    private fun picture(seeThrough: Boolean = false): File {
+        val b = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888).apply {
+            for (y in 0 until 400) for (x in 0 until 400) setPixel(
+                x, y,
+                when {
+                    seeThrough && x < 20 && y < 20 -> Color.TRANSPARENT
+                    x < 200 && y < 200 -> Color.rgb(20, 40, 230)
+                    y < 200 -> Color.rgb(0xDC, 0x9F, 0xB4)
+                    x < 200 -> Color.rgb(0xA5, 0xDE, 0xE4)
+                    else -> Color.WHITE
+                },
+            )
+        }
+        val file = File(tmp.newFolder(), LookController.PICTURE_FILE)
+        file.outputStream().use { b.compress(if (seeThrough) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 95, it) }
+        return file
+    }
+
+    private fun near(a: Int, b: Int, by: Int = 24) =
+        kotlin.math.abs(Color.red(a) - Color.red(b)) <= by && kotlin.math.abs(Color.green(a) - Color.green(b)) <= by && kotlin.math.abs(Color.blue(a) - Color.blue(b)) <= by
+
+    /** The square chosen in 調整頭像 for [picture]: the middle of its blue top-left quarter. */
+    private val topLeft = AvatarCrop(.25f, .25f, .4f)
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun theUsersPictureGoesToThePageInHisColoursWithItsAvatar() {
+        // 「啊我的她勒」: the page gets the picture as the app shows it (recoloured at 六色 100) and its avatar square.
+        val file = picture()
+        val intro = Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_NEON)
+        play(intro, Look(picture = 42L, six = 100, aqua = 55, intro = intro, avatar = topLeft), picture = file)
+        val web = web()
+        assertEquals("1", loaded(web).getQueryParameter("picture"))
+        val shown = File(file.parentFile, "picture.jpg.six-42-100-55.jpg")
+        assertTrue("the recoloured copy is kept next to the picture", shown.isFile)
+        val pic = client(web).shouldInterceptRequest(web, request("${base}neon/picture.img"))!!
+        assertEquals(200, pic.statusCode)
+        assertEquals("image/jpeg", pic.mimeType)
+        assertEquals(shown.readBytes().toList(), body(pic).toList())
+        val r = client(web).shouldInterceptRequest(web, request("${base}neon/avatar.img"))!!
+        assertEquals(200, r.statusCode)
+        assertEquals("image/jpeg", r.mimeType)
+        assertEquals(IntroWeb.CSP, r.responseHeaders["Content-Security-Policy"])
+        val avatar = body(r).let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        assertEquals(AvatarCuts.SIDE, avatar.width)
+        assertEquals(AvatarCuts.SIDE, avatar.height)
+        // Its colour is the recoloured blue, not the picture's own.
+        val original = Color.rgb(20, 40, 230)
+        val recoloured = BitmapFactory.decodeFile(shown.path).getPixel(100, 100)
+        assertFalse("the six colours change this blue", near(original, recoloured, 40))
+        assertTrue(near(avatar.getPixel(256, 256), recoloured))
+        assertTrue(near(avatar.getPixel(20, 490), recoloured))
+        // Kept next to the picture under its version, strengths and square.
+        assertEquals(1, AvatarCuts.files(file).size)
+        assertTrue(AvatarCuts.files(file).single().name.startsWith("picture.jpg.avatar-42-100-55-"))
+        // Every look can ask for both; an unknown one cannot.
+        for (look in WebLook.entries) assertEquals(200, client(web).shouldInterceptRequest(web, request("$base${look.key}/avatar.img"))!!.statusCode)
+        assertBlocked(client(web).shouldInterceptRequest(web, request("${base}unknown/avatar.img"))!!, "an unknown look's avatar")
+        assertBlocked(client(web).shouldInterceptRequest(web, request("${base}unknown/picture.img"))!!, "an unknown look's picture")
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun atSixColoursZeroThePageGetsThePictureItself() {
+        val file = picture()
+        val intro = Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_SAKURA)
+        play(intro, Look(picture = 7L, six = 0, intro = intro, avatar = topLeft), picture = file)
+        val web = web()
+        assertEquals("1", loaded(web).getQueryParameter("picture"))
+        assertEquals(file.readBytes().toList(), body(client(web).shouldInterceptRequest(web, request("${base}sakura/picture.img"))!!).toList())
+        val avatar = body(client(web).shouldInterceptRequest(web, request("${base}sakura/avatar.img"))!!).let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        assertTrue(near(avatar.getPixel(256, 256), Color.rgb(20, 40, 230)))
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun withoutAChosenSquareTheAvatarIsTheGuessAndASeeThroughPictureStaysPng() {
+        val file = picture(seeThrough = true)
+        val intro = Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_WAVE)
+        play(intro, Look(picture = 9L, six = 0, intro = intro), picture = file)
+        val web = web()
+        assertEquals("1", loaded(web).getQueryParameter("picture"))
+        assertEquals("image/png", client(web).shouldInterceptRequest(web, request("${base}wave/picture.img"))!!.mimeType)
+        val r = client(web).shouldInterceptRequest(web, request("${base}wave/avatar.img"))!!
+        assertEquals(200, r.statusCode)
+        assertEquals("image/png", r.mimeType)
+        val avatar = body(r).let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        assertEquals(AvatarCuts.SIDE, avatar.width)
+        // 自動 on a square picture with no face found: the middle, a little above it, three quarters of the side.
+        val guess = AvatarGuess.peek(file, 9L)
+        assertEquals(AvatarGuess.heuristic(400, 400), guess)
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE) // real decoding: a non-picture must not decode
+    @Test fun aPictureThatCannotBeReadGoesAsItIsWithNoAvatar() {
+        val file = File(tmp.newFolder(), LookController.PICTURE_FILE).apply { writeText("not a picture") }
         val intro = Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_NEON)
         play(intro, Look(picture = 42L, intro = intro), picture = file)
         val web = web()
-        assertEquals("1", Uri.parse(shadowOf(web).lastLoadedUrl).getQueryParameter("picture"))
+        assertEquals("1", loaded(web).getQueryParameter("picture"))
+        assertEquals(listOf(LookController.PICTURE_FILE), file.parentFile!!.list()!!.toList())
         val r = client(web).shouldInterceptRequest(web, request("${base}neon/picture.img"))
         assertEquals(200, r!!.statusCode)
         assertEquals(file.readBytes().toList(), body(r).toList())
+        assertBlocked(client(web).shouldInterceptRequest(web, request("${base}neon/avatar.img"))!!, "the avatar of a picture that cannot be read")
     }
 
     @Test fun noPictureGoesToThePageWhenTheWelcomeMayNotUseIt() {
         val file = tmp.newFile("picture.jpg").apply { writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1)) }
         val intro = Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_NEON, portrait = false)
-        play(intro, Look(picture = 42L, intro = intro), picture = file)
+        play(intro, Look(picture = 42L, intro = intro, avatar = topLeft), picture = file)
         val web = web()
         assertEquals("0", Uri.parse(shadowOf(web).lastLoadedUrl).getQueryParameter("picture"))
         assertBlocked(client(web).shouldInterceptRequest(web, request("${base}neon/picture.img"))!!, "the picture with the portrait off")
+        assertBlocked(client(web).shouldInterceptRequest(web, request("${base}neon/avatar.img"))!!, "the avatar with the portrait off")
+    }
+
+    @Test fun noAvatarGoesToThePageWithoutAPicture() {
+        play(Intro(enabled = true, seconds = 3f, style = IntroStyle.WEB_SAKURA), Look(avatar = topLeft, intro = Intro(enabled = true, style = IntroStyle.WEB_SAKURA)))
+        val web = web()
+        assertEquals("0", Uri.parse(shadowOf(web).lastLoadedUrl).getQueryParameter("picture"))
+        assertBlocked(client(web).shouldInterceptRequest(web, request("${base}sakura/avatar.img"))!!, "the avatar with no picture")
+        assertBlocked(client(web).shouldInterceptRequest(web, request("${base}sakura/picture.img"))!!, "the picture with no picture")
     }
 
     @Test fun theTechArchiveIsGivenItsOwnSixSecondsEvenWhenTheSettingIsShorter() {

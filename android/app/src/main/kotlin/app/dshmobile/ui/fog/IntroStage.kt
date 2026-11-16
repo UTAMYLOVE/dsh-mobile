@@ -21,6 +21,7 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -153,15 +154,16 @@ internal fun cover(iw: Float, ih: Float, w: Float, h: Float, z: Float, fx: Float
 private fun clampTo(v: Float, lo: Float, hi: Float): Float = if (lo > hi) (lo + hi) / 2f else v.coerceIn(lo, hi)
 
 /**
- * The identity window's crop: the picture covering the window's own square box (2 × 0.30 R) round C, with the focus [fx], [fy]
- * as near the window's centre as the crop allows. A full-screen crop seen through the hole showed whatever part of the picture
- * fell behind it (on a wide screen a hair ornament, not the face).
+ * The identity window's crop: the avatar square ([crop], cut with [avatarSquare]) filling the window's own square box (2 × 0.30
+ * R) round C. A full-screen crop seen through the hole showed whatever part of the picture fell behind it (on a wide screen a
+ * hair ornament, not the face); a fixed guess at the face showed the chest of a full-body picture.
  */
-internal fun windowCrop(iw: Float, ih: Float, lay: IntroLayout, fx: Float, fy: Float, out: Placement) {
+internal fun windowCrop(iw: Float, ih: Float, lay: IntroLayout, crop: AvatarCrop, out: Placement) {
     val side = 2f * .30f * lay.r
-    cover(iw, ih, side, side, 1f, fx, fy, side / 2f, side / 2f, out)
-    out.ox += lay.c.x - side / 2f
-    out.oy += lay.c.y - side / 2f
+    val sq = avatarSquare(iw.roundToInt(), ih.roundToInt(), crop)
+    out.k = side / sq.side
+    out.ox = lay.c.x - side / 2f - sq.left * out.k
+    out.oy = lay.c.y - side / 2f - sq.top * out.k
 }
 
 /**
@@ -213,8 +215,8 @@ internal class IntroScene(
     /** The focus inside the picture (0..1), from the picture's own alignment setting: where the home screen's crop holds it. */
     val focusX: Float,
     val focusY: Float,
-    /** The part of the picture the identity window shows (0..1): a face sits higher than the middle of a full-body picture. */
-    val windowFocusY: Float,
+    /** The part of the picture the identity window shows: the avatar square (調整頭像, or the app's guess). */
+    val avatar: AvatarCrop,
     val fx: IntroFx,
     val reduced: Boolean,
     val texts: IntroTexts,
@@ -303,10 +305,14 @@ internal class IntroScene(
         maxOf(hypot(c.x, c.y), hypot(w - c.x, c.y), hypot(c.x, h - c.y), hypot(w - c.x, h - c.y)) + 16f * dp
     }
 
+    /** The avatar square's centre (0..1 of the picture): the face point that travels as the window bursts open. */
+    private val windowFocusX = picture?.let { avatarSquare(it.width, it.height, avatar).centerX(it.width) } ?: .5f
+    private val windowFocusY = picture?.let { avatarSquare(it.width, it.height, avatar).centerY(it.height) } ?: .5f
+
     init {
         picture?.let { p ->
             runCatching { p.prepareToDraw() }
-            windowCrop(p.width.toFloat(), p.height.toFloat(), lay, focusX, windowFocusY, windowPlacement)
+            windowCrop(p.width.toFloat(), p.height.toFloat(), lay, avatar, windowPlacement)
         }
     }
 
@@ -335,7 +341,7 @@ internal class IntroScene(
         welcomeAt(z, tmpPlacement)
         val pic = picture
         if (ki >= 1f || reduced || pic == null) { out.set(tmpPlacement); return }
-        irisPlacement(pic.width.toFloat(), pic.height.toFloat(), lay, focusX, windowFocusY, windowPlacement, tmpPlacement, ki, irisRadius(ki), out)
+        irisPlacement(pic.width.toFloat(), pic.height.toFloat(), lay, windowFocusX, windowFocusY, windowPlacement, tmpPlacement, ki, irisRadius(ki), out)
     }
 
     /** The opening circle's radius at iris-in progress [ki]. */

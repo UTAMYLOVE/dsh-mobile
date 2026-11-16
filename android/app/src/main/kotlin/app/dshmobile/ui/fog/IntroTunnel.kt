@@ -1009,8 +1009,10 @@ internal class TunnelScene(
     private val ih = picture?.height?.toFloat()?.coerceAtLeast(1f) ?: 1f
     /** Where the home screen's crop holds the picture (the 對齊 setting): at the exit the stage matches it exactly. */
     private val fy = (1f + sc.align.bias) / 2f
-    /** Where a face usually is in a full-body picture (the core shows that, not the middle of the body). */
-    private val faceFy = when (sc.align) { PictureAlign.TOP -> .22f; PictureAlign.CENTER -> .30f; PictureAlign.BOTTOM -> .62f }
+    /** The avatar square (調整頭像, or the app's guess): what the core shows, not the middle of a full-body picture. */
+    private val faceSquare = avatarSquare(iw.roundToInt(), ih.roundToInt(), sc.avatar)
+    private val faceFx = faceSquare.centerX(iw.roundToInt())
+    private val faceFy = faceSquare.centerY(ih.roundToInt())
     /**
      * A tall picture on a wide screen, cropped to fill it, shows only a band across the chest (the face cut off, the name
      * stamped on the body): there it stands whole as a card where the core opened, over a blurred fill of itself.
@@ -1044,13 +1046,12 @@ internal class TunnelScene(
         val sh = (h / k).roundToInt().coerceIn(1, b.height)
         IntOffset((b.width - sw) / 2, ((b.height - sh) * faceFy).roundToInt().coerceIn(0, b.height - sh)) to IntSize(sw, sh)
     } ?: (IntOffset.Zero to IntSize(1, 1))
-    /** The portrait in the core: the face, half the picture's short side across the core's [portraitR]. */
+    /** The portrait in the core: the avatar square across the core's [portraitR]. */
     private val portraitR = .92f * coreMax
     private val facePlace = Placement().also { p ->
-        val side = 2f * portraitR
-        cover(iw, ih, side, side, 2f, .5f, faceFy, side / 2f, side / 2f, p)
-        p.ox += vp.x - portraitR
-        p.oy += vp.y - portraitR
+        p.k = 2f * portraitR / faceSquare.side
+        p.ox = vp.x - portraitR - faceSquare.left * p.k
+        p.oy = vp.y - portraitR - faceSquare.top * p.k
     }
     private val place = Placement()
     private val toPlace = Placement()
@@ -1465,7 +1466,7 @@ internal class TunnelScene(
      */
     private fun dashPlace(ms: Float, kd: Float, r: Float) {
         if (card) toPlace.set(cardPlace) else cover(iw, ih, w, h, zoomAt(ms), .5f, fy, .5f * w, fy * h, toPlace)
-        val px = .5f * iw
+        val px = faceFx * iw
         val py = faceFy * ih
         val ax = lerp(facePlace.ox + px * facePlace.k, toPlace.ox + px * toPlace.k, kd)
         val ay = lerp(facePlace.oy + py * facePlace.k, toPlace.oy + py * toPlace.k, kd)

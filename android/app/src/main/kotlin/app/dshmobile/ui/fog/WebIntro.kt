@@ -54,9 +54,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import app.dshmobile.R
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.BufferedInputStream
 import java.io.ByteArrayInputStream
@@ -114,8 +116,18 @@ object IntroWeb {
     /** The only path the loader serves: the community looks' folders under assets/intro-web/. */
     const val PREFIX = "/assets/intro-web/"
     const val ASSET_DIR = "intro-web"
-    /** The user's own picture, as each page asks for it (relative to its folder) with picture=1. */
+    /**
+     * The user's own picture, as each page asks for it (relative to its folder) with picture=1: the picture exactly as the app
+     * shows it (recoloured at 六色 > 0), JPEG, or PNG when it has see-through parts.
+     */
     const val PICTURE = "picture.img"
+    /**
+     * Its avatar square (調整頭像, or the app's guess of the face), served exactly when [PICTURE] is (picture=1): a
+     * [AvatarCuts.SIDE] × [AvatarCuts.SIDE] square cut from that same picture, JPEG, or PNG when the picture has see-through parts.
+     */
+    const val AVATAR = "avatar.img"
+    /** How long a run waits for its picture files to be ready before the page loads without them. */
+    const val PREPARE_MS = 3_000L
     /** The page's only way back to the app: `window.DSHM.done()` ([IntroWebBridge]); `#done` in the URL is the fallback. */
     const val BRIDGE = "DSHM"
     const val DONE = "done"
@@ -154,12 +166,23 @@ object IntroWeb {
 
 /**
  * Everything a community look's WebView may load, decided here and nowhere else: through [WebViewAssetLoader] (https on
- * [IntroWeb.HOST] only), the files of a look's own folder in assets/intro-web/ (one level, known kinds) and [IntroWeb.PICTURE],
- * streamed from [picture] (the user's own picture as they picked it, not recoloured: these looks have their own colours) when
- * there is one. Every other URL, of any scheme or host, gets [blocked]: an empty 403, never the network.
+ * [IntroWeb.HOST] only), the files of a look's own folder in assets/intro-web/ (one level, known kinds), [IntroWeb.PICTURE]
+ * streamed from [picture] and [IntroWeb.AVATAR] streamed from [avatar] when there are such files. Both are prepared before the
+ * page loads ([IntroWebPictures]): the picture exactly as the app shows it (the recoloured copy at 六色 > 0, so the owner's
+ * picture comes in his colours) and its avatar square, small files the request thread only streams, never decodes. Every
+ * other URL, of any scheme or host, gets [blocked]: an empty 403, never the network.
  */
-class IntroWebRequests internal constructor(private val open: (String) -> InputStream, private val picture: File?) {
-    constructor(context: Context, picture: File?) : this({ path -> context.assets.open(path) }, picture)
+class IntroWebRequests internal constructor(private val open: (String) -> InputStream, picture: File?, avatar: File? = null) {
+    constructor(context: Context, picture: File?, avatar: File? = null) : this({ path -> context.assets.open(path) }, picture, avatar)
+
+    /** The run's picture and avatar files; set once, before the page loads ([prepared]). */
+    @Volatile private var files: Pair<File?, File?> = picture to avatar
+
+    /** The files [IntroWebPictures] prepared for this run (null: none), handed over before the page is loaded. */
+    internal fun prepared(picture: File?, avatar: File?) { files = picture to avatar }
+
+    /** True when the page may be told picture=1: there is a picture to serve. */
+    internal val hasPicture: Boolean get() = files.first?.isFile == true
 
     private val loader = WebViewAssetLoader.Builder()
         .setDomain(IntroWeb.HOST)
@@ -174,13 +197,15 @@ class IntroWebRequests internal constructor(private val open: (String) -> InputS
         if (parts.size != 2 || parts.any { !SAFE_NAME.matches(it) }) return null
         val (dir, name) = parts
         if (WebLook.entries.none { it.key == dir }) return null
-        if (name == IntroWeb.PICTURE) return picture()
+        if (name == IntroWeb.PICTURE) return streamed(files.first)
+        if (name == IntroWeb.AVATAR) return streamed(files.second)
         val type = TYPES[name.substringAfterLast('.', "").lowercase(Locale.ROOT)] ?: return null
         val stream = runCatching { open("${IntroWeb.ASSET_DIR}/$dir/$name") }.getOrNull() ?: return null
         return ok(type, stream)
     }
 
-    private fun picture(): WebResourceResponse? {
+    /** [picture] as it is on disk (a prepared file: only streamed, never decoded here), its kind read from its first bytes. */
+    private fun streamed(picture: File?): WebResourceResponse? {
         val file = picture?.takeIf { it.isFile } ?: return null
         val stream = runCatching { BufferedInputStream(file.inputStream()) }.getOrNull() ?: return null
         val head = ByteArray(12)
@@ -222,6 +247,23 @@ class IntroWebRequests internal constructor(private val open: (String) -> InputS
 
         /** What every URL outside the looks' folders gets: nothing. */
         fun blocked() = WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", HEADERS, ByteArrayInputStream(ByteArray(0)))
+    }
+}
+
+/**
+ * The picture files a community look's run is given, made before its page loads and off the main thread: [IntroWeb.PICTURE] is
+ * the picture exactly as the app shows it ([LookPictures.shownFile]: the recoloured copy at 六色 > 0, else the picture) and
+ * [IntroWeb.AVATAR] the avatar square cut from it ([AvatarCuts.cut], with the square chosen in 調整頭像 or the app's guess).
+ * Both are kept next to the picture, so a later run only finds them.
+ */
+internal object IntroWebPictures {
+    class Ready(val picture: File, val avatar: File?)
+
+    /** [file]'s files for [look]; null when there is no picture. */
+    suspend fun prepare(file: File, look: Look): Ready? = withContext(Dispatchers.Default) {
+        val shown = LookPictures.shownFile(file, look.picture, look.six, look.aqua) ?: return@withContext null
+        val crop = look.avatar ?: AvatarGuess.auto(file, look.picture)
+        Ready(shown, AvatarCuts.cut(file, shown, look.picture, look.six, look.aqua, crop))
     }
 }
 
@@ -441,7 +483,7 @@ internal fun WebIntro(
 ) {
     val context = LocalContext.current
     val file = LocalLookPicture.current
-    val hasPicture = LocalLook.current.hasPicture
+    val chosen = LocalLook.current
     val opaque by rememberUpdatedState(onOpaqueChange)
     val done by rememberUpdatedState(onDone)
     val fail by rememberUpdatedState(onFail)
@@ -467,8 +509,10 @@ internal fun WebIntro(
         fail()
     }
 
-    // The original picture, only when there is one and the user lets the welcome use it (歡迎畫面用背景圖當頭像).
-    val picture = remember { file?.takeIf { intro.portrait && hasPicture && it.isFile } }
+    // The picture, only when there is one and the user lets the welcome use it (歡迎畫面用背景圖當頭像); its files for the page
+    // (the picture as the app shows it and its avatar square) are prepared before the page loads.
+    val picture = remember { file?.takeIf { intro.portrait && chosen.hasPicture && it.isFile } }
+    val requests = remember { IntroWebRequests(context.applicationContext, null) }
     val holder = remember {
         val events = object : IntroWebEvents {
             override fun visible() { run.visible = true }
@@ -476,7 +520,7 @@ internal fun WebIntro(
             override fun failed() = broke()
             override fun touched() { if (intro.skippable) uncover() }
         }
-        WebViewHolder(runCatching { IntroWebView.create(context, IntroWebRequests(context.applicationContext, picture), IntroWebBridge(::end), events) }.getOrNull())
+        WebViewHolder(runCatching { IntroWebView.create(context, requests, IntroWebBridge(::end), events) }.getOrNull())
     }
     DisposableEffect(Unit) { onDispose { opaque(false) } }
     val web = holder.web
@@ -487,8 +531,15 @@ internal fun WebIntro(
     }
     LaunchedEffect(web) {
         opaque(true)
-        web.loadUrl(IntroWeb.url(look, intro, reducedMotion, picture != null))
         launch { delay(IntroWeb.MAX_MS); end() }
+        if (picture != null) {
+            // Off the main thread, and never on the WebView's request thread: a big picture is decoded (and recoloured, cut and
+            // kept) only when its files are not kept yet. A picture not ready in time is left out of this run.
+            val ready = withTimeoutOrNull(IntroWeb.PREPARE_MS) { runCatching { IntroWebPictures.prepare(picture, chosen) }.getOrNull() }
+            withContext(Dispatchers.Main.immediate) { requests.prepared(ready?.picture, ready?.avatar) }
+        }
+        val given = picture != null && requests.hasPicture
+        withContext(Dispatchers.Main.immediate) { web.loadUrl(IntroWeb.url(look, intro, reducedMotion, given)) }
         if (withTimeoutOrNull(IntroWeb.FIRST_FRAME_MS) { snapshotFlow { run.visible }.first { it } } == null) {
             broke()
             return@LaunchedEffect

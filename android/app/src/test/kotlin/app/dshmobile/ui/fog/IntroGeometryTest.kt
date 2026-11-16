@@ -106,25 +106,31 @@ class IntroGeometryTest {
         assertEquals(listOf(36f, 108f, 180f, 252f, 324f), mid)
     }
 
-    @Test fun theWindowFramesTheFaceOnAnyScreen() {
-        // A portrait picture with its face at (50 %, 35 %): the window puts that point on the sigil's centre, phone or wide.
+    @Test fun theWindowFramesTheAvatarSquareOnAnyScreen() {
+        // The avatar square (here round a face at (30 %, 35 %), a quarter of the short side across) fills the window exactly, its
+        // centre on the sigil's centre, phone or wide.
+        val crop = AvatarCrop(.30f, .35f, .25f)
         for (L in listOf(IntroLayout(412f * dp, 915f * dp, dp, 0f, 0f), IntroLayout(600f * dp, 960f * dp, dp, 0f, 0f))) {
             for ((iw, ih) in listOf(1000f to 1600f, 900f to 1600f, 1080f to 1920f)) {
                 val out = Placement()
-                windowCrop(iw, ih, L, .5f, .35f, out)
-                val fx = out.ox + .5f * iw * out.k
-                val fy = out.oy + .35f * ih * out.k
-                assertTrue("${L.wDp}: $iw x $ih lands ${hypot(fx - L.c.x, fy - L.c.y) / dp} dp off", hypot(fx - L.c.x, fy - L.c.y) <= 8f * dp)
+                windowCrop(iw, ih, L, crop, out)
+                val sq = avatarSquare(iw.toInt(), ih.toInt(), crop)
+                val fx = out.ox + (sq.left + sq.side / 2f) * out.k
+                val fy = out.oy + (sq.top + sq.side / 2f) * out.k
+                assertTrue("${L.wDp}: $iw x $ih lands ${hypot(fx - L.c.x, fy - L.c.y) / dp} dp off", hypot(fx - L.c.x, fy - L.c.y) <= .5f)
+                assertEquals("the square is the window", 2f * .30f * L.r, sq.side * out.k, .01f)
             }
         }
-        // Any picture covers the whole window box (no edge inside the circle), whatever its shape.
+        // Any picture covers the whole window box (no edge inside the circle), whatever its shape and wherever the square is.
         val L = IntroLayout(412f * dp, 915f * dp, dp, 0f, 0f)
         val half = .30f * L.r
-        for ((iw, ih) in listOf(1600f to 1000f, 1200f to 1200f, 600f to 2400f)) {
-            val out = Placement()
-            windowCrop(iw, ih, L, .5f, .35f, out)
-            assertTrue(out.ox <= L.c.x - half + .01f && out.ox + iw * out.k >= L.c.x + half - .01f)
-            assertTrue(out.oy <= L.c.y - half + .01f && out.oy + ih * out.k >= L.c.y + half - .01f)
+        for ((iw, ih) in listOf(1600f to 1000f, 1200f to 1200f, 600f to 2400f, 40f to 80f)) {
+            for (c in listOf(crop, AvatarCrop(0f, 0f, 1f), AvatarCrop(1f, 1f, .05f), AvatarGuess.heuristic(iw.toInt(), ih.toInt()))) {
+                val out = Placement()
+                windowCrop(iw, ih, L, c, out)
+                assertTrue(out.ox <= L.c.x - half + .01f && out.ox + iw * out.k >= L.c.x + half - .01f)
+                assertTrue(out.oy <= L.c.y - half + .01f && out.oy + ih * out.k >= L.c.y + half - .01f)
+            }
         }
     }
 
@@ -132,14 +138,16 @@ class IntroGeometryTest {
         for (L in layouts()) for ((iw, ih) in listOf(1000f to 1600f, 1600f to 1000f, 1200f to 1200f)) {
             val from = Placement()
             val to = Placement()
-            windowCrop(iw, ih, L, .5f, .35f, from)
+            val crop = AvatarGuess.heuristic(iw.toInt(), ih.toInt())
+            val sq = avatarSquare(iw.toInt(), ih.toInt(), crop)
+            windowCrop(iw, ih, L, crop, from)
             cover(iw, ih, L.w, L.h, 1.06f, .5f, .5f, .5f * L.w, .5f * L.h, to)
             val rMax = max(max(hypot(L.c.x, L.c.y), hypot(L.w - L.c.x, L.c.y)), max(hypot(L.c.x, L.h - L.c.y), hypot(L.w - L.c.x, L.h - L.c.y)))
             val out = Placement()
             for (i in 0..50) {
                 val ki = i / 50f
                 val r = lerp(.30f * L.r, rMax, ki)
-                irisPlacement(iw, ih, L, .5f, .35f, from, to, ki, r, out)
+                irisPlacement(iw, ih, L, sq.centerX(iw.toInt()), sq.centerY(ih.toInt()), from, to, ki, r, out)
                 val left = max(0f, L.c.x - r); val top = max(0f, L.c.y - r)
                 val right = minOf(L.w, L.c.x + r); val bottom = minOf(L.h, L.c.y + r)
                 assertTrue("$iw x $ih at $ki: left", out.ox <= left + .01f)
@@ -148,7 +156,7 @@ class IntroGeometryTest {
                 assertTrue("$iw x $ih at $ki: bottom", out.oy + ih * out.k >= bottom - .01f)
             }
             // Fully open, it is exactly the welcome's crop, so nothing jumps when the iris-in ends.
-            irisPlacement(iw, ih, L, .5f, .35f, from, to, 1f, rMax, out)
+            irisPlacement(iw, ih, L, sq.centerX(iw.toInt()), sq.centerY(ih.toInt()), from, to, 1f, rMax, out)
             assertEquals(to.k, out.k, to.k * 1e-4f)
             assertTrue(abs(to.ox - out.ox) < .5f && abs(to.oy - out.oy) < .5f)
         }

@@ -139,10 +139,10 @@ class IntroShotsTest {
 
     @Config(qualifiers = "w600dp-h960dp-port-xhdpi")
     @Test fun onAWideScreenTheWindowStillFramesTheFace() {
-        // An invented portrait picture: blush, with a green dot where a face would be (50 %, 35 %).
+        // An invented portrait picture: blush, with a green dot where the guess for a tall picture puts the face (50 %, 21 %).
         val bmp = Bitmap.createBitmap(500, 800, Bitmap.Config.ARGB_8888).apply {
             eraseColor(0xFFFEDFE1.toInt())
-            for (y in 0 until 800) for (x in 0 until 500) if ((x - 250) * (x - 250) + (y - 280) * (y - 280) <= 15 * 15) setPixel(x, y, 0xFF00C800.toInt())
+            for (y in 0 until 800) for (x in 0 until 500) if ((x - 250) * (x - 250) + (y - 168) * (y - 168) <= 15 * 15) setPixel(x, y, 0xFF00C800.toInt())
         }
         val frame = play(Intro(enabled = true, name = "小雨", seconds = 3f), 1150, picture = bmp.asImageBitmap()).single()
         var sx = 0L; var sy = 0L; var n = 0
