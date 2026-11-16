@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import app.dshmobile.gateway.InMemorySharedPreferences
+import app.dshmobile.ui.theme.ColorMode
+import app.dshmobile.ui.theme.ThemeId
+import app.dshmobile.ui.theme.WarStyle
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -162,6 +165,25 @@ class LookControllerTest {
         val picture = c.look.value.picture
         c.restoreDefaults()
         assertEquals(Look(picture = picture), c.look.value)
+    }
+
+    // 外觀恢復預設 resets 主題, 顏色 and 指揮室樣式 too (R4), and that is what the next start reads.
+    @Test fun restoreDefaultsBringsTheThemeColoursAndWarStyleBackToFollow() = runBlocking {
+        val prefs = InMemorySharedPreferences()
+        val dir = tmp.newFolder("look")
+        val c = LookController(LookStore(prefs), dir)
+        c.setPicture { ByteArrayInputStream(png(40, 80)) }
+        c.update { it.copy(theme = ThemeId.WEB_ACCESS, themeColors = ColorMode.SIX, warStyle = WarStyle.OFFICE) }
+        assertEquals(ThemeId.WEB_ACCESS, LookStore(prefs).load().theme)
+        val picture = c.look.value.picture
+        c.restoreDefaults()
+        val look = c.look.value
+        assertEquals(null, look.theme)
+        assertEquals(ColorMode.ORIGINAL, look.themeColors)
+        assertEquals(null, look.warStyle)
+        assertEquals(picture, look.picture)
+        assertEquals(Look(picture = picture), look)
+        assertEquals(look, LookController(LookStore(prefs), dir).look.value)
     }
 
     @Test fun aPictureWhoseFileIsGoneIsForgotten() {

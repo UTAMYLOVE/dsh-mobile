@@ -12,6 +12,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import app.dshmobile.ui.theme.ColorMode
+import app.dshmobile.ui.theme.ThemeId
+import app.dshmobile.ui.theme.WarStyle
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -115,6 +118,12 @@ data class Look(
      * ([AvatarGuess]). A new picture, removing it and 恢復預設 all go back to 自動. Full-screen backdrops keep [align].
      */
     val avatar: AvatarCrop? = null,
+    /** 主題 (the owner: 「多一個主題選項，預設跟著開場」). Null is 跟著開場: the theme of the chosen 開場樣式. */
+    val theme: ThemeId? = null,
+    /** 顏色 (「兩種都要，可以切換」): the community themes' own colours or the six. Kept when a drawn theme is worn. */
+    val themeColors: ColorMode = ColorMode.ORIGINAL,
+    /** 指揮室樣式 (「切換跟著切換 整套的」). Null is 跟著主題. */
+    val warStyle: WarStyle? = null,
 ) {
     val hasPicture: Boolean get() = picture != 0L
 }
@@ -295,8 +304,14 @@ class LookStore(private val prefs: SharedPreferences) {
                 style = IntroStyle.of(prefs.getString(INTRO_STYLE, null)),
             ),
             avatar = avatar(),
+            theme = ThemeId.ofId(string(THEME)),
+            themeColors = ColorMode.entries.firstOrNull { it.id == string(THEME_COLORS) } ?: d.themeColors,
+            warStyle = WarStyle.entries.firstOrNull { it.id == string(WAR_STYLE) },
         )
     }
+
+    /** A stored string, or null when it is missing or another kind of value (prefs written by an app this one does not know). */
+    private fun string(k: String): String? = runCatching { prefs.getString(k, null) }.getOrNull()
 
     /** The stored avatar square, or null (自動) when any part of it is missing or not a sensible value. */
     private fun avatar(): AvatarCrop? {
@@ -325,11 +340,16 @@ class LookStore(private val prefs: SharedPreferences) {
             .putFloat(INTRO_SECONDS, look.intro.seconds.coerceIn(Intro.MIN_SECONDS, Intro.MAX_SECONDS))
             .putBoolean(INTRO_SKIP, look.intro.skippable).putBoolean(INTRO_PORTRAIT, look.intro.portrait)
             .putString(INTRO_STYLE, look.intro.style.id)
+            .putString(THEME, look.theme?.id ?: FOLLOW)
+            .putString(THEME_COLORS, look.themeColors.id)
+            .putString(WAR_STYLE, look.warStyle?.id ?: FOLLOW)
             .apply()
     }
 
     companion object {
         const val MIN_OPACITY = 10
+        /** The stored value of 跟著開場 / 跟著主題. Any other unknown value reads the same way. */
+        const val FOLLOW = "follow"
         private const val STYLE = "look_style"
         private const val PETALS = "look_petals"
         private const val SPARKLES = "look_sparkles"
@@ -354,6 +374,9 @@ class LookStore(private val prefs: SharedPreferences) {
         private const val AVATAR_X = "look_avatar_x"
         private const val AVATAR_Y = "look_avatar_y"
         private const val AVATAR_SIZE = "look_avatar_size"
+        private const val THEME = "look_theme"
+        private const val THEME_COLORS = "look_theme_colors"
+        private const val WAR_STYLE = "look_war_style"
     }
 }
 
@@ -378,7 +401,10 @@ class LookController(private val store: LookStore, private val dir: File, privat
         store.save(next)
     }
 
-    /** Every choice back to its default (the avatar square to 自動 too); the picture (the user's own content, not a setting) stays. */
+    /**
+     * Every choice back to its default (the avatar square to 自動 too); the picture (the user's own content, not a setting) stays.
+     * 主題、顏色和指揮室樣式也回到跟著開場、原本的顏色、跟著主題。
+     */
     fun restoreDefaults() = update { Look(picture = it.picture) }
 
     fun previewIntro() { _introTick.value++ }

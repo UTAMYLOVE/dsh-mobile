@@ -1,6 +1,9 @@
 package app.dshmobile.ui.fog
 
 import app.dshmobile.gateway.InMemorySharedPreferences
+import app.dshmobile.ui.theme.ColorMode
+import app.dshmobile.ui.theme.ThemeId
+import app.dshmobile.ui.theme.WarStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -90,5 +93,81 @@ class LookStoreTest {
         LookStore(prefs).save(Look(avatar = AvatarCrop(Float.NaN, .5f, .5f)))
         assertNull(LookStore(prefs).load().avatar)
         assertFalse(prefs.contains("look_avatar_x"))
+    }
+
+    // 主題, 顏色 and 指揮室樣式 (R1-R3): stored as "look_theme", "look_theme_colors" and "look_war_style".
+    @Test fun theThemeColoursAndWarStyleRoundTrip() {
+        val prefs = InMemorySharedPreferences()
+        val base = Look(picture = 5L, six = 40, intro = Intro(enabled = true, style = IntroStyle.TUNNEL))
+        for (theme in ThemeId.entries + listOf<ThemeId?>(null)) for (colors in ColorMode.entries) for (war in WarStyle.entries + listOf<WarStyle?>(null)) {
+            val look = base.copy(theme = theme, themeColors = colors, warStyle = war)
+            LookStore(prefs).save(look)
+            assertEquals("$theme $colors $war", look, LookStore(prefs).load())
+        }
+    }
+
+    @Test fun theStoredValuesSayWhatTheUserSees() {
+        val prefs = InMemorySharedPreferences()
+        // Look() round-trips as follow / original / follow, written out rather than left missing.
+        LookStore(prefs).save(Look())
+        assertEquals(LookStore.FOLLOW, prefs.getString("look_theme", null))
+        assertEquals("follow", prefs.getString("look_theme", null))
+        assertEquals("original", prefs.getString("look_theme_colors", null))
+        assertEquals("follow", prefs.getString("look_war_style", null))
+        assertEquals(Look(), LookStore(prefs).load())
+        LookStore(prefs).save(Look(theme = ThemeId.WEB_NEON, themeColors = ColorMode.SIX, warStyle = WarStyle.OFFICE))
+        assertEquals("web-neon", prefs.getString("look_theme", null))
+        assertEquals("six", prefs.getString("look_theme_colors", null))
+        assertEquals("office", prefs.getString("look_war_style", null))
+        LookStore(prefs).save(Look(theme = ThemeId.CLASSIC, warStyle = WarStyle.CLASSIC))
+        assertEquals("classic", prefs.getString("look_theme", null))
+        assertEquals("classic", prefs.getString("look_war_style", null))
+        // Every theme is stored under its intro's id.
+        for (theme in ThemeId.entries) {
+            LookStore(prefs).save(Look(theme = theme))
+            assertEquals(theme.intro?.id ?: "classic", prefs.getString("look_theme", null))
+        }
+    }
+
+    @Test fun anOlderAppsFileWithoutTheKeysReadsAsTheDefaults() {
+        val prefs = InMemorySharedPreferences()
+        val older = Look(style = BackdropStyle.KAWAII, amount = 70, intro = Intro(style = IntroStyle.WEB_ACCESS))
+        LookStore(prefs).save(older)
+        prefs.edit().remove("look_theme").remove("look_theme_colors").remove("look_war_style").apply()
+        val look = LookStore(prefs).load()
+        assertEquals(older, look)
+        assertNull(look.theme)
+        assertEquals(ColorMode.ORIGINAL, look.themeColors)
+        assertNull(look.warStyle)
+    }
+
+    @Test fun unknownThemeValuesReadAsFollowOriginalFollow() {
+        val prefs = InMemorySharedPreferences()
+        LookStore(prefs).save(Look(theme = ThemeId.SIGIL, themeColors = ColorMode.SIX, warStyle = WarStyle.LOBBY))
+        prefs.edit().putString("look_theme", "neon-x").putString("look_theme_colors", "sepia").putString("look_war_style", "hall").apply()
+        val look = LookStore(prefs).load()
+        assertNull(look.theme)
+        assertEquals(ColorMode.ORIGINAL, look.themeColors)
+        assertNull(look.warStyle)
+        // "follow" itself reads the same way.
+        prefs.edit().putString("look_theme", "follow").putString("look_war_style", "follow").apply()
+        assertNull(LookStore(prefs).load().theme)
+        assertNull(LookStore(prefs).load().warStyle)
+    }
+
+    @Test fun aThemeValueOfAnotherKindReadsAsFollowAndTheRestStillLoads() {
+        val prefs = InMemorySharedPreferences()
+        val mine = Look(
+            style = BackdropStyle.KAWAII, amount = 30, picture = 9L, intro = Intro(name = "小雨", style = IntroStyle.STARDUST),
+            avatar = AvatarCrop(.4f, .3f, .5f), theme = ThemeId.WEB_WAVE, themeColors = ColorMode.SIX, warStyle = WarStyle.OFFICE,
+        )
+        LookStore(prefs).save(mine)
+        prefs.edit().putInt("look_theme", 3).apply()
+        val look = LookStore(prefs).load()
+        assertNull(look.theme)
+        assertEquals(mine.copy(theme = null), look)
+        // The other two keys of another kind read as their defaults as well.
+        prefs.edit().putBoolean("look_theme_colors", true).putLong("look_war_style", 2L).apply()
+        assertEquals(mine.copy(theme = null, themeColors = ColorMode.ORIGINAL, warStyle = null), LookStore(prefs).load())
     }
 }
