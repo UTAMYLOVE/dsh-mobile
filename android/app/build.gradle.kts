@@ -137,6 +137,8 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            // The theme goldens draw whole screens with native graphics (tall pages up to 3,000 px): room for them.
+            it.maxHeapSize = "2g"
             // Robolectric needs JDK-internal access on JDK 17+.
             it.jvmArgs(
                 "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",

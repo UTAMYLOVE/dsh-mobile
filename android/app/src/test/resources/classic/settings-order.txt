@@ -1,0 +1,201 @@
+shell-stage	
+	進階設定
+	權限、執行方式、代理人、小幫手數量、特效、花費上限、匯出這些平常用不到的設定。
+switch-advanced	
+	顯示更多功能
+	把總覽、書架、專案、小幫手和聊天框狀態列放回畫面上。
+switch-more	
+	金鑰
+	KEYS
+	金鑰只會加密存放在這支手機上，不會顯示或上傳。有了 Claude 金鑰，總指揮模型才會多出 Claude 選項。
+	DeepSeek 金鑰
+	已設定
+replace-deepseek	替換
+clear-deepseek	清除
+	Claude 金鑰
+	未設定
+replace-claude	設定
+clear-claude	清除
+	氣象署開放資料金鑰
+	未設定
+replace-cwa	設定
+clear-cwa	清除
+	天氣分析用來拿附近測站的實測值做校正（到 opendata.cwa.gov.tw 免費申請）。只有 App 自己查天氣時用，不會交給 dsh。沒有也能用，只是不校正。
+	代理人
+	AGENTS
+	同時數：3
+dec-concurrent	－
+inc-concurrent	＋
+	委派深度：2
+dec-depth	－
+inc-depth	＋
+	團隊人數：3
+dec-team	－
+inc-team	＋
+	啟用 Agent Teams
+switch-teams	
+	權限自動審查（實驗）
+switch-auto-review	
+	開啟後，每個工具動作先由同一個 AI 審查：一般的工作自動放行，刪除舊檔、對外寫入等有風險的才問你；外洩敏感資料一律擋下。會多花一點 token，也可能誤判，按「套用並重啟」後生效。選「全部放行」時不會審查。
+field-mcp	MCP 伺服器（每行：名稱 網址） | 
+	例：github https://example.com/mcp。只支援 https 網址（或本機 127.0.0.1），不能填金鑰或標頭。改完按「套用並重啟」。
+	子代理人沿用總指揮模型
+	模型
+	MODELS
+	總指揮模型
+model-deepseek-flash	DeepSeek Flash
+model-deepseek-v4-pro	DeepSeek Pro
+	寫小說用的模型
+novel-model-deepseek-flash	DeepSeek Flash
+novel-model-deepseek-v4-pro	DeepSeek Pro
+	在書架開新書或「下一章」時使用（下一版開放）
+	外觀主題
+	THEME
+look-style-0	舒服（預設）
+look-style-1	粉嫩二次元
+	花瓣、星星、愛心和雲朵會在背景慢慢飄，顏色只用那六色。效果強度選「保守」或系統關掉動畫時會停住不動。
+look-check-petals	
+	櫻花花瓣
+look-check-sparkles	
+	閃閃星星
+look-check-hearts	
+	愛心泡泡
+look-check-clouds	
+	軟綿雲朵
+	數量：50
+look-slider-amount	
+	速度：40
+look-slider-speed	
+	背景圖片
+	選一張自己的圖當背景，會自動換成那六色（皮膚、白色和明暗會保留）。圖只存在這支手機，不會上傳。
+look-pick	換一張
+look-remove	移除圖片
+	換成六色的程度：100
+look-slider-six	
+	0 是原本的顏色，100 是全部換成六色。
+	水藍點綴：55
+look-slider-aqua	
+	圖片濃淡：80
+look-slider-opacity	
+	圖片對齊
+look-align-0	上
+look-align-1	中
+look-align-2	下
+look-avatar	調整頭像 | 自動找臉
+	啟動動畫
+	打開 App 時播一段小動畫，樣式在下面選。預設的「櫻紋陣」是一段「授權」：需要訪問許可 → 身份確認 → 核驗通過 → 歡迎你。DSH 同時在背景啟動，不會變慢。
+	打開時播放
+look-switch-intro	
+look-field-intro-name	名字（接在歡迎詞後面） | 
+look-field-intro-welcome	歡迎詞（空白＝歡迎回來） | 
+look-field-intro-number	編號（空白＝No.0001） | 
+look-field-intro-level	等級（空白＝Lv.1） | 
+	長度：3.0 秒
+look-slider-intro-seconds	
+	可以點一下跳過
+look-switch-intro-skip	
+	歡迎畫面用背景圖當頭像
+look-switch-intro-portrait	
+	開場樣式
+look-intro-style-sigil	櫻紋陣 | 櫻花魔法陣掃描你，核驗通過後說歡迎。
+look-intro-style-stardust	星屑迎接 | 你的圖慢慢推近，星光圍著你說歡迎回來。
+look-intro-style-petal-storm	花吹雪聚形 | 一陣花瓣吹過來，聚成櫻紋和你的名字。
+look-intro-style-tunnel	櫻花隧道 | 花瓣光柱衝向你，一路衝進 App。
+look-intro-style-one-stroke	一筆描 | 一筆畫出櫻紋，再寫上你的名字；約 2 秒，最短也最省電。
+look-intro-style-web-sakura	櫻花動漫風（dsh 社群作品） | 照原作播放：粉白畫面，你的圖當背景和頭像，歡迎詞一個字一個字浮上來。
+look-intro-style-web-neon	粉色霓虹敘事（dsh 社群作品） | 照原作播放：粉色霓虹的開機、登入小故事，最後歡迎你；最短約 4 秒。
+look-intro-style-web-wave	光點聚形波浪（dsh 社群作品） | 照原作播放：一道光點浪打過來，聚成你的圖，再說歡迎回來。
+look-intro-style-web-access	科技檔案授權（dsh 社群作品） | 照原作播放：黑幕亮起成米白檔案頁，一步步核對你的身份，再歡迎你；最短約 6 秒。
+look-preview	預覽
+look-restore	外觀恢復預設
+	恢復預設不會刪掉你選的圖片。
+	效果強度
+	EFFECTS
+effect-0	全開
+effect-1	平衡
+effect-2	省電
+	畫面一卡頓，會自動先關掉模糊效果，保持順暢。
+	聊天框狀態列
+	STATUS LINE
+status-cfg-work	
+	工作狀態
+	↑
+	↓
+status-cfg-model	
+	模型
+	↑
+	↓
+status-cfg-effort	
+	思考強度
+	↑
+	↓
+status-cfg-review	
+	審查輪數
+	↑
+	↓
+status-cfg-context	
+	上下文
+	↑
+	↓
+status-cfg-speed	
+	速度 tok/s
+	↑
+	↓
+status-cfg-cost	
+	花費
+	↑
+	↓
+status-cfg-tokens	
+	本對話用量
+	勾選要顯示的項目，用 ↑ ↓ 排順序。在聊天框裡點「思考」「審查」可以直接換，點「上下文」打開數據。
+	生圖服務
+	IMAGE
+	之後你在電腦上裝好生圖程式，把它的位址填在這裡（例如 http://192.168.1.20:8188），AI 就能幫你畫圖。空著就是還沒接上，AI 會直接跟你說現在不能畫。
+image-url	生圖服務位址 | 
+image-url-save	套用位址
+	預算
+	BUDGET
+	今日花費 US$0.0000
+alert-field	通知門檻（US$） | 5
+	啟用每日硬上限
+switch-cap	
+save-budget	儲存預算
+	心跳間隔
+	HEARTBEAT
+	每 45 分鐘
+dec-heartbeat	－
+inc-heartbeat	＋
+	代理人會定期在背景整理記憶並提醒你，間隔 30～60 分鐘。
+	DSH 版本
+	DSH
+verified-note	只會更新到這版 App 驗證過的 dsh 版本：0.2.1-rc.5
+	目前版本：0.2.1-rc.5
+	上一版：0.2.0
+check-update	檢查更新
+rollback	退回上一版
+	DSH 執行中
+open-licenses	開放原始碼授權
+	子行程限制
+	SYSTEM
+	目前狀態：限制仍開啟
+open-developer	開啟開發人員選項
+	匯出
+	EXPORT
+export-log	匯出錯誤記錄
+export-memory	匯出記憶備份
+export-workspace	匯出整個工作區（zip）
+	執行方式
+	NATIVE
+	預設開著：dsh 直接在安卓上跑，不用模擬 Linux。如果這支手機用原生方式有問題，關掉就會改用舊的相容模式（比較慢、比較耗電）。兩種方式用的是同一份對話和檔案，什麼都不會刪除。切換時 dsh 會重新啟動。
+	用安卓原生方式跑 dsh（比較快、比較省電）
+switch-native	
+native-state	目前：原生
+	權限：AI 可以自己做到哪裡
+permission-smart	一般（建議） | 工作區裡的事直接做。有風險的先問你：刪除或寫到工作區外面、把資料送上網、執行下載來的程式、動到系統。
+permission-full	全部放行 | 什麼都不問，直接做。
+permission-ask	每次都問 | 只有查看不用問；會改東西的指令、寫檔、派子代理人都先問你。
+	不管哪一級，會刪掉 DSH 自己資料的指令一律擋下。AI 只碰得到 DSH 自己的資料夾，碰不到手機上其他 App 的東西。改了會重新啟動 dsh。
+	套用並重啟
+	APPLY
+	代理人設定要重新啟動 DSH 才會生效。
+apply	套用並重啟
