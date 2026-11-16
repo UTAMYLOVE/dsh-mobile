@@ -90,6 +90,10 @@ Every change in the code is marked `[DSH Mobile]`.
    - The original centred the HUD log panel and the signature with `transform: translateX(-50%)`. Their entrance animation (fill-mode `both`) replaces that transform, so they started at the middle of the screen and ran to the right. On a 412 px phone the log panel ran off the screen. Both are now centred with margins.
    - Portrait widths get a one-column preload list and wrapping footer and byline lines.
    - Short (landscape) heights get a smaller picture, a tighter login card, and the HUD text moved above the log panel.
+   - The app's WebView tells the page a height of 0, so a height test alone also matched every portrait phone in the app. The landscape rules therefore also need a width over 600 px. For the same reason, in the app the short-portrait rule below applies to every portrait phone.
+   - The original put the skip hint at the bottom right, on top of the frame's bottom-right tag (here the user's `number`, or DSH). It is now centred just above the signature line. In landscape, where the log panel reaches down to the frame's bottom bar, it sits in the top bar, left of OPTICS.
+   - Short portrait phones (up to 740 px tall, such as 320×640) get the original's own compact picture size (92 px) in the HUD, with the HUD lines a little closer and higher. A long welcome or name no longer runs into the log panel.
+   - A name or welcome that has to wrap is split into even lines (`text-wrap: balance`), so a long name never leaves one letter on a line of its own.
    - Nothing else in the layout was changed.
 10. **One small robustness fix.**
     - The original decided whether the timeline was "waiting at login" by looking at the next pending moment. That was already `loginwait` before the gate had actually opened.

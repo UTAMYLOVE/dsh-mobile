@@ -128,6 +128,19 @@ html.is-leaving body {
   line-height: 1.04;
 }
 
+/* [DSH Mobile] A line that would have to shrink below a readable size to stay on one line (a long welcome or name on a
+ * narrow phone; see fitLine in wave.js) goes onto two balanced lines instead, within the same 92 % of the screen width
+ * and with room between the lines. */
+.dshop-root .dshop-cyber-lead.is-wrapped,
+.dshop-root .dshop-cyber-name.is-wrapped {
+  box-sizing: border-box;
+  max-width: 92vw;
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
 .dshop-cyber-bar {
   position: absolute;
   left: 50%;
@@ -164,6 +177,23 @@ html.is-leaving body {
   letter-spacing: 0.16em;
   color: var(--dshop-accent);
   text-shadow: 0 0 11px rgba(77, 107, 254, 0.55);
+}
+
+/* [DSH Mobile] The bar is 44 ticks at a fixed 4 px gap: with the counter, 314 px wide. On a 320 px phone it ran to 3 px
+ * from both screen edges and looked cut off. Below 360 px the gap is 3 px (2 px below 300 px), which keeps about the
+ * side margins it has on a 360 px phone. */
+@media (max-width: 359.98px) {
+  .dshop-cyber-bars { gap: 3px; }
+}
+@media (max-width: 299.98px) {
+  .dshop-cyber-bars { gap: 2px; }
+}
+
+/* [DSH Mobile] On a short, wide screen (the compact stage in wave.js, which sets is-compact: under 560 px tall and
+ * wider than 1.2x the height) the bar sits 14 px from the bottom instead of 34 px, so the salute fits between the rings
+ * and the bar. */
+.dshop-root.is-compact .dshop-cyber-bar {
+  bottom: 14px;
 }
 
 /* The long sequence narrates five access steps. The plate is five rows tall but every row dissolves into the same

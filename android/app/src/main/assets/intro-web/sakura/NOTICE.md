@@ -107,6 +107,12 @@ This folder contains the startup animation from **dsh-startup-animation** by Kyl
     - `<meta name="referrer" content="no-referrer">`
     - `<link rel="icon" href="data:,">`, so the browser does not request `/favicon.ico`
     - the stylesheet and script as files. There is no inline script or style.
+12. **Room for the loading rings, and their centring** (layout fix for phones, `boot.css` only).
+    - The outer of the two loading rings round the avatar is wider than the avatar plus the gap below it, so its arc ran through the top of the greeting. The original does the same.
+    - There is now room under the avatar for the ring: the ring's overhang, plus 2 px, minus the gap. On a phone held upright that is 14 px, so the avatar sits 7 px higher and the text 7 px lower. Nothing else changes.
+    - On a short screen (a phone held sideways, `max-height: 560px`), the original made the avatar smaller but left the rings, the burst and the ripples full size, so the rings ran through the greeting and the status line. They now shrink with the avatar, in the same proportion as on a tall screen, and get the same kind of room under the avatar (about 12 px).
+    - The two rings, the burst and the ripples are all wider than the avatar. A box centred with `margin: auto` that is wider than the box it sits in is put against the left edge instead, so in the original they sat off to the right of the avatar (the rings by 14 and 28 px on a phone held upright), although the original's own comment says they follow the avatar's centre. They now get a wider box to centre in (`left` and `right` of `-50vmax`), so they sit round the avatar's centre. Their sizes and motion are unchanged.
+    - The soft glow behind the avatar (`.dshs-halo`) is off centre in the same way and is left as it is. It is drawn over the greeting, and on a short screen it is large, so centring it would put its white middle over the greeting and make the words paler.
 
 ## Hosting notes for the app
 

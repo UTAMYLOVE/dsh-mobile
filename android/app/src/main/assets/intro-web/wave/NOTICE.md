@@ -74,6 +74,7 @@ This folder holds the boot animation from **dsh-opening-free** (repository `open
    - The big line 「指挥员」 is now the user's name.
    - Without a name, the welcome words take the big line and the small line stays empty.
    - The lead line and the name are kept on one line each. If either would run past 92 % of the screen width at its widest tracking, its font size is reduced.
+   - The font size is never reduced below 12 px for the welcome line or 16 px for the name. A line that would need to go smaller goes onto two balanced lines instead, at its own size where two lines fit. Before, a 20-character welcome shrank to 8.5 px on a 320 px phone.
    - The caption box is as wide as its text, so a long name stays centred.
 5. **Timing.**
    - The beat times are the original's: wave 0–0.52 s, burst 0.52 s, dots 0.58–2.03 s (locking at 1.52 s), rings 1.06 s, welcome words 1.62 s, name 2.763 s, fade 0.28 s.
@@ -83,8 +84,11 @@ This folder holds the boot animation from **dsh-opening-free** (repository `open
    - The clock starts when the empty stage (the cut's frame at 0 s) is first on screen. Before, a slow first paint in a WebView swallowed most of the 0.52 s wave.
    - The clock is the page clock. The original used the audio position when sound was playing.
 6. **Phone sizes.**
-   - Upright, the original layout fits as it is.
-   - On a short, wide screen (height under 560 px and wider than 1.2× the height, for example 915×412), the original's caption maths pushed the salute up onto the lowest ring. There the whole stage is now drawn at 0.8 of its size, with the rings at 40 % of the height instead of 44 %. The canvas and the caption share this one rule.
+   - Upright, the original layout fits as it is, except the bottom bar. It is 314 px wide and ran to 3 px from both edges of a 320 px screen. Below 360 px wide, the gap between its ticks is 3 px instead of 4 px (2 px below 300 px).
+   - On a short, wide screen (height under 560 px and wider than 1.2× the height, for example 915×412), the original's caption maths pushed the salute up onto the lowest ring. There the whole stage is now drawn at 0.8 of its size, with the rings at 38 % of the height instead of 44 % and the burst at 44 % instead of 50 %. The canvas and the caption share this one rule.
+   - On such a screen the bottom bar sits 14 px from the bottom instead of 34 px. The script marks the stage for this (`is-compact`) rather than using a CSS height query.
+   - Under about 350 px tall (a phone held sideways with the status bar showing, for example 780×336), the stage is drawn a little smaller again, never under half the height, so the rings, the salute and the bar still fit.
+   - The salute keeps 14 px clear of the bar instead of 3 px. That is more than the name moves while it rises in. With 3 px, the name sat on the ticks in landscape, and overlapped them as it rose in. The bar's real position is read, not assumed.
    - The original caps the canvas resolution at 2× pixel density. That is kept.
 7. **End signal.**
    - When the fade ends, the page removes the stage and calls `window.DSHM && window.DSHM.done()`. It also sets `location.hash = '#done'`.

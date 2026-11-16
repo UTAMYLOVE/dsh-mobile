@@ -1,7 +1,9 @@
 package app.dshmobile
 
 import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
@@ -39,13 +41,19 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The dsh community startup looks (櫻花動漫風, 粉色霓虹敘事, 光點聚形波浪, 科技檔案授權) on a real Android WebView, which
  * Robolectric cannot render (WebIntroTest covers the rest there). Each look plays with a test picture in its locked-down
- * WebView, a few seconds in UiAutomator takes a screenshot (portrait, and landscape in a second pass) into the app's external
- * files dir, intro-shots/, and a tap (or back) must end the overlay early and leave no WebView behind. The screenshots are also
- * copied to /data/local/tmp/intro-shots, which outlives the app's uninstall after the run, so CI can pull them for the owner.
+ * WebView and UiAutomation takes screenshots into the app's external files dir, intro-shots/: upright three, about 1.0 s,
+ * 3.0 s and 5.5 s after the page loaded (<key>-portrait-1/-2/-3.png), and on its side one at about 3 s (<key>-landscape.png).
+ * Then a tap (or back) must end the overlay early and leave no WebView behind. The screenshots are also copied to
+ * /data/local/tmp/intro-shots, which outlives the app's uninstall after the run, so CI can pull them for the owner.
+ *
+ * The activity itself asks for the orientation (`requestedOrientation`): UiDevice's rotation did not turn the CI emulator (API 34,
+ * no window), and its "landscape" shots came out 320x640 upright. The run waits until the activity's window has the asked shape,
+ * and every saved shot must have it too.
  *
  * Needs no dsh: the looks play in a bare activity, the way the shell hosts them, with the same StartupIntro.
  */
@@ -70,56 +78,145 @@ class IntroWebLooksTest {
     @Test fun accessFitsLandscape() = play(IntroStyle.WEB_ACCESS, WebLook.ACCESS, "科技檔案授權", landscape = true)
 
     private fun play(style: IntroStyle, look: WebLook, title: String, landscape: Boolean) {
-        if (landscape) {
-            device.setOrientationLeft()
-            SystemClock.sleep(1_000)
-        }
-        // 8 s, so an end within a few seconds of the tap can only be the tap's.
-        val intro = Intro(enabled = true, name = "小雨", welcome = "歡迎回來", seconds = 8f, style = style)
+        // The longest run the app allows (a longer setting is held to this one, page and ceiling alike), so the look's own end
+        // comes well after the last shot and the tap: an end soon after the tap can only be the tap's.
+        val intro = Intro(enabled = true, name = "小雨", welcome = "歡迎回來", seconds = Intro.MAX_SECONDS, style = style)
+        val runMs = (intro.seconds * 1000).toLong()
         val picture = testPicture()
         val done = CountDownLatch(1)
+        val ended = AtomicLong(0L)
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         try {
+            turn(scenario, landscape)
             var activity: Activity? = null
             scenario.onActivity { a ->
                 activity = a
+                a.requestedOrientation = orientation(landscape)
                 a.setContent {
                     var showing by remember { mutableStateOf(true) }
                     FogTheme(effectsFor(EffectLevel.FULL, false)) {
                         CompositionLocalProvider(LocalLook provides Look(picture = 1L, intro = intro), LocalLookPicture provides picture) {
-                            if (showing) StartupIntro(intro, null, reducedMotion = false) { done.countDown(); showing = false }
+                            if (showing) StartupIntro(intro, null, reducedMotion = false) {
+                                ended.compareAndSet(0L, SystemClock.elapsedRealtime())
+                                done.countDown()
+                                showing = false
+                            }
                         }
                     }
                 }
             }
             val host = activity!!
             // The page came from the app's own assets through the loader: its <title> is the look's name. A page that failed
-            // would have given way to 櫻紋陣, and its WebView would be gone.
-            E2e.waitFor(30_000, "the ${look.key} page to load in its WebView") {
+            // would have given way to 櫻紋陣, and its WebView would be gone. Polled closely, so the shots' times are the page's.
+            val loaded = loadedAt(30_000, "the ${look.key} page to load in its WebView") {
                 E2e.onMain { webView(host)?.let { it.progress >= 100 && it.title == title } == true }
             }
-            val loaded = SystemClock.elapsedRealtime()
-            SystemClock.sleep(3_000)
-            val name = "${look.key}-${if (landscape) "landscape" else "portrait"}.png"
-            val shot = File(context.getExternalFilesDir("intro-shots"), name)
-            assertTrue("screenshot $name", device.takeScreenshot(shot))
-            keepForCi(shot)
-            assertTrue("${look.key} still plays in its WebView (no fall back to 櫻紋陣)", E2e.onMain { webView(host) != null })
+            val shapeOk = E2e.onMain { host.window.decorView.let { if (landscape) it.width > it.height else it.height > it.width } }
+            assertTrue("${look.key}: the activity's window is not ${if (landscape) "wider than tall" else "taller than wide"}", shapeOk)
 
+            val tapped: Long
             if (landscape) {
+                sleepUntil(loaded + 3_000)
+                save(capture("${look.key}-landscape.png"), "${look.key}-landscape.png", landscape)
+                assertTrue("${look.key} still plays in its WebView (no fall back to 櫻紋陣)", E2e.onMain { webView(host) != null })
                 // Back ends a skippable look at once.
+                tapped = SystemClock.elapsedRealtime()
                 device.pressBack()
             } else {
-                // Near the top, away from 粉色霓虹敘事's login card (a tap on the card is its story's SIGN IN, not a skip).
+                for ((i, at) in listOf(1_000L, 3_000L).withIndex()) {
+                    sleepUntil(loaded + at)
+                    save(capture("${look.key}-portrait-${i + 1}.png"), "${look.key}-portrait-${i + 1}.png", landscape)
+                }
+                sleepUntil(loaded + 5_500)
+                val last = "${look.key}-portrait-3.png"
+                val bitmap = capture(last)
+                assertTrue("${look.key} still plays in its WebView (no fall back to 櫻紋陣)", E2e.onMain { webView(host) != null })
+                // The tap comes right after the last picture is taken (it is written out afterwards), well before the look's own
+                // end. Near the top, away from 粉色霓虹敘事's login card (a tap on the card is its story's SIGN IN, not a skip).
+                tapped = SystemClock.elapsedRealtime()
                 device.click(device.displayWidth / 2, device.displayHeight / 7)
+                save(bitmap, last, landscape)
             }
-            assertTrue("${look.key}: the overlay ends after the ${if (landscape) "back" else "tap"}", done.await(5, TimeUnit.SECONDS))
-            val took = SystemClock.elapsedRealtime() - loaded
-            Log.i(FakeModel.TAG, "intro-shots: $name, ended ${took} ms after the page loaded")
-            assertTrue("${look.key} ended early, not at its own 8 s end ($took ms)", took < 7_500)
+            val how = if (landscape) "back" else "tap"
+            assertTrue("${look.key}: the overlay ends after the $how", done.await(5, TimeUnit.SECONDS))
+            val took = ended.get() - loaded
+            val sinceTap = ended.get() - tapped
+            Log.i(FakeModel.TAG, "intro-shots: ${look.key} ${if (landscape) "landscape" else "portrait"}, $how ${tapped - loaded} ms and end $took ms after the page loaded")
+            // Every look plays at least the setting from about its load, so its own end comes at about runMs; the slowest exit
+            // after a tap is 櫻花動漫風's 0.7 s fade (1.3 s at most, when its transition end is missed). Each bound alone would
+            // leave a little doubt; together they leave none.
+            assertTrue("${look.key} ended $sinceTap ms after the $how, not soon after it", sinceTap < 1_500)
+            assertTrue("${look.key} ended early, not at its own ${runMs / 1000} s end ($took ms after it loaded)", took < runMs - 400)
             E2e.waitFor(5_000, "the ${look.key} WebView to be let go of") { E2e.onMain { webView(host) == null } }
         } finally {
             scenario.close()
+        }
+    }
+
+    private fun orientation(landscape: Boolean) =
+        if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+
+    /**
+     * Asks the activity for the orientation and waits until its window has that shape (the turn recreates the activity, which is
+     * why the content is set afterwards). UiDevice's rotation is only tried when the request alone has not turned it.
+     */
+    private fun turn(scenario: ActivityScenario<ComponentActivity>, landscape: Boolean) {
+        val want = if (landscape) "landscape (its window wider than tall)" else "portrait (its window taller than wide)"
+        fun shaped(): Boolean {
+            var ok = false
+            scenario.onActivity { a ->
+                val v = a.window.decorView
+                ok = if (landscape) v.width > v.height else v.height > v.width
+            }
+            return ok
+        }
+        scenario.onActivity { a -> a.requestedOrientation = orientation(landscape) }
+        val end = SystemClock.elapsedRealtime() + 10_000
+        while (SystemClock.elapsedRealtime() < end) {
+            if (runCatching { shaped() }.getOrDefault(false)) return
+            SystemClock.sleep(200)
+        }
+        runCatching { if (landscape) device.setOrientationLeft() else device.setOrientationNatural() }
+        E2e.waitFor(10_000, "the activity to turn to $want") { shaped() }
+    }
+
+    /** Polls [cond] every 50 ms (E2e.waitFor's 500 ms would make the shots' times late) and returns when it first held. */
+    private fun loadedAt(timeoutMs: Long, what: String, cond: () -> Boolean): Long {
+        val end = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < end) {
+            if (runCatching(cond).getOrDefault(false)) return SystemClock.elapsedRealtime()
+            SystemClock.sleep(50)
+        }
+        throw AssertionError("timed out after ${timeoutMs / 1000} s waiting for $what\n--- error log tail ---\n${E2e.errorLogTail()}")
+    }
+
+    private fun sleepUntil(at: Long) {
+        val left = at - SystemClock.elapsedRealtime()
+        if (left > 0) SystemClock.sleep(left)
+    }
+
+    /** The screen now, as UiAutomation sees it (turned to the display's rotation). */
+    private fun capture(name: String): Bitmap = instrumentation.uiAutomation.takeScreenshot() ?: throw AssertionError("screenshot $name")
+
+    /**
+     * Writes [bitmap] to intro-shots/[name], checks that the saved picture has the run's shape (wider than tall in landscape,
+     * taller than wide upright) and keeps a copy for CI.
+     */
+    private fun save(bitmap: Bitmap, name: String, landscape: Boolean) {
+        val shot = File(context.getExternalFilesDir("intro-shots"), name)
+        try {
+            assertTrue("screenshot $name", shot.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) })
+        } finally {
+            bitmap.recycle()
+        }
+        keepForCi(shot)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(shot.absolutePath, bounds)
+        val (w, h) = bounds.outWidth to bounds.outHeight
+        if (landscape) {
+            assertTrue("$name is ${w}x$h, not wider than tall: the emulator did not turn the screen to landscape", w > 0 && w > h)
+        } else {
+            assertTrue("$name is ${w}x$h, not taller than wide: the screen is not upright", h > 0 && h > w)
         }
     }
 

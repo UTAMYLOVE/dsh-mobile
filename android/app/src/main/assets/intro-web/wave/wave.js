@@ -280,13 +280,18 @@
    * [DSH Mobile] Where the stage sits. The original put the rings at 0.44 of the height and sized everything by the
    * shorter side, which on a phone held sideways (about 915 x 412) leaves no room under the rings: its caption is then
    * pushed up onto the lowest ring. On such short, wide screens the whole stage is drawn at 0.8 of that size and a
-   * little higher, so the salute lands under the rings as it does upright. The canvas and the caption both use this.
+   * little higher (rings at 0.38 of the height), so the salute lands under the rings as it does upright. The salute and
+   * the bar need about 124 px under the rings (see place() and the short-screen rule in wave.css), so on the shortest
+   * of these screens (under about 350 px tall, e.g. a phone held sideways with the status bar showing) the stage is
+   * drawn a little smaller still, never under half the height. The canvas and the caption both use this, and the
+   * caption marks the stage `is-compact` for wave.css (not a CSS height query: a WebView laid out at wrap-content
+   * height can match every height query).
    */
   function stageOf(w, h) {
     const compact = h < 560 && w > h * 1.2;
-    return compact
-      ? { unit: Math.min(w, h) * 0.8, cy: 0.4, burst: 0.46 }
-      : { unit: Math.min(w, h), cy: 0.44, burst: 0.5 };
+    if (!compact) return { compact: false, unit: Math.min(w, h), cy: 0.44, burst: 0.5 };
+    const unit = Math.max(h * 0.5, Math.min(Math.min(w, h) * 0.8, (h * 0.62 - 124) / 0.335));
+    return { compact: true, unit: unit, cy: 0.38, burst: 0.44 };
   }
 
   /** [DSH Mobile] The first character of the name (or of the welcome words), cut out of the stand-in mark. */
@@ -1274,10 +1279,13 @@
 
     /* [DSH Mobile] A phone is narrower than the desktop window the original was made for, and the name is now the
      * user's (up to 24 characters). A line that would run past 92 % of the screen width at its widest tracking gets
-     * a smaller font size, measured once per size. */
-    const fitLine = (el, trackEm) => {
+     * a smaller font size, measured once per size. It is never made smaller than `floorPx`: a line that would be (a
+     * long welcome on a narrow phone shrank to 8.5 px) goes onto two balanced lines instead (`is-wrapped` in wave.css),
+     * at the size that fits two lines, at most its own. */
+    const fitLine = (el, trackEm, floorPx) => {
       if (!el || !el.firstChild) return;
       el.style.fontSize = '';
+      el.classList.remove('is-wrapped');
       const kept = el.style.letterSpacing;
       el.style.letterSpacing = trackEm + 'em';
       const range = document.createRange();
@@ -1285,7 +1293,15 @@
       const style = window.getComputedStyle(el);
       const wide = range.getBoundingClientRect().width + (parseFloat(style.paddingLeft) || 0);
       const room = vw * 0.92;
-      if (wide > room) el.style.fontSize = ((parseFloat(style.fontSize) || 16) * room / wide).toFixed(2) + 'px';
+      const base = parseFloat(style.fontSize) || 16;
+      if (wide > room) {
+        let size = base * room / wide;
+        if (size < floorPx) {
+          el.classList.add('is-wrapped');
+          size = Math.min(base, base * room * 2 * 0.94 / wide); // 0.94: two lines rarely split exactly in half
+        }
+        el.style.fontSize = size.toFixed(2) + 'px';
+      }
       el.style.letterSpacing = kept;
     };
 
@@ -1295,9 +1311,10 @@
      * during the run. */
     const cjkSalute = mode.lang === 'zh' || mode.lang === 'ja';
     const place = () => {
-      fitLine(leadEl, mode.leadTrack + 0.2);
-      fitLine(nameEl, mode.nameTrack);
+      fitLine(leadEl, mode.leadTrack + 0.2, 12); // [DSH Mobile] floors: 12 px for the small line, 16 px for the big one
+      fitLine(nameEl, mode.nameTrack, 16);
       const stage = stageOf(vw, vh); // [DSH Mobile] the canvas's stage: size and height of the rings
+      root.classList.toggle('is-compact', stage.compact); // [DSH Mobile] the bar sits lower there (wave.css)
       const unitSpan = stage.unit;
       const ring = Math.min(unitSpan * 0.33, 360);
       /* ~4 mm of daylight under the lowest ring at a normal desktop scale, so the salute never touches the circle. */
@@ -1308,7 +1325,14 @@
       const floor = vh * stage.cy + ring * 0.55;
       /* The Chinese and Japanese salutes are tall enough to be clamped upward by the bar; give them a lower bottom
        * line and a small extra drop, so the lead clears the ring instead of hugging it. */
-      const reserve = cjkSalute ? 54 : 62;
+      /* [DSH Mobile] Was `cjkSalute ? 54 : 62`, counted from a bar whose top is 51 px above the bottom edge. The bar's
+       * real top is read instead (wave.css puts it lower on short, wide screens), and the Chinese salute keeps 14 px
+       * off it instead of 3 px, more than the name's rise-in (9 px and a 7 % zoom): with 3 px, once the bar clamped
+       * the caption (a phone held sideways), the name sat on the ticks and ran into them as it rose in. The other
+       * value is the original's (62 = 51 + 11). */
+      const barsEl = barsRef.current;
+      const barTop = barsEl ? barsEl.getBoundingClientRect().top : vh - 51;
+      const reserve = vh - barTop + (cjkSalute ? 14 : 11);
       const drop = cjkSalute ? Math.min(unitSpan * 0.02, 22) : 0;
       captionY = Math.min(under + drop, Math.max(floor, vh - reserve - blockH));
       /* The step plate keeps the old anchor; it hands over to a salute that now lands a little lower. */

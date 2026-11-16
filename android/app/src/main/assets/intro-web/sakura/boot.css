@@ -1,6 +1,7 @@
 /* [DSH Mobile] Adapted from KylinQ01/dsh-startup-animation @ 3a8c57a8fe2113b81ff861e9fc4589ad9bae6460,
    assets/boot.css. MIT License, Copyright (c) 2026 KylinQ01 (see LICENSE). Every change is listed in NOTICE.md;
-   changed or added rules carry a "[DSH Mobile]" comment. Values of the animation itself are unchanged.
+   changed or added rules carry a "[DSH Mobile]" comment. Values of the animation itself are unchanged, except the
+   room kept for the loading rings, their size on short screens and their centring (NOTICE.md change 12).
 
    DSH 启动动画样式。由 dsh-startup-animation 的宿主插件内联进 index.html 的 <head>。
    规则全部挂在 #dshs / html.dshs-* 上，动画收尾时整段样式会被移除，不给主界面留残留。
@@ -282,6 +283,10 @@ html.dshs-boot { background: #f7f1f8; }
   place-items: center;
   transform: perspective(900px) rotateY(calc(var(--dshs-px) * 6deg)) rotateX(calc(var(--dshs-py) * -5deg));
   transition: transform .5s cubic-bezier(.22, .61, .36, 1);
+  /* [DSH Mobile] The outer loading ring (below) reaches further below the avatar than the 16px gap, so it ran through
+     the top of the greeting (in the original too). Keep that much room under the avatar: the ring's overhang
+     (half the size difference, plus its 2px border), plus 2px of air, minus the gap. */
+  margin-bottom: max(0px, (clamp(192px, 35vmin, 278px) - clamp(140px, 26vmin, 208px)) / 2 + 4px - 16px);
 }
 
 /* 柔光：慢慢呼吸，给正中一点"活着"的感觉。
@@ -370,6 +375,15 @@ html.dshs-boot { background: #f7f1f8; }
 }
 #dshs.is-in .dshs-ping { animation: dshs-ping 4.2s cubic-bezier(.2, .6, .35, 1) infinite; }
 #dshs.is-in .dshs-ping ~ .dshs-ping { animation-delay: 2.1s; }
+/* [DSH Mobile] Centre the rings, the burst and the ripples on the avatar across, as they already are up and down (the
+   comment above the avatar's box says they follow its centre). Each is wider than the avatar, and a `margin: auto`
+   box wider than the box it sits in is put against the left edge instead of centred, so they sat off to the right
+   by half the difference (the rings 14 and 28 px on an upright phone). A wider box to centre in fixes that. Sizes
+   and motion are unchanged. The glow (.dshs-halo) is left where it was: it is drawn over the greeting, and centred
+   on a short screen its white middle would wash the greeting out. */
+#dshs .dshs-orbit,
+#dshs .dshs-burst,
+#dshs .dshs-ping { left: -50vmax; right: -50vmax; }
 
 /* 星火：入场那一下从头像四周迸出去，只跑一次，飞完就消失（位置/半径/延迟由 boot.js 随机）。 */
 #dshs .dshs-sparks { position: absolute; inset: 0; }
@@ -678,6 +692,14 @@ html.dshs-boot { background: #f7f1f8; }
   #dshs .dshs-bar { width: clamp(120px, 30vmin, 190px); height: 4px; }
   /* [DSH Mobile] The code-drawn stand-in follows the smaller avatar. */
   #dshs .dshs-mono { font-size: clamp(38px, 10vmin, 62px); }
+  /* [DSH Mobile] The rings, the burst and the ripples shrink with the avatar, in the same proportion as above. The
+     original kept them full size here, so on a short screen (a phone held sideways) the rings ran through the
+     greeting and the status line. The room under the avatar follows them, as above (gap 9px). */
+  #dshs .dshs-orbit { width: clamp(108px, 28vmin, 170px); height: clamp(108px, 28vmin, 170px); }
+  #dshs.is-in .dshs-orbit + .dshs-orbit { width: clamp(126px, 32vmin, 198px); height: clamp(126px, 32vmin, 198px); }
+  #dshs .dshs-burst,
+  #dshs .dshs-ping { width: clamp(98px, 25vmin, 154px); height: clamp(98px, 25vmin, 154px); }
+  #dshs .dshs-portrait { margin-bottom: max(0px, (clamp(126px, 32vmin, 198px) - clamp(92px, 24vmin, 148px)) / 2 + 4px - 9px); }
 }
 
 /* ══ 节日彩蛋 ══════════════════════════════════════════════════════════

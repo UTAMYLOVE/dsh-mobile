@@ -10,8 +10,8 @@
  *     variables on the overlay, as the original did);
  *   - the settings-page rules (.dshsplash-accent ... .dshsplash-switch) are gone with the settings page;
  *   - the prefers-reduced-motion block is keyed on html.dshm-calm (the app's reduced=1);
- *   - the additions at the end: the standalone page, the user's picture, the centring fix, phone layouts and the
- *     still version.
+ *   - the additions at the end: the standalone page, the user's picture, the centring fix, the skip hint's place,
+ *     even line breaks for long names, phone layouts and the still version.
  */
 
 .dshsplash-overlay {
@@ -1213,6 +1213,16 @@ html.dshm-reveal, html.dshm-reveal body { background: transparent; }
 .dshsplash-ios-panel { left: 0; right: 0; margin: 0 auto; transform: none; }
 .dshsplash-sig { left: 0; right: 0; width: max-content; margin: 0 auto; transform: none; }
 
+/* The original put the skip hint at right 18px, bottom 16px: on top of the frame's bottom-right tag (the user's
+   number, or DSH), and on a phone into the signature as well. It is centred just above the signature's line instead,
+   clear of the frame's tags, the signature and the log panel. */
+.dshsplash-skip { left: 0; right: 0; bottom: calc(4.5% + 16px); width: max-content; margin: 0 auto; }
+
+/* A long name or welcome that has to wrap is split into even lines, never one letter left over on a line of its own. */
+.dshsplash-login-value,
+.dshsplash-ios-byline > em,
+.dshsplash-ios-byline > b { text-wrap: balance; }
+
 /* Portrait phones: the preload list goes to one column and the long lines wrap inside the panels. */
 @media (max-width: 600px) {
   .dshsplash-console { padding: 14px 14px 12px; }
@@ -1224,8 +1234,17 @@ html.dshm-reveal, html.dshm-reveal body { background: transparent; }
   .dshsplash-ios-byline { flex-wrap: wrap; justify-content: center; gap: 6px 12px; max-width: calc(100vw - 48px); overflow-wrap: anywhere; }
 }
 
-/* Landscape phones (short screens): smaller picture, tighter login card, HUD text above the log panel. */
-@media (max-height: 520px) {
+/* Short portrait phones (about 640 px tall): the HUD picture takes the original's own compact size, the HUD lines sit
+   closer and a little higher, so a long welcome or name stays clear of the log panel. */
+@media (max-width: 600px) and (max-height: 740px) {
+  .dshsplash-ios { gap: 10px; padding-bottom: 40px; }
+  .dshsplash-ios .dshsplash-pet { --dshsplash-pet-h: 92px; }
+}
+
+/* Landscape phones (short screens): smaller picture, tighter login card, HUD text above the log panel. The app's WebView
+   tells CSS a height of 0, so a height test alone also caught every portrait phone there (the skip hint then sat on AR
+   and on the HUD title); the width test keeps these rules to landscape. */
+@media (max-height: 520px) and (min-width: 601px) {
   .dshsplash-pet { --dshsplash-pet-h: 64px; }
   .dshsplash-login { gap: 6px; padding: 2vh 4vw; }
   .dshsplash-login-card { padding: 14px 20px 12px; }
@@ -1237,6 +1256,8 @@ html.dshm-reveal, html.dshm-reveal body { background: transparent; }
   .dshsplash-ios-log { line-height: 1.45; }
   .dshsplash-console { padding: 12px 18px 10px; }
   .dshsplash-console-rows { margin: 8px 0 2px; }
+  /* the log panel reaches down to the frame's bottom bar here, so the skip hint goes in the top bar, left of OPTICS */
+  .dshsplash-skip { top: 9px; bottom: auto; left: auto; right: 108px; margin: 0; }
 }
 
 /* Reduced motion: the still frame. Every animation and transition inside the splash is off, and what only becomes
