@@ -177,6 +177,15 @@ class IntroWebLooksTest {
             }
             val shapeOk = E2e.onMain { host.window.decorView.let { if (landscape) it.width > it.height else it.height > it.width } }
             assertTrue("${look.key}: the activity's window is not ${if (landscape) "wider than tall" else "taller than wide"}", shapeOk)
+            // The page is laid out at the WebView's real size: a WRAP_CONTENT WebView gave it a height of 0 (vh = 0), which put
+            // the looks' text on top of each other. Asked of the page itself (evaluateJavascript is the app's, not the page's).
+            val viewport = java.util.concurrent.ArrayBlockingQueue<String>(1)
+            E2e.onMain { webView(host)?.evaluateJavascript("innerWidth + 'x' + innerHeight") { viewport.offer(it.orEmpty()) } }
+            val size = viewport.poll(10, TimeUnit.SECONDS).orEmpty().trim('"')
+            val (vw, vh) = size.split('x').map { it.toIntOrNull() ?: 0 }.let { (it.getOrElse(0) { 0 }) to (it.getOrElse(1) { 0 }) }
+            Log.i(FakeModel.TAG, "intro-shots: ${look.key} viewport $size")
+            assertTrue("${look.key}: the page's viewport is $size (a height of 0 squeezes its layout)", vw > 0 && vh > 0)
+            assertTrue("${look.key}: the page's viewport $size is not ${if (landscape) "landscape" else "portrait"}", if (landscape) vw > vh else vh > vw)
         }
 
         fun assertStillPlays() {

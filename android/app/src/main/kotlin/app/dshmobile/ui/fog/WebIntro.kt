@@ -387,6 +387,10 @@ internal object IntroWebView {
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     fun create(context: Context, requests: IntroWebRequests, bridge: IntroWebBridge, events: IntroWebEvents): WebView {
         val web = WebView(context)
+        // Full size, said in its own layout params: inside an AndroidView a WebView without them is WRAP_CONTENT, and Android's
+        // WebView then lays the page out at a height of 0 (CSS saw vh = 0, every max-height query true, the phone "landscape"),
+        // which put the community looks' text on top of each other on the emulator.
+        web.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         lockDown(web.settings)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
         web.setBackgroundColor(android.graphics.Color.TRANSPARENT)

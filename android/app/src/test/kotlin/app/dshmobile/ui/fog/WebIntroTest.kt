@@ -310,6 +310,9 @@ class WebIntroTest {
         assertTrue(shadow.webChromeClient is IntroWebChrome)
         assertTrue(shadow.getJavascriptInterface(IntroWeb.BRIDGE) is IntroWebBridge)
         assertEquals(0, shadow.backgroundColor)
+        // Full size in its own layout params: WRAP_CONTENT (an AndroidView's default) makes a WebView lay its page out at height 0.
+        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, web.layoutParams.width)
+        assertEquals(android.view.ViewGroup.LayoutParams.MATCH_PARENT, web.layoutParams.height)
         IntroWebView.release(web)
         IntroWebView.release(web) // twice is fine
         assertNull(shadow.getJavascriptInterface(IntroWeb.BRIDGE))
