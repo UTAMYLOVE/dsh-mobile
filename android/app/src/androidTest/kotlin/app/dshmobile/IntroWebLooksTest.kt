@@ -2,6 +2,7 @@ package app.dshmobile
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -10,16 +11,17 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.os.SystemClock
 import android.util.Log
+import android.view.InputDevice
+import android.view.KeyCharacterMap
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -28,6 +30,7 @@ import app.dshmobile.ui.fog.EffectLevel
 import app.dshmobile.ui.fog.FogTheme
 import app.dshmobile.ui.fog.Intro
 import app.dshmobile.ui.fog.IntroStyle
+import app.dshmobile.ui.fog.IntroWeb
 import app.dshmobile.ui.fog.LocalLook
 import app.dshmobile.ui.fog.LocalLookPicture
 import app.dshmobile.ui.fog.Look
@@ -46,14 +49,20 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * The dsh community startup looks (櫻花動漫風, 粉色霓虹敘事, 光點聚形波浪, 科技檔案授權) on a real Android WebView, which
  * Robolectric cannot render (WebIntroTest covers the rest there). Each look plays with a test picture in its locked-down
- * WebView and UiAutomation takes screenshots into the app's external files dir, intro-shots/: upright three, about 1.0 s,
- * 3.0 s and 5.5 s after the page loaded (<key>-portrait-1/-2/-3.png), and on its side one at about 3 s (<key>-landscape.png).
- * Then a tap (or back) must end the overlay early and leave no WebView behind. The screenshots are also copied to
- * /data/local/tmp/intro-shots, which outlives the app's uninstall after the run, so CI can pull them for the owner.
+ * WebView and UiAutomation takes screenshots into the app's external files dir, intro-shots/. Upright, a look plays twice: the
+ * first run gives three pictures, about 1.0 s, 3.0 s and 5.5 s after the page loaded (<key>-portrait-1/-2/-3.png), and then
+ * plays to its own end; in the second a tap about 2 s in must end it early. On its side it plays once: one picture at about 3 s
+ * (<key>-landscape.png), then back must end it at once. Every run must leave no WebView behind. The screenshots are also
+ * copied to /data/local/tmp/intro-shots, which outlives the app's uninstall after the run, so CI can pull them for the owner.
  *
  * The activity itself asks for the orientation (`requestedOrientation`): UiDevice's rotation did not turn the CI emulator (API 34,
  * no window), and its "landscape" shots came out 320x640 upright. The run waits until the activity's window has the asked shape,
  * and every saved shot must have it too.
+ *
+ * The CI emulator is slow, so the tap and back are given seconds, not a fraction of one, and are made early enough that the
+ * look's own end (about 8 s after it loaded) stays well apart from theirs. Back is sent straight away: UiDevice.pressBack()
+ * first waits up to 10 s for the screen to go quiet, which a playing look may never do, so its back could come after the
+ * look's own end.
  *
  * Needs no dsh: the looks play in a bare activity, the way the shell hosts them, with the same StartupIntro.
  */
@@ -79,77 +88,134 @@ class IntroWebLooksTest {
 
     private fun play(style: IntroStyle, look: WebLook, title: String, landscape: Boolean) {
         // The longest run the app allows (a longer setting is held to this one, page and ceiling alike), so the look's own end
-        // comes well after the last shot and the tap: an end soon after the tap can only be the tap's.
+        // comes long after the tap or back: an end soon after either can only be theirs.
         val intro = Intro(enabled = true, name = "小雨", welcome = "歡迎回來", seconds = Intro.MAX_SECONDS, style = style)
-        val runMs = (intro.seconds * 1000).toLong()
         val picture = testPicture()
-        val done = CountDownLatch(1)
-        val ended = AtomicLong(0L)
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         try {
             turn(scenario, landscape)
-            var activity: Activity? = null
+            var activity: ComponentActivity? = null
             scenario.onActivity { a ->
                 activity = a
                 a.requestedOrientation = orientation(landscape)
-                a.setContent {
-                    var showing by remember { mutableStateOf(true) }
+            }
+            val host = activity!!
+            if (landscape) {
+                val run = Run(host, look, title, intro, picture, landscape)
+                sleepUntil(run.loaded + 3_000)
+                val name = "${look.key}-landscape.png"
+                val bitmap = capture(name)
+                run.assertStillPlays()
+                // Back ends a skippable look at once. It goes right after the picture is taken (it is written out afterwards).
+                val back = pressBackNow()
+                save(bitmap, name, landscape)
+                run.assertEndsSoonAfter(back, "back")
+            } else {
+                val shots = Run(host, look, title, intro, picture, landscape)
+                for ((i, at) in SHOTS_MS.withIndex()) {
+                    sleepUntil(shots.loaded + at)
+                    val name = "${look.key}-portrait-${i + 1}.png"
+                    val bitmap = capture(name)
+                    shots.assertStillPlays()
+                    save(bitmap, name, landscape)
+                }
+                shots.assertEndsByItself()
+
+                val tap = Run(host, look, title, intro, picture, landscape)
+                sleepUntil(tap.loaded + TAP_AT_MS)
+                tap.assertStillPlays()
+                // Near the top, away from 粉色霓虹敘事's login card (a tap on the card is its story's SIGN IN, not a skip).
+                // UiDevice.click does not wait for the screen to go quiet.
+                val tapped = SystemClock.elapsedRealtime()
+                assertTrue("${look.key}: the tap was not delivered", device.click(device.displayWidth / 2, device.displayHeight / 7))
+                tap.assertEndsSoonAfter(tapped, "tap")
+            }
+        } finally {
+            scenario.close()
+        }
+    }
+
+    /**
+     * One run of [look] in [host]: the intro is shown afresh (a new key, so nothing is kept from an earlier run) and this waits
+     * until its page has loaded in its WebView and the window has the run's shape.
+     */
+    private inner class Run(
+        private val host: ComponentActivity,
+        private val look: WebLook,
+        title: String,
+        private val intro: Intro,
+        picture: File,
+        landscape: Boolean,
+    ) {
+        private val done = CountDownLatch(1)
+        private val ended = AtomicLong(0L)
+        private val runMs = (intro.seconds * 1000).toLong()
+        private val showing = mutableStateOf(true)
+        /** When the page had loaded (elapsedRealtime). */
+        val loaded: Long
+
+        init {
+            E2e.onMain {
+                host.setContent {
                     FogTheme(effectsFor(EffectLevel.FULL, false)) {
                         CompositionLocalProvider(LocalLook provides Look(picture = 1L, intro = intro), LocalLookPicture provides picture) {
-                            if (showing) StartupIntro(intro, null, reducedMotion = false) {
-                                ended.compareAndSet(0L, SystemClock.elapsedRealtime())
-                                done.countDown()
-                                showing = false
+                            key(this@Run) {
+                                if (showing.value) StartupIntro(intro, null, reducedMotion = false) {
+                                    ended.compareAndSet(0L, SystemClock.elapsedRealtime())
+                                    done.countDown()
+                                    showing.value = false
+                                }
                             }
                         }
                     }
                 }
             }
-            val host = activity!!
             // The page came from the app's own assets through the loader: its <title> is the look's name. A page that failed
             // would have given way to 櫻紋陣, and its WebView would be gone. Polled closely, so the shots' times are the page's.
-            val loaded = loadedAt(30_000, "the ${look.key} page to load in its WebView") {
+            loaded = loadedAt(30_000, "the ${look.key} page to load in its WebView") {
                 E2e.onMain { webView(host)?.let { it.progress >= 100 && it.title == title } == true }
             }
             val shapeOk = E2e.onMain { host.window.decorView.let { if (landscape) it.width > it.height else it.height > it.width } }
             assertTrue("${look.key}: the activity's window is not ${if (landscape) "wider than tall" else "taller than wide"}", shapeOk)
+        }
 
-            val tapped: Long
-            if (landscape) {
-                sleepUntil(loaded + 3_000)
-                save(capture("${look.key}-landscape.png"), "${look.key}-landscape.png", landscape)
-                assertTrue("${look.key} still plays in its WebView (no fall back to 櫻紋陣)", E2e.onMain { webView(host) != null })
-                // Back ends a skippable look at once.
-                tapped = SystemClock.elapsedRealtime()
-                device.pressBack()
-            } else {
-                for ((i, at) in listOf(1_000L, 3_000L).withIndex()) {
-                    sleepUntil(loaded + at)
-                    save(capture("${look.key}-portrait-${i + 1}.png"), "${look.key}-portrait-${i + 1}.png", landscape)
-                }
-                sleepUntil(loaded + 5_500)
-                val last = "${look.key}-portrait-3.png"
-                val bitmap = capture(last)
-                assertTrue("${look.key} still plays in its WebView (no fall back to 櫻紋陣)", E2e.onMain { webView(host) != null })
-                // The tap comes right after the last picture is taken (it is written out afterwards), well before the look's own
-                // end. Near the top, away from 粉色霓虹敘事's login card (a tap on the card is its story's SIGN IN, not a skip).
-                tapped = SystemClock.elapsedRealtime()
-                device.click(device.displayWidth / 2, device.displayHeight / 7)
-                save(bitmap, last, landscape)
-            }
-            val how = if (landscape) "back" else "tap"
-            assertTrue("${look.key}: the overlay ends after the $how", done.await(5, TimeUnit.SECONDS))
+        fun assertStillPlays() {
+            assertTrue("${look.key} still plays in its WebView (no fall back to 櫻紋陣)", E2e.onMain { webView(host) != null })
+        }
+
+        /**
+         * The look ends by itself: the page's DSHM.done() at about the setting, at the latest the app's ceiling (its own length
+         * and 3 s after its first frame), with a wide margin for a slow emulator.
+         */
+        fun assertEndsByItself() {
+            val within = look.ownMs(intro, false) + IntroWeb.MARGIN_MS + 10_000
+            assertTrue("${look.key}: the overlay did not end by itself", done.await(within, TimeUnit.MILLISECONDS))
+            Log.i(FakeModel.TAG, "intro-shots: ${look.key} portrait, ended by itself ${ended.get() - loaded} ms after the page loaded")
+            assertLetGo()
+        }
+
+        /**
+         * The [how] at [at] (elapsedRealtime, taken just before it was sent) ended the look: within [SOON_MS] of it (the slowest
+         * exit is 櫻花動漫風's 0.7 s fade, 1.3 s when its transition end is missed; the rest is for a slow emulator), and at
+         * least [OWN_END_GAP_MS] before the look's own end could come (it plays the setting from about its load). A look that
+         * ignored it would end only at its own end, about 6 s after a tap at 2 s and 4.5 s after a back at 3.5 s, and would fail
+         * both.
+         */
+        fun assertEndsSoonAfter(at: Long, how: String) {
+            assertTrue("${look.key}: the overlay ends after the $how", done.await(10, TimeUnit.SECONDS))
             val took = ended.get() - loaded
-            val sinceTap = ended.get() - tapped
-            Log.i(FakeModel.TAG, "intro-shots: ${look.key} ${if (landscape) "landscape" else "portrait"}, $how ${tapped - loaded} ms and end $took ms after the page loaded")
-            // Every look plays at least the setting from about its load, so its own end comes at about runMs; the slowest exit
-            // after a tap is 櫻花動漫風's 0.7 s fade (1.3 s at most, when its transition end is missed). Each bound alone would
-            // leave a little doubt; together they leave none.
-            assertTrue("${look.key} ended $sinceTap ms after the $how, not soon after it", sinceTap < 1_500)
-            assertTrue("${look.key} ended early, not at its own ${runMs / 1000} s end ($took ms after it loaded)", took < runMs - 400)
-            E2e.waitFor(5_000, "the ${look.key} WebView to be let go of") { E2e.onMain { webView(host) == null } }
-        } finally {
-            scenario.close()
+            val since = ended.get() - at
+            Log.i(FakeModel.TAG, "intro-shots: ${look.key}, $how ${at - loaded} ms and end $took ms after the page loaded")
+            assertTrue("${look.key} ended $since ms after the $how, not soon after it", since in 0 until SOON_MS)
+            assertTrue(
+                "${look.key} ended $took ms after it loaded, too near its own ${runMs / 1000} s end to be the $how's",
+                took < runMs - OWN_END_GAP_MS,
+            )
+            assertLetGo()
+        }
+
+        private fun assertLetGo() {
+            E2e.waitFor(10_000, "the ${look.key} WebView to be let go of") { E2e.onMain { webView(host) == null } }
         }
     }
 
@@ -157,16 +223,18 @@ class IntroWebLooksTest {
         if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
     /**
-     * Asks the activity for the orientation and waits until its window has that shape (the turn recreates the activity, which is
-     * why the content is set afterwards). UiDevice's rotation is only tried when the request alone has not turned it.
+     * Asks the activity for the orientation and waits until its window has that shape and the activity itself has the asked
+     * orientation (the turn recreates the activity, which is why the content is set afterwards; an activity still waiting to be
+     * recreated keeps its old one). UiDevice's rotation is only tried when the request alone has not turned it.
      */
     private fun turn(scenario: ActivityScenario<ComponentActivity>, landscape: Boolean) {
         val want = if (landscape) "landscape (its window wider than tall)" else "portrait (its window taller than wide)"
+        val wantConfig = if (landscape) Configuration.ORIENTATION_LANDSCAPE else Configuration.ORIENTATION_PORTRAIT
         fun shaped(): Boolean {
             var ok = false
             scenario.onActivity { a ->
                 val v = a.window.decorView
-                ok = if (landscape) v.width > v.height else v.height > v.width
+                ok = (if (landscape) v.width > v.height else v.height > v.width) && a.resources.configuration.orientation == wantConfig
             }
             return ok
         }
@@ -178,6 +246,20 @@ class IntroWebLooksTest {
         }
         runCatching { if (landscape) device.setOrientationLeft() else device.setOrientationNatural() }
         E2e.waitFor(10_000, "the activity to turn to $want") { shaped() }
+    }
+
+    /**
+     * Back, sent at once (as UiDevice sends it, without its wait for a quiet screen), and when it was sent (elapsedRealtime,
+     * just before).
+     */
+    private fun pressBackNow(): Long {
+        val sent = SystemClock.elapsedRealtime()
+        val down = SystemClock.uptimeMillis()
+        for (action in intArrayOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) {
+            val key = KeyEvent(down, SystemClock.uptimeMillis(), action, KeyEvent.KEYCODE_BACK, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD)
+            assertTrue("back (action $action) was not delivered", instrumentation.uiAutomation.injectInputEvent(key, true))
+        }
+        return sent
     }
 
     /** Polls [cond] every 50 ms (E2e.waitFor's 500 ms would make the shots' times late) and returns when it first held. */
@@ -248,6 +330,14 @@ class IntroWebLooksTest {
 
     private companion object {
         const val CI_DIR = "/data/local/tmp/intro-shots"
+        /** The upright pictures, after the page loaded. */
+        val SHOTS_MS = listOf(1_000L, 3_000L, 5_500L)
+        /** The upright tap, after the page loaded: early, so the look's own end is far from the tap's. */
+        const val TAP_AT_MS = 2_000L
+        /** How soon after the tap or back the look must have ended. */
+        const val SOON_MS = 3_000L
+        /** How long before the look's own end (the setting after it loaded) a tap's or back's end must come. */
+        const val OWN_END_GAP_MS = 2_000L
     }
 
     /** Copies [shot] where the shell user keeps it after the app is uninstalled (CI pulls /data/local/tmp/intro-shots). */
