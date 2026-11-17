@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.mutableStateOf
@@ -187,6 +188,9 @@ val LocalLook: ProvidableCompositionLocal<Look> = staticCompositionLocalOf { Loo
 
 /** Where the background picture is kept ([LookController.pictureFile]); null shows none (tests, previews). */
 val LocalLookPicture: ProvidableCompositionLocal<File?> = staticCompositionLocalOf { null }
+
+/** WCAG relative luminance (0..1) of the shown picture at its 5th percentile of pixels. */
+@Immutable data class PictureTone(val p05: Float)
 
 /**
  * The background picture recoloured at [Look.six], one at a time: the background and the startup animation share it. The

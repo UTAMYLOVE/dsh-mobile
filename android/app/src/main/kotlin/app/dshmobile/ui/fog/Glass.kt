@@ -5,6 +5,7 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
+import app.dshmobile.ui.theme.Drop
 import app.dshmobile.ui.theme.Sakura
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -65,6 +67,30 @@ import java.util.concurrent.atomic.AtomicInteger
 
 internal val GlassBlurRadius = 10.dp
 internal const val GlassSaturation = 1.7f
+
+/**
+ * How a glass surface is painted: its white fill (raised by [lift] when it does not blur), gradient rim, lit top-left corner,
+ * soft shadows, blur radius and saturation. [Classic] is today's glass, the literals of [GlassCache] and [glassRenderEffect].
+ */
+@Immutable data class GlassRecipe(
+    val angle: Float = 140f, val fill: List<Pair<Float, Color>>, val lift: Float = .16f,
+    val rim: List<Pair<Float, Color>>?, val rimWidth: Dp = 1.2.dp, val lit: Boolean = true,
+    val shadows: List<Drop.Soft>, val blurRadius: Dp = 10.dp, val saturation: Float = 1.7f,
+) {
+    companion object {
+        /** Today's glass: fill 0 W .62, .6 W .16, 1 W .28; rim 0 W .95, .5 PINK .75, 1 PINK .50; shadows ROSE .16 blur 30 dy 12 and ROSE .08 blur 6 dy 2. */
+        val Classic: GlassRecipe = GlassRecipe(
+            fill = listOf(0f to Color.White.copy(alpha = .62f), .6f to Color.White.copy(alpha = .16f), 1f to Color.White.copy(alpha = .28f)),
+            rim = listOf(0f to Color.White.copy(alpha = .95f), .5f to Sakura.Primary.copy(alpha = .75f), 1f to Sakura.Primary.copy(alpha = .50f)),
+            shadows = listOf(
+                Drop.Soft(Sakura.RoseBrown.copy(alpha = .16f), 30.dp, dy = 12.dp),
+                Drop.Soft(Sakura.RoseBrown.copy(alpha = .08f), 6.dp, dy = 2.dp),
+            ),
+            blurRadius = GlassBlurRadius,
+            saturation = GlassSaturation,
+        )
+    }
+}
 
 /**
  * Counters the tests read to prove that draw caches are reused across frames. Off unless a test sets [enabled]: the calls sit in

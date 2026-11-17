@@ -13,3 +13,6 @@ val Look.colorMode: ColorMode get() = if (themeId.ownColours) themeColors else C
 
 /** The war room: 指揮室樣式, or with 跟著主題 the worn theme's own (R3). */
 val Look.warRoom: WarStyle get() = warStyle ?: themeId.warStyle
+
+/** The theme to wear: built once per (id, colours) and shared (Themes.of). */
+val Look.appTheme: Theme get() = Themes.of(themeId, colorMode)

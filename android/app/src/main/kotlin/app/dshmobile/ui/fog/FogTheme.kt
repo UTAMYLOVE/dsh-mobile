@@ -32,6 +32,16 @@ object FogFonts {
         Font(R.font.chakra_petch_regular, FontWeight.Normal),
         Font(R.font.chakra_petch_semibold, FontWeight.SemiBold),
     )
+    /**
+     * Quicksand, the startup looks' Latin face (res/font/intro_latin.ttf, the same declarations as the intro's Latin type plus
+     * Light 300): the drawn themes' Latin captions, labels and numbers. A variable font, so every weight is the one file.
+     */
+    val Quicksand: FontFamily = FontFamily(
+        Font(R.font.intro_latin, FontWeight.Light, variationSettings = FontVariation.Settings(FontVariation.weight(300))),
+        Font(R.font.intro_latin, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+        Font(R.font.intro_latin, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+        Font(R.font.intro_latin, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
+    )
 }
 
 object FogText {
@@ -79,14 +89,17 @@ val LocalPageActive: ProvidableCompositionLocal<Boolean> = compositionLocalOf { 
 val LocalIdle: ProvidableCompositionLocal<State<Boolean>> = staticCompositionLocalOf { NeverIdle }
 private val NeverIdle: State<Boolean> = mutableStateOf(false)
 
-/** Orbitron only for the big English display styles; titles, body and labels keep the system font so Chinese and long text stay easy to read. */
-internal fun fogTypography(base: Typography): Typography = base.copy(
-    displayLarge = base.displayLarge.copy(fontFamily = FogFonts.Orbitron),
-    displayMedium = base.displayMedium.copy(fontFamily = FogFonts.Orbitron),
-    displaySmall = base.displaySmall.copy(fontFamily = FogFonts.Orbitron),
-    headlineLarge = base.headlineLarge.copy(fontFamily = FogFonts.Orbitron),
-    headlineMedium = base.headlineMedium.copy(fontFamily = FogFonts.Orbitron),
-    headlineSmall = base.headlineSmall.copy(fontFamily = FogFonts.Orbitron),
+/**
+ * [display] (Orbitron, or the worn theme's display face) only for the big English display styles; titles, body and labels keep
+ * the system font so Chinese and long text stay easy to read.
+ */
+internal fun fogTypography(base: Typography, display: FontFamily = FogFonts.Orbitron): Typography = base.copy(
+    displayLarge = base.displayLarge.copy(fontFamily = display),
+    displayMedium = base.displayMedium.copy(fontFamily = display),
+    displaySmall = base.displaySmall.copy(fontFamily = display),
+    headlineLarge = base.headlineLarge.copy(fontFamily = display),
+    headlineMedium = base.headlineMedium.copy(fontFamily = display),
+    headlineSmall = base.headlineSmall.copy(fontFamily = display),
 )
 
 @Composable
