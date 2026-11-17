@@ -153,8 +153,9 @@ class ThemeKitTest {
             // The status band's 3:1 never needs more veil than text's 4.6:1.
             assertTrue(look.floor(0f, target = 3f) <= look.floor(0f))
         }
-        // An ink that can never reach the target stops at the cap.
+        // An ink that can never reach the target stops at the cap, but never below a designed veil above it.
         assertEquals(.96f, veilFloor(W, W, BG, .8f, PictureTone(0f), .5f), 0f)
+        assertEquals(.98f, veilFloor(W, W, BG, .8f, PictureTone(0f), .98f), 0f)
     }
 
     @Test fun faceCapIsWaveNumbers() {
@@ -217,8 +218,9 @@ class ThemeKitTest {
         fills = listOf(solid(W.a(.8f)), linear(140f, 0f to W, 1f to PINK.a(.6f))),
         rims = listOf(
             hair(1.dp, ROSE.a(.4f)),
-            Rim.Dots(6.dp, 2.dp, PINK, 4.dp, W.a(.6f), glow = AQUA.a(.5f)),
-            Rim.Brush(2.dp, ROSE, W.a(.6f), BrushStart.Tail),
+            // The drawn tokens: petal storm's dots and one-stroke's brush are translucent (drawn.md), so "× .5" and "at .5" differ.
+            Rim.Dots(6.dp, 2.dp, PINK.a(.9f), 4.dp, W.a(.6f), glow = AQUA.a(.5f)),
+            Rim.Brush(2.dp, ROSE.a(.78f), W.a(.6f), BrushStart.Tail),
         ),
         shades = listOf(Drop.Soft(ROSE.a(.2f), 12.dp, dy = 4.dp), Drop.Hard(INK, 2.dp, 2.dp)),
         ornaments = listOf(
@@ -234,8 +236,13 @@ class ThemeKitTest {
         val f = rich.faded(.5f)
         assertEquals(listOf(solid(W.a(.4f)), linear(140f, 0f to W.a(.5f), 1f to PINK.a(.3f))), f.fills)
         assertEquals(hair(1.dp, ROSE.a(.2f)), f.rims[0])
-        assertEquals(Rim.Dots(6.dp, 2.dp, PINK.a(.5f), 4.dp, W.a(.3f), glow = AQUA.a(.25f)), f.rims[1])
-        assertEquals(Rim.Brush(2.dp, ROSE.a(.5f), W.a(.3f), BrushStart.Tail), f.rims[2])
+        // faded multiplies (D13): PINK .9 → .45, ROSE .78 → .39 (to one 8-bit step).
+        val dots = f.rims[1] as Rim.Dots
+        assertSameColour("faded dots", PINK.a(.45f), dots.color)
+        assertEquals(Rim.Dots(6.dp, 2.dp, dots.color, 4.dp, W.a(.3f), glow = AQUA.a(.25f)), dots)
+        val brush = f.rims[2] as Rim.Brush
+        assertSameColour("faded brush", ROSE.a(.39f), brush.ink)
+        assertEquals(Rim.Brush(2.dp, brush.ink, W.a(.3f), BrushStart.Tail), brush)
         assertEquals(emptyList<Drop>(), f.shades)
         assertEquals(Ornament.CornerMarks(8.dp, 1.dp, INK.a(.5f), 0.dp, setOf(Corner.TopStart), inner = PINK.a(.5f)), f.ornaments[0])
         assertEquals(Ornament.Glow(Fill.RadialDp(0f, 0f, 40.dp, 20.dp, listOf(0f to AQUA.a(.3f), 1f to AQUA.a(0f)))), f.ornaments[1])
@@ -244,12 +251,14 @@ class ThemeKitTest {
         assertNotSame(edge, faded.drawing)
         assertEquals(Ornament.Edge(Side.Bottom, 64.dp, 2.dp, faded.drawing), faded)
         assertEquals(rich.faded(.25f).ornaments[2], f.faded(.5f).ornaments[2])
-        // Glass: the recipe's stops scaled, its shadows dropped, the rest kept.
+        // Glass: the recipe's stops and its lift (added to every fill stop when it does not blur) scaled, its shadows dropped,
+        // the rest kept.
         val g = f.glass!!
         assertEquals(GlassRecipe.Classic.fill.alpha(.5f), g.fill)
         assertEquals(GlassRecipe.Classic.rim!!.alpha(.5f), g.rim)
+        assertEquals(.08f, g.lift, 1e-6f)
         assertEquals(emptyList<Drop.Soft>(), g.shadows)
-        assertEquals(GlassRecipe.Classic.copy(fill = g.fill, rim = g.rim, shadows = emptyList()), g)
+        assertEquals(GlassRecipe.Classic.copy(fill = g.fill, lift = g.lift, rim = g.rim, shadows = emptyList()), g)
         // Ink stays readable (D13); shape and runner unchanged.
         assertEquals(INK, f.ink)
         assertEquals(INK2, f.ink2)
@@ -259,6 +268,7 @@ class ThemeKitTest {
 
     @Test fun forSegmentDropsShadesAndTurnsDotsAndBrushIntoHalfLines() {
         val s = rich.forSegment()
+        // Dots and Brush become a 1 dp line of their colour at alpha .5 (not × .5; drawn §2.6 step 5: ROSE .5); Line rims stay.
         assertEquals(listOf(hair(1.dp, ROSE.a(.4f)), hair(1.dp, PINK.a(.5f)), hair(1.dp, ROSE.a(.5f))), s.rims)
         assertEquals(emptyList<Drop>(), s.shades)
         assertEquals(rich.fills, s.fills)

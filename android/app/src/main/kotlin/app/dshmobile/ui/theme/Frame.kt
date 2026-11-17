@@ -117,23 +117,28 @@ enum class Surf {
     /** Built once from [corners]. */
     val shape: Shape = corners.toShape()
 
-    /** Fills, rims, ornaments and a glass recipe's stops × [alpha]; shades (and glass shadows) dropped; ink and ink2 kept (D13). */
+    /**
+     * Fills, rims, ornaments and a glass recipe's stops and lift × [alpha]; shades (and glass shadows) dropped; ink and ink2 kept
+     * (D13). The lift is added to every glass fill stop when it does not blur, so it fades with them.
+     */
     fun faded(alpha: Float): Frame = copy(
         fills = fills.map { it.fade(alpha) },
         rims = rims.map { it.fade(alpha) },
         shades = emptyList(),
         ornaments = ornaments.map { it.fade(alpha) },
-        glass = glass?.let { g -> g.copy(fill = g.fill.fade(alpha), rim = g.rim?.fade(alpha), shadows = emptyList()) },
+        glass = glass?.let { g ->
+            g.copy(fill = g.fill.fade(alpha), lift = g.lift * alpha, rim = g.rim?.fade(alpha), shadows = emptyList())
+        },
     )
 
-    /** A long message's piece: shades dropped; Dots and Brush rims become a 1 dp line of their colour at half its alpha. */
+    /** A long message's piece: shades dropped; Dots and Brush rims become a 1 dp line of their colour at alpha .5. */
     fun forSegment(): Frame = copy(
         shades = emptyList(),
         rims = rims.map { r ->
             when (r) {
                 is Rim.Line -> r
-                is Rim.Dots -> Rim.Line(1.dp, Fill.Solid(r.color.fade(.5f)))
-                is Rim.Brush -> Rim.Line(1.dp, Fill.Solid(r.ink.fade(.5f)))
+                is Rim.Dots -> Rim.Line(1.dp, Fill.Solid(r.color.copy(alpha = .5f)))
+                is Rim.Brush -> Rim.Line(1.dp, Fill.Solid(r.ink.copy(alpha = .5f)))
             }
         },
     )
@@ -283,10 +288,10 @@ private data class FlickShape(val r: Float, val corner: Corner, val out: Float, 
         val control = (FlickControlDp * d).coerceAtMost(reach)
         val k = rr * (1f - Kappa)
         val endSide = corner == Corner.TopEnd || corner == Corner.BottomEnd
-        val left = endSide == (layoutDirection == LayoutDirection.Rtl)
-        val top = corner == Corner.TopStart || corner == Corner.TopEnd
-        fun x(v: Float) = if (left) w - v else v
-        fun y(v: Float) = if (top) h - v else v
+        val mirrorX = endSide == (layoutDirection == LayoutDirection.Rtl)
+        val mirrorY = corner == Corner.TopStart || corner == Corner.TopEnd
+        fun x(v: Float) = if (mirrorX) w - v else v
+        fun y(v: Float) = if (mirrorY) h - v else v
         val path = Path().apply {
             moveTo(x(w + out * d), y(h + down * d))
             quadraticTo(x(w - control), y(h), x(w - reach), y(h))

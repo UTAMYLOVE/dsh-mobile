@@ -1,5 +1,7 @@
 package app.dshmobile.ui.theme.themes
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
@@ -11,6 +13,7 @@ import app.dshmobile.ui.theme.Corners
 import app.dshmobile.ui.theme.Frame
 import app.dshmobile.ui.theme.Palettes
 import app.dshmobile.ui.theme.Rim
+import app.dshmobile.ui.theme.ShellGeometry
 import app.dshmobile.ui.theme.SystemBars
 import app.dshmobile.ui.theme.Theme
 import app.dshmobile.ui.theme.ThemeBackdrop
@@ -24,8 +27,9 @@ import app.dshmobile.ui.theme.materialOf
 
 /**
  * The placeholder every theme builder returns until its own look lands: the theme's palette on one plain recipe (white paper
- * washes with a thin line, CLASSIC's radii, no marks or edges, a still backdrop of the ground colour). It already keeps every
- * rule a real theme keeps (text contrast on every frame, six-colour purity in 六個粉色), so the app is whole under any choice.
+ * washes with a thin line, CLASSIC's radii, no marks or edges, a still backdrop of the ground colour, or of the stage inside a
+ * dark ground band where the two differ). It already keeps every rule a real theme keeps (text contrast on every frame and on
+ * the sky, six-colour purity in 六個粉色), so the app is whole under any choice.
  */
 internal fun provisionalTheme(id: ThemeId, mode: ColorMode): Theme {
     val c = Palettes.of(id, mode)
@@ -45,7 +49,8 @@ internal fun provisionalTheme(id: ThemeId, mode: ColorMode): Theme {
     } else {
         frame(userCorners, listOf(c.accentSoft))
     }
-    // Label-bearing accent fills: AccentCap (BG with PINK .80 over it) in the six colours, the soft accent otherwise.
+    // Label-bearing accent fills: AccentCap (BG with PINK .80 over it) in the six colours, the soft accent otherwise. The six-colour
+    // list is AccentCapFills as colours (frame() flattens colours to check ink2); keep the two the same.
     val accent = if (six) listOf(BG, PINK.a(.80f)) else listOf(c.accentSoft)
     val chip = frame(Corners.Pill, paper)
     val chipAccent = frame(Corners.Pill, accent)
@@ -85,10 +90,38 @@ internal fun provisionalTheme(id: ThemeId, mode: ColorMode): Theme {
 /** These colours laid over [stage] in order. */
 private fun List<Color>.flatOver(stage: Color): Color = fold(stage) { under, top -> top.over(under) }
 
-/** A still backdrop of the palette's ground colour: one drawing for every scene (E11). */
+/**
+ * A still backdrop. Where the palette's ground is its stage (all but 霓虹's two), one drawing of that colour for every scene.
+ * Where the ground is a dark frame round a light stage (霓虹 in both modes), the placeholder has no lens to light the stage, and
+ * the sky's text (skyInk, the clear BAR frame's ink) is the stage's: so it fills the stage and keeps the ground only under the
+ * status bar (0 … insetTop, behind its light icons) and the navigation bar (the bottom navInset). The insets are read in the draw
+ * lambda, so a change redraws without a rebuild; the drawing is kept for the last [ShellGeometry] it was asked for (E11: the
+ * same scene gets the same instance).
+ */
 private class GroundBackdrop(c: ThemeColors) : ThemeBackdrop {
     private val ground = c.ground
-    private val drawing = ThemeDrawing { { drawRect(ground) } }
+    private val stage = c.stage
+    private val plain = ThemeDrawing { { drawRect(ground) } }
+
+    /** The last shell and its framed drawing, swapped as one value. */
+    @Volatile private var last: Pair<ShellGeometry, ThemeDrawing>? = null
+
     override val moves: Boolean get() = false
-    override fun ground(scene: BackdropScene): ThemeDrawing = drawing
+
+    override fun ground(scene: BackdropScene): ThemeDrawing {
+        if (ground == stage) return plain
+        val shell = scene.shell
+        last?.let { (s, d) -> if (s === shell) return d }
+        return framed(shell).also { last = shell to it }
+    }
+
+    private fun framed(shell: ShellGeometry) = ThemeDrawing {
+        {
+            drawRect(stage)
+            val top = shell.insetTop.value.coerceIn(0f, size.height)
+            if (top > 0f) drawRect(ground, size = Size(size.width, top))
+            val nav = shell.navInset.value.coerceIn(0f, size.height - top)
+            if (nav > 0f) drawRect(ground, topLeft = Offset(0f, size.height - nav), size = Size(size.width, nav))
+        }
+    }
 }

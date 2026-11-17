@@ -107,10 +107,11 @@ private fun grey(lum: Float): Color {
 }
 
 /**
- * web §2.3: the least veil alpha (≥ [designed], ≤ .96) at which [ink] reaches [target]:1 on [veil] laid over the picture's darkest
- * common pixel (a grey of [tone].p05 at [pictureAlpha] over [ground]; a null tone is black), then under [shade] (a colour carrying
- * its own alpha: the vignette at its strongest where text sits). [veil]'s own alpha is ignored: this finds it. Pure; a 12-step
- * binary search, called in a veil's build(), never per frame. [target] 3.0 is the status band's (§2.4.5).
+ * web §2.3: the least veil alpha (≥ [designed]; ≤ .96 unless [designed] is above it) at which [ink] reaches [target]:1 on [veil]
+ * laid over the picture's darkest common pixel (a grey of [tone].p05 at [pictureAlpha] over [ground]; a null tone is black), then
+ * under [shade] (a colour carrying its own alpha: the vignette at its strongest where text sits). [veil]'s own alpha is ignored:
+ * this finds it. Pure; a 12-step binary search, called in a veil's build(), never per frame. [target] 3.0 is the status band's
+ * (§2.4.5).
  */
 internal fun veilFloor(
     ink: Color, veil: Color, ground: Color, pictureAlpha: Float, tone: PictureTone?, designed: Float, shade: Color? = null,
@@ -124,7 +125,8 @@ internal fun veilFloor(
     }
     if (ok(designed)) return designed
     var lo = designed
-    var hi = VeilCap
+    // A designed veil above the cap is the theme's own art: never return less than it.
+    var hi = max(designed, VeilCap)
     if (!ok(hi)) return hi
     repeat(12) {
         val m = (lo + hi) / 2f
