@@ -1,22 +1,44 @@
 package app.dshmobile.ui.theme.themes
 
+import androidx.compose.ui.draw.CacheDrawScope
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.layer.CompositingStrategy
+import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import app.dshmobile.ui.fog.FogDebug
 import app.dshmobile.ui.fog.PictureTone
 import app.dshmobile.ui.theme.ColorMode
 import app.dshmobile.ui.theme.Drop
+import app.dshmobile.ui.theme.EdgeDrawing
 import app.dshmobile.ui.theme.Fill
+import app.dshmobile.ui.theme.Mark
 import app.dshmobile.ui.theme.Rim
 import app.dshmobile.ui.theme.Sakura
 import app.dshmobile.ui.theme.Sides
 import app.dshmobile.ui.theme.ThemeColors
+import app.dshmobile.ui.theme.ThemeDrawing
 import app.dshmobile.ui.theme.ThemeLevel
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.sin
 
 // The shared theme kit (D23): shorthands for the frame tables and the colour maths every theme and its tests use.
 
@@ -203,4 +225,103 @@ private fun onLerp(a: List<Double>, b: List<Double>, x: List<Double>, tol: Doubl
         hi = min(hi, max(t1, t2))
     }
     return lo <= hi + 1e-9
+}
+
+// ───── static art: recorded or baked once (E5, E9) ─────
+
+/**
+ * Records [block] once into a GraphicsLayer of [size] (art ≤ 1.3 × screen) from obtainGraphicsLayer(), which is released with its
+ * cache (E9); [offscreen] composites it offscreen, so its rasterised pixels are reused while nothing in it changes (a turning
+ * sunburst larger than the screen passes false). Counts FogDebug "theme.record".
+ */
+internal fun CacheDrawScope.recordArt(size: IntSize, offscreen: Boolean = true, block: DrawScope.() -> Unit): GraphicsLayer {
+    FogDebug.count("theme.record")
+    return obtainGraphicsLayer().apply {
+        if (offscreen) compositingStrategy = CompositingStrategy.Offscreen
+        record(size = size) { block() }
+    }
+}
+
+/**
+ * Renders [block] once into a [w] × [h] ImageBitmap (many tiny shapes, one texture); counts FogDebug "theme.bake". The caller owns
+ * it (E9: inside drawWithCache, or remember + DisposableEffect { recycle }); never stored in a theme object.
+ */
+internal fun bakeArt(w: Int, h: Int, density: Density, block: DrawScope.() -> Unit): ImageBitmap {
+    FogDebug.count("theme.bake")
+    val bitmap = ImageBitmap(w.coerceAtLeast(1), h.coerceAtLeast(1))
+    CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(bitmap), Size(bitmap.width.toFloat(), bitmap.height.toFloat()), block)
+    return bitmap
+}
+
+// ───── shared marks and lines (drawn §2.7-2.8) ─────
+
+/** A [w] × [h] block on for [onMs] of every [periodMs] (the streaming caret). Still (t = 0): on. */
+internal fun blinkBlock(w: Dp, h: Dp, color: Color, onMs: Int, periodMs: Int): Mark = Mark(
+    DpSize(w, h),
+    ThemeDrawing {
+        { t ->
+            val on = periodMs <= 0 || ((t * 1000f) % periodMs + periodMs) % periodMs < onMs
+            if (on) drawRect(color)
+        }
+    },
+    moves = true,
+    stillAt = 0f,
+)
+
+/** The time [blinkDots] is told when it stands still: every dot at α .62. */
+private const val DotsStill = -1f
+
+/**
+ * [n] dots of radius [r], [gap] apart, each pulsing α .3 ↔ 1 over [periodMs], one [staggerMs] after the other ([steps]: on or off
+ * instead of a smooth pulse). Still: every dot at α .62.
+ */
+internal fun blinkDots(n: Int = 3, r: Dp, gap: Dp, color: Color, periodMs: Int, staggerMs: Int, steps: Boolean = false): Mark = Mark(
+    DpSize(r * 2 * n + gap * (n - 1).coerceAtLeast(0), r * 2),
+    ThemeDrawing { scope ->
+        val rr = with(scope) { r.toPx() }
+        val g = with(scope) { gap.toPx() }
+        val pitch = 2f * rr + g
+        val cy = scope.size.height / 2f
+        val x0 = (scope.size.width - (pitch * n - g)) / 2f + rr
+        val draw: DrawScope.(Float) -> Unit = { t ->
+            for (i in 0 until n) {
+                val a = if (t < 0f || periodMs <= 0) {
+                    .62f
+                } else {
+                    val ms = t * 1000f - i * staggerMs
+                    val phase = ((ms % periodMs) + periodMs) % periodMs / periodMs
+                    if (steps) (if (phase < .5f) 1f else .3f) else .3f + .7f * sin(PI.toFloat() * phase).let { it * it }
+                }
+                drawCircle(color, rr, Offset(x0 + i * pitch, cy), alpha = a)
+            }
+        }
+        draw
+    },
+    moves = true,
+    stillAt = DotsStill,
+)
+
+/** A check mark [size] across, centred in the given rect, stroked [width] with round caps: two lines, nothing allocated per call. */
+internal fun checkGlyph(size: Dp, color: Color, width: Dp = 1.6.dp): DrawScope.(Rect) -> Unit = { box ->
+    val s = size.toPx()
+    val x = box.center.x - s / 2f
+    val y = box.center.y - s / 2f
+    val stroke = width.toPx()
+    val a = Offset(x + .18f * s, y + .52f * s)
+    val b = Offset(x + .42f * s, y + .76f * s)
+    val c = Offset(x + .84f * s, y + .26f * s)
+    drawLine(color, a, b, stroke, StrokeCap.Round)
+    drawLine(color, b, c, stroke, StrokeCap.Round)
+}
+
+/** A plain line from `from` to `to`, [width] wide, snapped to the pixel grid so it stays crisp (drawn §2.7). */
+internal fun Hairline(width: Dp, color: Color): EdgeDrawing = EdgeDrawing { scope, from, to ->
+    val px = max(1f, with(scope) { width.toPx() })
+    // An odd pixel count is centred on a pixel's middle, an even one on its edge.
+    val snap = { v: Float -> if (px.toInt() % 2 == 1) floor(v) + .5f else floor(v + .5f) }
+    val horizontal = abs(to.y - from.y) <= abs(to.x - from.x)
+    val a = if (horizontal) Offset(from.x, snap(from.y)) else Offset(snap(from.x), from.y)
+    val b = if (horizontal) Offset(to.x, snap(to.y)) else Offset(snap(to.x), to.y)
+    val draw: DrawScope.(Float) -> Unit = { drawLine(color, a, b, px) }
+    draw
 }

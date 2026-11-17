@@ -58,8 +58,11 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.SolidColor
 import app.dshmobile.ui.theme.Drop
+import app.dshmobile.ui.theme.LocalPictureBehind
 import app.dshmobile.ui.theme.Sakura
+import app.dshmobile.ui.theme.liftedForPicture
 import kotlin.math.ceil
 import kotlin.math.floor
 import java.util.concurrent.ConcurrentHashMap
@@ -243,61 +246,78 @@ fun Modifier.glass(shape: Shape): Modifier = glass(shape, settled = true)
  * false the blur is only approximately placed (the surface is also mostly transparent then); the flip to true redraws it at its
  * final position, which is what keeps it locked to the background afterwards.
  */
-fun Modifier.glass(shape: Shape, settled: Boolean): Modifier =
-    this then if (FogSemantics.exposeBlur) GlassSemanticsElement(shape, settled) else GlassElement(shape, settled)
+fun Modifier.glass(shape: Shape, settled: Boolean): Modifier = glass(shape, settled, GlassRecipe.Classic)
 
-private data class GlassElement(val shape: Shape, val settled: Boolean) : ModifierNodeElement<GlassNode>() {
-    override fun create() = GlassNode(shape, settled)
-    override fun update(node: GlassNode) = node.update(shape, settled)
+/** [glass] painted by [recipe] (a theme's glass frame); [GlassRecipe.Classic] is today's glass exactly. */
+fun Modifier.glass(shape: Shape, settled: Boolean, recipe: GlassRecipe): Modifier = glassFrame(shape, settled, recipe, pictureFloor = false)
+
+/**
+ * A theme's glass frame (Frame.glass): [glass] by [recipe]; with [pictureFloor] (a surface that carries text) its light fill stops
+ * reach α .74 while [LocalPictureBehind] says a dark picture is behind (D9), read in draw.
+ */
+internal fun Modifier.glassFrame(shape: Shape, settled: Boolean, recipe: GlassRecipe, pictureFloor: Boolean): Modifier =
+    this then if (FogSemantics.exposeBlur) {
+        GlassSemanticsElement(shape, settled, recipe, pictureFloor)
+    } else {
+        GlassElement(shape, settled, recipe, pictureFloor)
+    }
+
+private data class GlassElement(val shape: Shape, val settled: Boolean, val recipe: GlassRecipe, val pictureFloor: Boolean) :
+    ModifierNodeElement<GlassNode>() {
+    override fun create() = GlassNode(shape, settled, recipe, pictureFloor)
+    override fun update(node: GlassNode) = node.update(shape, settled, recipe, pictureFloor)
     override fun InspectorInfo.inspectableProperties() {
         name = "glass"
         properties["shape"] = shape
         properties["settled"] = settled
+        properties["recipe"] = recipe
     }
 }
 
 /** [GlassElement] that also tells tests whether it blurs ([FogSemantics.Blur]); only while [FogSemantics.exposeBlur]. */
-private data class GlassSemanticsElement(val shape: Shape, val settled: Boolean) : ModifierNodeElement<GlassSemanticsNode>() {
-    override fun create() = GlassSemanticsNode(shape, settled)
-    override fun update(node: GlassSemanticsNode) = node.update(shape, settled)
+private data class GlassSemanticsElement(val shape: Shape, val settled: Boolean, val recipe: GlassRecipe, val pictureFloor: Boolean) :
+    ModifierNodeElement<GlassSemanticsNode>() {
+    override fun create() = GlassSemanticsNode(shape, settled, recipe, pictureFloor)
+    override fun update(node: GlassSemanticsNode) = node.update(shape, settled, recipe, pictureFloor)
     override fun InspectorInfo.inspectableProperties() {
         name = "glass"
         properties["shape"] = shape
         properties["settled"] = settled
+        properties["recipe"] = recipe
     }
 }
 
-/** Everything a glass surface draws that depends only on its size, density and whether it is lifted (no blur): rebuilt only when one changes. */
+/**
+ * Everything a glass surface draws that depends only on its size, density, recipe, whether it is lifted (no blur) and whether a
+ * dark picture floors it: rebuilt only when one changes. With [GlassRecipe.Classic] every value is today's literal.
+ */
 private class GlassCache(
     val size: Size,
     val density: Float,
     val direction: LayoutDirection,
     val lifted: Boolean,
+    val floored: Boolean,
     val shape: Shape,
+    val recipe: GlassRecipe,
     density2: Density,
 ) {
     val outline: Outline = shape.createOutline(size, direction, density2)
     val path: Path = outline.toPath()
-    val lift = if (lifted) .16f else 0f
-    val fill: Brush = cssLinear(
-        140f, size,
-        0f to Color.White.copy(alpha = .62f + lift),
-        .6f to Color.White.copy(alpha = .16f + lift),
-        1f to Color.White.copy(alpha = .28f + lift),
-    )
-    // White to pink and back to a lighter pink: an aqua end (even after a white stop) blended with the pink behind the thin
-    // rim's soft edge into a grey (#D3D5D8).
-    val rim: Brush = cssLinear(
-        140f, size,
-        0f to Color.White.copy(alpha = .95f),
-        .5f to Sakura.Primary.copy(alpha = .75f),
-        1f to Sakura.Primary.copy(alpha = .50f),
-    )
-    val rimStroke = Stroke(1.2f * density)
+    val lift = if (lifted) recipe.lift else 0f
+    val fill: Brush = recipe.fill.map { (p, c) ->
+        val raised = c.copy(alpha = (c.alpha + lift).coerceAtMost(1f))
+        p to if (floored) liftedForPicture(raised) else raised
+    }.let { stops -> if (stops.size == 1) SolidColor(stops[0].second) else cssLinear(recipe.angle, size, *stops.toTypedArray()) }
+    // Classic: white to pink and back to a lighter pink: an aqua end (even after a white stop) blended with the pink behind the
+    // thin rim's soft edge into a grey (#D3D5D8).
+    val rim: Brush? = recipe.rim?.let { stops ->
+        if (stops.size == 1) SolidColor(stops[0].second) else cssLinear(recipe.angle, size, *stops.toTypedArray())
+    }
+    val rimStroke = Stroke(recipe.rimWidth.value * density)
     // Lit corner: radial, centred on the top-left corner, 120% x 70% of the box (a circle drawn through a vertical squash).
     val highlightRx = size.width * 1.2f
     val highlightRy = size.height * .7f
-    val highlight: Brush? = if (highlightRx > 0f && highlightRy > 0f) {
+    val highlight: Brush? = if (recipe.lit && highlightRx > 0f && highlightRy > 0f) {
         Brush.radialGradient(
             0f to Color.White.copy(alpha = .55f),
             .45f to Color.White.copy(alpha = 0f),
@@ -307,18 +327,27 @@ private class GlassCache(
     } else null
     val highlightSquash = if (highlightRx > 0f) highlightRy / highlightRx else 1f
     val highlightSize = Size(size.width, if (highlightRy > 0f) size.height * highlightRx / highlightRy else 0f)
-    val wideShadow = fogShadowPaint(Sakura.RoseBrown.copy(alpha = .16f), 30f * density)
-    val tightShadow = fogShadowPaint(Sakura.RoseBrown.copy(alpha = .08f), 6f * density)
-    val wideDy = 12f * density
-    val tightDy = 2f * density
+    /** The recipe's shadows in order (Classic: the wide one, then the tight one). */
+    val shadows: Array<GlassShadow> = recipe.shadows.map { d ->
+        val spread = d.spread.value * density
+        val grown = if (spread == 0f) path else {
+            shape.createOutline(Size(size.width + 2f * spread, size.height + 2f * spread), direction, density2).toPath()
+                .also { it.translate(Offset(-spread, -spread)) }
+        }
+        GlassShadow(fogShadowPaint(d.color, d.blur.value * density), grown, d.dx.value * density, d.dy.value * density)
+    }.toTypedArray()
 }
 
-private open class GlassNode(var shape: Shape, var settled: Boolean) :
+/** One soft shadow of a glass recipe: its paint, the (spread) path it casts and its offset. */
+private class GlassShadow(val paint: Paint, val path: Path, val dx: Float, val dy: Float)
+
+private open class GlassNode(var shape: Shape, var settled: Boolean, var recipe: GlassRecipe, var pictureFloor: Boolean) :
     Modifier.Node(), DrawModifierNode, CompositionLocalConsumerModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode {
     private var layer: GraphicsLayer? = null
     private var cache: GlassCache? = null
     private var effect: androidx.compose.ui.graphics.RenderEffect? = null
     private var effectRadius = -1f
+    private var effectSaturation = -1f
     private var recordedShift: Offset? = null
     private var recordedRect: IntRect? = null
     private var lastWindowPos: Offset? = null
@@ -329,7 +358,13 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
     /** What the last draw did (null before the first): a change is re-reported. */
     private var drewBlur: Boolean? = null
 
-    fun update(shape: Shape, settled: Boolean) {
+    fun update(shape: Shape, settled: Boolean, recipe: GlassRecipe, pictureFloor: Boolean) {
+        if (this.recipe != recipe || this.pictureFloor != pictureFloor) {
+            this.recipe = recipe
+            this.pictureFloor = pictureFloor
+            cache = null
+            invalidateDraw()
+        }
         if (this.shape != shape || this.settled != settled) {
             this.shape = shape
             this.settled = settled
@@ -387,6 +422,7 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
         }
         effect = null
         effectRadius = -1f
+        effectSaturation = -1f
         recordedShift = null
         recordedRect = null
     }
@@ -425,11 +461,13 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
         }
     }
 
-    private fun cacheFor(scope: ContentDrawScope, lifted: Boolean): GlassCache {
+    private fun cacheFor(scope: ContentDrawScope, lifted: Boolean, floored: Boolean): GlassCache {
         val c = cache
-        if (c != null && c.size == scope.size && c.density == scope.density && c.direction == scope.layoutDirection && c.lifted == lifted && c.shape == shape) return c
+        if (c != null && c.size == scope.size && c.density == scope.density && c.direction == scope.layoutDirection && c.lifted == lifted &&
+            c.floored == floored && c.shape == shape && (c.recipe === recipe || c.recipe == recipe)
+        ) return c
         FogDebug.count("glass.cache")
-        return GlassCache(scope.size, scope.density, scope.layoutDirection, lifted, shape, scope).also { cache = it }
+        return GlassCache(scope.size, scope.density, scope.layoutDirection, lifted, floored, shape, recipe, scope).also { cache = it }
     }
 
     override fun ContentDrawScope.draw() {
@@ -457,10 +495,11 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
             drewBlur = blur
             blurChanged() // turned away or let in at the cap, or the dock moved over it
         }
-        val c = cacheFor(this, lifted = !blur)
+        // A theme's text-bearing glass reads the picture local here, in draw (D9); today's glass never does.
+        val floored = pictureFloor && currentValueOf(LocalPictureBehind)
+        val c = cacheFor(this, lifted = !blur, floored = floored)
 
-        drawShadow(c.path, c.wideShadow, c.wideDy)
-        drawShadow(c.path, c.tightShadow, c.tightDy)
+        for (s in c.shadows) drawShadow(c.path, s) // an array: no iterator per frame
 
         clipPath(c.path) {
             if (blur && backdrop != null && visible != null) drawBlurredBackdrop(backdrop, visible)
@@ -469,16 +508,16 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
                 withTransform({ scale(1f, c.highlightSquash, pivot = Offset.Zero) }) { drawRect(h, size = c.highlightSize) }
             }
         }
-        drawOutline(c.outline, c.rim, style = c.rimStroke)
+        c.rim?.let { drawOutline(c.outline, it, style = c.rimStroke) }
         drawContent()
     }
 
-    private fun ContentDrawScope.drawShadow(path: Path, paint: Paint, dy: Float) {
-        clipPath(path, clipOp = ClipOp.Difference) {
+    private fun ContentDrawScope.drawShadow(clip: Path, shadow: GlassShadow) {
+        clipPath(clip, clipOp = ClipOp.Difference) {
             drawIntoCanvas { canvas ->
                 canvas.save()
-                canvas.translate(0f, dy)
-                canvas.drawPath(path, paint)
+                canvas.translate(shadow.dx, shadow.dy)
+                canvas.drawPath(shadow.path, shadow.paint)
                 canvas.restore()
             }
         }
@@ -495,10 +534,11 @@ private open class GlassNode(var shape: Shape, var settled: Boolean) :
         val shift = origin - mine
         if (FogDebug.enabled) FogDebug.lastBackdropShift = shift
         val l = layer ?: requireGraphicsContext().createGraphicsLayer().also { layer = it }
-        val radius = GlassBlurRadius.toPx()
-        if (effectRadius != radius) {
-            effect = glassRenderEffect(radius)
+        val radius = recipe.blurRadius.toPx()
+        if (effectRadius != radius || effectSaturation != recipe.saturation) {
+            effect = glassRenderEffect(radius, recipe.saturation)
             effectRadius = radius
+            effectSaturation = recipe.saturation
             l.renderEffect = effect
         }
         val rect = snapOut(visible, size)
@@ -527,7 +567,8 @@ private fun snapOut(r: Rect, size: Size): IntRect {
 }
 
 /** [GlassNode] that reports [FogSemantics.Blur]: a semantics node per glass surface, so only while tests ask for it. */
-private class GlassSemanticsNode(shape: Shape, settled: Boolean) : GlassNode(shape, settled), SemanticsModifierNode {
+private class GlassSemanticsNode(shape: Shape, settled: Boolean, recipe: GlassRecipe, pictureFloor: Boolean) :
+    GlassNode(shape, settled, recipe, pictureFloor), SemanticsModifierNode {
     override fun blurChanged() = invalidateSemantics()
 
     override fun SemanticsPropertyReceiver.applySemantics() {
@@ -535,10 +576,10 @@ private class GlassSemanticsNode(shape: Shape, settled: Boolean) : GlassNode(sha
     }
 }
 
-/** Gaussian blur, then saturation. Clamped edges keep the rim from fading to transparent. */
-private fun glassRenderEffect(radiusPx: Float): androidx.compose.ui.graphics.RenderEffect? = runCatching {
+/** Gaussian blur, then saturation (the recipe's; Classic: [GlassBlurRadius], [GlassSaturation]). Clamped edges keep the rim from fading to transparent. */
+private fun glassRenderEffect(radiusPx: Float, saturation: Float): androidx.compose.ui.graphics.RenderEffect? = runCatching {
     FogDebug.count("glass.effect")
     val blur = RenderEffect.createBlurEffect(radiusPx, radiusPx, Shader.TileMode.CLAMP)
-    val sat = ColorMatrix().apply { setSaturation(GlassSaturation) }
+    val sat = ColorMatrix().apply { setSaturation(saturation) }
     RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(sat), blur).asComposeRenderEffect()
 }.getOrNull()

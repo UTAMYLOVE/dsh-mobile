@@ -2,10 +2,14 @@ package app.dshmobile.ui.theme
 
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.CacheDrawScope
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -23,6 +27,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import app.dshmobile.ui.fog.GlassRecipe
+import app.dshmobile.ui.fog.LocalEffects
+import app.dshmobile.ui.fog.LocalIdle
+import app.dshmobile.ui.fog.LocalPageActive
+import app.dshmobile.ui.fog.glassFrame
 import kotlin.math.max
 import kotlin.math.min
 
@@ -250,6 +258,107 @@ val LocalInk: ProvidableCompositionLocal<Color> = compositionLocalOf { Sakura.Te
  * the composables that read it (ink2Of, tab/segmented text).
  */
 val LocalPictureBehind: ProvidableCompositionLocal<Boolean> = compositionLocalOf { false }
+
+// ───── entry points (F4) ─────
+
+/**
+ * The surfaces that carry text: while a dark picture is behind them ([LocalPictureBehind]) FrameNode floors their light fills at
+ * α .74 (§2.4.1, D9). A long reply's pieces count as the reply they are.
+ */
+private val TextRoles: Set<Surf> = setOf(
+    Surf.PANEL, Surf.HEADER, Surf.SHEET, Surf.POPUP, Surf.PROMPT, Surf.REPLY, Surf.LIVE, Surf.SEGMENT_REPLY, Surf.CARD,
+    Surf.CARD_COOL, Surf.NOTICE, Surf.FIELD, Surf.CODE, Surf.TILE, Surf.DOCK, Surf.CHIP, Surf.CHIP_ACCENT, Surf.CHIP_COOL,
+    Surf.MODEL_CHIP, Surf.BAR_BUTTON, Surf.BAR_BUTTON_ACCENT, Surf.SEG_TRACK, Surf.SEG_ON, Surf.SEG_TRACK_OFF, Surf.SEG_ON_OFF,
+)
+
+/**
+ * CLASSIC: the call site's exact chain. Otherwise the theme's frame for [role] (then clipped to it when [clip]). [classic] is
+ * @Composable (eng E1: Dock and ChatScreen chain the @Composable flowLight) and is invoked only when the theme is CLASSIC (its
+ * frames are null), as a leaf group: flowLight's InfiniteTransition then exists only under CLASSIC. [alpha] < 1 fades the frame
+ * (D13: fills, rims and ornaments; ink kept).
+ */
+@Composable
+fun Modifier.chrome(
+    role: Surf, busy: Boolean = false, settled: Boolean = true, alpha: Float = 1f, clip: Boolean = false,
+    classic: @Composable Modifier.() -> Modifier,
+): Modifier {
+    val frames = LocalTheme.current.frames ?: return classic()
+    val base = frames.of(role)
+    val f = if (alpha < 1f) remember(base, alpha) { base.faded(alpha) } else base
+    val framed = frameFor(f, busy, settled, lift = role in TextRoles)
+    return if (clip) framed.clip(f.shape) else framed
+}
+
+/**
+ * A long message's piece (MessageViews.kt's BubbleSegment). CLASSIC runs [classic] (the call site's segmentBackground(user, pos,
+ * shade), capturing the chat SegPos and chat Shade). Otherwise the SEGMENT_USER or SEGMENT_REPLY frame drawn as if the bubble
+ * went on past the cut edges, clipped to the piece (slots §3.4): FIRST = first && !last, MIDDLE = neither, LAST = last && !first
+ * (first && last is a whole bubble).
+ */
+@Composable
+fun Modifier.segmentChrome(user: Boolean, first: Boolean, last: Boolean, classic: Modifier.() -> Modifier): Modifier {
+    val frames = LocalTheme.current.frames ?: return classic()
+    val role = if (user) Surf.SEGMENT_USER else Surf.SEGMENT_REPLY
+    val piece = when {
+        first && last -> Piece.WHOLE
+        first -> Piece.FIRST
+        last -> Piece.LAST
+        else -> Piece.MIDDLE
+    }
+    return this then FrameElement(frames.of(role), lift = role in TextRoles, piece = piece)
+}
+
+/** The theme's shape for [role]; [classic] under CLASSIC. */
+@Composable
+fun shapeOf(role: Surf, classic: Shape): Shape = LocalTheme.current.frames?.of(role)?.shape ?: classic
+
+/** The theme's text and icon ink on [role]; [classic] under CLASSIC. */
+@Composable
+fun inkOf(role: Surf, classic: Color): Color = LocalTheme.current.frames?.of(role)?.ink ?: classic
+
+/** = the frame's ink2, or its ink while LocalPictureBehind (D9); [classic] under CLASSIC (which never reads the picture local). */
+@Composable
+fun ink2Of(role: Surf, classic: Color): Color {
+    val f = LocalTheme.current.frames?.of(role) ?: return classic
+    return if (LocalPictureBehind.current) f.ink else f.ink2
+}
+
+/**
+ * [f] painted on this box (FrameNode): shades, fills, rims, ornaments, then the content. A glass frame (BAR, HEADER, DOCK, FLOAT)
+ * has GlassNode draw its fill, rim and shadows (and blur when it may), FrameNode only its rims and ornaments; a runner moves
+ * along the outline over the content. The frame is treated as a text surface (D9's picture floor).
+ */
+@Composable
+fun Modifier.frame(f: Frame, busy: Boolean = false, settled: Boolean = true): Modifier = frameFor(f, busy, settled, lift = true)
+
+@Composable
+private fun Modifier.frameFor(f: Frame, busy: Boolean, settled: Boolean, lift: Boolean): Modifier {
+    val glass = f.glass
+    val painted = if (glass != null) {
+        val rest = remember(f) { f.copy(fills = emptyList(), shades = emptyList(), glass = null, runner = null) }
+        glassFrame(f.shape, settled, glass, pictureFloor = lift).then(FrameElement(rest, lift = false))
+    } else {
+        this then FrameElement(f, lift)
+    }
+    val runner = f.runner ?: return painted
+    return painted.runner(runner, f.shape, busy)
+}
+
+/**
+ * A frame's runner (D14): drawn only while [busy] when its slowMs is 0, at fastMs while busy and slowMs otherwise. It moves only
+ * with ambient effects on the page that is showing (holding the ThemeClock then), and shows its stillPhase when motion is off or
+ * the screen is idle (read in draw).
+ */
+@Composable
+private fun Modifier.runner(r: Runner, shape: Shape, busy: Boolean): Modifier {
+    val shown = r.slowMs > 0 || busy
+    val moving = shown && LocalEffects.current.ambient && LocalPageActive.current
+    val clock = LocalThemeClock.current
+    clock.Hold(moving)
+    if (!shown) return this
+    val idle = LocalIdle.current
+    return this then RunnerElement(r.drawing, shape, if (moving) clock.time else null, idle, if (busy) r.fastMs else r.slowMs, r.stillPhase)
+}
 
 // ───── shapes ─────
 
