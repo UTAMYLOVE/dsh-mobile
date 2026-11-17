@@ -35,6 +35,7 @@ import app.dshmobile.remote.MuxState
 import app.dshmobile.remote.PendingPrompt
 import app.dshmobile.runtime.CommandResult
 import app.dshmobile.runtime.DshClient
+import app.dshmobile.runtime.DshLayout
 import app.dshmobile.runtime.DshVersions
 import app.dshmobile.runtime.GuestCommand
 import app.dshmobile.runtime.HealthCheck
@@ -82,8 +83,9 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
- * The whole stack on a real Android (x86_64 emulator in CI): shell app -> proot -> Debian rootfs with Node 24 -> the official
- * dsh -> our memory/notify/ui plugins -> the app's gateway, native FOGCITY shell, heartbeat and updater. The model is
+ * The whole stack on a real Android (x86_64 emulator in CI): shell app -> Android's own node (the native runtime, as on every
+ * phone since 0.7.0; [E2e.prepareApp]) -> the official dsh -> our memory/notify/ui/guard plugins -> the app's gateway, native
+ * FOGCITY shell, heartbeat and updater. The model is
  * [FakeModel] in this process (the gateway is pointed at it by [E2eRunner]); the key is the fake `sk-e2e-fake`.
  *
  * The tests run in name order (two-digit numbers, Ruling 23) and share only the running dsh (held as "e2e"): every chat test
@@ -100,8 +102,12 @@ class E2eTest {
 
     private val app get() = E2e.app
     private val rootfs get() = File(app.filesDir, "rootfs")
-    /** The workspace lives outside the rootfs (AppPaths) and is bound into the guest at /root/workspace. */
+    /** The workspace lives outside the rootfs (AppPaths); native dsh sees it under its host path ([DshLayout.active]). */
     private val memoryDir get() = File(app.appPaths.workspace, "memory")
+
+    /** The app's workspace under every name dsh may record for it: dsh resolves links (/data/user/0 is a link to /data/data). */
+    private fun workspaceNames(): Set<String> = File(DshLayout.active.workspace).let { setOf(it.absolutePath, it.canonicalPath) }
+
     private val http = OkHttpClient.Builder().followRedirects(false).readTimeout(120, TimeUnit.SECONDS).build()
 
     @Before fun setUp() {
@@ -138,6 +144,7 @@ class E2eTest {
     /** §9.1 (stage 1): the main screen is the native shell, Ready on the real dsh, with no WebView anywhere in it. */
     @Test fun t01_theNativeShellIsReadyWithoutAWebView() {
         launchShell().use {
+            assertTrue("dsh does not run natively: ${DshLayout.active}", DshLayout.active.native)
             assertEquals(emptyList<String>(), E2e.onMain { E2e.webViewsIn(E2e.shellActivity()) })
             ShellTab.entries.forEach { ui.awaitTag(Tags.TAB + it.name) }
             ui.awaitTag(Tags.SHELL_BACKGROUND)
@@ -165,7 +172,8 @@ class E2eTest {
         // Only what this conversation adds counts: an earlier run (or test) may already have left the mark in today's note.
         val sizesBefore = notesOfToday().associateWith { if (it.isFile) it.length() else 0L }
 
-        val created = rpc(client, "session/create", JSONObject().put("request", JSONObject().put("cwd", "/root/workspace")))
+        assertTrue("dsh does not run natively: ${DshLayout.active}", DshLayout.active.native)
+        val created = rpc(client, "session/create", JSONObject().put("request", JSONObject().put("cwd", DshLayout.active.workspace)))
         val sessionId = created.getString("sessionId")
         val content = JSONArray().put(JSONObject().put("type", "text").put("text", "Please ${FakeModel.MEMORY_PROMPT}."))
         rpc(
@@ -253,26 +261,31 @@ class E2eTest {
      */
     @Test fun t06_dshListsTheAppWorkspaceOnceAfterEveryStart() {
         val running = runBlocking { app.controller.ensureRunning() }
+        val workspace = DshLayout.active.workspace
+        // dsh stores a workspace under its real name (fs.realpath), which on the phone can differ from the app's spelling.
+        val names = workspaceNames()
         val store = File(app.appPaths.dshHome, "storages/workspace.json")
-        waitFor(30_000, "/root/workspace in dsh's workspace list") { workspacePaths(store).contains("/root/workspace") }
-        assertEquals(listOf("/root/workspace"), workspacePaths(store).filter { it == "/root/workspace" })
+        waitFor(30_000, "the app's workspace ($names) in dsh's workspace list") { workspacePaths(store).any { it in names } }
+        assertEquals("dsh lists the app's workspace more than once: ${workspacePaths(store)}", 1, workspacePaths(store).count { it in names })
         // dsh itself says it already has it: workspace/create is idempotent by path.
         val client = DshClient(http, running.launch)
         runBlocking { client.login() }
-        val again = rpc(client, "workspace/create", JSONObject().put("request", JSONObject().put("path", "/root/workspace")))
+        val again = rpc(client, "workspace/create", JSONObject().put("request", JSONObject().put("path", workspace)))
         assertFalse("dsh created the workspace a second time", again.getBoolean("created"))
-        assertEquals(1, workspacePaths(store).count { it == "/root/workspace" })
+        assertEquals(1, workspacePaths(store).count { it in names })
     }
 
-    /** Follow-up 1: the host half of dsh's folder picker lists /root with the app's workspace in it. */
+    /** Follow-up 1: the host half of dsh's folder picker lists the folder that holds the app's workspace, with the workspace in it. */
     @Test fun t07_dshsFolderPickerHostListsTheWorkspace() {
         val running = runBlocking { app.controller.ensureRunning() }
         val client = DshClient(http, running.launch)
         runBlocking { client.login() }
-        val listing = rpc(client, "directoryPicker/list", JSONObject().put("path", "/root"))
+        val workspace = File(DshLayout.active.workspace)
+        val parent = workspace.parent!!
+        val listing = rpc(client, "directoryPicker/list", JSONObject().put("path", parent))
         val entries = listing.getJSONArray("entries")
         val names = (0 until entries.length()).map { entries.getJSONObject(it).optString("name") }
-        assertTrue("/root lists $names", "workspace" in names)
+        assertTrue("$parent lists $names", workspace.name in names)
     }
 
     // ---------- the native chat ----------

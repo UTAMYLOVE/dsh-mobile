@@ -40,6 +40,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
 import app.dshmobile.gateway.Provider
+import app.dshmobile.runtime.DshLayout
 import app.dshmobile.system.OnboardingState
 import app.dshmobile.ui.MainActivity
 import app.dshmobile.ui.MainUiState
@@ -71,10 +72,15 @@ object E2e {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
 
     /**
-     * Rulings 2-4: onboarding skipped, the fake key in the real Keystore vault, the bundled rootfs installed from the APK asset.
+     * Rulings 2-4: onboarding skipped, the fake key in the real Keystore vault, the bundled rootfs installed from the APK asset
+     * (native dsh still runs the dsh files inside it).
      * [effects] is a test-setup choice (Task 15): the end-to-end suite runs at SAVER, the true safe mode (no backdrop blur, no
      * 3D or offscreen grid, nothing ambient animating) on the emulator's software renderer; t21 and the perf gate ask for FULL
      * themselves. The production default stays FULL.
+     *
+     * Every suite runs dsh natively (Android's own node, the default since 0.7.0). The switch is set here rather than left at
+     * its default because a suite that covers 相容模式 (proot) may have left it off, and a dsh still running under proot is
+     * stopped so the next start is native.
      */
     fun prepareApp(effects: EffectLevel = EffectLevel.SAVER) {
         val app = app
@@ -91,8 +97,9 @@ object E2e {
         usePlainBackground()
         // 0.6.0: the dock is the chat and the war room; these tests also cover what 「顯示更多功能」 brings back.
         app.setMoreFeatures(true)
-        // Native is the default since 0.7.0; these suites keep covering proot (相容模式), NativeModeE2eTest covers native.
-        app.runtimeMode.set(false)
+        check(app.nativeRunner.available) { "this APK has no native runtime: the end-to-end suites run dsh natively (build with -Pdshm.nativeDir)" }
+        app.runtimeMode.set(true)
+        if (app.controller.isRunning.value && !DshLayout.active.native) app.controller.stop()
     }
 
     /**

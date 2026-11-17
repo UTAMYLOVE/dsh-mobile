@@ -56,7 +56,6 @@ class ToolBatteryE2eTest {
         }
         app.agentSettingsStore.save(app.agentSettingsStore.load(PhantomState.ENABLED, false).copy(autoReview = false))
         app.runtimeMode.setPermission(PermissionLevel.SMART)
-        app.runtimeMode.set(false)
         app.controller.stop()
         app.controller.release(HOLDER)
     }
@@ -278,23 +277,30 @@ class ToolBatteryE2eTest {
      * 相容模式 (proot): a file the write tool creates must be an ordinary file. dsh publishes a new file with link(temp, final) and
      * then removes the temp folder; proot turns hard links into symlinks, which left the new file pointing into the folder that
      * was just removed (DSH on the owner's phone: the write tool breaks on new files, it used a shell heredoc instead).
+     * Every other suite runs natively ([E2e.prepareApp]): this case switches to proot itself and back, and goes when proot does.
      */
     @Test fun aNewFileFromTheWriteToolIsAnOrdinaryFileUnderProot() {
         app.runtimeMode.set(false)
-        val running = runBlocking { app.controller.ensureRunning() }
-        assertTrue("the layout is native: ${DshLayout.active}", !DshLayout.active.native)
-        val client = DshClient(http, running.launch).also { runBlocking { it.login() } }
-        val dir = File(app.appPaths.workspace, DIR).apply { deleteRecursively(); mkdirs() }
-        val file = File(dir, "proot-new.txt")
-        tool(client, "proot-write", "write", JSONObject().put("file_path", "$DIR/proot-new.txt").put("content", "hello proot\n")) {
-            Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS) && file.readText() == "hello proot\n"
+        try {
+            val running = runBlocking { app.controller.ensureRunning() }
+            assertTrue("the layout is native: ${DshLayout.active}", !DshLayout.active.native)
+            val client = DshClient(http, running.launch).also { runBlocking { it.login() } }
+            val dir = File(app.appPaths.workspace, DIR).apply { deleteRecursively(); mkdirs() }
+            val file = File(dir, "proot-new.txt")
+            tool(client, "proot-write", "write", JSONObject().put("file_path", "$DIR/proot-new.txt").put("content", "hello proot\n")) {
+                Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS) && file.readText() == "hello proot\n"
+            }
+            tool(client, "proot-read", "read", JSONObject().put("file_path", "$DIR/proot-new.txt")) { it.contains("hello proot") }
+            if (failures.isNotEmpty()) {
+                val listing = dir.listFiles().orEmpty().joinToString { f -> f.name + if (Files.isSymbolicLink(f.toPath())) " -> " + Files.readSymbolicLink(f.toPath()) else "" }
+                outcomes += "folder: $listing"
+            }
+            report("proot")
+        } finally {
+            // No dsh is left running under proot, and the next start is native again.
+            app.controller.stop()
+            app.runtimeMode.set(true)
         }
-        tool(client, "proot-read", "read", JSONObject().put("file_path", "$DIR/proot-new.txt")) { it.contains("hello proot") }
-        if (failures.isNotEmpty()) {
-            val listing = dir.listFiles().orEmpty().joinToString { f -> f.name + if (Files.isSymbolicLink(f.toPath())) " -> " + Files.readSymbolicLink(f.toPath()) else "" }
-            outcomes += "folder: $listing"
-        }
-        report("proot")
     }
 
     private fun bash(client: DshClient, id: String, command: String, ok: (String) -> Boolean) =
