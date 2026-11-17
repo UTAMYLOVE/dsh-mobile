@@ -20,14 +20,16 @@ registerHooks({
 })
 
 // 3. Android's SELinux refuses hard links; dsh publishes each new session log with link(tmp, final) so it never replaces one.
-//    When link fails, the same no-replace publish is an exclusive copy (fails if final exists) plus an fsync.
+//    When link fails, the same no-replace publish is an exclusive copy (fails if final exists) plus an fsync. The copy has the
+//    source's mode, and dsh links read-only (0400) objects too (an attachment's file name), so it is synced through a
+//    read-only handle: opening it for writing was refused, and every first upload of a file failed (CI, E2eTest t16).
 const linkFailed = (e) => e && ['EACCES', 'EPERM', 'UNKNOWN', 'ENOSYS', 'EXDEV'].includes(e.code)
 const realLink = fs.promises.link
 fs.promises.link = async function link(existing, target) {
   try { return await realLink(existing, target) } catch (e) {
     if (!linkFailed(e)) throw e
     await fs.promises.copyFile(existing, target, fs.constants.COPYFILE_EXCL)
-    const h = await fs.promises.open(target, 'r+')
+    const h = await fs.promises.open(target, 'r')
     try { await h.sync() } finally { await h.close() }
   }
 }
@@ -36,7 +38,7 @@ fs.linkSync = function linkSync(existing, target) {
   try { return realLinkSync(existing, target) } catch (e) {
     if (!linkFailed(e)) throw e
     fs.copyFileSync(existing, target, fs.constants.COPYFILE_EXCL)
-    const fd = fs.openSync(target, 'r+'); try { fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+    const fd = fs.openSync(target, 'r'); try { fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
   }
 }
 

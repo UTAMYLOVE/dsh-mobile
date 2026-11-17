@@ -129,6 +129,35 @@ class NativeRuntimeTest {
         deleteRecursively()
     }
 
+    /**
+     * The shim's stand-in for link(2), which this SELinux domain refuses (assets/dshn/shim.mjs, point 3), on a read-only file
+     * as dsh's attachment store links it: a file's name for its 0400 object. The copy used to be opened for writing to be
+     * synced, which an app uid may not do, and every first upload of a file failed natively (CI, E2eTest t16).
+     */
+    @Test fun theShimPublishesAReadOnlyFileUnderASecondName() {
+        val dshn = File(home, "dshn").apply { mkdirs() }
+        for (name in app.assets.list("dshn").orEmpty()) app.assets.open("dshn/$name").use { input -> File(dshn, name).outputStream().use { input.copyTo(it) } }
+        val case = File(home, "case.mjs").apply {
+            writeText(
+                """
+                import fs from 'node:fs'
+                import { chmod, link, stat, writeFile } from 'node:fs/promises'
+                const dir = process.argv[2]
+                await writeFile(dir + '/object', '小雨的筆記\n', { mode: 0o600 })
+                await chmod(dir + '/object', 0o400)
+                await link(dir + '/object', dir + '/name')
+                fs.linkSync(dir + '/object', dir + '/name-sync')
+                const same = (p) => fs.readFileSync(p, 'utf8') === '小雨的筆記\n'
+                console.log('linked', same(dir + '/name'), same(dir + '/name-sync'), ((await stat(dir + '/name')).mode & 0o777).toString(8))
+                """.trimIndent(),
+            )
+        }
+        val out = File(home, "published").apply { mkdirs() }
+        val (code, text) = run(lib("node"), "--import", File(dshn, "shim.mjs").toURI().toString(), case.path, out.path, env = mapOf("DSH_HOME" to home.path))
+        assertEquals(text, 0, code)
+        assertTrue(text, text.contains("linked true true 400"))
+    }
+
     @Test fun nodeSpeaksTlsWithTheBundledCertificates() {
         val cert = File(home, "ca-bundle.crt").apply { app.assets.open("native/ca-bundle.crt").use { input -> outputStream().use { input.copyTo(it) } } }
         val (code, out) = run(
