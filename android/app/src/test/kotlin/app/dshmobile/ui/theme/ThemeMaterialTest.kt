@@ -3,11 +3,18 @@ package app.dshmobile.ui.theme
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
+import app.dshmobile.ui.fog.EffectLevel
+import app.dshmobile.ui.fog.FogFonts
+import app.dshmobile.ui.fog.FogTheme
+import app.dshmobile.ui.fog.effectsFor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -101,23 +108,86 @@ class ThemeMaterialTest {
         }
     }
 
-    @Test fun materialThemeHandsEverySkinToItsControls() {
-        val skins = ThemeId.entries.flatMap { id -> ColorMode.entries.map { m -> "$id $m" to skinOf(id, m) } }
-        val seen = mutableMapOf<String, Pair<ColorScheme, Shapes>>()
+    /**
+     * core C5's second bullet (ruling R-C5): inside FogTheme(effects, Themes.of(id, mode)) the M3 primary, onPrimary, outline and
+     * shapes are core §3.1's table, for every one of the 14 themes; the whole scheme is the theme's own skin.
+     */
+    @Test fun fogThemeHandsEveryThemesSkinToItsControls() {
+        val themes = Themes.all()
+        assertEquals(14, themes.size)
+        val seen = mutableMapOf<Theme, Pair<ColorScheme, Shapes>>()
         rule.setContent {
-            for ((label, skin) in skins) {
-                MaterialTheme(colorScheme = skin.scheme, shapes = skin.shapes) {
-                    seen[label] = MaterialTheme.colorScheme to MaterialTheme.shapes
+            for (theme in themes) {
+                FogTheme(effectsFor(EffectLevel.SAVER, false), theme) {
+                    seen[theme] = MaterialTheme.colorScheme to MaterialTheme.shapes
                 }
             }
         }
         rule.waitForIdle()
-        assertEquals(skins.size, seen.size)
-        for ((label, skin) in skins) {
-            val (scheme, shapes) = seen.getValue(label)
-            assertSameScheme(label, skin.scheme, scheme)
-            assertEquals(label, skin.shapes, shapes)
+        assertEquals(themes.size, seen.size)
+        for (theme in themes) {
+            val label = "${theme.id} ${theme.mode}"
+            val (scheme, shapes) = seen.getValue(theme)
+            val want = expected(theme.id, theme.mode)
+            assertEquals("$label primary", want.primary, scheme.primary)
+            assertEquals("$label onPrimary", want.onPrimary, scheme.onPrimary)
+            assertEquals("$label outline", want.outline, scheme.outline)
+            assertEquals("$label shapes", want.shapes, shapes)
+            assertSameScheme(label, theme.material.scheme, scheme)
         }
+    }
+
+    /** FogComponentsTest:155 still holds: FogTheme(effects) is CLASSIC, with Orbitron on display only; a theme brings its face. */
+    @Test fun fogThemeWithoutAThemeKeepsOrbitronOnDisplayAndTheSystemFontElsewhere() {
+        var display: FontFamily? = null
+        var headline: FontFamily? = null
+        var body: FontFamily? = null
+        var theme: Theme? = null
+        val other = ThemeType.Classic.copy(display = FogFonts.Quicksand)
+        val base = Themes.of(ThemeId.SIGIL, ColorMode.SIX)
+        val custom = Theme(base.id, base.mode, base.colors, other, base.frames, controls = base.controls, backdrop = base.backdrop, bars = base.bars, material = base.material)
+        var customDisplay: FontFamily? = null
+        rule.setContent {
+            FogTheme(effectsFor(EffectLevel.FULL, false)) {
+                display = MaterialTheme.typography.displaySmall.fontFamily
+                headline = MaterialTheme.typography.headlineMedium.fontFamily
+                body = MaterialTheme.typography.bodyLarge.fontFamily
+                theme = LocalTheme.current
+            }
+            FogTheme(effectsFor(EffectLevel.FULL, false), custom) { customDisplay = MaterialTheme.typography.displayLarge.fontFamily }
+        }
+        rule.waitForIdle()
+        assertEquals(FogFonts.Orbitron, display)
+        assertEquals(FogFonts.Orbitron, headline)
+        assertTrue("body keeps the system font: $body", body != FogFonts.Orbitron && body != FogFonts.ChakraPetch)
+        assertSame(Themes.Classic, theme)
+        assertEquals(FogFonts.Quicksand, customDisplay)
+    }
+
+    /**
+     * FogTheme provides the theme, its ink, and (eng E31) the content colour: a theme's own ink outside a Surface, while CLASSIC
+     * leaves the content colour exactly as it was.
+     */
+    @Test fun fogThemeProvidesTheThemeItsInkAndTheContentColour() {
+        val outside = Color(0xFF123456)
+        val got = mutableMapOf<Theme, Triple<Theme, Color, Color>>()
+        val themes = Themes.all()
+        rule.setContent {
+            CompositionLocalProvider(LocalContentColor provides outside) {
+                for (t in themes) FogTheme(effectsFor(EffectLevel.SAVER, false), t) {
+                    got[t] = Triple(LocalTheme.current, LocalInk.current, LocalContentColor.current)
+                }
+            }
+        }
+        rule.waitForIdle()
+        for (t in themes) {
+            val (theme, ink, content) = got.getValue(t)
+            val label = "${t.id} ${t.mode}"
+            assertSame(label, t, theme)
+            assertEquals("$label ink", t.colors.ink, ink)
+            assertEquals("$label content colour", if (t.classic) outside else t.colors.ink, content)
+        }
+        assertEquals(Sakura.Text, got.getValue(Themes.Classic).second)
     }
 
     // ---- helpers ----

@@ -42,6 +42,33 @@ import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.semantics
 import app.dshmobile.ui.theme.Sakura
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.dp
+import app.dshmobile.ui.theme.BackdropScene
+import app.dshmobile.ui.theme.LocalTheme
+import app.dshmobile.ui.theme.LocalThemeClock
+import app.dshmobile.ui.theme.PictureStage
+import app.dshmobile.ui.theme.ShellGeometry
+import app.dshmobile.ui.theme.SystemBars
+import app.dshmobile.ui.theme.Theme
+import app.dshmobile.ui.theme.ThemeBackdrop
+import app.dshmobile.ui.theme.ThemeColors
+import app.dshmobile.ui.theme.themeDrawing
+import app.dshmobile.ui.theme.themeLevel
+import app.dshmobile.ui.theme.themes.over
+import app.dshmobile.ui.theme.themes.veilFloor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -119,12 +146,40 @@ private fun alternate(t: Float, oneWay: Float): Float {
 }
 
 /**
- * The pink ground, three drifting glows and the two perspective grids, recorded into [backdrop]'s layer for the glass to blur.
- * The box has a layer of its own, and the glows and the grids one each, so a clock tick re-records only what moves, never the
- * shell above. With [FogSwitches.plainBackground] only the ground is drawn.
+ * What is behind the pages. A theme without a backdrop (CLASSIC) draws today's background ([ClassicBackground]); every other
+ * theme draws its own ([ThemedBackground]). [picture] is the user's picture as the shell shows it (FogShell passes its one
+ * hoisted picture, plan D9; the default loads it here); [geometry] says where the shell's parts are, for the theme's drawings.
+ * The picture, the floating things and the avatar square are kept here, above the branch, so a switch between 原本的樣子 and a
+ * theme never drops the picture for a frame or restarts the floats (eng E21).
  */
 @Composable
-fun FogBackground(backdrop: Backdrop, modifier: Modifier = Modifier) {
+fun FogBackground(
+    backdrop: Backdrop,
+    modifier: Modifier = Modifier,
+    picture: ImageBitmap? = rememberLookPicture(LocalLook.current),
+    geometry: ShellGeometry = NoShell,
+) {
+    val look = LocalLook.current
+    // Keyed on what Kawaii.particles reads, not the whole Look: choosing a theme (a Look field too) keeps the same floats.
+    val particles = remember(look.style, look.amount, look.petals, look.sparkles, look.hearts, look.clouds) {
+        FogDebug.count("background.particles")
+        Kawaii.particles(look)
+    }
+    val crop = rememberAvatarCrop(look)
+    val theme = LocalTheme.current
+    val themed = theme.backdrop
+    // A leaf (E3): only the background's own body depends on the theme.
+    if (themed == null) ClassicBackground(backdrop, modifier, look, picture, particles)
+    else ThemedBackground(themed, theme, backdrop, modifier, look, picture, particles, crop, geometry)
+}
+
+/**
+ * The pink ground, three drifting glows and the two perspective grids, recorded into [backdrop]'s layer for the glass to blur.
+ * The box has a layer of its own, and the glows and the grids one each, so a clock tick re-records only what moves, never the
+ * shell above. With [FogSwitches.plainBackground] only the ground is drawn. (Today's body, fed the hoisted picture and floats.)
+ */
+@Composable
+private fun ClassicBackground(backdrop: Backdrop, modifier: Modifier, look: Look, picture: ImageBitmap?, particles: List<KawaiiParticle>) {
     val effects = LocalEffects.current
     val plain = FogSwitches.plainBackground
     val animating = effects.ambient && LocalPageActive.current && !plain
@@ -141,12 +196,10 @@ fun FogBackground(backdrop: Backdrop, modifier: Modifier = Modifier) {
     ) {
         Box(Modifier.fillMaxSize().background(Sakura.Background))
         if (!plain) {
-            val look = LocalLook.current
             Box(Modifier.fillMaxSize().fogGlows(clock, kawaii = look.style == BackdropStyle.KAWAII))
             if (look.style == BackdropStyle.KAWAII) Box(Modifier.fillMaxSize().kawaiiDots())
             // 0.8.0 (the owner: 「不要科技感了，來一個舒服的感覺」): the perspective grids are gone; the soft glows stay.
             // 外觀主題 (2026-11-15): the user's own picture over the glows, then the 粉嫩二次元 floating things.
-            val picture = rememberLookPicture(look)
             picture?.let {
                 Image(
                     it, contentDescription = null, contentScale = ContentScale.Crop, alignment = BiasAlignment(0f, look.align.bias),
@@ -155,13 +208,247 @@ fun FogBackground(backdrop: Backdrop, modifier: Modifier = Modifier) {
                 // Blush scrims where the header and the dock sit, so their text and pills stay readable over busy art.
                 Box(Modifier.fillMaxSize().background(PictureScrim))
             }
-            val particles = remember(look) { Kawaii.particles(look) }
             if (particles.isNotEmpty()) {
                 Box(Modifier.fillMaxSize().kawaii(clock, particles, Kawaii.pace(look.speed), sides = picture != null).semantics { set(FogSemantics.Kawaii, particles.size) })
             }
         }
     }
 }
+
+/**
+ * A theme's backdrop (plan §2.4.5, slots §3.8). Static, in one layer (recorded into [backdrop]'s layer for the glass only when
+ * the theme blurs): the ground colour and [ThemeBackdrop.ground], the picture as [ThemeBackdrop.picture] places it, the veil (or
+ * today's blush scrim), the generic sky floor (D9: a stage wash just strong enough that sky text stays readable over this
+ * picture; nothing over a light one) and the status band floor (eng E30). Then, outside that layer, the backdrop's one motion
+ * layer and the 粉嫩二次元 floats, each reading the theme clock only while it holds it (E5): a still backdrop is never redrawn by
+ * a tick. [FogSwitches.plainBackground] draws only the ground colour. The drawings are built only when the scene changes (E11,
+ * E22: the scene holds the effect level, never the whole Effects).
+ */
+@Composable
+private fun ThemedBackground(
+    bd: ThemeBackdrop,
+    theme: Theme,
+    backdrop: Backdrop,
+    modifier: Modifier,
+    look: Look,
+    picture: ImageBitmap?,
+    particles: List<KawaiiParticle>,
+    crop: AvatarCrop?,
+    geometry: ShellGeometry,
+) {
+    val c = theme.colors
+    val effects = LocalEffects.current
+    val plain = FogSwitches.plainBackground
+    // Today's exact expression (e2e t21 reads it), whether or not this backdrop moves (eng E9).
+    val animating = effects.ambient && LocalPageActive.current && !plain
+    val clock = LocalThemeClock.current
+    // The backdrop's own hold, and the floats' (they move over a still theme too). SAVER, reduced motion and the jank cap turn
+    // effects.ambient off, so nothing holds the clock and everything shows its still.
+    val backdropMoves = bd.moves && effects.ambient && !plain
+    val floatsMove = particles.isNotEmpty() && effects.ambient && !plain
+    clock.Hold(backdropMoves, backdrop = true)
+    clock.Hold(floatsMove)
+    val stage = bd.picture
+    val opacity = look.opacity / 100f
+
+    // ---- the scene ----
+    var place by remember { mutableStateOf(Rect.Zero) }
+    val square = remember(picture, crop) {
+        picture?.let { avatarSquare(it.width, it.height, crop ?: AvatarGuess.heuristic(it.width, it.height)) }
+    }
+    val avatar by produceState<ImageBitmap?>(null, picture, square) {
+        value = if (picture == null || square == null) null else withContext(Dispatchers.Default) {
+            faceCrop(picture, AvatarPx, crop ?: AvatarGuess.heuristic(picture.width, picture.height))
+        }
+    }
+    val faceTone by produceState<PictureTone?>(null, picture, square) {
+        value = if (picture == null || square == null) null else LookPictures.faceTone(picture, square)
+    }
+    val pictureTone = remember(picture) { picture?.let(LookPictures::toneOf) }
+    val face = remember(picture, square, place, stage, look.align) {
+        if (picture == null || square == null || place.isEmpty) null else faceAt(picture, square, place, stage, look.align)
+    }
+    val level = effects.themeLevel
+    val measurer = rememberTextMeasurer()
+    val scene = remember(picture != null, look.style, face, avatar, opacity, look.align, level, geometry, look.intro, measurer, pictureTone, faceTone) {
+        BackdropScene(
+            hasPicture = picture != null, style = look.style, face = face, avatar = avatar, opacity = opacity, align = look.align,
+            level = level, shell = geometry, intro = look.intro, measurer = measurer, pictureTone = pictureTone, faceTone = faceTone,
+        )
+    }
+    val ground = remember(bd, scene) { bd.ground(scene) }
+    val veil = remember(bd, scene) { if (scene.hasPicture) bd.veil(scene) else null }
+    val motion = remember(bd, scene) { bd.motion(scene) }
+    val still = remember(bd) { StillTime(bd.stillAt) }
+
+    // ---- the floors ----
+    val full = picture != null && stage !is PictureStage.InMark
+    val pictureAlpha = pictureAlphaOf(stage, look.opacity)
+    val sky = remember(theme, full, pictureAlpha, pictureTone) {
+        if (full && !bd.floorsOwnSky) skyFloor(c, pictureAlpha, pictureTone) else 0f
+    }
+    val band = remember(theme, full, pictureAlpha, pictureTone, sky, veil == null) {
+        if (full) statusBand(c, theme.bars ?: SystemBars.of(c), pictureAlpha, pictureTone, scrim = veil == null, sky) else null
+    }
+
+    Box(
+        modifier
+            .semantics { set(FogSemantics.Animating, animating) }
+            .onGloballyPositioned {
+                backdrop.coordinates = it
+                val at = it.positionInWindow()
+                val r = Rect(at.x, at.y, at.x + it.size.width, at.y + it.size.height)
+                if (r != place) place = r
+            },
+    ) {
+        // The static layer: what the glass blurs when the theme blurs; its own layer either way, so a tick never redraws it.
+        Box(Modifier.fillMaxSize().then(if (theme.blurs) Modifier.recordInto(backdrop) else Modifier.graphicsLayer { })) {
+            Box(Modifier.fillMaxSize().background(c.ground).then(if (plain) Modifier else Modifier.themeDrawing(ground, null)))
+            if (!plain) {
+                if (picture != null) {
+                    when (stage) {
+                        is PictureStage.Cover -> Image(
+                            picture, contentDescription = null, contentScale = ContentScale.Crop,
+                            alignment = BiasAlignment(0f, look.align.bias), alpha = pictureAlpha, colorFilter = stage.filter,
+                            modifier = Modifier.fillMaxSize()
+                                .then(if (stage.scale != 1f) Modifier.scale(stage.scale) else Modifier)
+                                .semantics { set(FogSemantics.Picture, true) },
+                        )
+                        is PictureStage.Print -> Print(picture, stage, look.align, pictureAlpha)
+                        PictureStage.InMark -> Box(Modifier.fillMaxSize().semantics { set(FogSemantics.Picture, true) })
+                    }
+                    Box(Modifier.fillMaxSize().then(if (veil != null) Modifier.themeDrawing(veil, null) else Modifier.background(PictureScrim)))
+                }
+                if (sky > 0f || (band != null && band.second > 0f)) {
+                    Box(
+                        Modifier.fillMaxSize().drawBehind {
+                            if (sky > 0f) drawRect(c.stage.copy(alpha = sky))
+                            if (band != null && band.second > 0f) {
+                                // The status bar's band in this box (the shell's geometry is in window pixels).
+                                val bottom = geometry.insetTop.value - place.top
+                                if (bottom > 0f) drawRect(band.first.copy(alpha = band.second), size = Size(size.width, bottom + StatusBandExtra.toPx()))
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        if (!plain) {
+            // The one motion layer, in its own graphics layer, with the clock only while the backdrop holds it.
+            motion?.let { Box(Modifier.fillMaxSize().graphicsLayer { }.themeDrawing(it, if (backdropMoves) clock.time else still)) }
+            if (particles.isNotEmpty()) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .kawaii(if (floatsMove) clock.time else StillZero, particles, Kawaii.pace(look.speed), sides = picture != null)
+                        .semantics { set(FogSemantics.Kawaii, particles.size) },
+                )
+            }
+        }
+    }
+}
+
+/** The print of [PictureStage.Print]: the picture cover-cropped into the stage's box, faded by its mask in a layer of its own. */
+@Composable
+private fun Print(picture: ImageBitmap, stage: PictureStage.Print, align: PictureAlign, alpha: Float) {
+    Box(Modifier.fillMaxSize().semantics { set(FogSemantics.Picture, true) }) {
+        Box(
+            Modifier
+                .layout { measurable, constraints ->
+                    val r = printBox(stage.box, constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+                    val p = measurable.measure(Constraints.fixed(r.width.roundToInt().coerceAtLeast(0), r.height.roundToInt().coerceAtLeast(0)))
+                    layout(constraints.maxWidth, constraints.maxHeight) { p.place(r.left.roundToInt(), r.top.roundToInt()) }
+                }
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .themeDrawing(stage.mask, null, front = true),
+        ) {
+            Image(
+                picture, contentDescription = null, contentScale = ContentScale.Crop, alignment = BiasAlignment(0f, align.bias),
+                alpha = alpha, colorFilter = stage.filter, modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+/** [box] (dp of a 360 × 780 frame) in a [w] × [h] px window: x × w/360, y × h/780 (web §6.9). */
+internal fun printBox(box: Rect, w: Float, h: Float): Rect =
+    Rect(box.left / PrintFrameW * w, box.top / PrintFrameH * h, box.right / PrintFrameW * w, box.bottom / PrintFrameH * h)
+
+private const val PrintFrameW = 360f
+private const val PrintFrameH = 780f
+
+/** The picture's own alpha on [stage] at 圖片濃淡 [opacity]: Cover keeps today's opacity / 100; Print opacity / 80 (D17). */
+internal fun pictureAlphaOf(stage: PictureStage, opacity: Int): Float = when (stage) {
+    is PictureStage.Cover -> opacity / 100f * stage.alphaScale
+    is PictureStage.Print -> stage.alphaScale * opacity / 80f
+    PictureStage.InMark -> 0f
+}.coerceIn(0f, 1f)
+
+/**
+ * D9's generic sky floor: the least stage-wash alpha at which [c]'s sky ink stays at 4.6:1 over the picture's darkest common
+ * pixel ([tone]; unknown is black) at [pictureAlpha] over the ground. 0 for a light picture.
+ */
+internal fun skyFloor(c: ThemeColors, pictureAlpha: Float, tone: PictureTone?): Float =
+    veilFloor(c.skyInk, c.stage, c.ground, pictureAlpha, tone, designed = 0f)
+
+/**
+ * The status band's wash (eng E30): its colour (the ground under light icons, the stage under dark ones) and the least alpha at
+ * which the bar icons (white, or the system's #1F1F1F) reach 3:1 over what lies under the band with a picture shown. Under dark
+ * icons the worst pixel is the picture's darkest common one ([tone]), and the band's stage wash adds to the sky floor's [sky];
+ * under light icons the worst is a white pixel (the tone says nothing of the light end) with the blush [scrim] and the sky floor
+ * over it.
+ */
+internal fun statusBand(c: ThemeColors, bars: SystemBars, pictureAlpha: Float, tone: PictureTone?, scrim: Boolean, sky: Float): Pair<Color, Float> {
+    if (bars.darkStatus) {
+        var under = Color.White.copy(alpha = pictureAlpha).over(c.ground)
+        if (scrim) under = PictureScrimTop.over(under)
+        if (sky > 0f) under = c.stage.copy(alpha = sky).over(under)
+        return c.ground to veilFloor(Color.White, c.ground, under, 0f, null, designed = 0f, target = BandContrast)
+    }
+    val total = veilFloor(DarkIcons, c.stage, c.ground, pictureAlpha, tone, designed = 0f, target = BandContrast)
+    return c.stage to if (total <= sky) 0f else 1f - (1f - total) / (1f - sky)
+}
+
+/** The system's dark bar icons. */
+private val DarkIcons = Color(0xFF1F1F1F)
+/** What the bar icons need over the band (graphics, WCAG 1.4.11). */
+private const val BandContrast = 3f
+/** The band reaches this far below the status bar (§2.4.5). */
+private val StatusBandExtra = 8.dp
+/** The face square cut for a backdrop (a watermark disc is at most about a third of the screen's short side). */
+private const val AvatarPx = 384
+
+/**
+ * Where the avatar [square]'s centre lands in the window when [picture] is placed as [stage] places it in [place]: cover-cropped
+ * with the 圖片對齊 bias (today's full-screen picture, or the print's box), then scaled about the box's centre for a Cover.
+ */
+private fun faceAt(picture: ImageBitmap, square: AvatarSquare, place: Rect, stage: PictureStage, align: PictureAlign): Offset {
+    val dest = if (stage is PictureStage.Print) printBox(stage.box, place.width, place.height).translate(place.left, place.top) else place
+    val pw = picture.width.coerceAtLeast(1).toFloat()
+    val ph = picture.height.coerceAtLeast(1).toFloat()
+    val s = maxOf(dest.width / pw, dest.height / ph)
+    val left = dest.left + (dest.width - pw * s) / 2f
+    val top = dest.top + (dest.height - ph * s) * (1f + align.bias) / 2f
+    var at = Offset(left + (square.left + square.side / 2f) * s, top + (square.top + square.side / 2f) * s)
+    if (stage is PictureStage.Cover && stage.scale != 1f) at = dest.center + (at - dest.center) * stage.scale
+    return at
+}
+
+/** Records this box into [backdrop]'s layer for the glass to blur, then draws the layer (as ClassicBackground does). */
+private fun Modifier.recordInto(backdrop: Backdrop): Modifier = this
+    .graphicsLayer { }
+    .drawWithContent {
+        FogDebug.count("background.record")
+        backdrop.layer.record { this@drawWithContent.drawContent() }
+        drawLayer(backdrop.layer)
+    }
+
+/** A time that never changes (a drawing's still): reading it records no snapshot read, so nothing ever redraws it. */
+private class StillTime(override val value: Float) : State<Float>
+
+private val StillZero: State<Float> = StillTime(0f)
+
+/** A background outside the shell (a settings preview, a test): no bars, no stack. */
+private val NoShell: ShellGeometry = StillTime(0f).let { z -> ShellGeometry(z, z, z, z, z, z, z) }
 
 /** One drifting glow: a radial gradient built once at the glow's own centre, moved and scaled at draw time by the clock. */
 private class GlowSpec(
@@ -190,6 +477,9 @@ private val PictureScrim = Brush.verticalGradient(
     0f to Sakura.Background.copy(alpha = .55f), .14f to Sakura.Background.copy(alpha = 0f),
     .80f to Sakura.Background.copy(alpha = 0f), 1f to Sakura.Background.copy(alpha = .65f),
 )
+
+/** [PictureScrim] at its strongest under the status bar (its top stop). */
+private val PictureScrimTop = Sakura.Background.copy(alpha = .55f)
 
 /**
  * The three glows live in their own layer, so a clock tick redraws only this layer, not the chat list or dock above it. In the

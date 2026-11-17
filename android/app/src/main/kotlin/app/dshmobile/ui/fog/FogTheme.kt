@@ -1,6 +1,7 @@
 package app.dshmobile.ui.fog
 
 import android.animation.ValueAnimator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
@@ -19,7 +20,10 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.dshmobile.R
 import app.dshmobile.ui.theme.Sakura
-import app.dshmobile.ui.theme.SakuraTheme
+import app.dshmobile.ui.theme.LocalInk
+import app.dshmobile.ui.theme.LocalTheme
+import app.dshmobile.ui.theme.Theme
+import app.dshmobile.ui.theme.Themes
 
 /** Orbitron for English titles (variable weight), Chakra Petch for numbers and small English labels; Chinese uses the system font. */
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
@@ -102,15 +106,26 @@ internal fun fogTypography(base: Typography, display: FontFamily = FogFonts.Orbi
     headlineSmall = base.headlineSmall.copy(fontFamily = display),
 )
 
+/**
+ * The app's theme: [theme]'s Material colours, shapes and display face, the [effects] level, and the worn theme itself
+ * ([LocalTheme]). One structural path for every theme (plan D1): a branch here would dispose the whole app's state on each
+ * switch between 原本的樣子 and a theme, and replay the startup animation. Under CLASSIC this one call resolves to exactly what
+ * today's nested `SakuraTheme { MaterialTheme(…) }` gave (SakuraColors, SakuraShapes, Orbitron on display), and content colour
+ * is left as it was; under any other theme a Text() without a colour outside a Surface reads the theme's ink (eng E31).
+ */
 @Composable
-fun FogTheme(effects: Effects, content: @Composable () -> Unit) {
-    SakuraTheme {
-        MaterialTheme(
-            colorScheme = MaterialTheme.colorScheme,
-            shapes = MaterialTheme.shapes,
-            typography = fogTypography(MaterialTheme.typography),
-        ) {
-            CompositionLocalProvider(LocalEffects provides effects, content = content)
-        }
+fun FogTheme(effects: Effects, theme: Theme = Themes.Classic, content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = theme.material.scheme,
+        shapes = theme.material.shapes,
+        typography = fogTypography(Typography(), display = theme.type.display),
+    ) {
+        CompositionLocalProvider(
+            LocalEffects provides effects,
+            LocalTheme provides theme,
+            LocalInk provides theme.colors.ink,
+            LocalContentColor provides (if (theme.classic) LocalContentColor.current else theme.colors.ink),
+            content = content,
+        )
     }
 }

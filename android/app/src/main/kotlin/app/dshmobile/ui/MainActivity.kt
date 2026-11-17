@@ -24,7 +24,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import app.dshmobile.ui.theme.LocalWarStyle
+import app.dshmobile.ui.theme.appTheme
+import app.dshmobile.ui.theme.applyThemeWindow
+import app.dshmobile.ui.theme.warRoom
 import androidx.activity.viewModels
 import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Column
@@ -234,7 +237,8 @@ class MainActivity : ComponentActivity() {
         }
         ready = true
         openedAt = SystemClock.elapsedRealtime()
-        enableEdgeToEdge()
+        // 主題 (R9): the window behind the first frame and the bar icons come from the saved theme: never blush before 霓虹.
+        applyThemeWindow(app.look.look.value.appTheme)
         // DshVersions is built on first use (a rollback), not at every launch.
         ops = MainOps(app.controller, { VerifiedUpdatePolicy.previous(app.dshVersions.previous()) }, { app.dshVersions.rollback() }, app.errorLog)
         // The view model ([vm], made on first use) restores the shell (tab, conversation, list, draft) after a process death, or
@@ -247,10 +251,15 @@ class MainActivity : ComponentActivity() {
             val level by app.effectsController.effective.collectAsState()
             val effects = remember(level, reducedMotion) { effectsFor(level, reducedMotion) }
             val look by app.look.look.collectAsState()
-            FogTheme(effects) {
+            // The same instance until 主題, 顏色 or 開場樣式 changes it (Themes.of caches one per theme and colours).
+            val theme = look.appTheme
+            // R9 on a change; the first run repeats onCreate's call, harmlessly.
+            androidx.compose.runtime.LaunchedEffect(theme) { applyThemeWindow(theme) }
+            FogTheme(effects, theme) {
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalUnlocker provides unlocker, LocalPickFiles provides ::pickFiles,
                     LocalLook provides look, LocalLookPicture provides app.look.pictureFile,
+                    LocalWarStyle provides look.warRoom,
                 ) {
                     // HWUI has no occlusion culling: without this the shell's glows, glass and lists render under an opaque intro
                     // every frame, while dsh is also starting. It comes back as soon as the intro's exit opens.

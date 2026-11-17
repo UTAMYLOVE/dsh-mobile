@@ -229,6 +229,18 @@ class ThemeScenes(
     val effects: Effects = SAVER,
     val wrap: SceneWrap = { c -> FogTheme(effects) { c() } },
 ) {
+    /**
+     * The same scenes worn in [theme]: every scene is drawn inside `FogTheme(effects, theme)`, and the scenes that launch
+     * MainActivity (which picks its theme from the saved look) save [theme] as 主題 and 顏色 first.
+     */
+    constructor(rule: SceneRule, theme: Theme, effects: Effects = SAVER) : this(rule, effects, { c -> FogTheme(effects, theme) { c() } }) {
+        worn = theme
+    }
+
+    /** The theme the scenes wear (CLASSIC unless made with a theme): what a launched MainActivity is told to wear. */
+    var worn: Theme = Themes.Classic
+        private set
+
     enum class Tone { LIGHT, MID, DARK }
 
     /** How [snap] takes the current scene's picture. */
@@ -940,6 +952,8 @@ class ThemeScenes(
                 killer = DesktopSignals.killer(listOf("dshm-scenes-none-${System.nanoTime()}")),
             ),
         )
+        // MainActivity wears the saved 主題 (跟著開場 would be 櫻紋陣): tell it the scenes' theme.
+        app.look.update { it.copy(theme = worn.id, themeColors = worn.mode) }
         val activity = Robolectric.buildActivity(MainActivity::class.java, android.content.Intent().setComponent(android.content.ComponentName(app, MainActivity::class.java)))
             .also { main = it }.setup().get()
         rule.waitForIdle()

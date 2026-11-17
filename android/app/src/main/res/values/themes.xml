@@ -10,4 +10,45 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>
+
+    <!--
+        Starting windows for the themes whose window is not blush: ThemeWindow.kt hands the worn theme's one to the system with
+        SplashScreen.setSplashScreenTheme, so the next cold start opens on that colour. Each names its parent explicitly (the dot
+        name alone would imply a Theme.DshMobile.Start that does not exist). The bars match the window, so the starting window
+        shows no blush band; the two dark ones have light bar icons.
+    -->
+    <style name="Theme.DshMobile.Start.Night" parent="Theme.DshMobile">
+        <item name="android:windowBackground">@color/start_night</item>
+        <item name="android:windowSplashScreenBackground">@color/start_night</item>
+        <item name="android:statusBarColor">@color/start_night</item>
+        <item name="android:navigationBarColor">@color/start_night</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="Theme.DshMobile.Start.Rose" parent="Theme.DshMobile">
+        <item name="android:windowBackground">@color/start_rose</item>
+        <item name="android:windowSplashScreenBackground">@color/start_rose</item>
+        <item name="android:statusBarColor">@color/start_rose</item>
+        <item name="android:navigationBarColor">@color/start_rose</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="Theme.DshMobile.Start.Archive" parent="Theme.DshMobile">
+        <item name="android:windowBackground">@color/start_archive</item>
+        <item name="android:windowSplashScreenBackground">@color/start_archive</item>
+        <item name="android:statusBarColor">@color/start_archive</item>
+        <item name="android:navigationBarColor">@color/start_archive</item>
+    </style>
+    <style name="Theme.DshMobile.Start.Mist" parent="Theme.DshMobile">
+        <item name="android:windowBackground">@color/start_mist</item>
+        <item name="android:windowSplashScreenBackground">@color/start_mist</item>
+        <item name="android:statusBarColor">@color/start_mist</item>
+        <item name="android:navigationBarColor">@color/start_mist</item>
+    </style>
+    <style name="Theme.DshMobile.Start.Lilac" parent="Theme.DshMobile">
+        <item name="android:windowBackground">@color/start_lilac</item>
+        <item name="android:windowSplashScreenBackground">@color/start_lilac</item>
+        <item name="android:statusBarColor">@color/start_lilac</item>
+        <item name="android:navigationBarColor">@color/start_lilac</item>
+    </style>
 </resources>

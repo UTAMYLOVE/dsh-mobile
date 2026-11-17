@@ -3,4 +3,10 @@
     <color name="sakura_background">#fedfe1</color>
     <color name="sakura_primary">#dc9fb4</color>
     <color name="sakura_icon_background">#f06595</color>
+    <!-- Starting windows of the themes whose window is not blush (themes.xml, ThemeWindow.kt). -->
+    <color name="start_night">#0b0b0e</color>
+    <color name="start_rose">#5e4445</color>
+    <color name="start_archive">#e5e3df</color>
+    <color name="start_mist">#f7f8fa</color>
+    <color name="start_lilac">#f7f1f8</color>
 </resources>

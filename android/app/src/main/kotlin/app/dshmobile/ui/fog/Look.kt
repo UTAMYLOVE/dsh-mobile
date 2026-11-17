@@ -12,6 +12,7 @@ import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import app.dshmobile.ui.theme.ColorMode
 import app.dshmobile.ui.theme.ThemeId
@@ -27,6 +28,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
@@ -199,25 +201,97 @@ val LocalLookPicture: ProvidableCompositionLocal<File?> = staticCompositionLocal
  */
 object LookPictures {
     private val lock = Mutex()
-    private var key: List<Any>? = null
-    private var cached: ImageBitmap? = null
+    // Written under [lock], cached before key, so an unlocked reader ([toneFor]) never pairs a key with another key's picture.
+    @Volatile private var key: List<Any>? = null
+    @Volatile private var cached: ImageBitmap? = null
+
+    /**
+     * The tone of every picture [load] handed out that is still in use (weak keys, compared by identity: an ImageBitmap has no
+     * equals of its own), so a picture and its tone are known together. Guarded by itself.
+     */
+    private val tones = java.util.WeakHashMap<ImageBitmap, PictureTone>()
 
     suspend fun load(file: File, version: Long, six: Int, aqua: Int): ImageBitmap? = lock.withLock {
         val want = listOf(file.path, version, six, aqua)
         if (key == want) return@withLock cached
         val made = withContext(Dispatchers.Default) {
-            if (six > 0) {
-                val copy = recolouredFile(file, version, six, aqua)
-                runCatching { BitmapFactory.decodeFile(copy.path) }.getOrNull()?.let { return@withContext it.asImageBitmap() }
+            val shown: Bitmap? = run {
+                if (six > 0) {
+                    val copy = recolouredFile(file, version, six, aqua)
+                    runCatching { BitmapFactory.decodeFile(copy.path) }.getOrNull()?.let { return@run it }
+                }
+                val source = runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull() ?: return@run null
+                if (six <= 0) return@run source
+                SixColour.recolour(source, six / 100f, aqua / 100f).also { source.recycle(); keep(file, it, recolouredFile(file, version, six, aqua)) }
             }
-            val source = runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull() ?: return@withContext null
-            if (six <= 0) return@withContext source.asImageBitmap()
-            SixColour.recolour(source, six / 100f, aqua / 100f).also { source.recycle(); keep(file, it, recolouredFile(file, version, six, aqua)) }.asImageBitmap()
+            // The tone is measured here, in the same background step, so the picture and its tone reach the screen in the same
+            // frame (plan D9: no flip of the text floors a moment after a cold start).
+            shown?.let { b -> b.asImageBitmap().also { image -> measure(b)?.let { t -> synchronized(tones) { tones[image] = t } } } }
         }
-        key = want
         cached = made
+        key = want
         made
     }
+
+    /**
+     * How dark the picture gets: the WCAG relative luminance at the 5th percentile of a 48-px-wide copy's pixels (see-through
+     * pixels left out; none left: white). Null when the copy cannot be made (a renderer without bitmaps): read as dark.
+     */
+    private fun measure(bitmap: Bitmap): PictureTone? = runCatching {
+        val w = TONE_WIDTH
+        val h = (bitmap.height.toLong() * w / bitmap.width.coerceAtLeast(1)).toInt().coerceIn(1, TONE_WIDTH * 8)
+        val small = Bitmap.createScaledBitmap(bitmap, w, h, true)
+        try { toneOfPixels(small, 0, 0, small.width, small.height) } finally { if (small !== bitmap) small.recycle() }
+    }.getOrNull()
+
+    /** The tone [load] measured for [picture] (one it returned); null when it could not be measured or is not one of [load]'s. */
+    fun toneOf(picture: ImageBitmap): PictureTone? = synchronized(tones) { tones[picture] }
+
+    /** The tone of the picture [load] keeps for this key, or null (not loaded yet, another key, or not measurable). */
+    fun toneFor(file: File, version: Long, six: Int, aqua: Int): PictureTone? {
+        val picture = if (key == listOf(file.path, version, six, aqua)) cached else null
+        return picture?.let(::toneOf)
+    }
+
+    /** The tone of [square] of [picture] only (wave's watermark face): a 24 × 24 sample of it, off the main thread. */
+    suspend fun faceTone(picture: ImageBitmap, square: AvatarSquare): PictureTone = withContext(Dispatchers.Default) {
+        runCatching {
+            val src = picture.asAndroidBitmap()
+            val left = square.left.coerceIn(0, src.width - 1)
+            val top = square.top.coerceIn(0, src.height - 1)
+            val side = square.side.coerceIn(1, minOf(src.width - left, src.height - top))
+            val part = Bitmap.createBitmap(src, left, top, side, side)
+            val small = Bitmap.createScaledBitmap(part, FACE_SAMPLE, FACE_SAMPLE, true)
+            try { toneOfPixels(small, 0, 0, FACE_SAMPLE, FACE_SAMPLE) } finally {
+                if (small !== part) small.recycle()
+                if (part !== src) part.recycle()
+            }
+        }.getOrNull() ?: PictureTone(0f) // not measurable: assume black (the safe side)
+    }
+
+    /** The 5th-percentile WCAG luminance of [b]'s pixels in the rectangle (see-through ones left out; none left: white). */
+    private fun toneOfPixels(b: Bitmap, x: Int, y: Int, w: Int, h: Int): PictureTone {
+        val px = IntArray(w * h)
+        b.getPixels(px, 0, w, x, y, w, h)
+        val lum = FloatArray(px.size)
+        var n = 0
+        for (p in px) {
+            if ((p ushr 24) < 8) continue
+            lum[n++] = .2126f * lin((p shr 16) and 255) + .7152f * lin((p shr 8) and 255) + .0722f * lin(p and 255)
+        }
+        if (n == 0) return PictureTone(1f)
+        java.util.Arrays.sort(lum, 0, n)
+        return PictureTone(lum[(n * .05f).toInt().coerceIn(0, n - 1)])
+    }
+
+    /** One sRGB channel (0..255) to linear light (WCAG 2.x). */
+    private fun lin(v: Int): Float {
+        val c = v / 255f
+        return if (c <= .04045f) c / 12.92f else ((c + .055f) / 1.055f).toDouble().pow(2.4).toFloat()
+    }
+
+    private const val TONE_WIDTH = 48
+    private const val FACE_SAMPLE = 24
 
     private fun recolouredFile(file: File, version: Long, six: Int, aqua: Int) = File(file.parentFile, "${file.name}.six-$version-$six-$aqua.jpg")
 

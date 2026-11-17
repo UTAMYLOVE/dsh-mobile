@@ -14,6 +14,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -41,6 +42,10 @@ import app.dshmobile.runtime.FakeDshServer
 import app.dshmobile.runtime.FakeMux
 import app.dshmobile.remote.MuxState
 import app.dshmobile.ui.fog.EffectLevel
+import app.dshmobile.ui.theme.themeId
+import app.dshmobile.ui.theme.ThemeId
+import app.dshmobile.ui.fog.UiPrefs
+import app.dshmobile.ui.fog.INTRO_TAG
 import app.dshmobile.ui.shell.ShellTab
 import app.dshmobile.ui.shell.buildSettingsEnv
 import app.dshmobile.runtime.RootfsInstaller
@@ -1650,5 +1655,52 @@ class MainActivityTest {
         } finally {
             hold.countDown()
         }
+    }
+
+    // --- 主題 (R9): the saved theme colours the window and the bars before the first frame (core C11, eng E32) ---
+
+    private fun android.view.Window.background(): Int = (decorView.background as android.graphics.drawable.ColorDrawable).color
+
+    private fun android.view.Window.lightStatus(): Boolean =
+        androidx.core.view.WindowCompat.getInsetsController(this, decorView).isAppearanceLightStatusBars
+
+    @Test fun aSavedNeonThemeColoursTheWindowBeforeTheFirstFrameAndKeepsItWithoutReplayingTheIntro() {
+        completeSetup()
+        // An app that wore 粉色霓虹敘事 last time, with the startup animation on.
+        app.getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).edit()
+            .putString("look_theme", "web-neon").putBoolean("look_intro", true).commit()
+        val ctl = build().create()
+        // Right after onCreate, before any frame: the neon window and light status icons, never blush.
+        assertEquals(0xFF0B0B0E.toInt(), ctl.get().window.background())
+        assertFalse(ctl.get().window.lightStatus())
+        ctl.start().resume().visible()
+        compose.waitForIdle() // the startup animation plays through, once
+        compose.onAllNodesWithTag(INTRO_TAG).assertCountEquals(0)
+        // From here on the clock moves only when the test says so: an intro that came back would still be on screen.
+        compose.mainClock.autoAdvance = false
+        ctl.recreate()
+        compose.waitForIdle()
+        assertEquals("a recreate keeps the neon window", 0xFF0B0B0E.toInt(), ctl.get().window.background())
+        assertFalse(ctl.get().window.lightStatus())
+        compose.onAllNodesWithTag(INTRO_TAG).assertCountEquals(0)
+        // 原本的樣子: blush again with today's dark icons, in the same composition (the intro does not replay on a theme switch).
+        app.look.update { it.copy(theme = ThemeId.CLASSIC) }
+        repeat(3) {
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+        }
+        assertEquals(0xFFFEDFE1.toInt(), ctl.get().window.background())
+        assertTrue("dark status icons on blush", ctl.get().window.lightStatus())
+        compose.onAllNodesWithTag(INTRO_TAG).assertCountEquals(0)
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun theDefaultWearsTheFollowedSigilThemeOnItsLightWindow() {
+        completeSetup()
+        val ctl = build().create()
+        // 跟著開場 with the default 櫻紋陣: a theme of the six colours, whose window is blush, with dark icons.
+        assertEquals(0xFFFEDFE1.toInt(), ctl.get().window.background())
+        assertTrue(ctl.get().window.lightStatus())
+        assertEquals(ThemeId.SIGIL, app.look.look.value.themeId)
     }
 }

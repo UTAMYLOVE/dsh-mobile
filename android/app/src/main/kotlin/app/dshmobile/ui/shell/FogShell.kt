@@ -86,6 +86,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
@@ -120,6 +121,18 @@ import app.dshmobile.ui.fog.glass
 import app.dshmobile.ui.fog.glow
 import app.dshmobile.ui.fog.rememberBackdrop
 import app.dshmobile.ui.theme.Sakura
+import app.dshmobile.ui.fog.LocalLook
+import app.dshmobile.ui.fog.LookPictures
+import app.dshmobile.ui.fog.rememberLookPicture
+import app.dshmobile.ui.theme.LocalPictureBehind
+import app.dshmobile.ui.theme.LocalTheme
+import app.dshmobile.ui.theme.LocalThemeClock
+import app.dshmobile.ui.theme.ShellGeometry
+import app.dshmobile.ui.theme.Sweep
+import app.dshmobile.ui.theme.ThemeClock
+import app.dshmobile.ui.theme.ThemeClockDriver
+import app.dshmobile.ui.theme.themeDrawing
+import androidx.compose.runtime.SideEffect
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -132,6 +145,8 @@ import kotlin.math.tan
  */
 val LocalPagePadding = compositionLocalOf { PaddingValues(0.dp) }
 
+/** A shown picture whose 5th-percentile luminance is below this is dark: the frames floor their light fills over it (plan D9). */
+private const val DarkPicture = .20f
 /** The band above the floating dock over which a page fades out, so nothing shows sharp through the dock's glass. */
 private val DockFade = 24.dp
 /** Gap between a page's last control and the top of the floating dock: the fade band plus a little air. */
@@ -142,11 +157,29 @@ private val PageSide = 16.dp
 private val PageTop = 12.dp
 private val Round = RoundedCornerShape(50)
 
-/** Where the floating stack's top and the page viewport's top are, in root pixels. Read only while drawing (never composition). */
+/**
+ * Where the shell's parts are, in root pixels (the shell fills the window, so these are window pixels too): the floating stack's
+ * top and bottom, the page viewport's top, the header's bottom, the safe-drawing insets and the navigation bar. Written by layout
+ * callbacks, read only while drawing (never composition): [fadeAbove] and, through [geometry], the theme's backdrop and screen
+ * drawings. [stackTop] is NaN until the dock is laid out.
+ */
 @Stable
 private class FloatingEdge {
-    var stackTop by mutableFloatStateOf(Float.NaN)
-    var stageTop by mutableFloatStateOf(0f)
+    private val stackTopState = mutableFloatStateOf(Float.NaN)
+    private val stageTopState = mutableFloatStateOf(0f)
+    var stackTop by stackTopState
+    var stageTop by stageTopState
+    val stackBottom = mutableFloatStateOf(Float.NaN)
+    val barBottom = mutableFloatStateOf(0f)
+    val insetTop = mutableFloatStateOf(0f)
+    val insetBottom = mutableFloatStateOf(0f)
+    val navInset = mutableFloatStateOf(0f)
+
+    /** The same positions for the theme's drawings (plan §2.4.5). */
+    val geometry = ShellGeometry(
+        insetTop = insetTop, insetBottom = insetBottom, barBottom = barBottom,
+        stackTop = stackTopState, stackBottom = stackBottom, navInset = navInset, stageTop = stageTopState,
+    )
 }
 
 /**
@@ -175,10 +208,17 @@ fun FogShell(
     page: @Composable (ShellTab) -> Unit,
 ) {
     val backdrop = rememberBackdrop()
+    val theme = LocalTheme.current
+    // The one picture the whole shell shows (eng E20, E21): the background draws it and the frames know whether it is dark, so
+    // the picture and the text floors change in the same frame, and a theme switch never reloads it.
+    val picture = rememberLookPicture(LocalLook.current)
+    val pictureBehind = picture != null && (LookPictures.toneOf(picture)?.p05 ?: 0f) < DarkPicture
     val lifecycleState = LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     // RESUMED <-> STARTED (a dialog or the shade over the screen) must not recompose the shell: only the STARTED threshold counts.
     val started by remember { derivedStateOf { lifecycleState.value.isAtLeast(Lifecycle.State.STARTED) } }
     val idle = rememberIdle(started)
+    // The theme's one frame clock (R12): driven next to the idle watch, ticking only while a drawing holds it.
+    val clock = remember { ThemeClock() }
     val density = LocalDensity.current
     // Composition reads only insets that do not animate frame by frame: the navigation bar, and the keyboard's target (it
     // changes once when the keyboard starts to show or hide). The dock itself follows the keyboard in layout.
@@ -192,6 +232,8 @@ fun FogShell(
     val showReconnecting = rememberReconnectingChip(connection, reconnectChipDelayMs)
     BackHandler(enabled = attachMenu) { attachMenu = false }
 
+    // The navigation bar's height for the theme's drawings (it does not animate frame by frame; read in composition above).
+    SideEffect { edge.navInset.floatValue = with(density) { navBottom.toPx() } }
     val stack: Dp = with(density) { stackHeight.toDp() }
     val padding = PaddingValues(
         start = PageSide,
@@ -201,28 +243,47 @@ fun FogShell(
     )
     val ready = status == MainUiState.Ready
 
-    // Real blur on (the backdrop is provided for every glass surface); pages animate only while current and the screen is started;
-    // after eight quiet seconds the ambient motion slows down.
+    // Real blur on (the backdrop is provided for every glass surface) when the theme blurs: CLASSIC, or a theme with a glass frame
+    // (one provider call whose value depends on it, so the switch never changes the tree); pages animate only while current and
+    // the screen is started; after eight quiet seconds the ambient motion slows down.
     // An outer "not active" (the startup animation covering the screen) pauses the pages too.
-    CompositionLocalProvider(LocalBackdrop provides backdrop, LocalPageActive provides (started && LocalPageActive.current), LocalIdle provides idle.state) {
+    CompositionLocalProvider(
+        LocalBackdrop provides (if (theme.blurs) backdrop else null),
+        LocalPageActive provides (started && LocalPageActive.current),
+        LocalIdle provides idle.state,
+        LocalThemeClock provides clock,
+        LocalPictureBehind provides pictureBehind,
+    ) {
+    ThemeClockDriver(clock, theme.backdrop, idle.state)
     Box(
         Modifier
             .fillMaxSize()
             .semantics { testTagsAsResourceId = true }
             .then(idle.observer),
     ) {
-        FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND))
+        // The safe-drawing insets for the theme's drawings: an empty box inside them (no semantics, draws nothing).
+        Box(
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).onGloballyPositioned {
+                val top = it.positionInRoot().y
+                edge.insetTop.floatValue = top
+                edge.insetBottom.floatValue = (it.findRootCoordinates().size.height - top - it.size.height).coerceAtLeast(0f)
+            },
+        )
+        FogBackground(backdrop, Modifier.fillMaxSize().testTag(Tags.SHELL_BACKGROUND), picture, edge.geometry)
         val hidden = if (modalOverlay) Modifier.clearAndSetSemantics {} else Modifier
+        val headerBottom = Modifier.onGloballyPositioned { edge.barBottom.floatValue = it.positionInRoot().y + it.size.height }
         Column(Modifier.fillMaxSize().then(hidden)) {
             if (!nav.more) SimpleBar(
                 nav,
                 Modifier
                     .testTag(Tags.SHELL_HEADER)
+                    .then(headerBottom)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
             ) else Header(
                 nav.tab, nav.tabs,
                 Modifier
                     .testTag(Tags.SHELL_HEADER)
+                    .then(headerBottom)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
             )
             Box(
@@ -249,6 +310,12 @@ fun FogShell(
                 PageSweep(nav.tab)
             }
         }
+        // The theme's screen frame (neon's lens ring, access's corner marks): over the pages, under the floating stack, no touch.
+        // A leaf: CLASSIC and most themes have none.
+        theme.screen?.let { screen ->
+            val drawing = remember(theme, edge.geometry) { screen(edge.geometry) }
+            Box(Modifier.fillMaxSize().clearAndSetSemantics {}.themeDrawing(drawing, null))
+        }
         // The ＋ menu folds on a tap anywhere outside it (the owner: 「按空白處介面不會縮回去」).
         if (attachMenu) {
             Box(
@@ -267,6 +334,7 @@ fun FogShell(
                 .onSizeChanged { stackHeight = it.height }
                 .onGloballyPositioned {
                     edge.stackTop = it.positionInRoot().y
+                    edge.stackBottom.floatValue = it.positionInRoot().y + it.size.height
                     blurFloor.y = it.positionInWindow().y
                 },
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -440,12 +508,18 @@ private fun Pages(tab: ShellTab, content: @Composable (ShellTab) -> Unit) {
  * The mockup's sweep: on every tab change (not the first show) one 2 dp white line with a white and pink glow, skewed -12°,
  * crosses the page viewport in [FogMotion.SWEEP_MS], fading in over the first 15 % and out over the rest. Only with depth
  * transitions (full and balanced; never in saver or with the system's animations off). The line exists only while it runs and
- * the frames only redraw it (the progress is read while drawing).
+ * the frames only redraw it (the progress is read while drawing). The worn theme's [Sweep] picks the look: [Sweep.Glow] is
+ * this line with the theme's far glow colour (CLASSIC: today's pink), [Sweep.Custom] the theme's drawing over its own duration
+ * with the progress as its t, [Sweep.None] nothing.
  */
 @Composable
 private fun PageSweep(tab: ShellTab) {
+    val sweep = LocalTheme.current.sweep
     val depth = LocalEffects.current.depthTransitions
-    val allowed by rememberUpdatedState(depth)
+    val allowed by rememberUpdatedState(depth && sweep != Sweep.None)
+    val spec by rememberUpdatedState(
+        if (sweep is Sweep.Custom) tween<Float>(sweep.ms, easing = LinearEasing) else tween(FogMotion.SWEEP_MS, easing = FogMotion.EaseOut),
+    )
     val progress = remember { Animatable(1f) }
     var shown by remember { mutableStateOf(tab) }
     LaunchedEffect(tab) {
@@ -453,31 +527,34 @@ private fun PageSweep(tab: ShellTab) {
         shown = tab
         if (!allowed) return@LaunchedEffect
         progress.snapTo(0f)
-        progress.animateTo(1f, tween(FogMotion.SWEEP_MS, easing = FogMotion.EaseOut))
+        progress.animateTo(1f, spec)
     }
     LaunchedEffect(depth) { if (!depth) progress.snapTo(1f) }
     if (!depth || !progress.isRunning) return
-    Box(
-        Modifier
-            .fillMaxSize()
-            .clearAndSetSemantics { testTag = Tags.PAGE_SWEEP }
-            .drawWithCache {
-                val look = SweepLook(density)
+    val line = Modifier.fillMaxSize().clearAndSetSemantics { testTag = Tags.PAGE_SWEEP }
+    when (sweep) {
+        is Sweep.Glow -> Box(
+            line.drawWithCache {
+                val look = SweepLook(density, sweep.far)
                 onDrawBehind { look.draw(this, progress.value) }
             },
-    )
+        )
+        is Sweep.Custom -> Box(line.themeDrawing(sweep.drawing, progress.asState()))
+        Sweep.None -> Unit
+    }
 }
 
 /**
- * The sweep line's look, built once per density: a 2 dp white core and two glows (white, near; pink, far). The glows are
- * horizontal gradients sampled from a blurred band's profile (the mockup's box-shadows), so drawing them costs one gradient
- * rect each; no blur mask filter, which under the skew would be re-rasterised every frame.
+ * The sweep line's look, built once per density: a 2 dp white core and two glows (white, near; [far], further out: today's pink
+ * unless the theme's [Sweep.Glow] names another). The glows are horizontal gradients sampled from a blurred band's profile (the
+ * mockup's box-shadows), so drawing them costs one gradient rect each; no blur mask filter, which under the skew would be
+ * re-rasterised every frame.
  */
-internal class SweepLook(density: Float) {
+internal class SweepLook(density: Float, far: Color = Sakura.Primary.copy(alpha = .45f)) {
     private val line = 2f * density
     private val core = Brush.verticalGradient(0f to Color.Transparent, .2f to Color.White, .8f to Color.White, 1f to Color.Transparent)
     private val near = GlowBand(Color.White.copy(alpha = .9f), halfWidth = 6f * density + line / 2f, blur = 18f * density)
-    private val far = GlowBand(Sakura.Primary.copy(alpha = .45f), halfWidth = 12f * density + line / 2f, blur = 40f * density)
+    private val far = GlowBand(far, halfWidth = 12f * density + line / 2f, blur = 40f * density)
     private val start = -10f * density
     private val skew = tan(Math.toRadians(-12.0)).toFloat()
 
