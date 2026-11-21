@@ -357,7 +357,8 @@ fun FogShell(
                     onNewAssistant = { attachMenu = false; composer.onAssistant("") },
                 )
             }
-            Dock(
+            // 教練設定 has no composer: text typed there could only go to the chat, never to the coach.
+            if (!(nav.coachSettings && coachSettings != null)) Dock(
                 composer = composer,
                 enabled = composer.enabled && (ready || (nav.coach && coach != null)),
                 tab = nav.tab,

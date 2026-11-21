@@ -122,18 +122,22 @@ object CoachNumbers {
         var section = 0L
         var num = 0L
         var any = false
+        var lastUnit = 1L
         for (ch in parts[0]) {
             val d = DIGIT[ch]
             if (d != null) { num = d.toLong(); any = true; continue }
             when (ch) {
-                '十' -> { section += (if (num == 0L) 1 else num) * 10; num = 0; any = true }
-                '百' -> { section += num * 100; num = 0 }
-                '千' -> { section += num * 1000; num = 0 }
-                '萬' -> { total += (section + num) * 10000; section = 0; num = 0 }
+                '十' -> { section += (if (num == 0L) 1 else num) * 10; num = 0; any = true; lastUnit = 10 }
+                '百' -> { section += num * 100; num = 0; lastUnit = 100 }
+                '千' -> { section += num * 1000; num = 0; lastUnit = 1000 }
+                '萬' -> { total += (section + num) * 10000; section = 0; num = 0; lastUnit = 10000 }
                 else -> return null
             }
         }
         if (!any) return null
+        // 兩百五 = 250, 一千二 = 1200: a bare digit right after 百/千/萬 counts in the next unit down.
+        val head = parts[0]
+        if (num > 0 && head.length >= 2 && head[head.length - 2] in "百千萬" && lastUnit >= 100) num *= lastUnit / 10
         val whole = (total + section + num).toDouble()
         if (parts.size < 2) return whole
         val frac = parts[1].map { DIGIT[it] ?: return null }.joinToString("")
@@ -156,7 +160,9 @@ object NumberGuard {
     private val NUMBER = CoachNumbers.ARABIC
     private val UNIT_OK = Regex("^\\s*(分鐘|小時|點|秒|次|下|組)")
     private val CHINESE_AMOUNT = Regex("[零〇一二兩三四五六七八九十百千萬半]+\\s*(大卡|卡|公斤|斤|克|天|餐|份)")
-    private val LATIN = Regex("[A-Za-z]")
+    private val LATIN = Regex("[A-Za-zＡ-Ｚａ-ｚ]")
+    /** Everyday words, not amounts: 「三餐正常吃」「一天」「一份」 never hide an invented number. */
+    private val PLAIN_WORDS = Regex("三餐|一天|一份|一餐")
     private val SENTENCE = Regex("(?<=[。！？!?\\n])")
     const val MAX_SENTENCES = 4
 
@@ -165,7 +171,7 @@ object NumberGuard {
         val text = modelText.trim().replace("BMI", "身體質量指數")
         val kept = SENTENCE.split(text).map { it.trim() }.filter { it.isNotEmpty() }.filter { s ->
             !LATIN.containsMatchIn(s) &&
-                !CHINESE_AMOUNT.containsMatchIn(s) &&
+                !CHINESE_AMOUNT.containsMatchIn(PLAIN_WORDS.replace(s, "")) &&
                 NUMBER.findAll(s).all { m -> m.value in allowed || UNIT_OK.containsMatchIn(s.substring(m.range.last + 1)) }
         }
         return kept.take(MAX_SENTENCES).joinToString("").trim()

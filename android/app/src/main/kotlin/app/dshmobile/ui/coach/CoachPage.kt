@@ -49,9 +49,16 @@ fun CoachPage(engine: CoachEngine) {
         engine.refresh()
         // Left open across the day start (05:00), the strip turns over to the new day on its own.
         while (true) {
-            kotlinx.coroutines.delay(engine.millisToNextDay())
+            kotlinx.coroutines.delay(engine.nextRefreshDelay())
             engine.refresh()
         }
+    }
+    // Back from the background (a night asleep), the strip is recomputed at once.
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(owner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) engine.refresh() }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs) }
     }
     val pad = LocalPagePadding.current
     val list = rememberLazyListState()

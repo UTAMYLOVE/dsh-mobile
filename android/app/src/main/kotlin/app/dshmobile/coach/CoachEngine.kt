@@ -101,8 +101,18 @@ class CoachEngine(
 
     /** 食物表's 刪除, off the main thread. */
     fun deleteFood(name: String) {
-        scope.launch { store.update { s -> s.copy(food = s.food.filter { it.name != name }) } }
+        scope.launch {
+            val s = store.update { st -> st.copy(food = st.food.filter { it.name != name }) } ?: return@launch
+            // The planned meal must stay a table food (its kcal is checked before it is named).
+            val p = settings.profile
+            if (p.plannedMeal == name || FoodTable.lookup(s.food, p.plannedMeal) == null) {
+                s.food.firstOrNull()?.let { settings.profile = p.copy(plannedMeal = it.name) }
+            }
+        }
     }
+
+    /** How long the page waits before it refreshes the strip: at most a minute, so a phone waking from sleep catches up soon. */
+    fun nextRefreshDelay(): Long = minOf(millisToNextDay(), 60_000L)
 
     /** Handles one owner message to the end (tests call it directly). */
     suspend fun handle(text: String) = mutex.withLock {
@@ -143,7 +153,7 @@ class CoachEngine(
             // Offline: a message naming exactly one table food (and not asking) is still recorded from the table.
             val table = store.state.value.food
             val named = FoodTable.named(table, text)
-            if (named.size == 1 && CoachReplies.plainReport(text)) {
+            if (named.size == 1 && CoachReplies.plainReport(text, table)) {
                 parsed = Parsed("meal", listOf(ParsedItem(named[0].name, 1.0, false, null, null, null, null)))
             } else {
                 return CoachReplies.cannotReach(fail) to "error"
@@ -259,7 +269,7 @@ class CoachEngine(
             val eatLine = when {
                 remaining < 0 -> "今天已經超過，不准再點。"
                 remaining == 0 -> "今天剩 0 大卡，不准再點。"
-                planned != null && planned.kcal > remaining -> "今天剩 $remaining 大卡，不准再點炸的。" + floorLine(eaten, word, p)
+                planned != null && planned.kcal > remaining -> "今天剩 $remaining 大卡，不准再點炸的。" + floorLine(eaten, remaining, word, p, planned)
                 else -> "${word}吃${p.plannedMeal.replace(" ", "")}。"
             }
             return listOf("今天不是放縱餐。$eatLine${friedNames.joinToString("、")}排到星期${CoachRules.weekdayZh(p.cheatDay)}。$deadline")
@@ -280,15 +290,19 @@ class CoachEngine(
         return when {
             remaining < 0 -> listOf("今天已經超過，不准再點。")
             remaining == 0 -> listOf("今天剩 0 大卡，不准再點。")
-            kcal > remaining -> listOf("這份大約 $kcal 大卡，今天剩 $remaining 大卡，不准再點。" + floorLine(eaten, word, p))
+            kcal > remaining -> listOf("這份大約 $kcal 大卡，今天剩 $remaining 大卡，不准再點。" + floorLine(eaten, remaining, word, p, FoodTable.lookup(s.food, p.plannedMeal)))
             else -> listOf("可以。吃了今天會剩 ${remaining - kcal} 大卡。吃完回報，$deadline")
         }
     }
 
     /** Spec §4: never below 1200. A refusal still says how much he must eat, and what. */
-    private fun floorLine(eaten: Int, word: String, p: CoachProfile): String {
+    private fun floorLine(eaten: Int, remaining: Int, word: String, p: CoachProfile, planned: FoodEntry?): String {
         val must = CoachRules.mustStillEat(eaten)
-        return if (must > 0) "今天至少還要吃 $must 大卡。${word}吃${p.plannedMeal.replace(" ", "")}。" else ""
+        if (must <= 0) return ""
+        // Never name a meal that would push him over: the planned meal only if it fits what is left.
+        val what = if (planned != null && planned.kcal <= remaining) "${word}吃${p.plannedMeal.replace(" ", "")}。"
+        else "挑 $remaining 大卡以內的，點之前先問我。"
+        return "今天至少還要吃 $must 大卡。$what"
     }
 
     private fun foodInfo(info: FoodInfo?, illness: Boolean): List<String> {

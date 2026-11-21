@@ -72,7 +72,9 @@ class CoachReviewFixTest {
     @Test fun theFriedRefusalAlsoKeepsTheFloor() {
         say("吃了便當", parsed("meal", item("便當", low = 900, high = 1000))) // 1100: 600 left, planned 629 does not fit
         val r = say("想吃臭豆腐", parsed("craving", item("臭豆腐", fried = true)))
-        assertTrue(r, r.contains("今天剩 600 大卡，不准再點炸的。今天至少還要吃 100 大卡。宵夜吃給力盒子南加州烤雞腿。"))
+        // N1: the planned meal (629) does not fit the 600 left, so it is not named.
+        assertTrue(r, r.contains("今天剩 600 大卡，不准再點炸的。今天至少還要吃 100 大卡。挑 600 大卡以內的，點之前先問我。"))
+        assertFalse(r, r.contains("南加州"))
     }
 
     // I5
@@ -198,5 +200,74 @@ class CoachReviewFixTest {
     @Test fun deletingAFoodRunsThroughTheEngine() {
         rig.engine.deleteFood("蚵仔煎一盤")
         assertNull(FoodTable.lookup(rig.store.state.value.food, "蚵仔煎"))
+    }
+
+    // N1 (non-fried branch): over-quota food is never named either.
+    @Test fun theNonFriedRefusalNamesNothingThatDoesNotFit() {
+        say("吃了便當", parsed("meal", item("便當", low = 900, high = 1000))) // 1100 eaten, 600 left
+        val r = say("想吃牛肉麵", parsed("craving", item("牛肉麵", low = 700, high = 800)))
+        assertEquals("這份大約 880 大卡，今天剩 600 大卡，不准再點。今天至少還要吃 100 大卡。挑 600 大卡以內的，點之前先問我。", r)
+    }
+
+    // N2: the page never waits more than a minute for its next refresh.
+    @Test fun theStripRefreshWaitIsCapped() {
+        assertEquals(60_000L, rig.engine.nextRefreshDelay())
+        rig.clock.now = Instant.parse("2026-11-21T20:59:30Z") // Sunday 04:59:30 Taipei: 30 s to the day start
+        assertEquals(30_000L, rig.engine.nextRefreshDelay())
+    }
+
+    // N4: deleting the planned meal moves the plan to a food that is still in the table.
+    @Test fun deletingThePlannedMealPicksAnotherTableFood() {
+        rig.engine.deleteFood("給力盒子 南加州烤雞腿")
+        val planned = rig.settings.profile.plannedMeal
+        assertTrue(planned, FoodTable.lookup(rig.store.state.value.food, planned) != null)
+        rig.engine.deleteFood("蚵仔煎一盤") // not the plan: it stays
+        assertEquals(planned, rig.settings.profile.plannedMeal)
+    }
+
+    // N5: an unreadable file that cannot be moved is copied aside; if it cannot be kept at all, nothing writes over it.
+    @Test fun anUnmovableDamagedFileIsCopiedAside() {
+        val dir = rig.dir
+        File(dir, "state.json").writeText("{ broken")
+        File(dir, "state.json.bad-7").mkdirs()
+        File(dir, "state.json.bad-7/keep").writeText("x") // the rename target is a full directory: rename fails
+        val store = CoachStore(dir) { 7L }
+        assertEquals("{ broken", File(dir, "state.json.bad-7-copy").readText())
+        assertFalse(store.frozen)
+    }
+
+    @Test fun aDamagedFileThatCannotBeKeptIsNeverOverwritten() {
+        val dir = rig.dir
+        File(dir, "state.json").writeText("{ broken")
+        File(dir, "state.json.bad-8/keep").apply { parentFile!!.mkdirs() }.writeText("x")
+        File(dir, "state.json.bad-8-copy/keep").apply { parentFile!!.mkdirs() }.writeText("x")
+        val store = CoachStore(dir) { 8L }
+        assertTrue(store.frozen)
+        assertEquals("{ broken", File(dir, "state.json").readText())
+        assertNull(store.update { it.copy(weights = it.weights + WeightEntry("w", 1, "2026-11-21", 79.0, null)) })
+        assertEquals("{ broken", File(dir, "state.json").readText())
+    }
+
+    // N6: full-width Latin letters are Latin letters too.
+    @Test fun fullWidthLatinIsDropped() {
+        assertEquals("現在去練。", NumberGuard.filter("ＯＫ。現在去練。", "", ""))
+    }
+
+    // N7: everyday words are not invented amounts.
+    @Test fun everydayCountWordsAreKept() {
+        assertEquals("今天正常吃三餐。", NumberGuard.filter("今天正常吃三餐。", "", ""))
+        assertEquals("一天一份就好。", NumberGuard.filter("一天一份就好。", "", ""))
+        assertEquals("", NumberGuard.filter("再吃兩百大卡。", "", ""))
+    }
+
+    // N8: 兩百五 is 250 and 一千二 is 1200; a table food's own numeral is not a count offline.
+    @Test fun colloquialChineseNumbersAndTableNamesWithNumerals() {
+        assertEquals(250.0, CoachNumbers.chinese("兩百五")!!, 1e-9)
+        assertEquals(1200.0, CoachNumbers.chinese("一千二")!!, 1e-9)
+        assertEquals(205.0, CoachNumbers.chinese("兩百零五")!!, 1e-9)
+        rig.store.update { it.copy(food = it.food + FoodEntry("三杯雞便當", listOf("三杯雞"), 800, null, null, null, false, false, false, 0)) }
+        assertTrue(offline("吃了三杯雞便當").contains("800 大卡"))
+        assertTrue(offline("全家紐奧良風味烤雞鮮蔬三明治").contains("205 大卡"))
+        assertEquals(CoachReplies.cannotReach(Fail.OFFLINE), offline("兩個三杯雞便當"))
     }
 }

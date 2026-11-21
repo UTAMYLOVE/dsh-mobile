@@ -457,7 +457,8 @@ class MainActivity : ComponentActivity() {
         }
         vm.otherMode?.let { madeNative -> OtherModeDialog(madeNative, onSwitch = vm::switchModeForConversation, onCancel = { vm.otherMode = null }) }
         val coachUi by app.coach.ui.collectAsState()
-        val onCoach = nav.coach && !nav.coachSettings
+        // 教練設定 has no composer (FogShell hides the dock there), so nothing typed on the coach's pages reaches the chat.
+        val onCoach = nav.coach || nav.coachSettings
         FogShell(
             status = state,
             connection = connection,

@@ -30,6 +30,7 @@ import app.dshmobile.ui.shell.ComposerUi
 import app.dshmobile.ui.shell.FogShell
 import app.dshmobile.ui.shell.ShellNav
 import app.dshmobile.ui.shell.Tags
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -167,6 +168,45 @@ class CoachPageTest {
         rule.waitForIdle()
         org.junit.Assert.assertEquals(listOf("蚵仔煎一盤"), deleted)
         assertTrue(rig.store.state.value.food.none { it.name == "蚵仔煎一盤" })
+    }
+
+    // N3: 教練設定 has no composer, so nothing typed there can go to the chat.
+    @Test fun theCoachSettingsPageHasNoComposer() {
+        nav.coachSettings = true
+        show()
+        rule.onNodeWithTag(Tags.COACH_SETTINGS).assertExists()
+        rule.onNodeWithTag(Tags.COMPOSER_INPUT).assertDoesNotExist()
+        rule.onNodeWithTag(Tags.COACH_SETTINGS_OPEN).performClick() // 回教練
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.COMPOSER_INPUT).assertExists()
+    }
+
+    // N2: coming back from the background recomputes the strip at once.
+    @Test fun resumingRefreshesTheStrip() {
+        val owner = object : androidx.lifecycle.LifecycleOwner {
+            val reg = androidx.lifecycle.LifecycleRegistry.createUnsafe(this)
+            override val lifecycle get() = reg
+        }
+        owner.reg.currentState = androidx.lifecycle.Lifecycle.State.RESUMED
+        runBlocking {
+            rig.model.parse = { ModelReply.Ok(parsed("meal", item("給力盒子南加州烤雞腿"))) }
+            rig.engine.handle("吃了給力盒子南加州烤雞腿")
+        }
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(androidx.lifecycle.compose.LocalLifecycleOwner provides owner) {
+                FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) { CoachPage(rig.engine) }
+            }
+        }
+        rule.onNodeWithTag(Tags.COACH_STRIP).assertTextContains("今天剩 1071 大卡", substring = true)
+        // The page's own timer must not do the work here: only the resume may refresh.
+        rule.mainClock.autoAdvance = false
+        rule.runOnIdle { owner.reg.currentState = androidx.lifecycle.Lifecycle.State.CREATED }
+        rig.clock.advance(java.time.Duration.ofHours(12)) // the phone slept past the day start
+        rule.runOnIdle {
+            owner.reg.currentState = androidx.lifecycle.Lifecycle.State.RESUMED
+            // The resume itself recomputed the strip (no frame or timer needed).
+            org.junit.Assert.assertEquals(1700, rig.engine.ui.value.strip.remainingKcal)
+        }
     }
 
     private fun assertNoLatin(root: SemanticsNode) {

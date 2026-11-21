@@ -25,8 +25,16 @@ object CoachReplies {
     fun isCraving(text: String): Boolean = CRAVING_WORDS.any { text.contains(it) } && ATE_WORDS.none { text.contains(it) }
 
     /** Offline, a sentence may be recorded from the table only if it plainly says one portion was eaten: no count, no 沒/不, no question, no craving. */
-    fun plainReport(text: String): Boolean =
-        !COUNT.containsMatchIn(text) && !NEGATION.containsMatchIn(text) && !QUESTION.containsMatchIn(text) && CRAVING_WORDS.none { text.contains(it) }
+    fun plainReport(text: String, table: List<FoodEntry> = emptyList()): Boolean {
+        // A numeral inside a table food's own name (三明治, 三杯雞) is not a count.
+        var t = FoodTable.normalize(text)
+        table.flatMap { listOf(it.name) + it.aliases }.map(FoodTable::normalize).filter { it.length >= 2 }.sortedByDescending { it.length }
+            .forEach { t = t.replace(it, "") }
+        return plainReportOf(t, text)
+    }
+
+    private fun plainReportOf(stripped: String, text: String): Boolean =
+        !COUNT.containsMatchIn(stripped) && !NEGATION.containsMatchIn(text) && !QUESTION.containsMatchIn(text) && CRAVING_WORDS.none { text.contains(it) }
     val ILL_WORDS = listOf("頭暈", "不舒服", "想吐", "昏倒", "心悸", "發燒", "胸悶", "暈倒", "頭痛", "肚子痛")
     val CRAVING_WORDS = listOf("想吃", "要吃", "可以吃", "能吃", "想點", "要點", "可不可以", "能不能", "想喝", "要喝")
 

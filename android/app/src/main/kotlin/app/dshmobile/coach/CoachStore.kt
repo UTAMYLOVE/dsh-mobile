@@ -15,6 +15,11 @@ class CoachStore(private val dir: File, private val clock: () -> Long = System::
     private val stateFile = File(dir, "state.json")
     private val messagesFile = File(dir, "messages.jsonl")
 
+    /** True when an unreadable state file could not be kept aside: nothing is written over it. */
+    // Declared before [_state]: loadState() (its initializer) may set it.
+    var frozen = false
+        private set
+
     private val _state = MutableStateFlow(loadState())
     val state: StateFlow<CoachState> = _state.asStateFlow()
 
@@ -36,7 +41,10 @@ class CoachStore(private val dir: File, private val clock: () -> Long = System::
         var read = read(stateFile)
         if (read == null && stateFile.isFile) {
             read = read(tmp)
-            if (read == null) stateFile.renameTo(File(dir, "state.json.bad-${clock()}"))
+            if (read == null && !keepAside(stateFile)) {
+                // The unreadable file could not be kept aside: never write over it; this run keeps its records in memory only.
+                frozen = true
+            }
         } else if (read == null && tmp.isFile) {
             // A crash between deleting the old file and renaming the new one leaves only the temp file.
             read = read(tmp)
@@ -62,7 +70,14 @@ class CoachStore(private val dir: File, private val clock: () -> Long = System::
         }
     }
 
-    private fun write(s: CoachState): Boolean = runCatching {
+    /** Moves (or else copies) an unreadable state file aside; false when neither worked. */
+    private fun keepAside(f: File): Boolean {
+        val t = clock()
+        if (f.renameTo(File(dir, "state.json.bad-$t"))) return true
+        return runCatching { f.copyTo(File(dir, "state.json.bad-$t-copy")); true }.getOrDefault(false)
+    }
+
+    private fun write(s: CoachState): Boolean = !frozen && runCatching {
         dir.mkdirs()
         val tmp = File(dir, "state.json.tmp")
         tmp.writeText(CoachJson.encode(s).toString())
