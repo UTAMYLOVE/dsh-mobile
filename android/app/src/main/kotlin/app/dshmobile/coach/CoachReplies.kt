@@ -64,7 +64,11 @@ object CoachReplies {
     }
 
     fun itemLine(i: MealItem, marginPct: Int): String {
-        val src = if (i.source == KcalSource.ESTIMATE) "估算，${marginWords(marginPct)}" else sourceShort(i)
+        val src = when {
+            i.zeroCal && i.kcal == 0 -> "零卡飲料"
+            i.source == KcalSource.ESTIMATE -> "估算，${marginWords(marginPct)}"
+            else -> sourceShort(i)
+        }
         return "記下：${amount(i.name, i.portion)} ${i.kcal} 大卡（$src）。"
     }
 

@@ -90,7 +90,8 @@ class AgencyTest {
 
     @Test fun aCravingOver700IsRefusedEvenWhenItFits() {
         val r = say("想吃牛肉麵", parsed("craving", item("牛肉麵", low = 600, high = 700)))
-        assertEquals("這份大約 770 大卡，單餐不准超過 700 大卡。點之前先把菜單傳來，我來選。", r)
+        // M4: still below the floor, so it also says how much he must eat and what (the planned 629 fits under 700).
+        assertEquals("這份大約 770 大卡，單餐不准超過 700 大卡。今天至少還要吃 1200 大卡。晚餐吃給力盒子南加州烤雞腿。", r)
     }
 
     @Test fun friedOnANormalDayIsABreachNamedAsTheHolidayMeal() {
@@ -314,5 +315,136 @@ class AgencyTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    // ---- review 1 fixes ----
+
+    private fun atStep(step: BaselineStep) {
+        rig.store.update { it.copy(baseline = Baseline(step = step)) }
+    }
+
+    @Test fun i1AMealWithNumbersDuringTheBodyQuestionIsAMeal() {
+        atStep(BaselineStep.BODY)
+        val r = say("晚餐吃了 2 個雞腿 150 元", parsed("meal", item("雞腿", 2.0, low = 200, high = 250)))
+        assertTrue(r, r.contains("記下：雞腿"))
+        assertNull(rig.store.state.value.baseline!!.heightCm)
+        assertEquals(168.0, rig.settings.profile.heightCm, 0.0)
+        assertEquals(BaselineStep.BODY, rig.store.state.value.baseline!!.step)
+    }
+
+    @Test fun i1ATrainingReportDuringTheBodyQuestionIsTraining() {
+        atStep(BaselineStep.BODY)
+        say("肌力 3 輪做完了，伏地挺身 30 下")
+        assertTrue(rig.store.state.value.weights.isEmpty())
+        assertEquals(1, rig.store.state.value.trainings.size)
+        assertNull(rig.store.state.value.baseline!!.weightKg)
+    }
+
+    @Test fun i1NotRightIsNotAConfirm() {
+        atStep(BaselineStep.BODY)
+        say("不對")
+        assertNull(rig.store.state.value.baseline!!.heightCm)
+        assertEquals(BaselineStep.BODY, rig.store.state.value.baseline!!.step)
+    }
+
+    @Test fun i1AMealDuringThePlankQuestionIsAMeal() {
+        atStep(BaselineStep.PLANK)
+        val r = say("晚餐吃了給力盒子 629", parsed("meal", item("給力盒子南加州烤雞腿")))
+        assertTrue(r, r.contains("629 大卡"))
+        assertNull(rig.store.state.value.baseline!!.plankSec)
+        assertEquals(1, rig.store.state.value.meals.size)
+    }
+
+    @Test fun i1WaitAMinuteIsNotPushUps() {
+        atStep(BaselineStep.PUSHUPS)
+        say("等一下 10 分鐘")
+        assertNull(rig.store.state.value.baseline!!.pushups)
+        assertEquals(BaselineStep.PUSHUPS, rig.store.state.value.baseline!!.step)
+    }
+
+    @Test fun i1LaterLateNightIsNotASkip() {
+        atStep(BaselineStep.PUSHUPS)
+        say("晚點再吃宵夜")
+        assertEquals(BaselineStep.PUSHUPS, rig.store.state.value.baseline!!.step)
+        assertTrue(rig.store.state.value.baseline!!.skipped.isEmpty())
+    }
+
+    @Test fun i1StrictAnswersStillWork() {
+        assertEquals(170.0 to 79.5, BaselineAnswers.body("身高 170 體重 79.5"))
+        assertEquals(170.0 to 79.5, BaselineAnswers.body("170 79.5"))
+        assertEquals(170.0 to 79.5, BaselineAnswers.body("170公分 79.5公斤"))
+        assertEquals(null to 79.5, BaselineAnswers.body("體重 79.5"))
+        assertNull(BaselineAnswers.body("晚餐 150 元"))
+        assertNull(BaselineAnswers.body("150 2"))
+        assertEquals(25, BaselineAnswers.pushups("伏地挺身 25 下"))
+        assertEquals(25, BaselineAnswers.pushups("25"))
+        assertEquals(20, BaselineAnswers.pushups("二十下"))
+        assertNull(BaselineAnswers.pushups("等一下 10 分鐘"))
+        assertEquals(90, BaselineAnswers.plank("棒式 90 秒"))
+        assertEquals(90, BaselineAnswers.plank("1 分 30 秒"))
+        assertEquals(90, BaselineAnswers.plank("一分半"))
+        assertEquals(60, BaselineAnswers.plank("60"))
+        assertNull(BaselineAnswers.plank("晚餐吃了給力盒子 629"))
+    }
+
+    @Test fun i2AConfirmKeepsHisLatestWeight() {
+        rig.store.update { it.copy(weights = listOf(WeightEntry("w1", rig.clock.millis() - 3_600_000, "2026-11-21", 79.6, null))) }
+        val goalBefore = rig.engine.ui.value.strip.nextGoalKg
+        rig.engine.startOnboarding()
+        assertTrue(rig.store.messages.value.last().text.contains("體重 79.6 公斤"))
+        say("對")
+        assertEquals(79.6, rig.store.state.value.baseline!!.weightKg!!, 0.0)
+        assertEquals(1, rig.store.state.value.weights.size)
+        assertEquals(goalBefore, rig.engine.ui.value.strip.nextGoalKg)
+        assertEquals(80.0, rig.settings.profile.startWeightKg, 0.0)
+    }
+
+    @Test fun i3AMealThatAlsoReportsTrainingRecordsBoth() {
+        say("吃了雞胸，肌力三輪做完了", parsed("meal", item("雞胸", low = 150, high = 200)))
+        assertEquals(1, rig.store.state.value.meals.size)
+        assertEquals(3, rig.store.state.value.trainings.single().rounds)
+    }
+
+    @Test fun i3NegatedTrainingIsNeverDone() {
+        listOf("訓練還沒做完", "肌力做了一半", "今天沒做完訓練").forEach { t ->
+            say(t)
+            say(t, """{"kind":"training"}""")
+        }
+        assertTrue(rig.store.state.value.trainings.isEmpty())
+        assertEquals(false, rig.engine.ui.value.card.slots.first { it.key == "training" }.done)
+    }
+
+    @Test fun m1TheParsePromptListsTraining() {
+        assertTrue(MealParse.SYSTEM.contains("food_info 或 training 或 chat"))
+    }
+
+    @Test fun m2AZeroCalDrinkWithoutAnEstimateStillCounts() {
+        repeat(3) { say("喝了零卡可樂", parsed("meal", item("零卡可樂"))) }
+        assertEquals(3, AgencyRules.zeroCalThisWeek(rig.store.state.value.meals, LocalDate.of(2026, 11, 21)))
+        assertTrue(say("喝了零卡可樂", parsed("meal", item("零卡可樂"))).contains("第 4 瓶"))
+    }
+
+    @Test fun m3OneSittingReportedInTwoPartsIsOneMeal() {
+        say("吃了便當", parsed("meal", item("便當", low = 400, high = 454)))
+        rig.clock.advance(java.time.Duration.ofMinutes(10))
+        val r = say("又吃了滷味", parsed("meal", item("滷味", low = 300, high = 363)))
+        assertTrue(r, r.contains("單餐超過 700 大卡"))
+    }
+
+    @Test fun m3TwoMealsAnHourApartAreTwoMeals() {
+        say("吃了便當", parsed("meal", item("便當", low = 400, high = 454)))
+        rig.clock.advance(java.time.Duration.ofMinutes(60))
+        val r = say("吃了滷味", parsed("meal", item("滷味", low = 300, high = 363)))
+        assertFalse(r, r.contains("單餐超過 700 大卡"))
+    }
+
+    @Test fun m5NoStringSaysTheOldCheatMealWord() {
+        val xml = File("src/main/res/values/strings.xml").readText()
+        assertFalse(xml.contains("放縱餐"))
+    }
+
+    @Test fun m7TheWelcomeSaysTheCompanyWasFounded() {
+        rig.engine.startOnboarding()
+        assertTrue(rig.store.messages.value.single().text.startsWith("公司成立了："))
     }
 }

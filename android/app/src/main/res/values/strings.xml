@@ -236,7 +236,6 @@
     <string name="coach_save">儲存</string>
     <string name="coach_saved">存好了。</string>
     <string name="coach_delete">刪除</string>
-    <string name="coach_set_cheat">放縱餐日</string>
     <string name="coach_weekday">星期%1$s</string>
     <string name="coach_set_open">打開應用程式先看練習生證</string>
     <string name="coach_set_open_hint">關掉就跟以前一樣先進聊天</string>
@@ -256,6 +255,9 @@
     <string name="coach_num_minutes">截圖期限（分鐘）</string>
     <string name="coach_num_day_start">一天從幾點開始算（0 到 8）</string>
     <string name="coach_num_floor_note">每日大卡是公司規章，最低 1200，誰都不會叫你吃更少。</string>
+    <string name="agency_card_line">%1$s ・ 入社第 %2$d 天 ・ 今日違規 %3$d ・ %4$s</string>
+    <string name="agency_card_line_left">剩 %1$d 大卡</string>
+    <string name="agency_card_line_over">超過 %1$d 大卡</string>
     <string name="agency_card_title">%1$s ・ 練習生證</string>
     <string name="agency_card_id">練習生 第 %1$s 號 ・ 等級：%2$s ・ 入社第 %3$d 天</string>
     <string name="agency_card_schedule">今日行程</string>

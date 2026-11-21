@@ -42,7 +42,7 @@ object MealParse {
     val SYSTEM = """
 你是資料整理員，不是教練。只輸出一個 JSON 物件，不要任何其他文字、不要程式碼框。
 把對話裡「最後一句我說的話」整理成下面的格式：
-{"kind":"meal 或 craving 或 weight 或 food_info 或 chat",
+{"kind":"meal 或 craving 或 weight 或 food_info 或 training 或 chat",
  "items":[{"name":"照我說的品名","portion":份數,"fried":是不是炸的,"zero_cal":是不是零卡飲料,"kcal_low":你估的最低大卡,"kcal_high":你估的最高大卡,"protein_low":最低蛋白質克數,"protein_high":最高蛋白質克數}],
  "weight_kg":體重或null,"waist_cm":腰圍或null,
  "food_info":{"name":品名或null,"kcal":標示上的大卡或null,"protein_g":標示上的蛋白質或null,"confirm":我是不是只說「對」「就這份」},

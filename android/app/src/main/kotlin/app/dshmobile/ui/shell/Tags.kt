@@ -73,6 +73,7 @@ object Tags {
     const val BAR_COACH = "bar-coach"
     const val BAR_FREE_CHAT = "bar-free-chat"
     const val AGENCY_CARD = "agency-card"
+    const val AGENCY_CARD_LINE = "agency-card-line"
     const val AGENCY_SLOT = "agency-slot-"
     const val AGENCY_VIOLATIONS = "agency-violations"
     const val AGENCY_REOPEN = "agency-reopen"

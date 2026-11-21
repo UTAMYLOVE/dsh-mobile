@@ -78,13 +78,13 @@ class CoachPageTest {
         rig.model.parse = { ModelReply.Ok(parsed("meal", item("給力盒子南加州烤雞腿"))) }
         show()
         rule.onNodeWithTag(Tags.COACH_PAGE).assertExists()
-        rule.onNodeWithTag(Tags.COACH_STRIP).assertTextContains("今天剩 1700 大卡", substring = true)
+        rule.onNodeWithTag(Tags.COACH_STRIP, useUnmergedTree = true).assertTextContains("今天剩 1700 大卡", substring = true)
         rule.onNodeWithTag(Tags.COMPOSER_INPUT).performTextInput("我吃了給力盒子南加州烤雞腿")
         rule.onNodeWithTag(Tags.SEND).assertIsEnabled().performClick()
         // The 經紀人's 入社建檔 welcome, the owner's message and the reply.
         rule.waitUntil(5_000) { rig.store.messages.value.size == 3 }
         rule.waitForIdle()
-        rule.onNodeWithTag(Tags.COACH_STRIP).assertTextContains("今天剩 1071 大卡", substring = true)
+        rule.onNodeWithTag(Tags.COACH_STRIP, useUnmergedTree = true).assertTextContains("今天剩 1071 大卡", substring = true)
         val reply = rig.store.messages.value.last()
         rule.onNodeWithTag(Tags.COACH_MSG + reply.id).assertTextContains("629 大卡", substring = true)
     }
@@ -201,7 +201,7 @@ class CoachPageTest {
                 FogTheme(effectsFor(EffectLevel.SAVER, reducedMotion = true)) { CoachPage(rig.engine) }
             }
         }
-        rule.onNodeWithTag(Tags.COACH_STRIP).assertTextContains("今天剩 1071 大卡", substring = true)
+        rule.onNodeWithTag(Tags.COACH_STRIP, useUnmergedTree = true).assertTextContains("今天剩 1071 大卡", substring = true)
         // The page's own timer must not do the work here: only the resume may refresh.
         rule.mainClock.autoAdvance = false
         rule.runOnIdle { owner.reg.currentState = androidx.lifecycle.Lifecycle.State.CREATED }
@@ -217,20 +217,20 @@ class CoachPageTest {
     @Test fun theTraineeCardShowsTheDayTheScheduleAndTheViolations() {
         rig.model.parse = { ModelReply.Ok(parsed("meal", item("炸臭豆腐一盤", fried = true))) }
         show()
-        rule.onNodeWithText("小雨娛樂 ・ 練習生證").assertExists()
-        rule.onNodeWithText("練習生 第 001 號 ・ 等級：練習生 C ・ 入社第 1 天").assertExists()
+        rule.onNodeWithText("小雨娛樂 ・ 練習生證", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("練習生 第 001 號 ・ 等級：練習生 C ・ 入社第 1 天", useUnmergedTree = true).assertExists()
         // Saturday: no lunch slot.
-        rule.onNodeWithTag(Tags.AGENCY_SLOT + "lunch").assertDoesNotExist()
-        rule.onNodeWithTag(Tags.AGENCY_SLOT + "dinner").assertTextContains("○ 17:30 晚餐")
-        rule.onNodeWithTag(Tags.AGENCY_VIOLATIONS).assertTextContains("今日違規：0")
+        rule.onNodeWithTag(useUnmergedTree = true, testTag = Tags.AGENCY_SLOT + "lunch").assertDoesNotExist()
+        rule.onNodeWithTag(useUnmergedTree = true, testTag = Tags.AGENCY_SLOT + "dinner").assertTextContains("○ 17:30 晚餐")
+        rule.onNodeWithTag(Tags.AGENCY_VIOLATIONS, useUnmergedTree = true).assertTextContains("今日違規：0")
         rule.onNodeWithTag(Tags.COMPOSER_INPUT).performTextInput("吃了炸臭豆腐")
         rule.onNodeWithTag(Tags.SEND).performClick()
         rule.waitUntil(5_000) { rig.store.messages.value.size == 3 }
         rule.waitForIdle()
-        rule.onNodeWithTag(Tags.AGENCY_SLOT + "dinner").assertTextContains("✓ 17:30 晚餐")
-        rule.onNodeWithTag(Tags.AGENCY_VIOLATIONS).assertTextContains("今日違規：1")
+        rule.onNodeWithTag(useUnmergedTree = true, testTag = Tags.AGENCY_SLOT + "dinner").assertTextContains("✓ 17:30 晚餐")
+        rule.onNodeWithTag(Tags.AGENCY_VIOLATIONS, useUnmergedTree = true).assertTextContains("今日違規：1")
         rule.onNodeWithTag(Tags.AGENCY_ROLE + rig.store.messages.value.last().id).assertTextContains("【體態管理老師】")
-        rule.onNodeWithText("入社資料缺 5 項").assertExists()
+        rule.onNodeWithText("入社資料缺 5 項", useUnmergedTree = true).assertExists()
     }
 
     @Test fun theSettingsShowTheRulesAndTheCompanyNameChangesTheBar() {
@@ -247,6 +247,37 @@ class CoachPageTest {
         rule.waitForIdle()
         org.junit.Assert.assertEquals("雨夜娛樂", rig.settings.companyName)
         rule.onNode(androidx.compose.ui.test.hasText("雨夜娛樂") and androidx.compose.ui.test.hasAnyAncestor(androidx.compose.ui.test.hasTestTag(Tags.SHELL_HEADER))).assertExists()
+    }
+
+    // The fold: one line once 入社資料 is complete; a tap opens it; it opens by itself while 入社資料 is missing.
+    @Test fun theCardIsOneLineOnceTheBaselineIsCompleteAndATapOpensIt() {
+        rig.store.update { it.copy(baseline = app.dshmobile.coach.Baseline(168.0, 80.0, "p.jpg", "r.m4a", 20, 60)) }
+        show()
+        rule.onNodeWithTag(Tags.AGENCY_CARD_LINE, useUnmergedTree = true).assertTextContains("小雨娛樂 ・ 入社第 1 天 ・ 今日違規 0 ・ 剩 1700 大卡")
+        rule.onNodeWithTag(Tags.COACH_STRIP, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag(Tags.AGENCY_CARD).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.AGENCY_CARD_LINE, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag(Tags.COACH_STRIP, useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag(Tags.AGENCY_CARD).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.AGENCY_CARD_LINE, useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun theCardOpensByItselfWhileTheBaselineIsMissing() {
+        show()
+        rule.onNodeWithTag(Tags.AGENCY_CARD_LINE, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithText("入社資料缺 5 項", useUnmergedTree = true).assertExists()
+    }
+
+    // M6: the picked file keeps its own extension.
+    @Test fun aHandedInFileKeepsItsOwnExtension() {
+        val shadow = org.robolectric.Shadows.shadowOf(android.webkit.MimeTypeMap.getSingleton())
+        shadow.addExtensionMimeTypeMapping("heic", "image/heic")
+        shadow.addExtensionMimeTypeMapping("mp3", "audio/mpeg")
+        org.junit.Assert.assertEquals("heic", baselineExtension("image/heic", "jpg"))
+        org.junit.Assert.assertEquals("mp3", baselineExtension("audio/mpeg", "m4a"))
+        org.junit.Assert.assertEquals("jpg", baselineExtension(null, "jpg"))
     }
 
     private fun assertNoLatin(root: SemanticsNode) {

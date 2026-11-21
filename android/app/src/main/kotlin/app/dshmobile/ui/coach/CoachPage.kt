@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -58,7 +59,7 @@ fun CoachPage(engine: CoachEngine) {
     fun handIn(step: BaselineStep, uri: android.net.Uri?, ext: String) {
         if (uri == null) return
         scope.launch {
-            val name = "${if (step == BaselineStep.PHOTO) "photo" else "recording"}-${System.currentTimeMillis()}.$ext"
+            val name = "${if (step == BaselineStep.PHOTO) "photo" else "recording"}-${System.currentTimeMillis()}.${baselineExtension(context.contentResolver.getType(uri), ext)}"
             val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.openInputStream(uri)!!.use { input ->
@@ -158,15 +159,30 @@ private fun MessageBubble(m: CoachMessage) {
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun TraineeCardView(c: TraineeCard, s: Strip, onReopen: () -> Unit, onPhoto: () -> Unit, onRecording: () -> Unit) {
+    // Folded to one line by default (the conversation is the main surface); it opens by itself only while 入社資料 is missing
+    // or a 入社建檔 question is open. A tap folds or unfolds it, and the choice is remembered.
+    val auto = c.baselineMissing.isNotEmpty() || c.asking != null
+    var chosen by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<Boolean?>(null) }
+    val open = chosen ?: auto
     Column(
         Modifier
             .fillMaxWidth()
             .background(Sakura.White.copy(alpha = .82f), StripShape)
             .border(1.dp, Sakura.Primary.copy(alpha = .6f), StripShape)
+            .clickable { chosen = !open }
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .testTag(Tags.AGENCY_CARD),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        if (!open) {
+            val kcal = if (s.overBy > 0) stringResource(R.string.agency_card_line_over, s.overBy) else stringResource(R.string.agency_card_line_left, s.remainingKcal)
+            Text(
+                stringResource(R.string.agency_card_line, c.company, c.dayNumber, c.violations, kcal),
+                color = Sakura.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = 20.sp,
+                modifier = Modifier.testTag(Tags.AGENCY_CARD_LINE),
+            )
+            return@Column
+        }
         Text(stringResource(R.string.agency_card_title, c.company), color = Sakura.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         Text(stringResource(R.string.agency_card_id, c.number, c.level, c.dayNumber), color = Sakura.Text, fontSize = 13.sp)
         androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -205,3 +221,7 @@ private fun CardButton(label: String, tag: String, onClick: () -> Unit) {
             .testTag(tag),
     )
 }
+
+/** The picked file's own extension (HEIC, MP3, WAV…) from its type; [fallback] when the type is unknown. */
+internal fun baselineExtension(mime: String?, fallback: String): String =
+    mime?.let { android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,5}")) } ?: fallback

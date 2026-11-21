@@ -187,7 +187,11 @@ class CoachEngine(
         // The kind is not left to the model alone: 「想吃…」 without 「吃了」 is a craving, whatever it says.
         if (parsed.kind == "meal" && CoachReplies.isCraving(text)) parsed = parsed.copy(kind = "craving")
         // A training report is not left to the model either: 「肌力三輪做完了」 is training whatever it says.
-        if (parsed.kind != "training" && isTrainingReport(text)) parsed = parsed.copy(kind = "training")
+        // Only a message the model calls talk becomes a training report; a meal or weight that also reports training runs both.
+        val alsoTraining = isTrainingReport(text)
+        if (parsed.kind == "chat" && alsoTraining) parsed = parsed.copy(kind = "training")
+        // 「訓練還沒做完」: not a report, whatever the model says.
+        if (parsed.kind == "training" && NOT_DONE.any { text.contains(it) }) parsed = parsed.copy(kind = "chat")
         // A number the owner did not write himself never becomes a weight or a label value (the model must not invent one).
         parsed = parsed.copy(
             weightKg = CoachNumbers.ownersOnly(parsed.weightKg, text),
@@ -201,14 +205,16 @@ class CoachEngine(
         val lines = mutableListOf<String>()
         when (parsed.kind) {
             "meal" -> {
-                if (parsed.items.isEmpty() && parsed.weightKg == null) return CoachReplies.NOT_UNDERSTOOD to "meal"
+                if (parsed.items.isEmpty() && parsed.weightKg == null && !alsoTraining) return CoachReplies.NOT_UNDERSTOOD to "meal"
                 if (parsed.items.isNotEmpty()) lines += meal(text, parsed.items, illness)
                 parsed.weightKg?.let { lines += weight(it, parsed.waistCm) }
+                if (alsoTraining) lines += training(CoachNumbers.ownersOnly(parsed.rounds?.toDouble(), text)?.toInt() ?: roundsIn(text))
             }
             "weight" -> {
                 val kg = parsed.weightKg ?: return "沒聽到體重。說「今天體重 79.5」。" to "weight"
                 lines += weight(kg, parsed.waistCm)
                 if (parsed.items.isNotEmpty()) lines += meal(text, parsed.items, illness)
+                if (alsoTraining) lines += training(CoachNumbers.ownersOnly(parsed.rounds?.toDouble(), text)?.toInt() ?: roundsIn(text))
             }
             "craving" -> {
                 if (illness) return chat(text, history, illness, lowIntake, null, AgencyRole.BODY) to "craving"
@@ -255,6 +261,8 @@ class CoachEngine(
                     pending += PendingFood(mealId, counted.size, item.name, item.kcal, now)
                     counted += item
                 }
+                // A zero-calorie drink needs no estimate: it is 0 kcal and still counts toward the weekly three.
+                zero -> counted += MealItem(it0.name, it0.portion, 0, 0.0, 0.0, 0.0, fried = false, source = KcalSource.ESTIMATE, zeroCal = true)
                 else -> lines += CoachReplies.noEstimate(it0.name)
             }
         }
@@ -265,7 +273,10 @@ class CoachEngine(
         val zeroAfter = zeroBefore + counted.filter { it.zeroCal }.sumOf { kotlin.math.ceil(it.portion - 1e-9).toInt() }
         val breaches = buildList {
             if (fried && !cheat) add(Breach.FRIED)
-            if (counted.sumOf { it.kcal } > AgencyRules.MEAL_MAX_KCAL) add(Breach.OVER700)
+            // One sitting may be reported in parts: meals within [AgencyRules.SITTING_MINUTES] count together.
+            val sitting = store.state.value.meals.filter { it.day == today.toString() && now - it.at in 0..AgencyRules.SITTING_MINUTES * 60_000L }
+            val alreadyFlagged = sitting.any { Breach.OVER700.name in it.breaches }
+            if (!alreadyFlagged && sitting.sumOf { it.kcal } + counted.sumOf { it.kcal } > AgencyRules.MEAL_MAX_KCAL) add(Breach.OVER700)
             if (zeroAfter > AgencyRules.ZERO_CAL_PER_WEEK && zeroAfter > zeroBefore) add(Breach.ZEROCAL)
         }
         val m = Meal(mealId, now, today.toString(), text.take(200), counted, cheat = cheat, offPlan = breaches.isNotEmpty(), breaches = breaches.map { it.name })
@@ -334,7 +345,10 @@ class CoachEngine(
             remaining == 0 -> listOf("今天剩 0 大卡，不准再點。")
             kcal > remaining -> listOf("這份大約 $kcal 大卡，今天剩 $remaining 大卡，不准再點。" + floorLine(eaten, remaining, word, p, FoodTable.lookup(s.food, p.plannedMeal)))
             // 一次不要吃到撐: a single meal above 700 kcal is refused even when it fits what is left (休假餐 included).
-            kcal > AgencyRules.MEAL_MAX_KCAL -> listOf("這份大約 $kcal 大卡，單餐不准超過 ${AgencyRules.MEAL_MAX_KCAL} 大卡。點之前先把菜單傳來，我來選。")
+            kcal > AgencyRules.MEAL_MAX_KCAL -> listOf(
+                "這份大約 $kcal 大卡，單餐不准超過 ${AgencyRules.MEAL_MAX_KCAL} 大卡。" +
+                    (floorLine(eaten, minOf(remaining, AgencyRules.MEAL_MAX_KCAL), word, p, FoodTable.lookup(s.food, p.plannedMeal)).ifEmpty { menuLine(remaining) }),
+            )
             else -> listOf("可以。吃了今天會剩 ${remaining - kcal} 大卡。吃完回報，$deadline")
         }
     }
@@ -430,7 +444,8 @@ class CoachEngine(
     private fun roleFor(kind: String?): AgencyRole = AgencyRole.forKind(kind)
 
     private fun isTrainingReport(text: String): Boolean =
-        TRAINING_WORDS.any { text.contains(it) } && DONE_WORDS.any { text.contains(it) } && !CoachReplies.isCraving(text)
+        TRAINING_WORDS.any { text.contains(it) } && DONE_WORDS.any { text.contains(it) } && NOT_DONE.none { text.contains(it) } &&
+            !CoachReplies.isCraving(text)
 
     /** 「肌力三輪做完了」: recorded; [rounds] only when the owner wrote the number. No exercise is ever suggested. */
     private fun training(rounds: Int?): List<String> {
@@ -506,14 +521,14 @@ class CoachEngine(
 
     private fun welcome(): String {
         val days = AgencyRules.dayNumber(settings.joinDate, today()).coerceAtLeast(1)
-        return "歡迎加入${settings.companyName}。你是公司唯一的練習生，編號 ${AgencyRules.TRAINEE_NO}，等級${AgencyRules.LEVEL}，今天是入社第 $days 天。" +
+        return "公司成立了：\n歡迎加入${settings.companyName}。你是公司唯一的練習生，編號 ${AgencyRules.TRAINEE_NO}，等級${AgencyRules.LEVEL}，今天是入社第 $days 天。" +
             "入社第一件事：建檔。這是以後每次評鑑的比較基準。"
     }
 
     private fun question(step: BaselineStep): String {
         val p = settings.profile
         return when (step) {
-            BaselineStep.BODY -> "先確認身高 ${CoachRules.kg(p.heightCm)} 公分、體重 ${CoachRules.kg(p.startWeightKg)} 公斤。對就回「對」，不對就打「身高 168 體重 79.5」。現在不做就回「跳過」。"
+            BaselineStep.BODY -> "先確認身高 ${CoachRules.kg(p.heightCm)} 公分、體重 ${CoachRules.kg(store.state.value.weights.maxByOrNull { it.at }?.kg ?: p.startWeightKg)} 公斤。對就回「對」，不對就打「身高 168 體重 79.5」。現在不做就回「跳過」。"
             BaselineStep.PHOTO -> "交一張全身照：站直、正面，手機放在固定的位置，以後每個月都在同一個位置拍。按練習生證上的「交全身照」。現在不做就回「跳過」。"
             BaselineStep.RECORDING -> "交一段清唱錄音。按練習生證上的「交清唱錄音」。現在不做就回「跳過」。"
             BaselineStep.PUSHUPS -> "體能測驗第一項：伏地挺身，做到做不動為止。做完打「伏地挺身 幾下」。現在不做就回「跳過」。"
@@ -545,33 +560,33 @@ class CoachEngine(
     private fun baselineAnswer(text: String): Pair<String, String>? {
         val b = store.state.value.baseline ?: return null
         val step = b.step ?: return null
-        val t = text.trim()
-        if (SKIP_WORDS.any { t.contains(it) } && t.length <= 12) {
+        // Strict, per step: anything that is not plainly an answer goes through the normal flow and the question stays open.
+        val t = text.trim().trimEnd('。', '！', '!', '.', '～', '~').trim()
+        if (t in SKIP_PHRASES) {
             return advance(b.copy(skipped = b.skipped + step), "好，${BASELINE_ZH.getValue(step)}之後補交。") to "baseline"
         }
-        val nums = CoachNumbers.all(t)
         return when (step) {
             BaselineStep.BODY -> {
                 val p = settings.profile
-                val confirm = t.length <= 8 && CONFIRM_WORDS.any { t.contains(it) } && nums.isEmpty()
-                val (h, w) = when {
-                    confirm -> p.heightCm to p.startWeightKg
-                    nums.isNotEmpty() -> bodyNumbers(t, nums, p) ?: return null
-                    else -> return null
+                val latest = store.state.value.weights.maxByOrNull { it.at }?.kg
+                val (h, w) = if (t in CONFIRM_PHRASES) p.heightCm to (latest ?: p.startWeightKg) else BaselineAnswers.body(t) ?: return null
+                val height = h ?: p.heightCm
+                val weight = w ?: latest ?: p.startWeightKg
+                settings.profile = p.copy(heightCm = height)
+                // A weight he typed is a new reading; a confirm (or the same number again) adds nothing.
+                if (w != null && (latest == null || kotlin.math.abs(latest - w) > 1e-9)) {
+                    val now = clock.millis()
+                    store.update { it.copy(weights = it.weights + WeightEntry(UUID.randomUUID().toString(), now, today().toString(), w, null)) }
+                        ?: return CoachReplies.NOT_SAVED to "baseline"
                 }
-                settings.profile = p.copy(heightCm = h, startWeightKg = w)
-                val now = clock.millis()
-                store.update { it.copy(weights = it.weights + WeightEntry(UUID.randomUUID().toString(), now, today().toString(), w, null)) }
-                    ?: return CoachReplies.NOT_SAVED to "baseline"
-                advance(b.copy(heightCm = h, weightKg = w), "記下：身高 ${CoachRules.kg(h)} 公分、體重 ${CoachRules.kg(w)} 公斤。") to "baseline"
+                advance(b.copy(heightCm = height, weightKg = weight), "記下：身高 ${CoachRules.kg(height)} 公分、體重 ${CoachRules.kg(weight)} 公斤。") to "baseline"
             }
             BaselineStep.PUSHUPS -> {
-                val n = nums.firstOrNull { it >= 0 && it <= 500 && it == kotlin.math.floor(it) } ?: return null
-                if (!(t.contains("伏地挺身") || t.contains("下") || t.length <= 6)) return null
-                advance(b.copy(pushups = n.toInt()), "記下：伏地挺身 ${n.toInt()} 下。") to "baseline"
+                val n = BaselineAnswers.pushups(t) ?: return null
+                advance(b.copy(pushups = n), "記下：伏地挺身 $n 下。") to "baseline"
             }
             BaselineStep.PLANK -> {
-                val sec = plankSeconds(t) ?: return null
+                val sec = BaselineAnswers.plank(t) ?: return null
                 advance(b.copy(plankSec = sec), "記下：棒式 $sec 秒。") to "baseline"
             }
             // Photo and recording come through the card's buttons; text can only skip them.
@@ -579,48 +594,12 @@ class CoachEngine(
         }
     }
 
-    /** 「身高 170 體重 78」, 「170 78」, or only one of them (the other stays as set). */
-    private fun bodyNumbers(t: String, nums: List<Double>, p: CoachProfile): Pair<Double, Double>? {
-        fun after(word: String): Double? {
-            val i = t.indexOf(word)
-            if (i < 0) return null
-            return CoachNumbers.all(t.substring(i + word.length)).firstOrNull()
-        }
-        var h = after("身高")?.takeIf { it in 120.0..230.0 }
-        var w = after("體重")?.takeIf { it in 30.0..250.0 }
-        if (h == null && w == null) {
-            nums.forEach { n ->
-                if (h == null && n in 120.0..230.0 && nums.size > 1) h = n
-                else if (w == null && n in 30.0..250.0) w = n
-            }
-        }
-        if (h == null && w == null) return null
-        return (h ?: p.heightCm) to (w ?: p.startWeightKg)
-    }
-
-    /** 「棒式 90 秒」「1 分 30 秒」「一分半」「90」 → seconds (5 to 1800). */
-    private fun plankSeconds(t: String): Int? {
-        val compact = t.replace(" ", "")
-        val m = Regex("([0-9零〇一二兩三四五六七八九十百]+(?:\\.[0-9]+)?)分(?:鐘)?(半|([0-9零〇一二兩三四五六七八九十]+)秒?)?").find(compact)
-        val sec = if (m != null) {
-            val min = CoachNumbers.all(m.groupValues[1]).firstOrNull() ?: return null
-            val rest = when {
-                m.groupValues[2] == "半" -> 30.0
-                m.groupValues[3].isNotEmpty() -> CoachNumbers.all(m.groupValues[3]).firstOrNull() ?: 0.0
-                else -> 0.0
-            }
-            min * 60 + rest
-        } else {
-            CoachNumbers.all(compact).firstOrNull() ?: return null
-        }
-        return sec.toInt().takeIf { it in 5..1800 }
-    }
-
     companion object {
         private val TRAINING_WORDS = listOf("肌力", "訓練", "伏地挺身", "棒式", "深蹲")
         private val DONE_WORDS = listOf("做完", "練完", "做了", "練了", "完成")
-        private val SKIP_WORDS = listOf("跳過", "之後再", "晚點", "先不要", "下次", "等等再")
-        private val CONFIRM_WORDS = listOf("對", "沒錯", "確認", "是的", "正確")
+        private val SKIP_PHRASES = setOf("跳過", "先跳過", "之後補", "之後再補", "晚點補", "下次補", "跳過這個", "先不要")
+        private val CONFIRM_PHRASES = setOf("對", "對的", "沒錯", "確認", "是", "是的", "正確")
+        private val NOT_DONE = listOf("沒", "還沒", "一半", "不")
         val BASELINE_ZH = mapOf(
             BaselineStep.BODY to "身高體重", BaselineStep.PHOTO to "全身照", BaselineStep.RECORDING to "清唱錄音",
             BaselineStep.PUSHUPS to "伏地挺身", BaselineStep.PLANK to "棒式",
