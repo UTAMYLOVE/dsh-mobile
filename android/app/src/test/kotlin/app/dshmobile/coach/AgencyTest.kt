@@ -447,4 +447,40 @@ class AgencyTest {
         rig.engine.startOnboarding()
         assertTrue(rig.store.messages.value.single().text.startsWith("公司成立了："))
     }
+
+    // ---- review 2 ----
+
+    @Test fun a1APronounBeforeTheAnswerStillAnswers() {
+        assertEquals(170.0 to 78.0, BaselineAnswers.body("我身高 170 體重 78"))
+        assertEquals(null to 78.0, BaselineAnswers.body("我的體重 78"))
+        atStep(BaselineStep.BODY)
+        say("我身高 170 體重 78")
+        assertEquals(170.0, rig.store.state.value.baseline!!.heightCm!!, 0.0)
+    }
+
+    @Test fun a2OnlyANegatedActionStopsATrainingReport() {
+        say("肌力三輪做完了，累到不行")
+        say("沒問題，訓練做完了")
+        assertEquals(2, rig.store.state.value.trainings.size)
+        say("今天沒做完訓練")
+        say("訓練還沒做完")
+        assertEquals(2, rig.store.state.value.trainings.size)
+    }
+
+    @Test fun a3APlanToTrainIsTalk() {
+        val r = say("等等要去訓練", """{"kind":"training"}""")
+        assertTrue(rig.store.state.value.trainings.isEmpty())
+        assertEquals(AgencyRole.AGENT, rig.store.messages.value.last().role)
+        assertFalse(r, r.contains("記下：肌力"))
+    }
+
+    @Test fun a5ABareOneIsNotAPushUpCount() {
+        assertNull(BaselineAnswers.pushups("一下"))
+        assertEquals(10, BaselineAnswers.pushups("十下"))
+        assertEquals(25, BaselineAnswers.pushups("二十五下"))
+        assertEquals(1, BaselineAnswers.pushups("1"))
+        atStep(BaselineStep.PUSHUPS)
+        say("一下")
+        assertNull(rig.store.state.value.baseline!!.pushups)
+    }
 }

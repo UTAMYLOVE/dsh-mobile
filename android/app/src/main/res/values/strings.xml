@@ -258,6 +258,10 @@
     <string name="agency_card_line">%1$s ・ 入社第 %2$d 天 ・ 今日違規 %3$d ・ %4$s</string>
     <string name="agency_card_line_left">剩 %1$d 大卡</string>
     <string name="agency_card_line_over">超過 %1$d 大卡</string>
+    <string name="agency_card_expanded">已展開</string>
+    <string name="agency_card_collapsed">已收起</string>
+    <string name="agency_card_fold">收起練習生證</string>
+    <string name="agency_card_unfold">展開練習生證</string>
     <string name="agency_card_title">%1$s ・ 練習生證</string>
     <string name="agency_card_id">練習生 第 %1$s 號 ・ 等級：%2$s ・ 入社第 %3$d 天</string>
     <string name="agency_card_schedule">今日行程</string>

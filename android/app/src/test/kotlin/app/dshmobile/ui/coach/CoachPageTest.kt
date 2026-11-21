@@ -9,6 +9,7 @@ import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -268,6 +269,18 @@ class CoachPageTest {
         show()
         rule.onNodeWithTag(Tags.AGENCY_CARD_LINE, useUnmergedTree = true).assertDoesNotExist()
         rule.onNodeWithText("入社資料缺 5 項", useUnmergedTree = true).assertExists()
+    }
+
+    // A4: folded during 入社建檔 it still says what is missing, and TalkBack hears the state and the action.
+    @Test fun theFoldedCardSaysWhatIsMissingAndItsState() {
+        show()
+        rule.onNodeWithTag(Tags.AGENCY_CARD).assert(androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "已展開"))
+        rule.onNodeWithTag(Tags.AGENCY_CARD).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.AGENCY_CARD_LINE, useUnmergedTree = true).assertTextContains("・ 入社資料缺 5 項", substring = true)
+        val card = rule.onNodeWithTag(Tags.AGENCY_CARD)
+        card.assert(androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "已收起"))
+        org.junit.Assert.assertEquals("展開練習生證", card.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].label)
     }
 
     // M6: the picked file keeps its own extension.

@@ -120,7 +120,9 @@ object BaselineAnswers {
     private fun w(v: Double?) = v?.takeIf { it in 30.0..250.0 }
 
     /** (height, weight), either may be null when only the other was given; null when the message is not a body answer. */
-    fun body(t: String): Pair<Double?, Double?>? {
+    fun body(raw: String): Pair<Double?, Double?>? {
+        // 「我身高 170 體重 78」「我的體重 78」: a leading 我 / 我的 is part of a plain answer.
+        val t = raw.removePrefix("我的").removePrefix("我").trim()
         BOTH.find(t)?.let { m -> return (h(num(m.groupValues[1])) ?: return null) to (w(num(m.groupValues[2])) ?: return null) }
         BOTH_UNITS.find(t)?.let { m -> return (h(num(m.groupValues[1])) ?: return null) to (w(num(m.groupValues[2])) ?: return null) }
         BARE_TWO.find(t)?.let { m -> return (h(num(m.groupValues[1])) ?: return null) to (w(num(m.groupValues[2])) ?: return null) }
@@ -129,7 +131,9 @@ object BaselineAnswers {
         return null
     }
 
-    private val PUSHUPS = Regex("^(?:伏地挺身)?\\s*$N\\s*下?$")
+    /** Digits, 十, or at least two Chinese numerals: a bare 「一下」 is not a count. */
+    private const val COUNT = "([0-9]+|十|[零〇一二兩三四五六七八九十百]{2,})"
+    private val PUSHUPS = Regex("^(?:伏地挺身)?\\s*$COUNT\\s*下?$")
 
     fun pushups(t: String): Int? {
         val m = PUSHUPS.find(t) ?: return null

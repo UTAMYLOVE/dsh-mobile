@@ -190,8 +190,8 @@ class CoachEngine(
         // Only a message the model calls talk becomes a training report; a meal or weight that also reports training runs both.
         val alsoTraining = isTrainingReport(text)
         if (parsed.kind == "chat" && alsoTraining) parsed = parsed.copy(kind = "training")
-        // 「訓練還沒做完」: not a report, whatever the model says.
-        if (parsed.kind == "training" && NOT_DONE.any { text.contains(it) }) parsed = parsed.copy(kind = "chat")
+        // 「訓練還沒做完」「等等要去訓練」: not a report of training done, whatever the model says.
+        if (parsed.kind == "training" && !alsoTraining) parsed = parsed.copy(kind = "chat")
         // A number the owner did not write himself never becomes a weight or a label value (the model must not invent one).
         parsed = parsed.copy(
             weightKg = CoachNumbers.ownersOnly(parsed.weightKg, text),
@@ -444,7 +444,7 @@ class CoachEngine(
     private fun roleFor(kind: String?): AgencyRole = AgencyRole.forKind(kind)
 
     private fun isTrainingReport(text: String): Boolean =
-        TRAINING_WORDS.any { text.contains(it) } && DONE_WORDS.any { text.contains(it) } && NOT_DONE.none { text.contains(it) } &&
+        TRAINING_WORDS.any { text.contains(it) } && DONE_WORDS.any { text.contains(it) } && !NOT_DONE.containsMatchIn(text) &&
             !CoachReplies.isCraving(text)
 
     /** 「肌力三輪做完了」: recorded; [rounds] only when the owner wrote the number. No exercise is ever suggested. */
@@ -599,7 +599,8 @@ class CoachEngine(
         private val DONE_WORDS = listOf("做完", "練完", "做了", "練了", "完成")
         private val SKIP_PHRASES = setOf("跳過", "先跳過", "之後補", "之後再補", "晚點補", "下次補", "跳過這個", "先不要")
         private val CONFIRM_PHRASES = setOf("對", "對的", "沒錯", "確認", "是", "是的", "正確")
-        private val NOT_DONE = listOf("沒", "還沒", "一半", "不")
+        /** Negations of the action itself only (「累到不行」「沒問題」 are not). */
+        private val NOT_DONE = Regex("還沒(做|練)|沒(有)?(做|練)|不(做|練)|做(了)?一半|練(了)?一半")
         val BASELINE_ZH = mapOf(
             BaselineStep.BODY to "身高體重", BaselineStep.PHOTO to "全身照", BaselineStep.RECORDING to "清唱錄音",
             BaselineStep.PUSHUPS to "伏地挺身", BaselineStep.PLANK to "棒式",

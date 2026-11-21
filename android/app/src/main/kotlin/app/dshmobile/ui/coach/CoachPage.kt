@@ -23,6 +23,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -164,20 +166,24 @@ private fun TraineeCardView(c: TraineeCard, s: Strip, onReopen: () -> Unit, onPh
     val auto = c.baselineMissing.isNotEmpty() || c.asking != null
     var chosen by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<Boolean?>(null) }
     val open = chosen ?: auto
+    val expandedWord = stringResource(R.string.agency_card_expanded)
+    val collapsedWord = stringResource(R.string.agency_card_collapsed)
     Column(
         Modifier
             .fillMaxWidth()
             .background(Sakura.White.copy(alpha = .82f), StripShape)
             .border(1.dp, Sakura.Primary.copy(alpha = .6f), StripShape)
-            .clickable { chosen = !open }
+            .clickable(onClickLabel = stringResource(if (open) R.string.agency_card_fold else R.string.agency_card_unfold)) { chosen = !open }
+            .semantics { stateDescription = if (open) expandedWord else collapsedWord }
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .testTag(Tags.AGENCY_CARD),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (!open) {
             val kcal = if (s.overBy > 0) stringResource(R.string.agency_card_line_over, s.overBy) else stringResource(R.string.agency_card_line_left, s.remainingKcal)
+            val missing = if (c.baselineMissing.isNotEmpty()) " ・ " + stringResource(R.string.agency_card_baseline_missing, c.baselineMissing.size) else ""
             Text(
-                stringResource(R.string.agency_card_line, c.company, c.dayNumber, c.violations, kcal),
+                stringResource(R.string.agency_card_line, c.company, c.dayNumber, c.violations, kcal) + missing,
                 color = Sakura.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = 20.sp,
                 modifier = Modifier.testTag(Tags.AGENCY_CARD_LINE),
             )
