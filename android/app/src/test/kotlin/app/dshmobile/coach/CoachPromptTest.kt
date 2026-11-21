@@ -46,13 +46,6 @@ class CoachPromptTest {
         assertTrue(facts, facts.contains("不是放縱餐"))
     }
 
-    @Test fun noKeyEverReachesThePrompt() {
-        val vault = FakeVault(mutableMapOf("DEEPSEEK" to "sk-secret-key-123456"))
-        val (system, turns) = rig.engine.promptFor("嗯")
-        val all = system + turns.joinToString { t -> t.parts.joinToString { (it as Part.Text).text } }
-        assertFalse(all.contains(vault.get(app.dshmobile.gateway.Provider.DEEPSEEK)!!))
-    }
-
     @Test fun theGuardDropsInventedNumbersButKeepsDeadlines() {
         val facts = "剩 1071 大卡"
         assertEquals("30 分鐘內傳截圖。", NumberGuard.filter("30 分鐘內傳截圖。", facts, ""))

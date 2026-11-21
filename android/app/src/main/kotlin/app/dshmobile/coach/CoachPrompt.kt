@@ -14,6 +14,7 @@ object CoachPrompt {
     const val FACTS_CAP = 3000
     const val MEAL_LINES = 20
     const val SUMMARY_DAYS = 7
+    const val PENDING_LINES = 5
 
     val HARD_RULES = """
 【程式規則】
@@ -28,8 +29,8 @@ object CoachPrompt {
     val SYSTEM: String get() = COACH_SYSTEM_VERBATIM + "\n\n" + HARD_RULES
 
     /** The window of stored messages: the last [HISTORY], cut to [MSG_CAP], first turn the owner's, roles alternating. */
-    fun history(messages: List<CoachMessage>): List<Turn> {
-        val window = messages.takeLast(HISTORY).dropWhile { it.who != Speaker.OWNER }
+    fun history(messages: List<CoachMessage>, keep: Int = HISTORY): List<Turn> {
+        val window = messages.takeLast(keep).dropWhile { it.who != Speaker.OWNER }
         val merged = mutableListOf<Pair<Speaker, String>>()
         window.forEach { m ->
             val text = m.text.take(MSG_CAP)
@@ -67,6 +68,8 @@ object CoachPrompt {
         val cheat = f.today.dayOfWeek == p.cheatDay
         val sb = StringBuilder()
         sb.append("【資料：程式算好的，照用，不准自己算】\n")
+        // First, so the cap below can never cut it off.
+        sb.append("狀態：身體不適 ${if (f.illness) "是" else "否"}；連續吃不到 1200：${if (f.lowIntake) "是" else "否"}。\n")
         sb.append("檔案：身高 ${CoachRules.kg(p.heightCm)} 公分，起始 ${CoachRules.kg(p.startWeightKg)} 公斤，目前 ${CoachRules.kg(f.currentKg)} 公斤")
         f.currentAt?.let { sb.append("（${md(it)}）") }
         sb.append("，下一個目標 ").append(f.nextGoal?.let { "${CoachRules.kg(it)} 公斤" } ?: "重新評估")
@@ -82,7 +85,10 @@ object CoachPrompt {
         if (remaining >= 0) sb.append("剩 $remaining 大卡") else sb.append("超過 ${-remaining} 大卡")
         sb.append("、蛋白質還差 ${CoachRules.remainingProtein(p.proteinG, f.eatenProtein)} 克。")
         sb.append("最低還要吃 ${CoachRules.mustStillEat(f.eatenKcal)} 大卡。\n")
-        sb.append("待確認：").append(if (f.pending.isEmpty()) "無" else f.pending.joinToString("、") { it.name }).append("\n")
+        val pend = f.pending.takeLast(PENDING_LINES)
+        sb.append("待確認：").append(if (pend.isEmpty()) "無" else pend.joinToString("、") { it.name })
+        if (f.pending.size > PENDING_LINES) sb.append("，另外 ${f.pending.size - PENDING_LINES} 項")
+        sb.append("\n")
         sb.append("最近七天：")
         if (f.summaries.isEmpty()) sb.append("無") else f.summaries.take(SUMMARY_DAYS).forEach { s ->
             sb.append(md(s.day)).append(" ")
@@ -93,28 +99,74 @@ object CoachPrompt {
             }
         }
         sb.append("\n累計：總共超過 ${f.totals.overKcal} 大卡，階段目標總共延後 ${f.totals.delayDays} 天。\n")
-        sb.append("狀態：身體不適 ${if (f.illness) "是" else "否"}；連續吃不到 1200：${if (f.lowIntake) "是" else "否"}。\n")
-        sb.append("程式已回覆：").append(f.already?.takeIf { it.isNotBlank() } ?: "無")
+        sb.append("程式已回覆：").append(f.already?.takeIf { it.isNotBlank() }?.take(600) ?: "無")
         return sb.toString().take(FACTS_CAP)
     }
 
     fun finalTurn(facts: String, ownerText: String): Turn = Turn.user(facts + "\n【我剛說】\n" + ownerText.take(OWNER_CAP))
 
     /** The parse call's turns: the same window, then the owner's sentence. */
-    fun parseTurns(messages: List<CoachMessage>, ownerText: String): List<Turn> = history(messages) + Turn.user(ownerText.take(OWNER_CAP))
+    fun parseTurns(messages: List<CoachMessage>, ownerText: String, keep: Int = HISTORY): List<Turn> = history(messages, keep) + Turn.user(ownerText.take(OWNER_CAP))
 }
 
-/** Drops any model sentence holding a number the code did not hand over (the model must not make numbers up). */
+/** Numbers the way the owner writes them: Arabic (79.2) or Chinese (七十九點二, 兩百五十). */
+object CoachNumbers {
+    val ARABIC = Regex("\\d+(?:\\.\\d+)?")
+    private val CHINESE = Regex("[零〇一二兩三四五六七八九十百千萬]+(?:點[零〇一二兩三四五六七八九]+)?")
+    private val DIGIT = mapOf('零' to 0, '〇' to 0, '一' to 1, '二' to 2, '兩' to 2, '三' to 3, '四' to 4, '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9)
+
+    /** 七十九點二 → 79.2; null when [s] is not a Chinese number. */
+    fun chinese(s: String): Double? {
+        val parts = s.split('點')
+        var total = 0L
+        var section = 0L
+        var num = 0L
+        var any = false
+        for (ch in parts[0]) {
+            val d = DIGIT[ch]
+            if (d != null) { num = d.toLong(); any = true; continue }
+            when (ch) {
+                '十' -> { section += (if (num == 0L) 1 else num) * 10; num = 0; any = true }
+                '百' -> { section += num * 100; num = 0 }
+                '千' -> { section += num * 1000; num = 0 }
+                '萬' -> { total += (section + num) * 10000; section = 0; num = 0 }
+                else -> return null
+            }
+        }
+        if (!any) return null
+        val whole = (total + section + num).toDouble()
+        if (parts.size < 2) return whole
+        val frac = parts[1].map { DIGIT[it] ?: return null }.joinToString("")
+        return "${whole.toLong()}.$frac".toDouble()
+    }
+
+    /** Every number in [text], Arabic or Chinese. */
+    fun all(text: String): List<Double> =
+        ARABIC.findAll(text).mapNotNull { it.value.toDoubleOrNull() }.toList() + CHINESE.findAll(text).mapNotNull { chinese(it.value) }.toList()
+
+    /** [v] (from the model) only if the owner wrote that same number himself; null otherwise. */
+    fun ownersOnly(v: Double?, ownerText: String): Double? = v?.takeIf { x -> all(ownerText).any { kotlin.math.abs(it - x) < 1e-6 } }
+}
+
+/**
+ * The last word on a model sentence: it may not hold a number the code did not hand over (Arabic or Chinese), nor a Latin
+ * letter (the owner reads only Traditional Chinese). Deadlines and reps (「10 分鐘」「3 組」) may carry their own numbers.
+ */
 object NumberGuard {
-    private val NUMBER = Regex("\\d+(?:\\.\\d+)?")
+    private val NUMBER = CoachNumbers.ARABIC
     private val UNIT_OK = Regex("^\\s*(分鐘|小時|點|秒|次|下|組)")
+    private val CHINESE_AMOUNT = Regex("[零〇一二兩三四五六七八九十百千萬半]+\\s*(大卡|卡|公斤|斤|克|天|餐|份)")
+    private val LATIN = Regex("[A-Za-z]")
     private val SENTENCE = Regex("(?<=[。！？!?\\n])")
     const val MAX_SENTENCES = 4
 
     fun filter(modelText: String, facts: String, ownerText: String): String {
         val allowed = (NUMBER.findAll(facts).map { it.value } + NUMBER.findAll(ownerText).map { it.value }).toSet()
-        val kept = SENTENCE.split(modelText.trim()).map { it.trim() }.filter { it.isNotEmpty() }.filter { s ->
-            NUMBER.findAll(s).all { m -> m.value in allowed || UNIT_OK.containsMatchIn(s.substring(m.range.last + 1)) }
+        val text = modelText.trim().replace("BMI", "身體質量指數")
+        val kept = SENTENCE.split(text).map { it.trim() }.filter { it.isNotEmpty() }.filter { s ->
+            !LATIN.containsMatchIn(s) &&
+                !CHINESE_AMOUNT.containsMatchIn(s) &&
+                NUMBER.findAll(s).all { m -> m.value in allowed || UNIT_OK.containsMatchIn(s.substring(m.range.last + 1)) }
         }
         return kept.take(MAX_SENTENCES).joinToString("").trim()
     }

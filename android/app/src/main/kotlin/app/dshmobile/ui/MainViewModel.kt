@@ -53,6 +53,8 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
     val nav = ShellNav()
 
     var composerText by mutableStateOf("")
+    /** The coach's own draft: the chat's text and attachments never show on (or get dropped by) the coach. */
+    var coachText by mutableStateOf("")
     /** Why the last dock send did not happen; cleared by typing. */
     var dockError by mutableStateOf<String?>(null)
     /** Picked attachments, in pick order: only the picker's URI and name, never bytes (those are read when sending). */
@@ -93,6 +95,7 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
             composerText = saved.getString(TEXT).orEmpty()
             nav.coachHome = app.coachSettings.openOnCoach
             nav.coach = saved.getBoolean(COACH)
+            coachText = saved.getString(COACH_TEXT).orEmpty()
         } else {
             nav.openSessionId = app.uiPrefs.lastSessionId
             nav.coachHome = app.coachSettings.openOnCoach
@@ -118,6 +121,7 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
         putString(OPEN, nav.openSessionId)
         putBoolean(LIST, nav.listOpen)
         putBoolean(COACH, nav.coach)
+        if (coachText.length <= MAX_SAVED_TEXT) putString(COACH_TEXT, coachText)
         if (composerText.length <= MAX_SAVED_TEXT) putString(TEXT, composerText)
     }
 
@@ -137,6 +141,24 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
     private fun openPending() {
         val id = pendingOpen ?: return
         openFromLink(id)
+    }
+
+    fun onCoachText(text: String) {
+        coachText = text
+    }
+
+    /** Sends the coach draft (the engine runs it in the app's scope). */
+    fun sendToCoach() {
+        val t = coachText.trim()
+        if (t.isEmpty() || app.coach.ui.value.busy) return
+        coachText = ""
+        app.coach.send(t)
+    }
+
+    /** 「打開應用程式先進教練」 changed in 教練設定: back from the chat home follows it at once. */
+    fun setOpenOnCoach(on: Boolean) {
+        app.coachSettings.openOnCoach = on
+        nav.coachHome = on
     }
 
     fun onText(text: String) {
@@ -347,6 +369,7 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
         const val LIST = "list"
         const val TEXT = "text"
         const val COACH = "coach"
+        const val COACH_TEXT = "coach_text"
         const val MB = 1024 * 1024
         const val THUMB_DP = 64
     }

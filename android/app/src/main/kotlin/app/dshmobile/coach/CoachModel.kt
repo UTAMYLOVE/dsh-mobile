@@ -65,6 +65,8 @@ class HttpCoachModel(
     private val log: ErrorLog?,
     private val clock: Clock = Clock.systemUTC(),
     private val zone: ZoneId = ZoneId.of("Asia/Taipei"),
+    /** Tests only: MockWebServer speaks plain http. The app always requires https for the compatible service. */
+    private val requireHttps: Boolean = true,
 ) : CoachModel {
     override suspend fun complete(system: String, turns: List<Turn>, maxTokens: Int): ModelReply = withContext(Dispatchers.IO) {
         val provider = settings.provider
@@ -119,14 +121,14 @@ class HttpCoachModel(
         val o = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return ModelReply.Failed(Fail.BAD_RESPONSE)
         if ((o["stop_reason"] as? JsonPrimitive)?.content == "refusal") return ModelReply.Failed(Fail.REFUSED)
         val out = (o["content"] as? JsonArray).orEmpty().mapNotNull { b ->
-            (b as? JsonObject)?.takeIf { (it["type"] as? JsonPrimitive)?.content == "text" }?.let { (it["text"] as? JsonPrimitive)?.content }
+            (b as? JsonObject)?.takeIf { (it["type"] as? JsonPrimitive)?.content == "text" }?.let { (it["text"] as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
         }.joinToString("")
         return if (out.isBlank()) ModelReply.Failed(Fail.BAD_RESPONSE) else ModelReply.Ok(out)
     }
 
     private fun compat(system: String, turns: List<Turn>, maxTokens: Int): ModelReply {
         val raw = settings.compatUrl
-        val base = raw.toHttpUrlOrNull()?.takeIf { raw.startsWith("https://") && it.isHttps } ?: return ModelReply.Failed(Fail.NO_SETUP)
+        val base = raw.toHttpUrlOrNull()?.takeIf { !requireHttps || (raw.startsWith("https://") && it.isHttps) } ?: return ModelReply.Failed(Fail.NO_SETUP)
         val model = settings.compatModel.ifBlank { return ModelReply.Failed(Fail.NO_SETUP) }
         val key = usableKey(vault.getNamed(CoachSettings.COMPAT_KEY)) ?: return ModelReply.Failed(Fail.NO_KEY)
         if (!settings.takeCompatRequest(clock.instant().atZone(zone).toLocalDate().toString())) return ModelReply.Failed(Fail.CAP)
@@ -170,8 +172,8 @@ class HttpCoachModel(
         if ((choice["finish_reason"] as? JsonPrimitive)?.content == "content_filter") return ModelReply.Failed(Fail.REFUSED)
         val content = (choice["message"] as? JsonObject)?.get("content")
         val out = when (content) {
-            is JsonPrimitive -> content.content
-            is JsonArray -> content.mapNotNull { ((it as? JsonObject)?.get("text") as? JsonPrimitive)?.content }.joinToString("")
+            is JsonPrimitive -> if (content.isString) content.content else ""
+            is JsonArray -> content.mapNotNull { ((it as? JsonObject)?.get("text") as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }.joinToString("")
             else -> ""
         }
         return if (out.isBlank()) ModelReply.Failed(Fail.BAD_RESPONSE) else ModelReply.Ok(out)
@@ -182,6 +184,10 @@ class HttpCoachModel(
         http.newCall(req).execute().use { r -> r.code to (r.body?.string() ?: "") }
     } catch (_: IOException) {
         null
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (_: RuntimeException) {
+        null // e.g. a bad header value: treated as unreachable, never a crash
     }
 
     private fun status(code: Int): Fail? = when {

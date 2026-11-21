@@ -61,10 +61,10 @@ kind 的意思：
         val end = text.lastIndexOf('}')
         if (start < 0 || end <= start) return null
         val o = runCatching { Json.parseToJsonElement(text.substring(start, end + 1)) as? JsonObject }.getOrNull() ?: return null
-        val kind = (o["kind"] as? JsonPrimitive)?.content?.trim()?.takeIf { it in KINDS } ?: return null
+        val kind = (o["kind"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.takeIf { it in KINDS } ?: return null
         val items = (o["items"] as? JsonArray).orEmpty().take(12).mapNotNull { e ->
             val i = e as? JsonObject ?: return@mapNotNull null
-            val name = (i["name"] as? JsonPrimitive)?.content?.trim()?.takeIf { it.length in 1..40 } ?: return@mapNotNull null
+            val name = (i["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.takeIf { it.length in 1..40 } ?: return@mapNotNull null
             val portion = num(i["portion"])?.takeIf { it in 0.1..10.0 } ?: 1.0
             var lo = num(i["kcal_low"])?.takeIf { it in 0.0..5000.0 }?.toInt()
             var hi = num(i["kcal_high"])?.takeIf { it in 0.0..5000.0 }?.toInt()

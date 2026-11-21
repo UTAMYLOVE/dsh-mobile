@@ -204,7 +204,10 @@ class MainActivity : ComponentActivity() {
     }
     private val voice = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val said = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim().orEmpty()
-        if (said.isNotEmpty()) vm.onText(if (vm.composerText.isBlank()) said else vm.composerText.trimEnd() + " " + said)
+        if (said.isNotEmpty()) {
+            if (nav.coach && !nav.coachSettings) vm.onCoachText(if (vm.coachText.isBlank()) said else vm.coachText.trimEnd() + " " + said)
+            else vm.onText(if (vm.composerText.isBlank()) said else vm.composerText.trimEnd() + " " + said)
+        }
     }
 
     private fun listen() {
@@ -460,19 +463,20 @@ class MainActivity : ComponentActivity() {
             connection = connection,
             nav = nav,
             composer = ComposerUi(
-                text = vm.composerText,
-                onText = vm::onText,
+                text = if (onCoach) vm.coachText else vm.composerText,
+                onText = if (onCoach) vm::onCoachText else vm::onText,
                 enabled = state == MainUiState.Ready || onCoach,
-                canSend = if (onCoach) vm.composerText.isNotBlank() && !coachUi.busy else vm.canSend,
-                running = if (onCoach) coachUi.busy else running,
-                onSend = if (onCoach) ({ val t = vm.composerText; vm.onText(""); app.coach.send(t) }) else vm::onDockSend,
-                onStop = if (onCoach) ({}) else vm::stopReply,
+                // On the coach: its own draft, no stop button (nothing to stop), send off while the coach answers.
+                canSend = if (onCoach) vm.coachText.isNotBlank() && !coachUi.busy else vm.canSend,
+                running = if (onCoach) false else running,
+                onSend = if (onCoach) vm::sendToCoach else vm::onDockSend,
+                onStop = vm::stopReply,
                 onAttachImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onAttachFile = { filePicker.launch(arrayOf("*/*")) },
-                chips = vm.chips,
+                chips = if (onCoach) emptyList() else vm.chips,
                 onRemoveChip = vm::removeChip,
-                error = vm.dockError,
-                notice = if (vm.editTarget != null) getString(R.string.edit_banner) else null,
+                error = if (onCoach) null else vm.dockError,
+                notice = if (!onCoach && vm.editTarget != null) getString(R.string.edit_banner) else null,
                 mode = vm.mode,
                 onMode = { vm.mode = it },
                 onVoice = ::listen,
@@ -499,7 +503,7 @@ class MainActivity : ComponentActivity() {
             },
             modalOverlay = rememberHasPrompt(session?.events),
             coach = { CoachPage(app.coach) },
-            coachSettings = { CoachSettingsPage(app.coachSettings, app.keyVault, app.coachStore) },
+            coachSettings = { CoachSettingsPage(app.coachSettings, app.keyVault, app.coachStore, onDeleteFood = app.coach::deleteFood, onOpenOnCoach = vm::setOpenOnCoach) },
         ) { tab ->
             when (tab) {
                 ShellTab.SETTINGS -> {

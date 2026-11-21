@@ -14,6 +14,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import app.dshmobile.coach.CoachRig
 import app.dshmobile.coach.CoachRig.Companion.item
 import app.dshmobile.coach.CoachRig.Companion.parsed
@@ -42,6 +45,8 @@ class CoachPageTest {
     @get:Rule val rule = createComposeRule()
     private val rig = CoachRig()
     private val nav = ShellNav().apply { coachHome = true; coach = true }
+    private val vault = FakeVault()
+    private val deleted = mutableListOf<String>()
 
     @After fun tearDown() = rig.close()
 
@@ -55,13 +60,13 @@ class CoachPageTest {
                 connection = null,
                 nav = nav,
                 composer = ComposerUi(
-                    text = text, onText = { text = it }, enabled = true, canSend = text.isNotBlank() && !ui.busy, running = ui.busy,
+                    text = text, onText = { text = it }, enabled = true, canSend = text.isNotBlank() && !ui.busy, running = false,
                     onSend = { val t = text; text = ""; rig.engine.send(t) }, onStop = {},
                 ),
                 onRetry = {},
                 onExportErrorLog = {},
                 coach = { CoachPage(rig.engine) },
-                coachSettings = { CoachSettingsPage(rig.settings, FakeVault(), rig.store) },
+                coachSettings = { CoachSettingsPage(rig.settings, vault, rig.store, onDeleteFood = { deleted += it; rig.engine.deleteFood(it) }) },
             ) { Text("聊天") }
         }
     }
@@ -101,6 +106,67 @@ class CoachPageTest {
         rule.onNodeWithTag(Tags.COACH_SETTINGS_OPEN).performClick()
         rule.waitForIdle()
         assertNoLatin(rule.onNodeWithTag(Tags.COACH_SETTINGS).fetchSemanticsNode())
+    }
+
+    // C1: with 「打開應用程式先進教練」 off, the chat bar still leads to the coach.
+    @Test fun theCoachStaysReachableWithTheStartSwitchOff() {
+        nav.coachHome = false
+        nav.coach = false
+        show()
+        rule.onNodeWithTag(Tags.BAR_COACH).assertExists().performClick()
+        rule.waitForIdle()
+        assertTrue(nav.coach)
+        rule.onNodeWithTag(Tags.COACH_PAGE).assertExists()
+    }
+
+    // C1 / R2: four bar buttons fit at 320 dp.
+    @Test fun theChatBarsFourButtonsFitAt320dp() {
+        nav.coach = false
+        show()
+        val root = rule.onNodeWithTag(Tags.SHELL_HEADER).fetchSemanticsNode().boundsInRoot
+        listOf(Tags.BAR_LIST, Tags.BAR_COACH, Tags.TAB + app.dshmobile.ui.shell.ShellTab.AGENTS.name, Tags.BAR_NEW).forEach { tag ->
+            val b = rule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+            assertTrue("$tag at $b outside $root", b.left >= root.left && b.right <= root.right + 0.5f && b.width > 0f)
+        }
+    }
+
+    // M6: a new address never gets the old key.
+    @Test fun changingTheCompatibleAddressDropsTheOldKey() {
+        rig.settings.provider = app.dshmobile.coach.CoachProvider.COMPAT
+        rig.settings.compatUrl = "https://a.example/v1"
+        vault.putNamed(app.dshmobile.coach.CoachSettings.COMPAT_KEY, "cp-key-1234567890")
+        nav.coachSettings = true
+        show()
+        rule.onNodeWithTag(Tags.COACH_COMPAT_URL).performTextClearance()
+        rule.onNodeWithTag(Tags.COACH_COMPAT_URL).performTextInput("https://b.example/v1")
+        rule.onNodeWithTag(Tags.COACH_COMPAT_SAVE).performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        rule.waitForIdle()
+        assertTrue(vault.getNamed(app.dshmobile.coach.CoachSettings.COMPAT_KEY) == null)
+        org.junit.Assert.assertEquals("https://b.example/v1", rig.settings.compatUrl)
+    }
+
+    @Test fun keepingTheAddressKeepsTheKey() {
+        rig.settings.provider = app.dshmobile.coach.CoachProvider.COMPAT
+        rig.settings.compatUrl = "https://a.example/v1"
+        vault.putNamed(app.dshmobile.coach.CoachSettings.COMPAT_KEY, "cp-key-1234567890")
+        nav.coachSettings = true
+        show()
+        rule.onNodeWithTag(Tags.COACH_COMPAT_SAVE).performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        rule.waitForIdle()
+        org.junit.Assert.assertEquals("cp-key-1234567890", vault.getNamed(app.dshmobile.coach.CoachSettings.COMPAT_KEY))
+    }
+
+    // M7 and M14: the planned meal is picked from the table; 刪除 goes through the callback (the engine's scope).
+    @Test fun plannedMealComesFromTheTableAndDeleteUsesTheEngine() {
+        nav.coachSettings = true
+        show()
+        rule.onNodeWithTag(Tags.COACH_ADVANCED).performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.COACH_PLANNED + "蚵仔煎一盤").performScrollTo().assertExists()
+        rule.onNodeWithTag(Tags.COACH_FOOD_DELETE + "蚵仔煎一盤").performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        rule.waitForIdle()
+        org.junit.Assert.assertEquals(listOf("蚵仔煎一盤"), deleted)
+        assertTrue(rig.store.state.value.food.none { it.name == "蚵仔煎一盤" })
     }
 
     private fun assertNoLatin(root: SemanticsNode) {

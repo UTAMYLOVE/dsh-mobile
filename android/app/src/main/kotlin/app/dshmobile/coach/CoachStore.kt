@@ -21,14 +21,32 @@ class CoachStore(private val dir: File, private val clock: () -> Long = System::
     private val _messages = MutableStateFlow(loadMessages())
     val messages: StateFlow<List<CoachMessage>> = _messages.asStateFlow()
 
+    private fun read(f: File): CoachState? = try {
+        if (f.isFile) CoachJson.decode(Json.parseToJsonElement(f.readText())) else null
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * The saved state; a damaged `state.json` is never written over: the temp file of an interrupted save is tried first, and a
+     * file nothing can read is kept aside as `state.json.bad-<time>` before a fresh state is seeded.
+     */
     private fun loadState(): CoachState {
-        val read = try {
-            if (stateFile.isFile) CoachJson.decode(Json.parseToJsonElement(stateFile.readText())) else CoachState()
-        } catch (_: Exception) {
-            CoachState()
+        val tmp = File(dir, "state.json.tmp")
+        var read = read(stateFile)
+        if (read == null && stateFile.isFile) {
+            read = read(tmp)
+            if (read == null) stateFile.renameTo(File(dir, "state.json.bad-${clock()}"))
+        } else if (read == null && tmp.isFile) {
+            // A crash between deleting the old file and renaming the new one leaves only the temp file.
+            read = read(tmp)
         }
-        if (read.seeded) return read
-        val seeded = read.copy(seeded = true, food = FoodTable.seed(clock()) + read.food)
+        val base = read ?: CoachState()
+        if (base.seeded) {
+            if (!stateFile.isFile) write(base)
+            return base
+        }
+        val seeded = base.copy(seeded = true, food = FoodTable.seed(clock()) + base.food)
         write(seeded)
         return seeded
     }
@@ -48,18 +66,19 @@ class CoachStore(private val dir: File, private val clock: () -> Long = System::
         dir.mkdirs()
         val tmp = File(dir, "state.json.tmp")
         tmp.writeText(CoachJson.encode(s).toString())
+        // renameTo replaces the old file in one step on Android's file systems; the fallback keeps the temp file until it lands.
         if (!tmp.renameTo(stateFile)) {
             stateFile.delete()
             check(tmp.renameTo(stateFile))
         }
     }.isSuccess
 
-    @Synchronized fun update(f: (CoachState) -> CoachState): CoachState {
+    /** Applies [f] and saves it. Null when the save failed: nothing changed, in memory or on disk. */
+    @Synchronized fun update(f: (CoachState) -> CoachState): CoachState? {
         val next = f(_state.value)
-        if (next != _state.value) {
-            _state.value = next
-            write(next)
-        }
+        if (next == _state.value) return next
+        if (!write(next)) return null
+        _state.value = next
         return next
     }
 

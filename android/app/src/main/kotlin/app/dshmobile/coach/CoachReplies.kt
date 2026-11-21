@@ -13,6 +13,20 @@ object CoachReplies {
     const val OFF_PLAN = "炸物，今天不是放縱餐，記「沒照計畫」。"
     const val CHAT_DOWN = "教練現在連不上，晚點再說。"
     const val FOOD_INFO_UNCLEAR = "說清楚包裝標示寫幾大卡，或回「對」，就照估算存進表。"
+    const val NOT_SAVED = "紀錄沒存成功，等一下再說一次。"
+    /** A model reply the guard emptied: the code's own line instead. */
+    const val CHAT_FALLBACK = "收到。照計畫走，吃了什麼就回報。"
+    private val ATE_WORDS = listOf("吃了", "喝了", "吃完", "剛吃", "吃過", "喝完")
+    private val COUNT = Regex("[0-9０-９兩二三四五六七八九十半]")
+    private val NEGATION = Regex("沒|不")
+    private val QUESTION = Regex("幾|多少|嗎|？|\\?")
+
+    /** 「想吃…」 with no 「吃了」: a craving, not a meal. */
+    fun isCraving(text: String): Boolean = CRAVING_WORDS.any { text.contains(it) } && ATE_WORDS.none { text.contains(it) }
+
+    /** Offline, a sentence may be recorded from the table only if it plainly says one portion was eaten: no count, no 沒/不, no question, no craving. */
+    fun plainReport(text: String): Boolean =
+        !COUNT.containsMatchIn(text) && !NEGATION.containsMatchIn(text) && !QUESTION.containsMatchIn(text) && CRAVING_WORDS.none { text.contains(it) }
     val ILL_WORDS = listOf("頭暈", "不舒服", "想吐", "昏倒", "心悸", "發燒", "胸悶", "暈倒", "頭痛", "肚子痛")
     val CRAVING_WORDS = listOf("想吃", "要吃", "可以吃", "能吃", "想點", "要點", "可不可以", "能不能", "想喝", "要喝")
 
@@ -33,9 +47,17 @@ object CoachReplies {
         KcalSource.ESTIMATE -> "估算"
     }
 
+    private val UNIT = Regex("(?:一|1)?(盤|碗|份|個|杯|盒|條|塊)$")
+
+    /** 「蚵仔麵線一碗」 × 2 → 「蚵仔麵線 2碗」: the table name's own unit, never 「一碗 2份」. */
+    fun amount(name: String, p: Double): String {
+        val m = UNIT.find(name)
+        return if (m != null && m.range.first > 0) "${name.substring(0, m.range.first)} ${portion(p)}${m.groupValues[1]}" else "$name ${portion(p)}份"
+    }
+
     fun itemLine(i: MealItem, marginPct: Int): String {
         val src = if (i.source == KcalSource.ESTIMATE) "估算，${marginWords(marginPct)}" else sourceShort(i)
-        return "記下：${i.name} ${portion(i.portion)}份 ${i.kcal} 大卡（$src）。"
+        return "記下：${amount(i.name, i.portion)} ${i.kcal} 大卡（$src）。"
     }
 
     fun askLabel(name: String) = "${name}不在食物表。把包裝標示或份量傳來，確認了才存進表。"

@@ -2,7 +2,6 @@ package app.dshmobile.coach
 
 import app.dshmobile.gateway.InMemorySharedPreferences
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -71,6 +70,5 @@ class CoachRulesTest {
         val s = CoachSettings(prefs)
         s.profile = CoachProfile(quotaKcal = 1000)
         assertEquals(1200, s.profile.quotaKcal)
-        assertEquals(Instant.EPOCH, Instant.EPOCH)
     }
 }

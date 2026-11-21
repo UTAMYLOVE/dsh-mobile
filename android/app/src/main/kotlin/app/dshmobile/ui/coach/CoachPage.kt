@@ -45,7 +45,14 @@ private val StripShape = RoundedCornerShape(14.dp)
 fun CoachPage(engine: CoachEngine) {
     val ui by engine.ui.collectAsState()
     // A new coach day (05:00) shows the moment the page does.
-    LaunchedEffect(Unit) { engine.refresh() }
+    LaunchedEffect(Unit) {
+        engine.refresh()
+        // Left open across the day start (05:00), the strip turns over to the new day on its own.
+        while (true) {
+            kotlinx.coroutines.delay(engine.millisToNextDay())
+            engine.refresh()
+        }
+    }
     val pad = LocalPagePadding.current
     val list = rememberLazyListState()
     val count = ui.messages.size + if (ui.busy) 1 else 0

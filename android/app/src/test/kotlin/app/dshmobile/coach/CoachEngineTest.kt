@@ -35,7 +35,7 @@ class CoachEngineTest {
     @Test fun goingOverGivesTheFourLineBlock() {
         say("晚餐吃了兩個給力盒子南加州烤雞腿", parsed("meal", item("給力盒子南加州烤雞腿", 2.0)))
         val reply = say("宵夜吃了兩碗蚵仔麵線", parsed("meal", item("蚵仔麵線", 2.0)))
-        assertTrue(reply, reply.contains("記下：蚵仔麵線一碗 2份 830 大卡（食物表・估算）。"))
+        assertTrue(reply, reply.contains("記下：蚵仔麵線 2碗 830 大卡（食物表・估算）。"))
         assertTrue(
             reply,
             reply.endsWith(
@@ -115,7 +115,7 @@ class CoachEngineTest {
     }
 
     @Test fun feelingIllStopsThePressure() {
-        say("吃了兩個給力盒子南加州烤雞腿", parsed("meal", item("給力盒子南加州烤雞腿", 3.0)))
+        say("吃了三個給力盒子南加州烤雞腿", parsed("meal", item("給力盒子南加州烤雞腿", 3.0)))
         val r = say("我今天頭暈，又吃了蚵仔煎", parsed("meal", item("蚵仔煎")))
         assertFalse(r, r.contains("超過"))
         assertTrue(r, r.contains("今天先正常吃，不用管額度。"))
@@ -142,7 +142,7 @@ class CoachEngineTest {
             rig.engine.handle("蚵仔煎一盤")
             rig.store.messages.value.last().text
         }
-        assertTrue(r, r.contains("記下：蚵仔煎一盤 1份 516 大卡（食物表・估算）。"))
+        assertTrue(r, r.contains("記下：蚵仔煎 1盤 516 大卡（食物表・估算）。"))
         assertEquals(1, rig.store.state.value.meals.size)
         val r2 = runBlocking { rig.engine.handle("我想吃蚵仔煎"); rig.store.messages.value.last().text }
         assertEquals(CoachReplies.cannotReach(Fail.OFFLINE), r2)

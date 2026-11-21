@@ -229,6 +229,7 @@
     <string name="coach_compat_model">模型名稱</string>
     <string name="coach_compat_key">金鑰</string>
     <string name="coach_compat_key_replace">換一把金鑰（已設定）</string>
+    <string name="coach_compat_key_for">這把金鑰只給上面這個位址用；換位址要重新填金鑰。</string>
     <string name="coach_compat_key_clear">清除金鑰</string>
     <string name="coach_compat_bad_url">這個位址沒有加密，不能用。</string>
     <string name="coach_compat_bad_key">金鑰的長度不對。</string>

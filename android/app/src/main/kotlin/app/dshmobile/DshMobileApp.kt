@@ -102,7 +102,10 @@ class DshMobileApp : Application(), Configuration.Provider {
         )
     }
     val coach: app.dshmobile.coach.CoachEngine by lazy {
-        app.dshmobile.coach.CoachEngine(coachStore, coachSettings, coachModel, Clock.systemUTC(), java.time.ZoneId.of("Asia/Taipei"), applicationScope)
+        app.dshmobile.coach.CoachEngine(
+            coachStore, coachSettings, coachModel, Clock.systemUTC(), java.time.ZoneId.of("Asia/Taipei"), applicationScope,
+            onError = { errorLog.append("coach", "engine: $it") },
+        )
     }
 
     /** Where the rootfs and the user's data (outside it, bound into the guest) live on the host. */
@@ -541,6 +544,8 @@ class DshMobileApp : Application(), Configuration.Provider {
         migrateLegacyUserData()
         // The interval is the user's setting (default 45). UPDATE keeps an existing schedule's timing.
         HeartbeatScheduler.schedule(this, agentSettingsStore.heartbeatIntervalMin)
+        // The coach's records load off the main thread, before the first screen asks for them.
+        applicationScope.launch { coach }
     }
 
     /** [AppPaths.migrateLegacy], logged; a failure leaves the data where it was (nothing is deleted) and is retried next time. */

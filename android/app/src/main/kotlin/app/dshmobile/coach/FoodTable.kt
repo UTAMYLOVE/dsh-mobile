@@ -38,7 +38,8 @@ object FoodTable {
         if (exact.size == 1) return exact[0]
         if (exact.size > 1) return null
         // Containment: the longest key (at least 3 characters) wins, unless two entries tie.
-        val hits = table.flatMap { e -> keys(e).filter { it.length >= 3 && (n.contains(it) || it.contains(n) && n.length >= 3) }.map { e to it.length } }
+        // Only "the owner's words contain a table key": a short generic word (三明治, 烤雞腿) never maps onto one shop's food.
+        val hits = table.flatMap { e -> keys(e).filter { it.length >= 3 && n.contains(it) }.map { e to it.length } }
         if (hits.isEmpty()) return null
         val best = hits.maxOf { it.second }
         val top = hits.filter { it.second == best }.map { it.first }.distinct()

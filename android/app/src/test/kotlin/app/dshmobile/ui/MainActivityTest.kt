@@ -99,7 +99,7 @@ class MainActivityTest {
         FileProvider::class.java.getDeclaredField("sCache").apply { isAccessible = true }
             .get(null).let { @Suppress("UNCHECKED_CAST") (it as MutableMap<String, Any>).clear() }
         shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        // These cases test the chat shell; MainActivityCoachTest covers opening on the coach.
+        // These cases test the chat shell; MainActivityCoachTest covers opening on the coach (ruling Q1).
         app.coachSettings.openOnCoach = false
     }
 

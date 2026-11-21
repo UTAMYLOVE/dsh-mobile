@@ -17,6 +17,9 @@ data class Strip(val remainingKcal: Int, val proteinLeftG: Int, val nextGoalKg: 
 
 data class CoachUi(val messages: List<CoachMessage>, val busy: Boolean, val strip: Strip)
 
+/** An estimate waits this long for its label; after that it is dropped from 待確認. */
+const val PENDING_DAYS = 7
+
 /**
  * One owner message at a time (a [Mutex]), in [scope] so leaving the screen never cancels it. The model only sorts the message
  * ([MealParse]) and, for talk, writes a reply under [CoachPrompt]'s rules; every record and every number comes from here.
@@ -29,6 +32,8 @@ class CoachEngine(
     private val clock: Clock,
     private val zone: ZoneId,
     private val scope: CoroutineScope,
+    /** Gets only an exception's class name (never the owner's words or a key). */
+    private val onError: (String) -> Unit = {},
 ) {
     private val mutex = Mutex()
     private val busy = MutableStateFlow(false)
@@ -85,13 +90,34 @@ class CoachEngine(
         return Totals(over, CoachRules.delayDays(over))
     }
 
+    private fun livePending(s: CoachState) = s.pending.filter { it.askedAt >= clock.millis() - PENDING_DAYS * 86_400_000L }
+
+    /** When the next coach day starts (the page refreshes its strip then). */
+    fun millisToNextDay(): Long {
+        val p = settings.profile
+        val next = today().plusDays(1).atStartOfDay(zone).plusHours(p.dayStartHour.toLong()).toInstant()
+        return (next.toEpochMilli() - clock.millis()).coerceAtLeast(1_000L)
+    }
+
+    /** 食物表's 刪除, off the main thread. */
+    fun deleteFood(name: String) {
+        scope.launch { store.update { s -> s.copy(food = s.food.filter { it.name != name }) } }
+    }
+
     /** Handles one owner message to the end (tests call it directly). */
     suspend fun handle(text: String) = mutex.withLock {
         val history = store.messages.value
         store.append(CoachMessage(UUID.randomUUID().toString(), clock.millis(), Speaker.OWNER, text, null))
         busy.value = true
         try {
-            val (reply, kind) = respond(text, history)
+            val (reply, kind) = try {
+                respond(text, history)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onError(e.javaClass.simpleName)
+                CoachReplies.CHAT_DOWN to "error"
+            }
             store.append(CoachMessage(UUID.randomUUID().toString(), clock.millis(), Speaker.COACH, reply, kind))
         } finally {
             busy.value = false
@@ -103,7 +129,9 @@ class CoachEngine(
         val first = model.complete(MealParse.SYSTEM, turns)
         if (first is ModelReply.Failed) return null to first.why
         MealParse.parse((first as ModelReply.Ok).text)?.let { return it to null }
-        val again = model.complete(MealParse.SYSTEM, turns + Turn.assistant(first.text.take(400)) + Turn.user(MealParse.RETRY))
+        // The retry keeps the 10-message limit: 7 stored turns, the sentence, the bad answer and the reminder.
+        val retry = CoachPrompt.parseTurns(history, text, keep = CoachPrompt.HISTORY - 2) + Turn.assistant(first.text.take(400)) + Turn.user(MealParse.RETRY)
+        val again = model.complete(MealParse.SYSTEM, retry)
         if (again is ModelReply.Failed) return null to again.why
         return MealParse.parse((again as ModelReply.Ok).text) to null
     }
@@ -115,13 +143,23 @@ class CoachEngine(
             // Offline: a message naming exactly one table food (and not asking) is still recorded from the table.
             val table = store.state.value.food
             val named = FoodTable.named(table, text)
-            if (named.size == 1 && CoachReplies.CRAVING_WORDS.none { text.contains(it) }) {
+            if (named.size == 1 && CoachReplies.plainReport(text)) {
                 parsed = Parsed("meal", listOf(ParsedItem(named[0].name, 1.0, false, null, null, null, null)))
             } else {
                 return CoachReplies.cannotReach(fail) to "error"
             }
         }
         if (parsed == null) return CoachReplies.NOT_UNDERSTOOD to "error"
+        // The kind is not left to the model alone: 「想吃…」 without 「吃了」 is a craving, whatever it says.
+        if (parsed.kind == "meal" && CoachReplies.isCraving(text)) parsed = parsed.copy(kind = "craving")
+        // A number the owner did not write himself never becomes a weight or a label value (the model must not invent one).
+        parsed = parsed.copy(
+            weightKg = CoachNumbers.ownersOnly(parsed.weightKg, text),
+            waistCm = CoachNumbers.ownersOnly(parsed.waistCm, text),
+            foodInfo = parsed.foodInfo?.let { fi ->
+                fi.copy(kcal = CoachNumbers.ownersOnly(fi.kcal?.toDouble(), text)?.toInt(), proteinG = CoachNumbers.ownersOnly(fi.proteinG, text))
+            },
+        )
         val illness = parsed.illness || CoachReplies.ILL_WORDS.any { text.contains(it) }
         val lowIntake = lowIntake()
         val lines = mutableListOf<String>()
@@ -185,7 +223,9 @@ class CoachEngine(
         if (counted.isEmpty()) return lines.ifEmpty { listOf(CoachReplies.NOT_UNDERSTOOD) }
         val fried = counted.any { it.fried }
         val m = Meal(mealId, now, today.toString(), text.take(200), counted, cheat = cheat, offPlan = fried && !cheat)
-        val s = store.update { it.copy(meals = it.meals + m, pending = it.pending + pending) }
+        val cutoff = now - PENDING_DAYS * 86_400_000L
+        val s = store.update { it.copy(meals = it.meals + m, pending = it.pending.filter { p0 -> p0.askedAt >= cutoff } + pending) }
+            ?: return listOf(CoachReplies.NOT_SAVED)
         counted.forEach { lines += CoachReplies.itemLine(it, p.marginPct) }
         if (fried && !cheat) lines += CoachReplies.OFF_PLAN
         lines += CoachReplies.UNVERIFIED
@@ -199,6 +239,7 @@ class CoachEngine(
         val p = settings.profile
         val now = clock.millis()
         store.update { it.copy(weights = it.weights + WeightEntry(UUID.randomUUID().toString(), now, today().toString(), kg, waist)) }
+            ?: return CoachReplies.NOT_SAVED
         return CoachReplies.weight(kg, waist, p, CoachRules.nextGoal(p.goals, kg))
     }
 
@@ -216,8 +257,9 @@ class CoachEngine(
             val planned = FoodTable.lookup(s.food, p.plannedMeal)
             val word = if (s.meals.none { it.day == today.toString() }) "晚餐" else "宵夜"
             val eatLine = when {
-                remaining <= 0 -> "今天已經超過，不准再點。"
-                planned != null && planned.kcal > remaining -> "今天剩 $remaining 大卡，不准再點炸的。"
+                remaining < 0 -> "今天已經超過，不准再點。"
+                remaining == 0 -> "今天剩 0 大卡，不准再點。"
+                planned != null && planned.kcal > remaining -> "今天剩 $remaining 大卡，不准再點炸的。" + floorLine(eaten, word, p)
                 else -> "${word}吃${p.plannedMeal.replace(" ", "")}。"
             }
             return listOf("今天不是放縱餐。$eatLine${friedNames.joinToString("、")}排到星期${CoachRules.weekdayZh(p.cheatDay)}。$deadline")
@@ -234,18 +276,27 @@ class CoachEngine(
         if (items.any { FoodTable.lookup(s.food, it.name) == null && it.kcalHigh == null }) {
             return listOf("估不出這是多少大卡。把包裝標示或份量傳來再說。")
         }
+        val word = if (s.meals.none { it.day == today.toString() }) "晚餐" else "宵夜"
         return when {
-            remaining <= 0 -> listOf("今天已經超過，不准再點。")
-            kcal > remaining -> listOf("這份大約 $kcal 大卡，今天剩 $remaining 大卡，不准再點。")
+            remaining < 0 -> listOf("今天已經超過，不准再點。")
+            remaining == 0 -> listOf("今天剩 0 大卡，不准再點。")
+            kcal > remaining -> listOf("這份大約 $kcal 大卡，今天剩 $remaining 大卡，不准再點。" + floorLine(eaten, word, p))
             else -> listOf("可以。吃了今天會剩 ${remaining - kcal} 大卡。吃完回報，$deadline")
         }
+    }
+
+    /** Spec §4: never below 1200. A refusal still says how much he must eat, and what. */
+    private fun floorLine(eaten: Int, word: String, p: CoachProfile): String {
+        val must = CoachRules.mustStillEat(eaten)
+        return if (must > 0) "今天至少還要吃 $must 大卡。${word}吃${p.plannedMeal.replace(" ", "")}。" else ""
     }
 
     private fun foodInfo(info: FoodInfo?, illness: Boolean): List<String> {
         val p = settings.profile
         val s0 = store.state.value
-        if (s0.pending.isEmpty()) return listOf(CoachReplies.NO_PENDING)
-        val target = info?.name?.let { n -> s0.pending.lastOrNull { FoodTable.normalize(it.name) == FoodTable.normalize(n) } } ?: s0.pending.last()
+        val live = s0.pending.filter { it.askedAt >= clock.millis() - PENDING_DAYS * 86_400_000L }
+        if (live.isEmpty()) return listOf(CoachReplies.NO_PENDING)
+        val target = info?.name?.let { n -> live.lastOrNull { FoodTable.normalize(it.name) == FoodTable.normalize(n) } } ?: live.last()
         val meal = s0.meals.firstOrNull { it.id == target.mealId }
         val item = meal?.items?.getOrNull(target.itemIndex)
         if (meal == null || item == null) {
@@ -275,7 +326,7 @@ class CoachEngine(
                 pending = st.pending - target,
                 meals = st.meals.map { m -> if (m.id != meal.id) m else m.copy(items = m.items.mapIndexed { i, it -> if (i == target.itemIndex) newItem else it }) },
             )
-        }
+        } ?: return listOf(CoachReplies.NOT_SAVED)
         val proteinText = entry.proteinG?.let { "、蛋白質 ${CoachReplies.portion(it)} 克" } ?: ""
         val lines = mutableListOf("存進食物表：${entry.name} ${entry.kcal} 大卡$proteinText（${if (entry.estimated) "估算" else "標示"}）。")
         val (eaten, protein) = dayTotals(s, meal.day)
@@ -293,14 +344,14 @@ class CoachEngine(
             CoachPrompt.Facts(
                 profile = p, today = today, currentKg = currentKg(s, p), currentAt = latest?.let { LocalDate.parse(it.day) },
                 nextGoal = CoachRules.nextGoal(p.goals, currentKg(s, p)), todayMeals = meals,
-                eatenKcal = meals.sumOf { it.kcal }, eatenProtein = meals.sumOf { it.proteinG }, pending = s.pending,
+                eatenKcal = meals.sumOf { it.kcal }, eatenProtein = meals.sumOf { it.proteinG }, pending = livePending(s),
                 summaries = summaries(s, p, today, CoachPrompt.SUMMARY_DAYS), totals = totals(s, p),
                 illness = illness, lowIntake = lowIntake, already = already,
             ),
         )
         val turns = CoachPrompt.history(history) + CoachPrompt.finalTurn(facts, text)
         var reply = when (val r = model.complete(CoachPrompt.SYSTEM, turns)) {
-            is ModelReply.Ok -> NumberGuard.filter(r.text, facts, text).ifBlank { CoachReplies.CHAT_DOWN }
+            is ModelReply.Ok -> NumberGuard.filter(r.text, facts, text).ifBlank { CoachReplies.CHAT_FALLBACK }
             is ModelReply.Failed -> CoachReplies.CHAT_DOWN
         }
         if ((illness || lowIntake) && !reply.contains("看醫生")) reply += "\n" + CoachReplies.DOCTOR
@@ -316,7 +367,7 @@ class CoachEngine(
         val facts = CoachPrompt.facts(
             CoachPrompt.Facts(
                 p, today, currentKg(s, p), null, CoachRules.nextGoal(p.goals, currentKg(s, p)), meals, meals.sumOf { it.kcal },
-                meals.sumOf { it.proteinG }, s.pending, summaries(s, p, today, CoachPrompt.SUMMARY_DAYS), totals(s, p), false, false, null,
+                meals.sumOf { it.proteinG }, livePending(s), summaries(s, p, today, CoachPrompt.SUMMARY_DAYS), totals(s, p), false, false, null,
             ),
         )
         return CoachPrompt.SYSTEM to (CoachPrompt.history(store.messages.value) + CoachPrompt.finalTurn(facts, text))

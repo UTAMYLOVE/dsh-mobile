@@ -48,12 +48,21 @@ import app.dshmobile.ui.fog.FogPanel
 import app.dshmobile.ui.shell.LocalPagePadding
 import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.theme.Sakura
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.time.DayOfWeek
 
 /** 教練設定: the model, the 放縱餐 day, opening on the coach, and (folded) the body numbers and the food table. The coach never writes here. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CoachSettingsPage(settings: CoachSettings, vault: KeyVault, store: CoachStore) {
+fun CoachSettingsPage(
+    settings: CoachSettings,
+    vault: KeyVault,
+    store: CoachStore,
+    /** Runs off the main thread (the engine's scope). */
+    onDeleteFood: (String) -> Unit,
+    /** Saves 「打開應用程式先進教練」 and applies it to the shell at once. */
+    onOpenOnCoach: (Boolean) -> Unit = { settings.openOnCoach = it },
+) {
     val revision by settings.revision.collectAsState()
     val state by store.state.collectAsState()
     val pad = LocalPagePadding.current
@@ -105,17 +114,17 @@ fun CoachSettingsPage(settings: CoachSettings, vault: KeyVault, store: CoachStor
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.coach_set_open_hint), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
                 val open = remember(revision) { settings.openOnCoach }
-                Switch(checked = open, onCheckedChange = { settings.openOnCoach = it })
+                Switch(checked = open, onCheckedChange = onOpenOnCoach, modifier = Modifier.testTag(Tags.COACH_OPEN_SWITCH))
             }
         }
         var advanced by rememberSaveable { mutableStateOf(false) }
         FogPanel(title = stringResource(R.string.coach_set_advanced)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.coach_set_advanced_hint), color = Sakura.TextSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Switch(checked = advanced, onCheckedChange = { advanced = it })
+                Switch(checked = advanced, onCheckedChange = { advanced = it }, modifier = Modifier.testTag(Tags.COACH_ADVANCED))
             }
             if (advanced) {
-                BodyNumbers(settings, profile)
+                BodyNumbers(settings, profile, state.food.map { it.name })
                 Label(stringResource(R.string.coach_set_food))
                 state.food.forEach { f ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -125,7 +134,7 @@ fun CoachSettingsPage(settings: CoachSettings, vault: KeyVault, store: CoachStor
                         }
                         val protein = f.proteinG?.let { " ・ 蛋白質 ${it.toInt()} 克" } ?: ""
                         Text("${f.name} ${f.kcal} 大卡$protein$flags", color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { store.update { s -> s.copy(food = s.food - f) } }) { Text(stringResource(R.string.coach_delete), color = Sakura.Text) }
+                        TextButton(onClick = { onDeleteFood(f.name) }, modifier = Modifier.testTag(Tags.COACH_FOOD_DELETE + f.name)) { Text(stringResource(R.string.coach_delete), color = Sakura.Text) }
                     }
                 }
             }
@@ -137,9 +146,10 @@ fun CoachSettingsPage(settings: CoachSettings, vault: KeyVault, store: CoachStor
 private fun Label(text: String) = Text(text, color = Sakura.TextSecondary, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
 
 @Composable
-private fun Choice(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun Choice(label: String, selected: Boolean, tag: String? = null, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(role = Role.RadioButton, onClick = onClick),
+        Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(role = Role.RadioButton, onClick = onClick)
+            .then(if (tag != null) Modifier.testTag(tag) else Modifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = null)
@@ -159,26 +169,34 @@ private fun CompatSection(settings: CoachSettings, vault: KeyVault, revision: Lo
     var model by remember(revision) { mutableStateOf(settings.compatModel) }
     var key by remember { mutableStateOf("") }
     var hasKey by remember { mutableStateOf(vault.hasNamed(CoachSettings.COMPAT_KEY)) }
+    val savedHost = remember(revision) { settings.compatUrl.toHttpUrlOrNull()?.host }
     var note by remember { mutableStateOf<String?>(null) }
     val badUrl = stringResource(R.string.coach_compat_bad_url)
     val badKey = stringResource(R.string.coach_compat_bad_key)
     val saved = stringResource(R.string.coach_saved)
-    Field(stringResource(R.string.coach_compat_url), url) { url = it }
+    Field(stringResource(R.string.coach_compat_url), url, tag = Tags.COACH_COMPAT_URL) { url = it }
     Field(stringResource(R.string.coach_compat_model), model) { model = it }
     OutlinedTextField(
         value = key, onValueChange = { key = it }, singleLine = true,
         label = { Text(stringResource(if (hasKey) R.string.coach_compat_key_replace else R.string.coach_compat_key)) },
+        supportingText = if (hasKey && savedHost != null) ({ Text(stringResource(R.string.coach_compat_key_for)) }) else null,
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         modifier = Modifier.fillMaxWidth(),
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = {
+        TextButton(modifier = Modifier.testTag(Tags.COACH_COMPAT_SAVE), onClick = {
             val u = url.trim()
             when {
                 u.isNotEmpty() && !u.startsWith("https://") -> note = badUrl
                 key.isNotEmpty() && key.trim().length !in 10..300 -> note = badKey
                 else -> {
+                    // A key belongs to the service it was entered for: a new address never gets the old key.
+                    val newHost = u.toHttpUrlOrNull()?.host
+                    if (hasKey && newHost != savedHost) {
+                        vault.clearNamed(CoachSettings.COMPAT_KEY)
+                        hasKey = false
+                    }
                     settings.compatUrl = u
                     settings.compatModel = model
                     if (key.isNotEmpty()) {
@@ -198,16 +216,16 @@ private fun CompatSection(settings: CoachSettings, vault: KeyVault, revision: Lo
 }
 
 @Composable
-private fun Field(label: String, value: String, number: Boolean = false, onChange: (String) -> Unit) {
+private fun Field(label: String, value: String, number: Boolean = false, tag: String? = null, onChange: (String) -> Unit) {
     OutlinedTextField(
         value = value, onValueChange = onChange, singleLine = true, label = { Text(label) },
         keyboardOptions = if (number) KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(if (tag != null) Modifier.testTag(tag) else Modifier),
     )
 }
 
 @Composable
-private fun BodyNumbers(settings: CoachSettings, p: CoachProfile) {
+private fun BodyNumbers(settings: CoachSettings, p: CoachProfile, foods: List<String>) {
     var quota by remember(p) { mutableStateOf(p.quotaKcal.toString()) }
     var protein by remember(p) { mutableStateOf(p.proteinG.toString()) }
     var fat by remember(p) { mutableStateOf(p.fatG.toString()) }
@@ -231,7 +249,9 @@ private fun BodyNumbers(settings: CoachSettings, p: CoachProfile) {
     Field(stringResource(R.string.coach_num_goals), goals) { goals = it }
     Field(stringResource(R.string.coach_num_bedtime), bedtime) { bedtime = it }
     Field(stringResource(R.string.coach_num_margin), margin, number = true) { margin = it }
-    Field(stringResource(R.string.coach_num_planned), planned) { planned = it }
+    // The planned meal is picked from the food table, so its kcal is always known.
+    Label(stringResource(R.string.coach_num_planned))
+    foods.forEach { name -> Choice(name, planned == name, Tags.COACH_PLANNED + name) { planned = name } }
     Field(stringResource(R.string.coach_num_minutes), minutes, number = true) { minutes = it }
     Field(stringResource(R.string.coach_num_day_start), dayStart, number = true) { dayStart = it }
     Text(stringResource(R.string.coach_num_floor_note), color = Sakura.TextSecondary, fontSize = 12.sp)
@@ -246,7 +266,7 @@ private fun BodyNumbers(settings: CoachSettings, p: CoachProfile) {
             goals = CoachSettings.parseGoals(goals) ?: p.goals,
             bedtime = bedtime.trim(),
             marginPct = margin.trim().toIntOrNull() ?: p.marginPct,
-            plannedMeal = planned.trim().ifEmpty { p.plannedMeal },
+            plannedMeal = planned.takeIf { it in foods } ?: p.plannedMeal,
             evidenceMinutes = minutes.trim().toIntOrNull() ?: p.evidenceMinutes,
             dayStartHour = dayStart.trim().toIntOrNull() ?: p.dayStartHour,
         )

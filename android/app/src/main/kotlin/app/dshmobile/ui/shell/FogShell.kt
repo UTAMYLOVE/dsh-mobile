@@ -656,19 +656,22 @@ private fun SimpleBar(nav: ShellNav, hasCoach: Boolean = false, modifier: Modifi
         CoachBar(nav, modifier)
         return
     }
+    // With the coach, the chat bar carries one more button (教練): every button is compact so four fit at 320 dp.
+    val compact = hasCoach && onChat
     Row(
         modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp),
     ) {
-        if (onChat) BarButton(stringResource(R.string.bar_list), Tags.BAR_LIST) { nav.listOpen = true }
+        if (onChat) BarButton(stringResource(R.string.bar_list), Tags.BAR_LIST, compact = compact) { nav.listOpen = true }
         Text(
             if (onChat) "" else nav.tab.zh, color = Sakura.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.08.em,
             maxLines = 1, modifier = Modifier.weight(1f).padding(start = if (onChat) 0.dp else 8.dp),
         )
         if (onChat) {
-            if (hasCoach && nav.coachHome) BarButton(stringResource(R.string.bar_coach), Tags.BAR_COACH) { nav.openCoach() }
-            BarButton(ShellTab.AGENTS.zh, Tags.TAB + ShellTab.AGENTS.name) { nav.select(ShellTab.AGENTS) }
-            BarButton(stringResource(R.string.bar_new), Tags.BAR_NEW, pink = true) { nav.listOpen = false; nav.openSessionId = null }
+            // Always there while the app has the coach, whatever 「打開應用程式先進教練」 says: the coach must stay reachable.
+            if (hasCoach) BarButton(stringResource(R.string.bar_coach), Tags.BAR_COACH, compact = true) { nav.openCoach() }
+            BarButton(ShellTab.AGENTS.zh, Tags.TAB + ShellTab.AGENTS.name, compact = compact) { nav.select(ShellTab.AGENTS) }
+            BarButton(stringResource(R.string.bar_new), Tags.BAR_NEW, pink = true, compact = compact) { nav.listOpen = false; nav.openSessionId = null }
         } else {
             BarButton(stringResource(R.string.bar_back), Tags.TAB + ShellTab.CHAT.name, pink = true) { nav.select(ShellTab.CHAT) }
         }
@@ -696,7 +699,7 @@ private fun CoachBar(nav: ShellNav, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BarButton(label: String, tag: String, pink: Boolean = false, onClick: () -> Unit) {
+private fun BarButton(label: String, tag: String, pink: Boolean = false, compact: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier
             .heightIn(min = 48.dp)
@@ -705,7 +708,7 @@ private fun BarButton(label: String, tag: String, pink: Boolean = false, onClick
             .border(1.dp, if (pink) Color.White.copy(alpha = .9f) else Sakura.Primary.copy(alpha = .6f), Round)
             .clickable(role = Role.Button, onClick = onClick)
             .testTag(tag)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = if (compact) 10.dp else 14.dp),
         contentAlignment = Alignment.Center,
     ) {
         // Ink on the pink button too: white on pink measured 2.1:1, #5E4445 is 4.2:1.

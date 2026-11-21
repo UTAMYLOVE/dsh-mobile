@@ -92,15 +92,51 @@ class HttpCoachModelTest {
         assertEquals(0, server.requestCount)
     }
 
-    @Test fun theCompatibleRequestShape() {
-        // Same client code with an https check bypassed by a TLS-less test is not possible; check the body builder through a
-        // stand-in: the compat path is exercised by the shape it would send, using a base that passes the https test.
+    private fun compatModel() = HttpCoachModel(http, vault, settings, meter, { emptyMap() }, log, clock, requireHttps = false).also {
         settings.provider = CoachProvider.COMPAT
         settings.compatModel = "some-model"
-        settings.compatUrl = "https://example.invalid/v1"
-        // No network in tests: the call fails offline after the key and setup checks pass, and the daily count goes up.
-        assertEquals(ModelReply.Failed(Fail.OFFLINE), run())
+        settings.compatUrl = server.url("/v1").toString()
+    }
+
+    @Test fun theCompatibleRequestShape() {
+        val m = compatModel()
+        server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"好"},"finish_reason":"stop"}]}"""))
+        assertEquals(ModelReply.Ok("好"), runBlocking { m.complete("系統", listOf(Turn.user("嗨"), Turn.assistant("嗯"), Turn.user("再說")), 2048) })
+        val req = server.takeRequest(1, TimeUnit.SECONDS)!!
+        assertEquals("/v1/chat/completions", req.path)
+        assertEquals("Bearer cp-secret-key-789", req.getHeader("Authorization"))
+        assertNull(req.getHeader("x-api-key"))
+        val body = Json.parseToJsonElement(req.body.readUtf8()) as JsonObject
+        assertEquals("some-model", (body["model"] as JsonPrimitive).content)
+        val msgs = body["messages"] as JsonArray
+        assertEquals(listOf("system", "user", "assistant", "user"), msgs.map { ((it as JsonObject)["role"] as JsonPrimitive).content })
+        assertEquals("系統", ((msgs[0] as JsonObject)["content"] as JsonPrimitive).content)
         assertEquals(1, prefs.getInt(CoachSettings.K_COMPAT_COUNT, 0))
+    }
+
+    @Test fun theCompatibleServiceNeverFollowsARedirectAndRejectsANullContent() {
+        val m = compatModel()
+        server.enqueue(MockResponse().setResponseCode(307).setHeader("Location", other.url("/steal").toString()))
+        assertEquals(ModelReply.Failed(Fail.BAD_RESPONSE), runBlocking { m.complete("系統", listOf(Turn.user("嗨")), 2048) })
+        assertEquals(0, other.requestCount)
+        server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":null},"finish_reason":"stop"}]}"""))
+        assertEquals(ModelReply.Failed(Fail.BAD_RESPONSE), runBlocking { m.complete("系統", listOf(Turn.user("嗨")), 2048) })
+    }
+
+    @Test fun theCompatibleDailyCapStopsBeforeAnyRequest() {
+        val m = compatModel()
+        prefs.edit().putString(CoachSettings.K_COMPAT_COUNT_DAY, clock.instant().atZone(java.time.ZoneId.of("Asia/Taipei")).toLocalDate().toString())
+            .putInt(CoachSettings.K_COMPAT_COUNT, COMPAT_DAILY_CAP).apply()
+        assertEquals(ModelReply.Failed(Fail.CAP), runBlocking { m.complete("系統", listOf(Turn.user("嗨")), 2048) })
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun theKeyTravelsOnlyInItsHeaderNeverInTheBody() {
+        server.enqueue(MockResponse().setBody(ok))
+        run(system = "系統", turns = listOf(Turn.user("嗨")))
+        val req = server.takeRequest(1, TimeUnit.SECONDS)!!
+        assertFalse(req.body.readUtf8().contains("ds-secret-key-123"))
+        assertEquals("ds-secret-key-123", req.getHeader("x-api-key"))
     }
 
     @Test fun rejectedKeysRedirectsAndMissingKeys() {
