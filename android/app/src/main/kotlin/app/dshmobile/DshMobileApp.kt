@@ -89,6 +89,22 @@ class DshMobileApp : Application(), Configuration.Provider {
     val costMeter: CostMeter by lazy {
         CostMeter(getSharedPreferences("dshm_cost", Context.MODE_PRIVATE), PriceTable(), clock = Clock.systemUTC())
     }
+    /** 教練模式: its settings, its records (the app's own files, outside dsh's workspace), its model client and the engine. */
+    val coachSettings: app.dshmobile.coach.CoachSettings by lazy {
+        app.dshmobile.coach.CoachSettings(getSharedPreferences(app.dshmobile.coach.CoachSettings.PREFS, Context.MODE_PRIVATE))
+    }
+    val coachStore: app.dshmobile.coach.CoachStore by lazy { app.dshmobile.coach.CoachStore(File(filesDir, "coach")) }
+    val coachModel: app.dshmobile.coach.CoachModel by lazy {
+        app.dshmobile.coach.HttpCoachModel(
+            okhttp3.OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+                .connectTimeout(15, TimeUnit.SECONDS).readTimeout(90, TimeUnit.SECONDS).callTimeout(120, TimeUnit.SECONDS).build(),
+            keyVault, coachSettings, costMeter, { upstreamsOverride ?: DshController.DEFAULT_UPSTREAMS }, errorLog,
+        )
+    }
+    val coach: app.dshmobile.coach.CoachEngine by lazy {
+        app.dshmobile.coach.CoachEngine(coachStore, coachSettings, coachModel, Clock.systemUTC(), java.time.ZoneId.of("Asia/Taipei"), applicationScope)
+    }
+
     /** Where the rootfs and the user's data (outside it, bound into the guest) live on the host. */
     val appPaths: AppPaths by lazy { AppPaths(filesDir) }
 

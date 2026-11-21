@@ -1,5 +1,7 @@
 package app.dshmobile.ui
 
+import app.dshmobile.ui.coach.CoachPage
+import app.dshmobile.ui.coach.CoachSettingsPage
 import app.dshmobile.ui.chat.LocalUnlocker
 import app.dshmobile.ui.overview.WeatherCard
 import app.dshmobile.chat.FileKind
@@ -451,6 +453,8 @@ class MainActivity : ComponentActivity() {
             if (!more && (nav.tab == ShellTab.OVERVIEW || nav.tab == ShellTab.LIBRARY)) nav.tab = ShellTab.CHAT
         }
         vm.otherMode?.let { madeNative -> OtherModeDialog(madeNative, onSwitch = vm::switchModeForConversation, onCancel = { vm.otherMode = null }) }
+        val coachUi by app.coach.ui.collectAsState()
+        val onCoach = nav.coach && !nav.coachSettings
         FogShell(
             status = state,
             connection = connection,
@@ -458,11 +462,11 @@ class MainActivity : ComponentActivity() {
             composer = ComposerUi(
                 text = vm.composerText,
                 onText = vm::onText,
-                enabled = state == MainUiState.Ready,
-                canSend = vm.canSend,
-                running = running,
-                onSend = vm::onDockSend,
-                onStop = vm::stopReply,
+                enabled = state == MainUiState.Ready || onCoach,
+                canSend = if (onCoach) vm.composerText.isNotBlank() && !coachUi.busy else vm.canSend,
+                running = if (onCoach) coachUi.busy else running,
+                onSend = if (onCoach) ({ val t = vm.composerText; vm.onText(""); app.coach.send(t) }) else vm::onDockSend,
+                onStop = if (onCoach) ({}) else vm::stopReply,
                 onAttachImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onAttachFile = { filePicker.launch(arrayOf("*/*")) },
                 chips = vm.chips,
@@ -494,6 +498,8 @@ class MainActivity : ComponentActivity() {
                 )
             },
             modalOverlay = rememberHasPrompt(session?.events),
+            coach = { CoachPage(app.coach) },
+            coachSettings = { CoachSettingsPage(app.coachSettings, app.keyVault, app.coachStore) },
         ) { tab ->
             when (tab) {
                 ShellTab.SETTINGS -> {

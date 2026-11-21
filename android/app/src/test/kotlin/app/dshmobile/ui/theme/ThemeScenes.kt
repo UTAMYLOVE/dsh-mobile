@@ -954,6 +954,7 @@ class ThemeScenes(
         )
         // MainActivity wears the saved 主題 (跟著開場 would be 櫻紋陣): tell it the scenes' theme.
         app.look.update { it.copy(theme = worn.id, themeColors = worn.mode) }
+        app.coachSettings.openOnCoach = false // the scenes show the chat shell, not the coach
         val activity = Robolectric.buildActivity(MainActivity::class.java, android.content.Intent().setComponent(android.content.ComponentName(app, MainActivity::class.java)))
             .also { main = it }.setup().get()
         rule.waitForIdle()

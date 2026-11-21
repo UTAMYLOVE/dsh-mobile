@@ -91,6 +91,8 @@ object E2e {
             Log.i(FakeModel.TAG, "rootfs installed in ${(System.currentTimeMillis() - t0) / 1000} s")
         }
         app.keyVault.put(Provider.DEEPSEEK, FakeModel.E2E_KEY)
+        // The suites test the chat shell; the coach has its own tests.
+        app.coachSettings.openOnCoach = false
         val state = OnboardingState(app.getSharedPreferences(OnboardingState.PREFS, Context.MODE_PRIVATE))
         OnboardingState.Step.entries.forEach { state.markDone(it) }
         useEffects(effects)

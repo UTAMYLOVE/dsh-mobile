@@ -91,8 +91,12 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
             nav.openSessionId = saved.getString(OPEN)
             nav.listOpen = saved.getBoolean(LIST)
             composerText = saved.getString(TEXT).orEmpty()
+            nav.coachHome = app.coachSettings.openOnCoach
+            nav.coach = saved.getBoolean(COACH)
         } else {
             nav.openSessionId = app.uiPrefs.lastSessionId
+            nav.coachHome = app.coachSettings.openOnCoach
+            nav.coach = nav.coachHome
         }
         handle.setSavedStateProvider(STATE, ::saveState)
         // Leaving settings while one of its actions runs would cancel it (a key save, an export) or hide its result.
@@ -113,6 +117,7 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
         putString(TAB, nav.tab.name)
         putString(OPEN, nav.openSessionId)
         putBoolean(LIST, nav.listOpen)
+        putBoolean(COACH, nav.coach)
         if (composerText.length <= MAX_SAVED_TEXT) putString(TEXT, composerText)
     }
 
@@ -341,6 +346,7 @@ class MainViewModel(application: Application, handle: SavedStateHandle) : Androi
         const val OPEN = "open"
         const val LIST = "list"
         const val TEXT = "text"
+        const val COACH = "coach"
         const val MB = 1024 * 1024
         const val THUMB_DP = 64
     }

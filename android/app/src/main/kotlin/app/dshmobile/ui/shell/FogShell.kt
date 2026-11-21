@@ -205,6 +205,9 @@ fun FogShell(
     /** True while [overlay] is a modal card: everything under it is hidden from accessibility services. */
     modalOverlay: Boolean = false,
     reconnectChipDelayMs: Long = 2_000,
+    /** 教練模式: the coach page and its settings page; shown over the chat tab while [ShellNav.coach] / [ShellNav.coachSettings]. */
+    coach: (@Composable () -> Unit)? = null,
+    coachSettings: (@Composable () -> Unit)? = null,
     page: @Composable (ShellTab) -> Unit,
 ) {
     val backdrop = rememberBackdrop()
@@ -273,8 +276,8 @@ fun FogShell(
         val hidden = if (modalOverlay) Modifier.clearAndSetSemantics {} else Modifier
         val headerBottom = Modifier.onGloballyPositioned { edge.barBottom.floatValue = it.positionInRoot().y + it.size.height }
         Column(Modifier.fillMaxSize().then(hidden)) {
-            if (!nav.more) SimpleBar(
-                nav,
+            if (!nav.more || (nav.coach && coach != null)) SimpleBar(
+                nav, coach != null,
                 Modifier
                     .testTag(Tags.SHELL_HEADER)
                     .then(headerBottom)
@@ -297,7 +300,10 @@ fun FogShell(
             ) {
                 // A page's glass under the floating stack is faded out: it blurs only what shows above it.
                 CompositionLocalProvider(LocalPagePadding provides padding, LocalBlurFloor provides blurFloor) {
-                    Pages(nav.tab) { tab ->
+                    val coachPage = if (nav.coachSettings) coachSettings else if (nav.coach) coach else null
+                    if (coachPage != null) {
+                        CompositionLocalProvider(LocalPageActive provides started) { coachPage() }
+                    } else Pages(nav.tab) { tab ->
                       // Only the current page animates; the one sliding out is already still.
                       CompositionLocalProvider(LocalPageActive provides (started && tab == nav.tab)) {
                         when {
@@ -353,11 +359,11 @@ fun FogShell(
             }
             Dock(
                 composer = composer,
-                enabled = composer.enabled && ready,
+                enabled = composer.enabled && (ready || (nav.coach && coach != null)),
                 tab = nav.tab,
                 onSelect = nav::select,
                 tabs = nav.tabs,
-                onToggleAttachMenu = { attachMenu = !attachMenu },
+                onToggleAttachMenu = { if (!nav.coach) attachMenu = !attachMenu },
             )
         }
         overlay()
@@ -644,8 +650,12 @@ private fun ReconnectingChip(modifier: Modifier = Modifier) {
  * the war room or Settings the right side is one 回對話.
  */
 @Composable
-private fun SimpleBar(nav: ShellNav, modifier: Modifier = Modifier) {
+private fun SimpleBar(nav: ShellNav, hasCoach: Boolean = false, modifier: Modifier = Modifier) {
     val onChat = nav.tab == ShellTab.CHAT
+    if (hasCoach && (nav.coach || nav.coachSettings)) {
+        CoachBar(nav, modifier)
+        return
+    }
     Row(
         modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -656,11 +666,32 @@ private fun SimpleBar(nav: ShellNav, modifier: Modifier = Modifier) {
             maxLines = 1, modifier = Modifier.weight(1f).padding(start = if (onChat) 0.dp else 8.dp),
         )
         if (onChat) {
+            if (hasCoach && nav.coachHome) BarButton(stringResource(R.string.bar_coach), Tags.BAR_COACH) { nav.openCoach() }
             BarButton(ShellTab.AGENTS.zh, Tags.TAB + ShellTab.AGENTS.name) { nav.select(ShellTab.AGENTS) }
             BarButton(stringResource(R.string.bar_new), Tags.BAR_NEW, pink = true) { nav.listOpen = false; nav.openSessionId = null }
         } else {
             BarButton(stringResource(R.string.bar_back), Tags.TAB + ShellTab.CHAT.name, pink = true) { nav.select(ShellTab.CHAT) }
         }
+    }
+}
+
+/** The coach's bar: its settings on the left, the title, and 自由聊天 (the ordinary chat) on the right. */
+@Composable
+private fun CoachBar(nav: ShellNav, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (nav.coachSettings) {
+            BarButton(stringResource(R.string.bar_back), Tags.COACH_SETTINGS_OPEN) { nav.coachSettings = false }
+        } else {
+            BarButton(stringResource(R.string.coach_settings_open), Tags.COACH_SETTINGS_OPEN) { nav.coachSettings = true }
+        }
+        Text(
+            stringResource(R.string.coach_title), color = Sakura.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.08.em,
+            maxLines = 1, modifier = Modifier.weight(1f).padding(start = 8.dp),
+        )
+        BarButton(stringResource(R.string.bar_free_chat), Tags.BAR_FREE_CHAT, pink = true) { nav.select(ShellTab.CHAT) }
     }
 }
 

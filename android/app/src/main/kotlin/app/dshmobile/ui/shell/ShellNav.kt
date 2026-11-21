@@ -33,17 +33,41 @@ class ShellNav {
     var canLeave: (ShellTab) -> Boolean = { true }
     var onLeaveRefused: () -> Unit = {}
 
+    /** 教練模式: the coach page shows over the chat tab. [coachHome]: the app opens on the coach and back from the chat home returns to it. */
+    var coach: Boolean by mutableStateOf(false)
+    var coachHome: Boolean by mutableStateOf(false)
+    /** The coach's own settings page, over the coach. */
+    var coachSettings: Boolean by mutableStateOf(false)
+
+    fun openCoach() {
+        if (!canLeave(tab)) {
+            onLeaveRefused()
+            return
+        }
+        listOpen = false
+        tab = ShellTab.CHAT
+        coach = true
+    }
+
     fun select(tab: ShellTab) {
-        if (tab == this.tab) return
+        if (tab == this.tab) {
+            coach = false
+            coachSettings = false
+            return
+        }
         if (!canLeave(this.tab)) {
             onLeaveRefused()
             return
         }
+        coach = false
+        coachSettings = false
         this.tab = tab
     }
 
     /** Opens conversation [id] in the chat tab. */
     fun openSession(id: String) {
+        coach = false
+        coachSettings = false
         openSessionId = id
         listOpen = false
         tab = ShellTab.CHAT
@@ -56,6 +80,11 @@ class ShellNav {
      * only touched while the chat is the tab (final review B1-I5). False on [home]: the system's back then applies.
      */
     fun back(): Boolean {
+        if (coachSettings) {
+            coachSettings = false
+            return true
+        }
+        if (coach) return false
         if (tab == ShellTab.CHAT) {
             // The list closes over an open conversation, and over the home page (the simple shell's chat with nothing open).
             if (listOpen && (openSessionId != null || !more)) {
@@ -68,7 +97,13 @@ class ShellNav {
                 return true
             }
         }
-        if (tab == home) return false
+        if (tab == home) {
+            if (coachHome && tab == ShellTab.CHAT && !listOpen && openSessionId == null) {
+                coach = true
+                return true
+            }
+            return false
+        }
         select(home)
         return true
     }
