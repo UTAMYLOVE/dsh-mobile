@@ -49,9 +49,11 @@ import app.dshmobile.ui.shell.LocalPagePadding
 import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.theme.Sakura
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import java.time.DayOfWeek
+import app.dshmobile.coach.AgencyRules
+import app.dshmobile.coach.AgencySchedule
+import app.dshmobile.coach.SlotTimes
 
-/** 教練設定: the model, the 放縱餐 day, opening on the coach, and (folded) the body numbers and the food table. The coach never writes here. */
+/** 設定 of the company: the model, the 公司規章 (read only), the company's name, join day and schedule, opening on the 練習生證, and (folded) the body numbers and the food table. No role ever writes here. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CoachSettingsPage(
@@ -94,22 +96,22 @@ fun CoachSettingsPage(
                 CoachProvider.COMPAT -> CompatSection(settings, vault, revision)
             }
         }
-        FogPanel(title = stringResource(R.string.coach_set_cheat)) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                DayOfWeek.entries.forEach { d ->
-                    val on = profile.cheatDay == d
-                    Text(
-                        stringResource(R.string.coach_weekday, CoachRules.weekdayZh(d)),
-                        color = Sakura.Text, fontSize = 14.sp,
-                        modifier = Modifier
-                            .heightIn(min = 44.dp)
-                            .background(if (on) Sakura.Primary.copy(alpha = .85f) else Sakura.White.copy(alpha = .7f), RoundedCornerShape(50))
-                            .clickable(role = Role.RadioButton) { settings.profile = profile.copy(cheatDay = d) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                    )
-                }
+        // 公司規章: fixed in code; shown, never edited (agency spec).
+        FogPanel(title = stringResource(R.string.agency_rules_title)) {
+            Column(Modifier.testTag(Tags.AGENCY_RULES), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    stringResource(R.string.agency_rule_quota, AgencyRules.QUOTA_KCAL, AgencyRules.PROTEIN_G),
+                    stringResource(R.string.agency_rule_floor),
+                    stringResource(R.string.agency_rule_cheat, CoachRules.weekdayZh(AgencyRules.CHEAT_DAY)),
+                    stringResource(R.string.agency_rule_zero, AgencyRules.ZERO_CAL_PER_WEEK),
+                    stringResource(R.string.agency_rule_meal, AgencyRules.MEAL_MAX_KCAL),
+                    stringResource(R.string.agency_rule_over),
+                    stringResource(R.string.agency_rule_person),
+                ).forEach { Text("・$it", color = Sakura.Text, fontSize = 14.sp, lineHeight = 20.sp) }
+                Text(stringResource(R.string.agency_rules_note), color = Sakura.TextSecondary, fontSize = 12.sp)
             }
         }
+        CompanyPanel(settings, revision)
         FogPanel(title = stringResource(R.string.coach_set_open)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.coach_set_open_hint), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -226,8 +228,6 @@ private fun Field(label: String, value: String, number: Boolean = false, tag: St
 
 @Composable
 private fun BodyNumbers(settings: CoachSettings, p: CoachProfile, foods: List<String>) {
-    var quota by remember(p) { mutableStateOf(p.quotaKcal.toString()) }
-    var protein by remember(p) { mutableStateOf(p.proteinG.toString()) }
     var fat by remember(p) { mutableStateOf(p.fatG.toString()) }
     var carbs by remember(p) { mutableStateOf(p.carbsG.toString()) }
     var height by remember(p) { mutableStateOf(CoachRules.kg(p.heightCm)) }
@@ -240,8 +240,6 @@ private fun BodyNumbers(settings: CoachSettings, p: CoachProfile, foods: List<St
     var dayStart by remember(p) { mutableStateOf(p.dayStartHour.toString()) }
     var note by remember { mutableStateOf<String?>(null) }
     val saved = stringResource(R.string.coach_saved)
-    Field(stringResource(R.string.coach_num_quota), quota, number = true) { quota = it }
-    Field(stringResource(R.string.coach_num_protein), protein, number = true) { protein = it }
     Field(stringResource(R.string.coach_num_fat), fat, number = true) { fat = it }
     Field(stringResource(R.string.coach_num_carbs), carbs, number = true) { carbs = it }
     Field(stringResource(R.string.coach_num_height), height, number = true) { height = it }
@@ -257,8 +255,6 @@ private fun BodyNumbers(settings: CoachSettings, p: CoachProfile, foods: List<St
     Text(stringResource(R.string.coach_num_floor_note), color = Sakura.TextSecondary, fontSize = 12.sp)
     TextButton(onClick = {
         settings.profile = p.copy(
-            quotaKcal = quota.trim().toIntOrNull() ?: p.quotaKcal,
-            proteinG = protein.trim().toIntOrNull() ?: p.proteinG,
             fatG = fat.trim().toIntOrNull() ?: p.fatG,
             carbsG = carbs.trim().toIntOrNull() ?: p.carbsG,
             heightCm = height.trim().toDoubleOrNull() ?: p.heightCm,
@@ -273,4 +269,49 @@ private fun BodyNumbers(settings: CoachSettings, p: CoachProfile, foods: List<St
         note = saved
     }) { Text(stringResource(R.string.coach_save), color = Sakura.Text) }
     note?.let { Text(it, color = Sakura.TextSecondary, fontSize = 13.sp) }
+}
+
+/** The company's name, 入社日 and the 經紀人's schedule times. */
+@Composable
+private fun CompanyPanel(settings: CoachSettings, revision: Long) {
+    var name by remember(revision) { mutableStateOf(settings.companyName) }
+    var join by remember(revision) { mutableStateOf(settings.joinDate.toString()) }
+    val t = remember(revision) { settings.slotTimes }
+    var lunch by remember(revision) { mutableStateOf(AgencySchedule.clock(t.lunch)) }
+    var dinner by remember(revision) { mutableStateOf(AgencySchedule.clock(t.dinner)) }
+    var chicken by remember(revision) { mutableStateOf(AgencySchedule.clock(t.chicken)) }
+    var night by remember(revision) { mutableStateOf(AgencySchedule.clock(t.night)) }
+    var note by remember { mutableStateOf<String?>(null) }
+    val saved = stringResource(R.string.coach_saved)
+    val bad = stringResource(R.string.agency_bad_time)
+    FogPanel(title = stringResource(R.string.agency_company_title)) {
+        Field(stringResource(R.string.agency_company_name), name, tag = Tags.AGENCY_COMPANY_NAME) { name = it }
+        Field(stringResource(R.string.agency_join_date), join) { join = it }
+        Label(stringResource(R.string.agency_schedule_title))
+        Field(stringResource(R.string.agency_t_lunch), lunch) { lunch = it }
+        Field(stringResource(R.string.agency_t_dinner), dinner) { dinner = it }
+        Field(stringResource(R.string.agency_t_chicken), chicken) { chicken = it }
+        Field(stringResource(R.string.agency_t_night), night) { night = it }
+        TextButton(modifier = Modifier.testTag(Tags.AGENCY_COMPANY_SAVE), onClick = {
+            val times = listOf(lunch, dinner, chicken, night).map(::minuteOf)
+            val day = runCatching { java.time.LocalDate.parse(join.trim()) }.getOrNull()
+            if (times.any { it == null } || day == null) {
+                note = bad
+            } else {
+                settings.companyName = name
+                settings.joinDate = day
+                settings.slotTimes = SlotTimes(times[0]!!, times[1]!!, times[2]!!, times[3]!!)
+                note = saved
+            }
+        }) { Text(stringResource(R.string.coach_save), color = Sakura.Text) }
+        note?.let { Text(it, color = Sakura.TextSecondary, fontSize = 13.sp) }
+    }
+}
+
+/** 「17:30」 → minutes after midnight; null when not a time. */
+internal fun minuteOf(s: String): Int? {
+    val m = Regex("^\\s*(\\d{1,2})[:：](\\d{2})\\s*$").find(s) ?: return null
+    val h = m.groupValues[1].toInt()
+    val min = m.groupValues[2].toInt()
+    return if (h in 0..23 && min in 0..59) h * 60 + min else null
 }

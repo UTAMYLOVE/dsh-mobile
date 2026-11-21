@@ -208,6 +208,8 @@ fun FogShell(
     /** 教練模式: the coach page and its settings page; shown over the chat tab while [ShellNav.coach] / [ShellNav.coachSettings]. */
     coach: (@Composable () -> Unit)? = null,
     coachSettings: (@Composable () -> Unit)? = null,
+    /** The company's name for the coach bar (公司 settings); null shows the plain 公司. */
+    coachTitle: String? = null,
     page: @Composable (ShellTab) -> Unit,
 ) {
     val backdrop = rememberBackdrop()
@@ -277,7 +279,7 @@ fun FogShell(
         val headerBottom = Modifier.onGloballyPositioned { edge.barBottom.floatValue = it.positionInRoot().y + it.size.height }
         Column(Modifier.fillMaxSize().then(hidden)) {
             if (!nav.more || (nav.coach && coach != null)) SimpleBar(
-                nav, coach != null,
+                nav, coach != null, coachTitle,
                 Modifier
                     .testTag(Tags.SHELL_HEADER)
                     .then(headerBottom)
@@ -651,10 +653,10 @@ private fun ReconnectingChip(modifier: Modifier = Modifier) {
  * the war room or Settings the right side is one 回對話.
  */
 @Composable
-private fun SimpleBar(nav: ShellNav, hasCoach: Boolean = false, modifier: Modifier = Modifier) {
+private fun SimpleBar(nav: ShellNav, hasCoach: Boolean = false, coachTitle: String? = null, modifier: Modifier = Modifier) {
     val onChat = nav.tab == ShellTab.CHAT
     if (hasCoach && (nav.coach || nav.coachSettings)) {
-        CoachBar(nav, modifier)
+        CoachBar(nav, coachTitle, modifier)
         return
     }
     // With the coach, the chat bar carries one more button (教練): every button is compact so four fit at 320 dp.
@@ -681,7 +683,7 @@ private fun SimpleBar(nav: ShellNav, hasCoach: Boolean = false, modifier: Modifi
 
 /** The coach's bar: its settings on the left, the title, and 自由聊天 (the ordinary chat) on the right. */
 @Composable
-private fun CoachBar(nav: ShellNav, modifier: Modifier = Modifier) {
+private fun CoachBar(nav: ShellNav, title: String?, modifier: Modifier = Modifier) {
     Row(
         modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -692,7 +694,7 @@ private fun CoachBar(nav: ShellNav, modifier: Modifier = Modifier) {
             BarButton(stringResource(R.string.coach_settings_open), Tags.COACH_SETTINGS_OPEN) { nav.coachSettings = true }
         }
         Text(
-            stringResource(R.string.coach_title), color = Sakura.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.08.em,
+            title ?: stringResource(R.string.coach_title), color = Sakura.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.08.em,
             maxLines = 1, modifier = Modifier.weight(1f).padding(start = 8.dp),
         )
         BarButton(stringResource(R.string.bar_free_chat), Tags.BAR_FREE_CHAT, pink = true) { nav.select(ShellTab.CHAT) }

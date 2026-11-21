@@ -13,6 +13,8 @@ import kotlinx.serialization.json.Json
  */
 class CoachStore(private val dir: File, private val clock: () -> Long = System::currentTimeMillis) {
     private val stateFile = File(dir, "state.json")
+    /** 入社建檔's photo and recording (never sent to the model). */
+    val baselineDir: File get() = File(dir, "baseline").also { it.mkdirs() }
     private val messagesFile = File(dir, "messages.jsonl")
 
     /** True when an unreadable state file could not be kept aside: nothing is written over it. */

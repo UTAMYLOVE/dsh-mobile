@@ -34,7 +34,7 @@ class CoachReviewFixTest {
     // I1
     @Test fun aCravingTheModelCallsAMealIsStillRefused() {
         val r = say("我想吃鹽酥雞", parsed("meal", item("鹽酥雞", fried = true, low = 500, high = 700)))
-        assertTrue(r, r.startsWith("今天不是放縱餐。"))
+        assertTrue(r, r.startsWith("今天不是休假餐。"))
         assertTrue(rig.store.state.value.meals.isEmpty())
     }
 
@@ -288,7 +288,7 @@ class CoachReviewFixTest {
         rig.store.update { it.copy(food = it.food.filter { f -> f.name != "給力盒子 南加州烤雞腿" }) }
         val r = say("我想吃臭豆腐", parsed("craving", item("臭豆腐", fried = true)))
         assertFalse(r, r.contains("南加州"))
-        assertTrue(r, r.startsWith("今天不是放縱餐。今天至少還要吃 1200 大卡。今天剩 1700 大卡。點之前先把菜單傳來，我來選。"))
+        assertTrue(r, r.startsWith("今天不是休假餐。今天至少還要吃 1200 大卡。今天剩 1700 大卡。點之前先把菜單傳來，我來選。"))
     }
 
     // M-c (review 3): 百 or 千 with no digit before it means one.

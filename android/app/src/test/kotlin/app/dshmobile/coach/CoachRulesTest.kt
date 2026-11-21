@@ -68,7 +68,10 @@ class CoachRulesTest {
         assertEquals(1200, CoachRules.quotaClamped(900))
         val prefs = InMemorySharedPreferences()
         val s = CoachSettings(prefs)
-        s.profile = CoachProfile(quotaKcal = 1000)
-        assertEquals(1200, s.profile.quotaKcal)
+        // 公司規章: the quota, protein and 休假餐 day are fixed, whatever is saved.
+        s.profile = CoachProfile(quotaKcal = 1000, proteinG = 90, cheatDay = DayOfWeek.MONDAY)
+        assertEquals(1700, s.profile.quotaKcal)
+        assertEquals(140, s.profile.proteinG)
+        assertEquals(DayOfWeek.FRIDAY, s.profile.cheatDay)
     }
 }

@@ -55,12 +55,13 @@ class CoachSettings(private val prefs: SharedPreferences) {
             return CoachProfile(
                 heightCm = dbl(K_HEIGHT, d.heightCm, 120.0..230.0),
                 startWeightKg = dbl(K_START, d.startWeightKg, 30.0..250.0),
-                quotaKcal = CoachRules.quotaClamped(prefs.getInt(K_QUOTA, d.quotaKcal)),
-                proteinG = int(K_PROTEIN, d.proteinG, 20..400),
+                // 公司規章: quota, protein and the 休假餐 day are fixed; a value an older version saved is ignored (never deleted).
+                quotaKcal = AgencyRules.QUOTA_KCAL,
+                proteinG = AgencyRules.PROTEIN_G,
                 fatG = int(K_FAT, d.fatG, 10..300),
                 carbsG = int(K_CARBS, d.carbsG, 20..800),
                 goals = parseGoals(prefs.getString(K_GOALS, null)) ?: d.goals,
-                cheatDay = runCatching { DayOfWeek.of(prefs.getInt(K_CHEAT, d.cheatDay.value)) }.getOrDefault(d.cheatDay),
+                cheatDay = AgencyRules.CHEAT_DAY,
                 bedtime = prefs.getString(K_BEDTIME, null).orEmpty().take(20),
                 marginPct = int(K_MARGIN, d.marginPct, 0..50),
                 plannedMeal = prefs.getString(K_PLANNED, null)?.takeIf { it.isNotBlank() }?.take(40) ?: d.plannedMeal,
@@ -72,18 +73,41 @@ class CoachSettings(private val prefs: SharedPreferences) {
             prefs.edit()
                 .putString(K_HEIGHT, p.heightCm.coerceIn(120.0, 230.0).toString())
                 .putString(K_START, p.startWeightKg.coerceIn(30.0, 250.0).toString())
-                .putInt(K_QUOTA, CoachRules.quotaClamped(p.quotaKcal))
-                .putInt(K_PROTEIN, p.proteinG.coerceIn(20, 400))
                 .putInt(K_FAT, p.fatG.coerceIn(10, 300))
                 .putInt(K_CARBS, p.carbsG.coerceIn(20, 800))
                 .putString(K_GOALS, p.goals.joinToString(","))
-                .putInt(K_CHEAT, p.cheatDay.value)
                 .putString(K_BEDTIME, p.bedtime.take(20))
                 .putInt(K_MARGIN, p.marginPct.coerceIn(0, 50))
                 .putString(K_PLANNED, p.plannedMeal.take(40))
                 .putInt(K_EVIDENCE, p.evidenceMinutes.coerceIn(5, 240))
                 .putInt(K_DAY_START, p.dayStartHour.coerceIn(0, 8))
                 .apply()
+            bump()
+        }
+
+    /** The company's name on the 練習生證 and in the bar (公司 settings). */
+    var companyName: String
+        get() = prefs.getString(K_COMPANY, null)?.trim()?.takeIf { it.isNotEmpty() }?.take(12) ?: DEFAULT_COMPANY
+        set(v) = putStr(K_COMPANY, v.trim().take(12).takeIf { it.isNotEmpty() })
+
+    /** 入社日: day 1 of 入社第 N 天. */
+    var joinDate: java.time.LocalDate
+        get() = prefs.getString(K_JOIN, null)?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: DEFAULT_JOIN
+        set(v) = putStr(K_JOIN, v.toString())
+
+    /** The 經紀人's schedule times, minutes after midnight. */
+    var slotTimes: SlotTimes
+        get() {
+            val d = SlotTimes()
+            return SlotTimes(
+                lunch = int(K_T_LUNCH, d.lunch, 0..(24 * 60 - 1)),
+                dinner = int(K_T_DINNER, d.dinner, 0..(24 * 60 - 1)),
+                chicken = int(K_T_CHICKEN, d.chicken, 0..(24 * 60 - 1)),
+                night = int(K_T_NIGHT, d.night, 0..(30 * 60)),
+            )
+        }
+        set(t) {
+            prefs.edit().putInt(K_T_LUNCH, t.lunch).putInt(K_T_DINNER, t.dinner).putInt(K_T_CHICKEN, t.chicken).putInt(K_T_NIGHT, t.night).apply()
             bump()
         }
 
@@ -125,6 +149,14 @@ class CoachSettings(private val prefs: SharedPreferences) {
         private const val K_PLANNED = "planned_meal"
         private const val K_EVIDENCE = "evidence_min"
         private const val K_DAY_START = "day_start"
+        private const val K_COMPANY = "company"
+        private const val K_JOIN = "join_date"
+        private const val K_T_LUNCH = "t_lunch"
+        private const val K_T_DINNER = "t_dinner"
+        private const val K_T_CHICKEN = "t_chicken"
+        private const val K_T_NIGHT = "t_night"
+        const val DEFAULT_COMPANY = "小雨娛樂"
+        val DEFAULT_JOIN: java.time.LocalDate = java.time.LocalDate.of(2026, 11, 21)
         internal const val K_COMPAT_COUNT_DAY = "compat_day"
         internal const val K_COMPAT_COUNT = "compat_count"
     }

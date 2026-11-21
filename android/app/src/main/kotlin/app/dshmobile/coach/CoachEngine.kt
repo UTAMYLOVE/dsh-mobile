@@ -15,7 +15,20 @@ import kotlinx.coroutines.sync.withLock
 /** Today's numbers for the strip at the top of the coach page. */
 data class Strip(val remainingKcal: Int, val proteinLeftG: Int, val nextGoalKg: Double?, val overBy: Int)
 
-data class CoachUi(val messages: List<CoachMessage>, val busy: Boolean, val strip: Strip)
+/** The 練習生證 at the top of the home page. */
+data class TraineeCard(
+    val company: String,
+    val number: String,
+    val level: String,
+    val dayNumber: Long,
+    val slots: List<Slot>,
+    val violations: Int,
+    val baselineMissing: List<BaselineStep>,
+    /** The 入社建檔 step the 經紀人 is asking now (null when none is open). */
+    val asking: BaselineStep?,
+)
+
+data class CoachUi(val messages: List<CoachMessage>, val busy: Boolean, val strip: Strip, val card: TraineeCard)
 
 /** An estimate waits this long for its label; after that it is dropped from 待確認. */
 const val PENDING_DAYS = 7
@@ -68,10 +81,21 @@ class CoachEngine(
         val eaten = meals.sumOf { it.kcal }
         val protein = meals.sumOf { it.proteinG }
         val remaining = CoachRules.remainingKcal(p.quotaKcal, eaten)
+        val td = today()
         return CoachUi(
             messages = store.messages.value,
             busy = busy.value,
             strip = Strip(maxOf(0, remaining), CoachRules.remainingProtein(p.proteinG, protein), CoachRules.nextGoal(p.goals, currentKg(s, p)), maxOf(0, -remaining)),
+            card = TraineeCard(
+                company = settings.companyName,
+                number = AgencyRules.TRAINEE_NO,
+                level = AgencyRules.LEVEL,
+                dayNumber = AgencyRules.dayNumber(settings.joinDate, td).coerceAtLeast(1),
+                slots = AgencySchedule.ticked(td, settings.slotTimes, s.meals, s.trainings, zone, p.dayStartHour),
+                violations = AgencyRules.violationsOn(s.meals, day),
+                baselineMissing = (s.baseline ?: Baseline()).missing,
+                asking = s.baseline?.step,
+            ),
         )
     }
 
@@ -121,14 +145,14 @@ class CoachEngine(
         busy.value = true
         try {
             val (reply, kind) = try {
-                respond(text, history)
+                baselineAnswer(text) ?: respond(text, history)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 onError(e.javaClass.simpleName)
                 CoachReplies.CHAT_DOWN to "error"
             }
-            store.append(CoachMessage(UUID.randomUUID().toString(), clock.millis(), Speaker.COACH, reply, kind))
+            store.append(CoachMessage(UUID.randomUUID().toString(), clock.millis(), Speaker.COACH, reply, kind, roleFor(kind)))
         } finally {
             busy.value = false
         }
@@ -162,6 +186,8 @@ class CoachEngine(
         if (parsed == null) return CoachReplies.NOT_UNDERSTOOD to "error"
         // The kind is not left to the model alone: 「想吃…」 without 「吃了」 is a craving, whatever it says.
         if (parsed.kind == "meal" && CoachReplies.isCraving(text)) parsed = parsed.copy(kind = "craving")
+        // A training report is not left to the model either: 「肌力三輪做完了」 is training whatever it says.
+        if (parsed.kind != "training" && isTrainingReport(text)) parsed = parsed.copy(kind = "training")
         // A number the owner did not write himself never becomes a weight or a label value (the model must not invent one).
         parsed = parsed.copy(
             weightKg = CoachNumbers.ownersOnly(parsed.weightKg, text),
@@ -185,11 +211,12 @@ class CoachEngine(
                 if (parsed.items.isNotEmpty()) lines += meal(text, parsed.items, illness)
             }
             "craving" -> {
-                if (illness) return chat(text, history, illness, lowIntake, null) to "chat"
+                if (illness) return chat(text, history, illness, lowIntake, null, AgencyRole.BODY) to "craving"
                 lines += craving(parsed.items)
             }
             "food_info" -> lines += foodInfo(parsed.foodInfo, illness)
-            else -> return chat(text, history, illness, lowIntake, null) to "chat"
+            "training" -> lines += training(CoachNumbers.ownersOnly(parsed.rounds?.toDouble(), text)?.toInt() ?: roundsIn(text))
+            else -> return chat(text, history, illness, lowIntake, null, AgencyRole.AGENT) to "chat"
         }
         var reply = lines.joinToString("\n")
         if ((illness || lowIntake) && !reply.contains("看醫生")) reply += "\n" + CoachReplies.DOCTOR
@@ -220,10 +247,11 @@ class CoachEngine(
         val table = store.state.value.food
         items.forEach { it0 ->
             val entry = FoodTable.lookup(table, it0.name)
+            val zero = AgencyRules.isZeroCal(it0.name, it0.zeroCal)
             when {
-                entry != null -> counted += FoodTable.tableItem(entry, it0.name, it0.portion, it0.fried)
+                entry != null -> counted += FoodTable.tableItem(entry, it0.name, it0.portion, it0.fried).copy(zeroCal = zero)
                 it0.kcalHigh != null -> {
-                    val item = FoodTable.estimateItem(it0.name, it0.portion, it0.fried, it0.kcalHigh, it0.proteinLow, p.marginPct)
+                    val item = FoodTable.estimateItem(it0.name, it0.portion, it0.fried, it0.kcalHigh, it0.proteinLow, p.marginPct).copy(zeroCal = zero)
                     pending += PendingFood(mealId, counted.size, item.name, item.kcal, now)
                     counted += item
                 }
@@ -232,12 +260,20 @@ class CoachEngine(
         }
         if (counted.isEmpty()) return lines.ifEmpty { listOf(CoachReplies.NOT_UNDERSTOOD) }
         val fried = counted.any { it.fried }
-        val m = Meal(mealId, now, today.toString(), text.take(200), counted, cheat = cheat, offPlan = fried && !cheat)
+        // 公司規章: fried only at the 休假餐, a single meal at most 700 kcal, zero-calorie drinks at most three a week.
+        val zeroBefore = AgencyRules.zeroCalThisWeek(store.state.value.meals, today)
+        val zeroAfter = zeroBefore + counted.filter { it.zeroCal }.sumOf { kotlin.math.ceil(it.portion - 1e-9).toInt() }
+        val breaches = buildList {
+            if (fried && !cheat) add(Breach.FRIED)
+            if (counted.sumOf { it.kcal } > AgencyRules.MEAL_MAX_KCAL) add(Breach.OVER700)
+            if (zeroAfter > AgencyRules.ZERO_CAL_PER_WEEK && zeroAfter > zeroBefore) add(Breach.ZEROCAL)
+        }
+        val m = Meal(mealId, now, today.toString(), text.take(200), counted, cheat = cheat, offPlan = breaches.isNotEmpty(), breaches = breaches.map { it.name })
         val cutoff = now - PENDING_DAYS * 86_400_000L
         val s = store.update { it.copy(meals = it.meals + m, pending = it.pending.filter { p0 -> p0.askedAt >= cutoff } + pending) }
             ?: return listOf(CoachReplies.NOT_SAVED)
         counted.forEach { lines += CoachReplies.itemLine(it, p.marginPct) }
-        if (fried && !cheat) lines += CoachReplies.OFF_PLAN
+        breaches.forEach { lines += AgencyRules.breachLine(it, zeroAfter) }
         lines += CoachReplies.UNVERIFIED
         pending.forEach { lines += CoachReplies.askLabel(it.name) }
         val (eaten, protein) = dayTotals(s, today.toString())
@@ -261,6 +297,10 @@ class CoachEngine(
         val (eaten, _) = dayTotals(s, today.toString())
         val remaining = CoachRules.remainingKcal(p.quotaKcal, eaten)
         if (items.isEmpty()) return listOf(CoachReplies.NOT_UNDERSTOOD)
+        val zeroWeek = AgencyRules.zeroCalThisWeek(s.meals, today)
+        if (items.any { AgencyRules.isZeroCal(it.name, it.zeroCal) } && zeroWeek >= AgencyRules.ZERO_CAL_PER_WEEK) {
+            return listOf("零卡飲料這週已經喝了 $zeroWeek 瓶，上限 ${AgencyRules.ZERO_CAL_PER_WEEK} 瓶，不准再喝。")
+        }
         val friedNames = items.filter { FoodTable.isFried(it.name, it.fried, FoodTable.lookup(s.food, it.name)) }.map { it.name }
         val deadline = "${p.evidenceMinutes} 分鐘內把訂單截圖傳來。"
         if (friedNames.isNotEmpty() && !cheat) {
@@ -274,7 +314,7 @@ class CoachEngine(
                 planned.kcal > remaining -> "今天剩 $remaining 大卡，不准再點炸的。" + floorLine(eaten, remaining, word, p, planned)
                 else -> "${word}吃${p.plannedMeal.replace(" ", "")}。"
             }
-            return listOf("今天不是放縱餐。$eatLine${friedNames.joinToString("、")}排到星期${CoachRules.weekdayZh(p.cheatDay)}。$deadline")
+            return listOf("今天不是休假餐。$eatLine${friedNames.joinToString("、")}排到星期${CoachRules.weekdayZh(p.cheatDay)}。$deadline")
         }
         // Not fried, or the cheat day: allowed only if it fits what is left (ruling Q6).
         val kcal = items.sumOf { i ->
@@ -293,6 +333,8 @@ class CoachEngine(
             remaining < 0 -> listOf("今天已經超過，不准再點。")
             remaining == 0 -> listOf("今天剩 0 大卡，不准再點。")
             kcal > remaining -> listOf("這份大約 $kcal 大卡，今天剩 $remaining 大卡，不准再點。" + floorLine(eaten, remaining, word, p, FoodTable.lookup(s.food, p.plannedMeal)))
+            // 一次不要吃到撐: a single meal above 700 kcal is refused even when it fits what is left (休假餐 included).
+            kcal > AgencyRules.MEAL_MAX_KCAL -> listOf("這份大約 $kcal 大卡，單餐不准超過 ${AgencyRules.MEAL_MAX_KCAL} 大卡。點之前先把菜單傳來，我來選。")
             else -> listOf("可以。吃了今天會剩 ${remaining - kcal} 大卡。吃完回報，$deadline")
         }
     }
@@ -357,7 +399,7 @@ class CoachEngine(
         return lines
     }
 
-    private suspend fun chat(text: String, history: List<CoachMessage>, illness: Boolean, lowIntake: Boolean, already: String?): String {
+    private suspend fun chat(text: String, history: List<CoachMessage>, illness: Boolean, lowIntake: Boolean, already: String?, role: AgencyRole): String {
         val s = store.state.value
         val p = settings.profile
         val today = today()
@@ -370,15 +412,219 @@ class CoachEngine(
                 eatenKcal = meals.sumOf { it.kcal }, eatenProtein = meals.sumOf { it.proteinG }, pending = livePending(s),
                 summaries = summaries(s, p, today, CoachPrompt.SUMMARY_DAYS), totals = totals(s, p),
                 illness = illness, lowIntake = lowIntake, already = already,
+                zeroCalWeek = AgencyRules.zeroCalThisWeek(s.meals, today), violations = AgencyRules.violationsOn(s.meals, today.toString()),
+                schedule = scheduleText(s, today),
             ),
         )
         val turns = CoachPrompt.history(history) + CoachPrompt.finalTurn(facts, text)
-        var reply = when (val r = model.complete(CoachPrompt.SYSTEM, turns)) {
+        var reply = when (val r = model.complete(CoachPrompt.system(role, settings.companyName), turns)) {
             is ModelReply.Ok -> NumberGuard.filter(r.text, facts, text).ifBlank { CoachReplies.CHAT_FALLBACK }
             is ModelReply.Failed -> CoachReplies.CHAT_DOWN
         }
         if ((illness || lowIntake) && !reply.contains("看醫生")) reply += "\n" + CoachReplies.DOCTOR
         return reply
+    }
+
+    // ---- agency: roles, training, schedule, 入社建檔 ----
+
+    private fun roleFor(kind: String?): AgencyRole = AgencyRole.forKind(kind)
+
+    private fun isTrainingReport(text: String): Boolean =
+        TRAINING_WORDS.any { text.contains(it) } && DONE_WORDS.any { text.contains(it) } && !CoachReplies.isCraving(text)
+
+    /** 「肌力三輪做完了」: recorded; [rounds] only when the owner wrote the number. No exercise is ever suggested. */
+    private fun training(rounds: Int?): List<String> {
+        val now = clock.millis()
+        store.update { it.copy(trainings = it.trainings + TrainingEntry(UUID.randomUUID().toString(), now, today().toString(), rounds)) }
+            ?: return listOf(CoachReplies.NOT_SAVED)
+        val lines = mutableListOf(if (rounds != null) "記下：肌力 $rounds 輪。" else "記下：肌力訓練做完了。")
+        if (rounds != null && rounds < AgencyRules.PLANNED_ROUNDS) lines += "計畫是 ${AgencyRules.PLANNED_ROUNDS} 輪，今天沒做完。"
+        else lines += "今天的肌力訓練完成。"
+        lines += "先記「未證實」。"
+        return lines
+    }
+
+    /** 「三輪」「3 輪」 in the owner's own words. */
+    private fun roundsIn(text: String): Int? =
+        Regex("([0-9零一二兩三四五六七八九十]+)\\s*輪").find(text)?.let { CoachNumbers.all(it.groupValues[1]).firstOrNull()?.toInt() }?.takeIf { it in 1..20 }
+
+    private fun scheduleText(s: CoachState, day: LocalDate): String =
+        AgencySchedule.ticked(day, settings.slotTimes, s.meals, s.trainings, zone, settings.profile.dayStartHour).joinToString("、") { sl ->
+            (sl.minute?.let { AgencySchedule.clock(it) + " " } ?: "") + sl.label + if (sl.done) " 已完成" else " 未完成"
+        }
+
+    /** Where 入社建檔's photo and recording are kept (the app's own files; never sent to the model). */
+    val baselineDir: java.io.File get() = store.baselineDir
+
+    /** On the first visit with no 入社建檔 yet, the 經紀人 welcomes him and asks the first question. */
+    fun startOnboarding() {
+        if (store.state.value.baseline != null) return
+        scope.launch {
+            mutex.withLock {
+                if (store.state.value.baseline != null) return@withLock
+                val step = BaselineStep.BODY
+                store.update { it.copy(baseline = Baseline(step = step)) } ?: return@withLock
+                agentSays(welcome() + "\n" + question(step))
+            }
+        }
+    }
+
+    /** 補交入社資料: reopens the first missing step. */
+    fun reopenBaseline() {
+        scope.launch {
+            mutex.withLock {
+                val b = store.state.value.baseline ?: Baseline()
+                val step = b.missing.firstOrNull() ?: return@withLock
+                // Every missing item is asked again, the ones skipped before included.
+                store.update { it.copy(baseline = b.copy(step = step, skipped = emptySet())) } ?: return@withLock
+                agentSays(question(step))
+            }
+        }
+    }
+
+    /** A photo or recording already copied into [baselineDir] as [fileName]. */
+    fun onBaselineFile(step: BaselineStep, fileName: String) {
+        if (step != BaselineStep.PHOTO && step != BaselineStep.RECORDING) return
+        scope.launch {
+            mutex.withLock {
+                val b = store.state.value.baseline ?: Baseline()
+                val got = if (step == BaselineStep.PHOTO) b.copy(photo = fileName) else b.copy(recording = fileName)
+                val saved = if (step == BaselineStep.PHOTO) "記下：全身照收到了。" else "記下：清唱錄音收到了。"
+                if (b.step == step) {
+                    agentSays(advance(got, saved))
+                } else {
+                    // Handed in while another question is open (or none): saved, and the open question stays as it is.
+                    if (store.update { it.copy(baseline = got) } == null) agentSays(CoachReplies.NOT_SAVED) else agentSays(saved)
+                }
+            }
+        }
+    }
+
+    private fun agentSays(text: String) {
+        store.append(CoachMessage(UUID.randomUUID().toString(), clock.millis(), Speaker.COACH, text, "baseline", AgencyRole.AGENT))
+    }
+
+    private fun welcome(): String {
+        val days = AgencyRules.dayNumber(settings.joinDate, today()).coerceAtLeast(1)
+        return "歡迎加入${settings.companyName}。你是公司唯一的練習生，編號 ${AgencyRules.TRAINEE_NO}，等級${AgencyRules.LEVEL}，今天是入社第 $days 天。" +
+            "入社第一件事：建檔。這是以後每次評鑑的比較基準。"
+    }
+
+    private fun question(step: BaselineStep): String {
+        val p = settings.profile
+        return when (step) {
+            BaselineStep.BODY -> "先確認身高 ${CoachRules.kg(p.heightCm)} 公分、體重 ${CoachRules.kg(p.startWeightKg)} 公斤。對就回「對」，不對就打「身高 168 體重 79.5」。現在不做就回「跳過」。"
+            BaselineStep.PHOTO -> "交一張全身照：站直、正面，手機放在固定的位置，以後每個月都在同一個位置拍。按練習生證上的「交全身照」。現在不做就回「跳過」。"
+            BaselineStep.RECORDING -> "交一段清唱錄音。按練習生證上的「交清唱錄音」。現在不做就回「跳過」。"
+            BaselineStep.PUSHUPS -> "體能測驗第一項：伏地挺身，做到做不動為止。做完打「伏地挺身 幾下」。現在不做就回「跳過」。"
+            BaselineStep.PLANK -> "體能測驗第二項：棒式，撐到撐不住為止。做完打「棒式 幾秒」。現在不做就回「跳過」。"
+        }
+    }
+
+    /** Saves [b], moves to the next step still missing and not skipped, and returns the 經紀人's reply. */
+    private fun advance(b: Baseline, saved: String?): String {
+        val after = b.step?.let { cur -> BaselineStep.entries.dropWhile { it != cur }.drop(1) } ?: BaselineStep.entries
+        val next = after.firstOrNull { !b.has(it) && it !in b.skipped }
+        store.update { it.copy(baseline = b.copy(step = next)) } ?: return CoachReplies.NOT_SAVED
+        val lines = mutableListOf<String>()
+        saved?.let { lines += it }
+        if (next != null) {
+            lines += question(next)
+        } else {
+            val missing = b.missing
+            lines += if (missing.isEmpty()) "入社建檔完成。從今天開始照公司規章走。"
+            else "入社建檔先到這裡，還缺：${missing.joinToString("、") { BASELINE_ZH.getValue(it) }}。之後按練習生證上的「補交入社資料」。"
+        }
+        return lines.joinToString("\n")
+    }
+
+    /**
+     * While a 入社建檔 question is open, the owner's message is first read as its answer (confirm, numbers, or 跳過). Null when it
+     * is not an answer: the message then goes through the normal flow and the question stays open.
+     */
+    private fun baselineAnswer(text: String): Pair<String, String>? {
+        val b = store.state.value.baseline ?: return null
+        val step = b.step ?: return null
+        val t = text.trim()
+        if (SKIP_WORDS.any { t.contains(it) } && t.length <= 12) {
+            return advance(b.copy(skipped = b.skipped + step), "好，${BASELINE_ZH.getValue(step)}之後補交。") to "baseline"
+        }
+        val nums = CoachNumbers.all(t)
+        return when (step) {
+            BaselineStep.BODY -> {
+                val p = settings.profile
+                val confirm = t.length <= 8 && CONFIRM_WORDS.any { t.contains(it) } && nums.isEmpty()
+                val (h, w) = when {
+                    confirm -> p.heightCm to p.startWeightKg
+                    nums.isNotEmpty() -> bodyNumbers(t, nums, p) ?: return null
+                    else -> return null
+                }
+                settings.profile = p.copy(heightCm = h, startWeightKg = w)
+                val now = clock.millis()
+                store.update { it.copy(weights = it.weights + WeightEntry(UUID.randomUUID().toString(), now, today().toString(), w, null)) }
+                    ?: return CoachReplies.NOT_SAVED to "baseline"
+                advance(b.copy(heightCm = h, weightKg = w), "記下：身高 ${CoachRules.kg(h)} 公分、體重 ${CoachRules.kg(w)} 公斤。") to "baseline"
+            }
+            BaselineStep.PUSHUPS -> {
+                val n = nums.firstOrNull { it >= 0 && it <= 500 && it == kotlin.math.floor(it) } ?: return null
+                if (!(t.contains("伏地挺身") || t.contains("下") || t.length <= 6)) return null
+                advance(b.copy(pushups = n.toInt()), "記下：伏地挺身 ${n.toInt()} 下。") to "baseline"
+            }
+            BaselineStep.PLANK -> {
+                val sec = plankSeconds(t) ?: return null
+                advance(b.copy(plankSec = sec), "記下：棒式 $sec 秒。") to "baseline"
+            }
+            // Photo and recording come through the card's buttons; text can only skip them.
+            BaselineStep.PHOTO, BaselineStep.RECORDING -> null
+        }
+    }
+
+    /** 「身高 170 體重 78」, 「170 78」, or only one of them (the other stays as set). */
+    private fun bodyNumbers(t: String, nums: List<Double>, p: CoachProfile): Pair<Double, Double>? {
+        fun after(word: String): Double? {
+            val i = t.indexOf(word)
+            if (i < 0) return null
+            return CoachNumbers.all(t.substring(i + word.length)).firstOrNull()
+        }
+        var h = after("身高")?.takeIf { it in 120.0..230.0 }
+        var w = after("體重")?.takeIf { it in 30.0..250.0 }
+        if (h == null && w == null) {
+            nums.forEach { n ->
+                if (h == null && n in 120.0..230.0 && nums.size > 1) h = n
+                else if (w == null && n in 30.0..250.0) w = n
+            }
+        }
+        if (h == null && w == null) return null
+        return (h ?: p.heightCm) to (w ?: p.startWeightKg)
+    }
+
+    /** 「棒式 90 秒」「1 分 30 秒」「一分半」「90」 → seconds (5 to 1800). */
+    private fun plankSeconds(t: String): Int? {
+        val compact = t.replace(" ", "")
+        val m = Regex("([0-9零〇一二兩三四五六七八九十百]+(?:\\.[0-9]+)?)分(?:鐘)?(半|([0-9零〇一二兩三四五六七八九十]+)秒?)?").find(compact)
+        val sec = if (m != null) {
+            val min = CoachNumbers.all(m.groupValues[1]).firstOrNull() ?: return null
+            val rest = when {
+                m.groupValues[2] == "半" -> 30.0
+                m.groupValues[3].isNotEmpty() -> CoachNumbers.all(m.groupValues[3]).firstOrNull() ?: 0.0
+                else -> 0.0
+            }
+            min * 60 + rest
+        } else {
+            CoachNumbers.all(compact).firstOrNull() ?: return null
+        }
+        return sec.toInt().takeIf { it in 5..1800 }
+    }
+
+    companion object {
+        private val TRAINING_WORDS = listOf("肌力", "訓練", "伏地挺身", "棒式", "深蹲")
+        private val DONE_WORDS = listOf("做完", "練完", "做了", "練了", "完成")
+        private val SKIP_WORDS = listOf("跳過", "之後再", "晚點", "先不要", "下次", "等等再")
+        private val CONFIRM_WORDS = listOf("對", "沒錯", "確認", "是的", "正確")
+        val BASELINE_ZH = mapOf(
+            BaselineStep.BODY to "身高體重", BaselineStep.PHOTO to "全身照", BaselineStep.RECORDING to "清唱錄音",
+            BaselineStep.PUSHUPS to "伏地挺身", BaselineStep.PLANK to "棒式",
+        )
     }
 
     /** What a reply call would send for [text] now (CoachPromptTest measures it). */

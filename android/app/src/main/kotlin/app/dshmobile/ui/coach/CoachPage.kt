@@ -33,6 +33,13 @@ import app.dshmobile.coach.CoachMessage
 import app.dshmobile.coach.CoachRules
 import app.dshmobile.coach.Speaker
 import app.dshmobile.coach.Strip
+import app.dshmobile.coach.AgencyRole
+import app.dshmobile.coach.AgencySchedule
+import app.dshmobile.coach.BaselineStep
+import app.dshmobile.coach.TraineeCard
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import kotlinx.coroutines.launch
 import app.dshmobile.ui.shell.LocalPagePadding
 import app.dshmobile.ui.shell.Tags
 import app.dshmobile.ui.theme.Sakura
@@ -40,10 +47,34 @@ import app.dshmobile.ui.theme.Sakura
 private val Bubble = RoundedCornerShape(16.dp)
 private val StripShape = RoundedCornerShape(14.dp)
 
-/** 教練: today's strip on top, then the conversation with the coach. The dock below sends to the coach. */
+/** The company's home: the 練習生證 on top, then the conversation with the 經紀人 and the teachers. The dock below sends to them. */
 @Composable
 fun CoachPage(engine: CoachEngine) {
     val ui by engine.ui.collectAsState()
+    // 入社建檔: the first visit with no file yet, the 經紀人 starts it.
+    LaunchedEffect(Unit) { engine.startOnboarding() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun handIn(step: BaselineStep, uri: android.net.Uri?, ext: String) {
+        if (uri == null) return
+        scope.launch {
+            val name = "${if (step == BaselineStep.PHOTO) "photo" else "recording"}-${System.currentTimeMillis()}.$ext"
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)!!.use { input ->
+                        java.io.File(engine.baselineDir, name).outputStream().use { input.copyTo(it) }
+                    }
+                }.isSuccess
+            }
+            if (ok) engine.onBaselineFile(step, name)
+        }
+    }
+    val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) {
+        handIn(BaselineStep.PHOTO, it, "jpg")
+    }
+    val recordingPicker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) {
+        handIn(BaselineStep.RECORDING, it, "m4a")
+    }
     // A new coach day (05:00) shows the moment the page does.
     LaunchedEffect(Unit) {
         engine.refresh()
@@ -68,7 +99,7 @@ fun CoachPage(engine: CoachEngine) {
         Modifier.fillMaxSize().testTag(Tags.COACH_PAGE).padding(top = pad.calculateTopPadding(), start = 16.dp, end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        StripRow(ui.strip)
+        TraineeCardView(ui.card, ui.strip, onReopen = engine::reopenBaseline, onPhoto = { photoPicker.launch("image/*") }, onRecording = { recordingPicker.launch("audio/*") })
         LazyColumn(
             state = list,
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -97,19 +128,21 @@ private fun StripRow(s: Strip) {
     Text(
         "$kcal ・ $protein ・ $goal",
         color = Sakura.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = 20.sp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Sakura.White.copy(alpha = .78f), StripShape)
-            .border(1.dp, Sakura.Primary.copy(alpha = .6f), StripShape)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-            .testTag(Tags.COACH_STRIP),
+        modifier = Modifier.fillMaxWidth().testTag(Tags.COACH_STRIP),
     )
 }
 
 @Composable
 private fun MessageBubble(m: CoachMessage) {
     val mine = m.who == Speaker.OWNER
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+        m.speaker?.let { r ->
+            Text(
+                stringResource(if (r == AgencyRole.AGENT) R.string.agency_role_agent else R.string.agency_role_body),
+                color = Sakura.TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp).testTag(Tags.AGENCY_ROLE + m.id),
+            )
+        }
         Text(
             m.text, color = Sakura.Text, fontSize = 15.sp, lineHeight = 22.sp,
             modifier = Modifier
@@ -119,4 +152,56 @@ private fun MessageBubble(m: CoachMessage) {
                 .testTag(Tags.COACH_MSG + m.id),
         )
     }
+}
+
+/** 練習生證: company, number, level, day, today's schedule with ticks, today's violations, the numbers, and 入社建檔. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun TraineeCardView(c: TraineeCard, s: Strip, onReopen: () -> Unit, onPhoto: () -> Unit, onRecording: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Sakura.White.copy(alpha = .82f), StripShape)
+            .border(1.dp, Sakura.Primary.copy(alpha = .6f), StripShape)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .testTag(Tags.AGENCY_CARD),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(stringResource(R.string.agency_card_title, c.company), color = Sakura.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.agency_card_id, c.number, c.level, c.dayNumber), color = Sakura.Text, fontSize = 13.sp)
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.agency_card_schedule) + "：", color = Sakura.TextSecondary, fontSize = 13.sp)
+            c.slots.forEach { sl ->
+                val time = sl.minute?.let { AgencySchedule.clock(it % (24 * 60)) + " " } ?: ""
+                Text(
+                    (if (sl.done) "✓ " else "○ ") + time + sl.label,
+                    color = if (sl.done) Sakura.Text else Sakura.TextSecondary, fontSize = 13.sp,
+                    modifier = Modifier.testTag(Tags.AGENCY_SLOT + sl.key),
+                )
+            }
+        }
+        Text(stringResource(R.string.agency_card_violations, c.violations), color = Sakura.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.testTag(Tags.AGENCY_VIOLATIONS))
+        StripRow(s)
+        if (c.baselineMissing.isNotEmpty()) {
+            Text(stringResource(R.string.agency_card_baseline_missing, c.baselineMissing.size), color = Sakura.TextSecondary, fontSize = 13.sp)
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (c.asking == null) CardButton(stringResource(R.string.agency_card_reopen), Tags.AGENCY_REOPEN, onReopen)
+                if (BaselineStep.PHOTO in c.baselineMissing) CardButton(stringResource(R.string.agency_card_photo), Tags.AGENCY_PHOTO, onPhoto)
+                if (BaselineStep.RECORDING in c.baselineMissing) CardButton(stringResource(R.string.agency_card_recording), Tags.AGENCY_RECORDING, onRecording)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardButton(label: String, tag: String, onClick: () -> Unit) {
+    Text(
+        label, color = Sakura.Text, fontSize = 13.sp,
+        modifier = Modifier
+            .heightIn(min = 40.dp)
+            .background(Sakura.Primary.copy(alpha = .45f), RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag(tag),
+    )
 }

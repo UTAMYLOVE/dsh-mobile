@@ -41,11 +41,26 @@ internal object CoachJson {
                 })
             }
         })
+        put("trainings", buildJsonArray {
+            s.trainings.forEach { t ->
+                add(buildJsonObject { put("id", t.id); put("at", t.at); put("day", t.day); t.rounds?.let { put("rounds", it) } })
+            }
+        })
+        s.baseline?.let { b ->
+            put("baseline", buildJsonObject {
+                b.heightCm?.let { put("height", it) }; b.weightKg?.let { put("weight", it) }
+                b.photo?.let { put("photo", it) }; b.recording?.let { put("recording", it) }
+                b.pushups?.let { put("pushups", it) }; b.plankSec?.let { put("plank", it) }
+                put("skipped", buildJsonArray { b.skipped.forEach { add(JsonPrimitive(it.name)) } })
+                b.step?.let { put("step", it.name) }
+            })
+        }
     }
 
     private fun meal(m: Meal) = buildJsonObject {
         put("id", m.id); put("at", m.at); put("day", m.day); put("text", m.text)
         put("cheat", m.cheat); put("offPlan", m.offPlan); put("verified", m.verified)
+        put("breaches", buildJsonArray { m.breaches.forEach { add(JsonPrimitive(it)) } })
         m.evidence?.let { put("evidence", it) }
         put("items", buildJsonArray {
             m.items.forEach { i ->
@@ -54,6 +69,7 @@ internal object CoachJson {
                     i.proteinG?.let { put("protein", it) }; i.fatG?.let { put("fat", it) }; i.carbsG?.let { put("carbs", it) }
                     put("fried", i.fried); put("source", i.source.name); put("tableEstimated", i.tableEstimated)
                     i.estimateHigh?.let { put("estimateHigh", it) }
+                    if (i.zeroCal) put("zeroCal", true)
                 })
             }
         })
@@ -80,6 +96,19 @@ internal object CoachJson {
             pending = o.arr("pending").mapNotNull { p ->
                 PendingFood(p.str("mealId") ?: return@mapNotNull null, p.int("itemIndex") ?: 0, p.str("name") ?: "", p.int("counted") ?: 0, p.long("askedAt") ?: 0)
             },
+            trainings = o.arr("trainings").mapNotNull { t ->
+                TrainingEntry(t.str("id") ?: return@mapNotNull null, t.long("at") ?: 0, t.str("day") ?: return@mapNotNull null, t.int("rounds"))
+            },
+            baseline = (o["baseline"] as? JsonObject)?.let { b ->
+                Baseline(
+                    heightCm = b.dbl("height"), weightKg = b.dbl("weight"), photo = b.str("photo"), recording = b.str("recording"),
+                    pushups = b.int("pushups"), plankSec = b.int("plank"),
+                    skipped = (b["skipped"] as? JsonArray)?.mapNotNull { e ->
+                        (e as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { n -> runCatching { BaselineStep.valueOf(n) }.getOrNull() }
+                    }.orEmpty().toSet(),
+                    step = b.str("step")?.let { n -> runCatching { BaselineStep.valueOf(n) }.getOrNull() },
+                )
+            },
         )
     }
 
@@ -93,10 +122,13 @@ internal object CoachJson {
                 name = i.str("name") ?: return@mapNotNull null, portion = i.dbl("portion") ?: 1.0, kcal = i.int("kcal") ?: 0,
                 proteinG = i.dbl("protein"), fatG = i.dbl("fat"), carbsG = i.dbl("carbs"), fried = i.bool("fried") ?: false,
                 source = runCatching { KcalSource.valueOf(i.str("source").orEmpty()) }.getOrDefault(KcalSource.ESTIMATE),
-                tableEstimated = i.bool("tableEstimated") ?: false, estimateHigh = i.int("estimateHigh"),
+                tableEstimated = i.bool("tableEstimated") ?: false, estimateHigh = i.int("estimateHigh"), zeroCal = i.bool("zeroCal") ?: false,
             )
         },
         cheat = m.bool("cheat") ?: false, offPlan = m.bool("offPlan") ?: false, verified = m.bool("verified") ?: false, evidence = m.str("evidence"),
+        // A meal saved before breaches existed (v0.8.3) could only be off plan for fried food.
+        breaches = (m["breaches"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+            ?: if (m.bool("offPlan") == true) listOf(Breach.FRIED.name) else emptyList(),
     )
     }
 
@@ -114,11 +146,15 @@ internal object CoachJson {
     fun encodeMessage(m: CoachMessage): String = buildJsonObject {
         put("id", m.id); put("at", m.at); put("who", m.who.name); put("text", m.text)
         m.kind?.let { put("kind", it) }
+        m.role?.let { put("role", it.name) }
     }.toString()
 
     fun decodeMessage(e: JsonElement): CoachMessage? {
         val o = e as? JsonObject ?: return null
         val who = runCatching { Speaker.valueOf(o.str("who").orEmpty()) }.getOrNull() ?: return null
-        return CoachMessage(o.str("id") ?: return null, o.long("at") ?: 0, who, o.str("text") ?: return null, o.str("kind"))
+        return CoachMessage(
+            o.str("id") ?: return null, o.long("at") ?: 0, who, o.str("text") ?: return null, o.str("kind"),
+            o.str("role")?.let { r -> runCatching { AgencyRole.valueOf(r) }.getOrNull() },
+        )
     }
 }

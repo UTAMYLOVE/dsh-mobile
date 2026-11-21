@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextClearance
@@ -68,6 +69,7 @@ class CoachPageTest {
                 onExportErrorLog = {},
                 coach = { CoachPage(rig.engine) },
                 coachSettings = { CoachSettingsPage(rig.settings, vault, rig.store, onDeleteFood = { deleted += it; rig.engine.deleteFood(it) }) },
+                coachTitle = rig.settings.revision.collectAsState().value.let { rig.settings.companyName },
             ) { Text("聊天") }
         }
     }
@@ -79,7 +81,8 @@ class CoachPageTest {
         rule.onNodeWithTag(Tags.COACH_STRIP).assertTextContains("今天剩 1700 大卡", substring = true)
         rule.onNodeWithTag(Tags.COMPOSER_INPUT).performTextInput("我吃了給力盒子南加州烤雞腿")
         rule.onNodeWithTag(Tags.SEND).assertIsEnabled().performClick()
-        rule.waitUntil(5_000) { rig.store.messages.value.size == 2 }
+        // The 經紀人's 入社建檔 welcome, the owner's message and the reply.
+        rule.waitUntil(5_000) { rig.store.messages.value.size == 3 }
         rule.waitForIdle()
         rule.onNodeWithTag(Tags.COACH_STRIP).assertTextContains("今天剩 1071 大卡", substring = true)
         val reply = rig.store.messages.value.last()
@@ -101,7 +104,8 @@ class CoachPageTest {
         show()
         rule.onNodeWithTag(Tags.COMPOSER_INPUT).performTextInput("今天體重 79.2")
         rule.onNodeWithTag(Tags.SEND).performClick()
-        rule.waitUntil(5_000) { rig.store.messages.value.size == 2 }
+        // The 經紀人's 入社建檔 welcome, the owner's message and the reply.
+        rule.waitUntil(5_000) { rig.store.messages.value.size == 3 }
         rule.waitForIdle()
         assertNoLatin(rule.onNodeWithTag(Tags.COACH_PAGE).fetchSemanticsNode())
         rule.onNodeWithTag(Tags.COACH_SETTINGS_OPEN).performClick()
@@ -209,6 +213,42 @@ class CoachPageTest {
         }
     }
 
+    // Agency stage 1: the 練習生證, the role labels, the 經紀人's 入社建檔 welcome, the rules panel and the company's name.
+    @Test fun theTraineeCardShowsTheDayTheScheduleAndTheViolations() {
+        rig.model.parse = { ModelReply.Ok(parsed("meal", item("炸臭豆腐一盤", fried = true))) }
+        show()
+        rule.onNodeWithText("小雨娛樂 ・ 練習生證").assertExists()
+        rule.onNodeWithText("練習生 第 001 號 ・ 等級：練習生 C ・ 入社第 1 天").assertExists()
+        // Saturday: no lunch slot.
+        rule.onNodeWithTag(Tags.AGENCY_SLOT + "lunch").assertDoesNotExist()
+        rule.onNodeWithTag(Tags.AGENCY_SLOT + "dinner").assertTextContains("○ 17:30 晚餐")
+        rule.onNodeWithTag(Tags.AGENCY_VIOLATIONS).assertTextContains("今日違規：0")
+        rule.onNodeWithTag(Tags.COMPOSER_INPUT).performTextInput("吃了炸臭豆腐")
+        rule.onNodeWithTag(Tags.SEND).performClick()
+        rule.waitUntil(5_000) { rig.store.messages.value.size == 3 }
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.AGENCY_SLOT + "dinner").assertTextContains("✓ 17:30 晚餐")
+        rule.onNodeWithTag(Tags.AGENCY_VIOLATIONS).assertTextContains("今日違規：1")
+        rule.onNodeWithTag(Tags.AGENCY_ROLE + rig.store.messages.value.last().id).assertTextContains("【體態管理老師】")
+        rule.onNodeWithText("入社資料缺 5 項").assertExists()
+    }
+
+    @Test fun theSettingsShowTheRulesAndTheCompanyNameChangesTheBar() {
+        show()
+        rule.onNode(androidx.compose.ui.test.hasText("小雨娛樂") and androidx.compose.ui.test.hasAnyAncestor(androidx.compose.ui.test.hasTestTag(Tags.SHELL_HEADER))).assertExists()
+        rule.onNodeWithTag(Tags.COACH_SETTINGS_OPEN).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag(Tags.AGENCY_RULES).performScrollTo()
+        rule.onNodeWithText("零卡飲料一週最多 3 瓶", substring = true).assertExists()
+        rule.onNodeWithText("固定星期五", substring = true).assertExists()
+        rule.onNodeWithTag(Tags.AGENCY_COMPANY_NAME).performScrollTo().performTextClearance()
+        rule.onNodeWithTag(Tags.AGENCY_COMPANY_NAME).performTextInput("雨夜娛樂")
+        rule.onNodeWithTag(Tags.AGENCY_COMPANY_SAVE).performScrollTo().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        rule.waitForIdle()
+        org.junit.Assert.assertEquals("雨夜娛樂", rig.settings.companyName)
+        rule.onNode(androidx.compose.ui.test.hasText("雨夜娛樂") and androidx.compose.ui.test.hasAnyAncestor(androidx.compose.ui.test.hasTestTag(Tags.SHELL_HEADER))).assertExists()
+    }
+
     private fun assertNoLatin(root: SemanticsNode) {
         val texts = mutableListOf<String>()
         fun walk(n: SemanticsNode) {
@@ -217,7 +257,8 @@ class CoachPageTest {
             n.children.forEach(::walk)
         }
         walk(root)
-        val latin = texts.filter { Regex("[A-Za-z]").containsMatchIn(it) }
+        // The only letters allowed are the owner's own level names (練習生 C / B / A, his agency spec).
+        val latin = texts.map { it.replace(Regex("練習生 [ABC]"), "") }.filter { Regex("[A-Za-z]").containsMatchIn(it) }
         assertTrue("Latin letters on the coach screens: $latin", latin.isEmpty())
     }
 }

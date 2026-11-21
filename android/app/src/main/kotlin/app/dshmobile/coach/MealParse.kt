@@ -19,6 +19,8 @@ data class ParsedItem(
     val kcalHigh: Int?,
     val proteinLow: Double?,
     val proteinHigh: Double?,
+    /** The model says this is a zero-calorie drink (the code also checks the name). */
+    val zeroCal: Boolean = false,
 )
 
 data class FoodInfo(val name: String?, val kcal: Int?, val proteinG: Double?, val confirm: Boolean)
@@ -30,24 +32,28 @@ data class Parsed(
     val waistCm: Double? = null,
     val foodInfo: FoodInfo? = null,
     val illness: Boolean = false,
+    /** Strength-training rounds the owner reported (kind training). */
+    val rounds: Int? = null,
 )
 
 object MealParse {
-    val KINDS = setOf("meal", "craving", "weight", "food_info", "chat")
+    val KINDS = setOf("meal", "craving", "weight", "food_info", "training", "chat")
 
     val SYSTEM = """
 你是資料整理員，不是教練。只輸出一個 JSON 物件，不要任何其他文字、不要程式碼框。
 把對話裡「最後一句我說的話」整理成下面的格式：
 {"kind":"meal 或 craving 或 weight 或 food_info 或 chat",
- "items":[{"name":"照我說的品名","portion":份數,"fried":是不是炸的,"kcal_low":你估的最低大卡,"kcal_high":你估的最高大卡,"protein_low":最低蛋白質克數,"protein_high":最高蛋白質克數}],
+ "items":[{"name":"照我說的品名","portion":份數,"fried":是不是炸的,"zero_cal":是不是零卡飲料,"kcal_low":你估的最低大卡,"kcal_high":你估的最高大卡,"protein_low":最低蛋白質克數,"protein_high":最高蛋白質克數}],
  "weight_kg":體重或null,"waist_cm":腰圍或null,
  "food_info":{"name":品名或null,"kcal":標示上的大卡或null,"protein_g":標示上的蛋白質或null,"confirm":我是不是只說「對」「就這份」},
+ "rounds":我說做了幾輪訓練或null,
  "illness":我是不是說身體不舒服、頭暈之類}
 kind 的意思：
 - meal：我說我已經吃了、喝了什麼。
 - craving：我說我想吃、要點、可不可以吃什麼（還沒吃）。
 - weight：我報體重或腰圍。
 - food_info：我在補上一個食物的包裝標示、份量，或確認你上次的估算。
+- training：我說我做完了肌力訓練（幾輪）。
 - chat：其他所有話（找藉口、心情、聊天、問問題）。
 規則：品名照我講的寫，不要改名；份數沒講就是 1；大卡範圍照一般台灣外食的份量估，寧可估高；不知道就給寬一點的範圍。
 不要加總、不要算剩多少、不要給建議。
@@ -73,7 +79,7 @@ kind 的意思：
             var plo = num(i["protein_low"])?.takeIf { it in 0.0..500.0 }
             var phi = num(i["protein_high"])?.takeIf { it in 0.0..500.0 }
             if (plo != null && phi != null && plo > phi) { val t = plo; plo = phi; phi = t }
-            ParsedItem(name, portion, bool(i["fried"]) ?: false, lo, hi, plo, phi)
+            ParsedItem(name, portion, bool(i["fried"]) ?: false, lo, hi, plo, phi, zeroCal = bool(i["zero_cal"]) ?: false)
         }
         val fi = (o["food_info"] as? JsonObject)?.let { f ->
             FoodInfo(
@@ -90,6 +96,7 @@ kind 的意思：
             waistCm = num(o["waist_cm"])?.takeIf { it in 40.0..200.0 },
             foodInfo = fi,
             illness = bool(o["illness"]) ?: false,
+            rounds = num(o["rounds"])?.takeIf { it in 1.0..20.0 }?.toInt(),
         )
     }
 

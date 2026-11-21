@@ -505,6 +505,7 @@ class MainActivity : ComponentActivity() {
             modalOverlay = rememberHasPrompt(session?.events),
             coach = { CoachPage(app.coach) },
             coachSettings = { CoachSettingsPage(app.coachSettings, app.keyVault, app.coachStore, onDeleteFood = app.coach::deleteFood, onOpenOnCoach = vm::setOpenOnCoach) },
+            coachTitle = app.coachSettings.revision.collectAsState().value.let { app.coachSettings.companyName },
         ) { tab ->
             when (tab) {
                 ShellTab.SETTINGS -> {

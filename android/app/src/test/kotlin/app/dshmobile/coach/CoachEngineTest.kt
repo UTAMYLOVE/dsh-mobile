@@ -50,17 +50,18 @@ class CoachEngineTest {
 
     @Test fun aFriedCravingOnANormalDayIsRefusedWordForWord() {
         val reply = say("我想吃臭豆腐跟蚵仔煎", parsed("craving", item("臭豆腐", fried = true), item("蚵仔煎")))
-        assertEquals("今天不是放縱餐。晚餐吃給力盒子南加州烤雞腿。臭豆腐排到星期五。30 分鐘內把訂單截圖傳來。", reply)
+        assertEquals("今天不是休假餐。晚餐吃給力盒子南加州烤雞腿。臭豆腐排到星期五。30 分鐘內把訂單截圖傳來。", reply)
         assertTrue(rig.store.state.value.meals.isEmpty())
     }
 
     @Test fun aFriedWordIsRefusedEvenIfTheModelSaysNotFried() {
         val reply = say("我想吃鹽酥雞", parsed("craving", item("鹽酥雞", fried = false, low = 500, high = 700)))
-        assertTrue(reply, reply.startsWith("今天不是放縱餐。"))
+        assertTrue(reply, reply.startsWith("今天不是休假餐。"))
     }
 
     @Test fun onTheCheatDayAFriedCravingIsAllowedWhenItFits() {
-        rig.settings.profile = CoachProfile(cheatDay = DayOfWeek.SATURDAY)
+        // 休假餐 is fixed on Friday (公司規章): Friday 2026-11-20 19:00 in Taipei.
+        rig.clock.now = java.time.Instant.parse("2026-11-20T11:00:00Z")
         val reply = say("我想吃臭豆腐", parsed("craving", item("臭豆腐", fried = true)))
         assertTrue(reply, reply.startsWith("可以。吃了今天會剩 1135 大卡。"))
     }
@@ -68,7 +69,7 @@ class CoachEngineTest {
     @Test fun afterAMealTheRefusalSaysLateNightAndWhenOverItSaysNoMore() {
         say("吃了給力盒子南加州烤雞腿", parsed("meal", item("給力盒子南加州烤雞腿")))
         assertEquals(
-            "今天不是放縱餐。宵夜吃給力盒子南加州烤雞腿。臭豆腐排到星期五。30 分鐘內把訂單截圖傳來。",
+            "今天不是休假餐。宵夜吃給力盒子南加州烤雞腿。臭豆腐排到星期五。30 分鐘內把訂單截圖傳來。",
             say("想吃臭豆腐", parsed("craving", item("臭豆腐", fried = true))),
         )
         say("吃了兩個給力盒子南加州烤雞腿", parsed("meal", item("給力盒子南加州烤雞腿", 2.0)))
@@ -76,7 +77,6 @@ class CoachEngineTest {
     }
 
     @Test fun lateAtNightItIsStillTheEveningBefore() {
-        rig.settings.profile = CoachProfile(cheatDay = DayOfWeek.FRIDAY)
         rig.clock.now = java.time.Instant.parse("2026-11-20T18:00:00Z") // Saturday 02:00 in Taipei: Friday's coach day
         val reply = say("想吃臭豆腐", parsed("craving", item("臭豆腐", fried = true)))
         assertTrue(reply, reply.startsWith("可以。"))

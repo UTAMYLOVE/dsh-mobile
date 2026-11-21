@@ -42,8 +42,8 @@ class CoachPromptTest {
         }
         val facts = (rig.engine.promptFor("嗯").second.last().parts.first() as Part.Text).text
         assertTrue(facts, facts.contains("剩 1071 大卡"))
-        assertTrue(facts, facts.contains("放縱餐：星期五"))
-        assertTrue(facts, facts.contains("不是放縱餐"))
+        assertTrue(facts, facts.contains("休假餐：星期五"))
+        assertTrue(facts, facts.contains("不是休假餐"))
     }
 
     @Test fun theGuardDropsInventedNumbersButKeepsDeadlines() {

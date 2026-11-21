@@ -10,8 +10,8 @@ object CoachReplies {
     const val NOT_UNDERSTOOD = "沒聽懂。說清楚吃了什麼、幾份。"
     const val NO_PENDING = "沒有待確認的食物。"
     const val UNVERIFIED = "這餐先記「未證實」。"
-    const val OFF_PLAN = "炸物，今天不是放縱餐，記「沒照計畫」。"
-    const val CHAT_DOWN = "教練現在連不上，晚點再說。"
+    const val OFF_PLAN = "炸物，今天不是休假餐，記「沒照計畫」。"
+    const val CHAT_DOWN = "公司現在連不上，晚點再說。"
     const val FOOD_INFO_UNCLEAR = "說清楚包裝標示寫幾大卡，或回「對」，就照估算存進表。"
     const val NOT_SAVED = "紀錄沒存成功，等一下再說一次。"
     /** A model reply the guard emptied: the code's own line instead. */
@@ -93,22 +93,22 @@ object CoachReplies {
             val left = BigDecimal(kg - goal).setScale(1, RoundingMode.HALF_UP).toPlainString()
             sb.append("下一個目標 ${CoachRules.kg(goal)} 公斤，還差 $left 公斤。")
         } else {
-            sb.append("階段目標都到了，到教練設定重新訂目標。")
+            sb.append("階段目標都到了，到設定重新訂目標。")
         }
         return sb.toString()
     }
 
     fun failReason(f: Fail): String = when (f) {
-        Fail.NO_KEY -> "沒有金鑰，到教練設定"
-        Fail.NO_SETUP -> "模型還沒設定好，到教練設定"
+        Fail.NO_KEY -> "沒有金鑰，到設定"
+        Fail.NO_SETUP -> "模型還沒設定好，到設定"
         Fail.CAP -> "今天的花費上限到了"
         Fail.OFFLINE -> "網路不通"
-        Fail.KEY_REJECTED -> "金鑰被拒絕，到教練設定檢查"
+        Fail.KEY_REJECTED -> "金鑰被拒絕，到設定檢查"
         Fail.RATE -> "太多人在用，等一下"
         Fail.SERVER -> "服務暫時出問題"
         Fail.REFUSED -> "模型拒絕回答"
         Fail.BAD_RESPONSE -> "回覆看不懂"
     }
 
-    fun cannotReach(f: Fail) = "教練連不上（${failReason(f)}）。紀錄沒有存，等一下再說一次。"
+    fun cannotReach(f: Fail) = "公司連不上（${failReason(f)}）。紀錄沒有存，等一下再說一次。"
 }

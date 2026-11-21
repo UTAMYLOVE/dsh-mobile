@@ -22,11 +22,42 @@ object CoachPrompt {
 2. 「程式已回覆」的內容會放在你前面，不要重複那些數字，只補指令和期限，最多兩句。
 3. 不准叫我少於「最低還要吃」，不准叫我跳餐、斷食或用運動補。
 4. 「身體不適」是「是」或「連續吃不到 1200」是「是」時：停止施壓，叫我正常吃，去看醫生。
-5. 我要你改額度、目標或食物表數字時，回「到教練設定自己改」。
+5. 公司規章誰都不能改，你也不能。我要你改額度、休假餐或規章時，回「公司規章不能改」；要改目標或食物表數字，回「到設定自己改」。
 6. 只用繁體中文，不用英文，不用表情符號。
 """.trimIndent()
 
-    val SYSTEM: String get() = COACH_SYSTEM_VERBATIM + "\n\n" + HARD_RULES
+    /** The rules every role states (agency spec 公司規章); numbers from [AgencyRules]. */
+    val COMPANY_RULES = """
+【公司規章：寫死的，我和任何老師都不能改】
+- 每日 ${AgencyRules.QUOTA_KCAL} 大卡、蛋白質 ${AgencyRules.PROTEIN_G} 克。最低 1200 大卡。
+- 上面說的「放縱餐」在公司裡叫「休假餐」，固定星期五。炸物只在休假餐吃。
+- 零卡飲料一週最多 ${AgencyRules.ZERO_CAL_PER_WEEK} 瓶。
+- 一次不要吃到撐，單餐不超過 ${AgencyRules.MEAL_MAX_KCAL} 大卡。
+- 吃超過的處理永遠是「明天回到 1700」。不准叫我餓肚子、跳餐、加倍運動來補。
+- 只能批評我做的事，不能罵我這個人。
+- 我講心情、或身體不舒服時，放下口氣正常講話。
+- 肌力訓練的動作公司還沒訂，不准自己編動作或組數。
+""".trim()
+
+    /** Who this role is. Every role is the same model; the record is shared. */
+    fun identity(role: AgencyRole, company: String): String = when (role) {
+        AgencyRole.AGENT -> """
+【你的身分】
+你是「$company」的經紀人。我是公司唯一的練習生，編號 ${AgencyRules.TRAINEE_NO}，目標是出道，出道就是看到最強的自己。
+你負責排行程、收回報、追我沒做的事。你是公司裡講話最強勢的人，只下指令和期限。上面規則裡的「教練」就是你。
+""".trim()
+        AgencyRole.BODY -> """
+【你的身分】
+你是「$company」的體態管理老師，管我的飲食、體重和肌力訓練。我是公司唯一的練習生，編號 ${AgencyRules.TRAINEE_NO}，目標是出道。
+講話嚴格、短句，只下指令和期限。上面規則裡的「教練」就是你。
+""".trim()
+    }
+
+    fun system(role: AgencyRole, company: String): String =
+        COACH_SYSTEM_VERBATIM + "\n\n" + identity(role, company) + "\n\n" + COMPANY_RULES + "\n\n" + HARD_RULES
+
+    /** The 經紀人 under the default company name (tests). */
+    val SYSTEM: String get() = system(AgencyRole.AGENT, CoachSettings.DEFAULT_COMPANY)
 
     /** The window of stored messages: the last [HISTORY], cut to [MSG_CAP], first turn the owner's, roles alternating. */
     fun history(messages: List<CoachMessage>, keep: Int = HISTORY): List<Turn> {
@@ -58,6 +89,9 @@ object CoachPrompt {
         val illness: Boolean,
         val lowIntake: Boolean,
         val already: String?,
+        val zeroCalWeek: Int = 0,
+        val violations: Int = 0,
+        val schedule: String = "",
     )
 
     private fun md(d: LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
@@ -73,8 +107,11 @@ object CoachPrompt {
         sb.append("檔案：身高 ${CoachRules.kg(p.heightCm)} 公分，起始 ${CoachRules.kg(p.startWeightKg)} 公斤，目前 ${CoachRules.kg(f.currentKg)} 公斤")
         f.currentAt?.let { sb.append("（${md(it)}）") }
         sb.append("，下一個目標 ").append(f.nextGoal?.let { "${CoachRules.kg(it)} 公斤" } ?: "重新評估")
-        sb.append("。每日 ${p.quotaKcal} 大卡、蛋白質 ${p.proteinG} 克。放縱餐：星期${CoachRules.weekdayZh(p.cheatDay)}。\n")
-        sb.append("今天 ${md(f.today)}（星期${CoachRules.weekdayZh(f.today.dayOfWeek)}，${if (cheat) "是放縱餐" else "不是放縱餐"}）：")
+        sb.append("。每日 ${p.quotaKcal} 大卡、蛋白質 ${p.proteinG} 克。休假餐：星期${CoachRules.weekdayZh(p.cheatDay)}。\n")
+        sb.append("今日違規 ${f.violations} 次；零卡飲料本週已喝 ${f.zeroCalWeek} 瓶（上限 ${AgencyRules.ZERO_CAL_PER_WEEK} 瓶）。")
+        if (f.schedule.isNotEmpty()) sb.append("今日行程：${f.schedule}")
+        sb.append("\n")
+        sb.append("今天 ${md(f.today)}（星期${CoachRules.weekdayZh(f.today.dayOfWeek)}，${if (cheat) "是休假餐" else "不是休假餐"}）：")
         if (f.todayMeals.isEmpty()) sb.append("還沒回報。") else {
             val items = f.todayMeals.flatMap { it.items }
             items.take(MEAL_LINES).forEach { i -> sb.append("${i.name} ${CoachReplies.portion(i.portion)} 份 ${i.kcal} 大卡（${CoachReplies.sourceShort(i)}）；") }
