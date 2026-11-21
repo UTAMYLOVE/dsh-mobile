@@ -683,7 +683,7 @@ private fun CoachBar(nav: ShellNav, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (nav.coachSettings) {
-            BarButton(stringResource(R.string.bar_back), Tags.COACH_SETTINGS_OPEN) { nav.coachSettings = false }
+            BarButton(stringResource(R.string.coach_back), Tags.COACH_SETTINGS_OPEN) { nav.coachSettings = false }
         } else {
             BarButton(stringResource(R.string.coach_settings_open), Tags.COACH_SETTINGS_OPEN) { nav.coachSettings = true }
         }

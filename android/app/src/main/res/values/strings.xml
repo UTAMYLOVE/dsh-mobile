@@ -209,6 +209,7 @@
     <string name="bar_free_chat">自由聊天</string>
     <string name="coach_title">教練</string>
     <string name="coach_settings_open">⚙ 設定</string>
+    <string name="coach_back">回教練</string>
     <string name="coach_empty">跟教練說你吃了什麼、想吃什麼，或今天的體重。</string>
     <string name="coach_busy">教練在想…</string>
     <string name="coach_strip_left">今天剩 %1$d 大卡</string>
