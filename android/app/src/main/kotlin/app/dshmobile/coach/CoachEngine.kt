@@ -269,7 +269,9 @@ class CoachEngine(
             val eatLine = when {
                 remaining < 0 -> "今天已經超過，不准再點。"
                 remaining == 0 -> "今天剩 0 大卡，不准再點。"
-                planned != null && planned.kcal > remaining -> "今天剩 $remaining 大卡，不准再點炸的。" + floorLine(eaten, remaining, word, p, planned)
+                // A planned meal missing from the table is never named: its kcal cannot be checked.
+                planned == null -> noPlanLine(eaten, remaining)
+                planned.kcal > remaining -> "今天剩 $remaining 大卡，不准再點炸的。" + floorLine(eaten, remaining, word, p, planned)
                 else -> "${word}吃${p.plannedMeal.replace(" ", "")}。"
             }
             return listOf("今天不是放縱餐。$eatLine${friedNames.joinToString("、")}排到星期${CoachRules.weekdayZh(p.cheatDay)}。$deadline")
@@ -300,9 +302,16 @@ class CoachEngine(
         val must = CoachRules.mustStillEat(eaten)
         if (must <= 0) return ""
         // Never name a meal that would push him over: the planned meal only if it fits what is left.
-        val what = if (planned != null && planned.kcal <= remaining) "${word}吃${p.plannedMeal.replace(" ", "")}。"
-        else "挑 $remaining 大卡以內的，點之前先問我。"
+        val what = if (planned != null && planned.kcal <= remaining) "${word}吃${p.plannedMeal.replace(" ", "")}。" else menuLine(remaining)
         return "今天至少還要吃 $must 大卡。$what"
+    }
+
+    /** No options (spec §5): when no known meal fits, the owner sends the menu and the coach picks. */
+    private fun menuLine(remaining: Int) = "今天剩 $remaining 大卡。點之前先把菜單傳來，我來選。"
+
+    private fun noPlanLine(eaten: Int, remaining: Int): String {
+        val must = CoachRules.mustStillEat(eaten)
+        return (if (must > 0) "今天至少還要吃 $must 大卡。" else "") + menuLine(remaining)
     }
 
     private fun foodInfo(info: FoodInfo?, illness: Boolean): List<String> {

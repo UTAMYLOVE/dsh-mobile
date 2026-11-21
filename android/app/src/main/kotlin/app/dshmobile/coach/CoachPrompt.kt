@@ -128,8 +128,9 @@ object CoachNumbers {
             if (d != null) { num = d.toLong(); any = true; continue }
             when (ch) {
                 '十' -> { section += (if (num == 0L) 1 else num) * 10; num = 0; any = true; lastUnit = 10 }
-                '百' -> { section += num * 100; num = 0; lastUnit = 100 }
-                '千' -> { section += num * 1000; num = 0; lastUnit = 1000 }
+                // 百五 = 150, 千二 = 1200: a 百 or 千 with no digit before it means one, as 十 does.
+                '百' -> { section += (if (num == 0L) 1 else num) * 100; num = 0; any = true; lastUnit = 100 }
+                '千' -> { section += (if (num == 0L) 1 else num) * 1000; num = 0; any = true; lastUnit = 1000 }
                 '萬' -> { total += (section + num) * 10000; section = 0; num = 0; lastUnit = 10000 }
                 else -> return null
             }
@@ -162,7 +163,7 @@ object NumberGuard {
     private val CHINESE_AMOUNT = Regex("[零〇一二兩三四五六七八九十百千萬半]+\\s*(大卡|卡|公斤|斤|克|天|餐|份)")
     private val LATIN = Regex("[A-Za-zＡ-Ｚａ-ｚ]")
     /** Everyday words, not amounts: 「三餐正常吃」「一天」「一份」 never hide an invented number. */
-    private val PLAIN_WORDS = Regex("三餐|一天|一份|一餐")
+    private val PLAIN_WORDS = Regex("(?<![零〇一二兩三四五六七八九十百千萬半])(三餐|一天|一份|一餐)")
     private val SENTENCE = Regex("(?<=[。！？!?\\n])")
     const val MAX_SENTENCES = 4
 

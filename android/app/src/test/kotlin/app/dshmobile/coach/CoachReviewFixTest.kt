@@ -73,7 +73,7 @@ class CoachReviewFixTest {
         say("吃了便當", parsed("meal", item("便當", low = 900, high = 1000))) // 1100: 600 left, planned 629 does not fit
         val r = say("想吃臭豆腐", parsed("craving", item("臭豆腐", fried = true)))
         // N1: the planned meal (629) does not fit the 600 left, so it is not named.
-        assertTrue(r, r.contains("今天剩 600 大卡，不准再點炸的。今天至少還要吃 100 大卡。挑 600 大卡以內的，點之前先問我。"))
+        assertTrue(r, r.contains("今天剩 600 大卡，不准再點炸的。今天至少還要吃 100 大卡。今天剩 600 大卡。點之前先把菜單傳來，我來選。"))
         assertFalse(r, r.contains("南加州"))
     }
 
@@ -206,7 +206,7 @@ class CoachReviewFixTest {
     @Test fun theNonFriedRefusalNamesNothingThatDoesNotFit() {
         say("吃了便當", parsed("meal", item("便當", low = 900, high = 1000))) // 1100 eaten, 600 left
         val r = say("想吃牛肉麵", parsed("craving", item("牛肉麵", low = 700, high = 800)))
-        assertEquals("這份大約 880 大卡，今天剩 600 大卡，不准再點。今天至少還要吃 100 大卡。挑 600 大卡以內的，點之前先問我。", r)
+        assertEquals("這份大約 880 大卡，今天剩 600 大卡，不准再點。今天至少還要吃 100 大卡。今天剩 600 大卡。點之前先把菜單傳來，我來選。", r)
     }
 
     // N2: the page never waits more than a minute for its next refresh.
@@ -258,6 +258,10 @@ class CoachReviewFixTest {
         assertEquals("今天正常吃三餐。", NumberGuard.filter("今天正常吃三餐。", "", ""))
         assertEquals("一天一份就好。", NumberGuard.filter("一天一份就好。", "", ""))
         assertEquals("", NumberGuard.filter("再吃兩百大卡。", "", ""))
+        // I7 (review 3): an everyday word at the end of a longer numeral is still an amount.
+        assertEquals("", NumberGuard.filter("延後二十一天。", "", ""))
+        assertEquals("", NumberGuard.filter("再吃十一份。", "", ""))
+        assertEquals("", NumberGuard.filter("十三餐。", "", ""))
     }
 
     // N8: 兩百五 is 250 and 一千二 is 1200; a table food's own numeral is not a count offline.
@@ -269,5 +273,29 @@ class CoachReviewFixTest {
         assertTrue(offline("吃了三杯雞便當").contains("800 大卡"))
         assertTrue(offline("全家紐奧良風味烤雞鮮蔬三明治").contains("205 大卡"))
         assertEquals(CoachReplies.cannotReach(Fail.OFFLINE), offline("兩個三杯雞便當"))
+    }
+
+    // M-a (review 3): no options; the coach picks from the menu.
+    @Test fun whenNothingKnownFitsTheOwnerSendsTheMenu() {
+        say("吃了便當", parsed("meal", item("便當", low = 900, high = 1000))) // 1100 eaten, 600 left
+        val r = say("想吃牛肉麵", parsed("craving", item("牛肉麵", low = 700, high = 800)))
+        assertTrue(r, r.endsWith("今天剩 600 大卡。點之前先把菜單傳來，我來選。"))
+        assertFalse(r, r.contains("挑"))
+    }
+
+    // M-b (review 3): a planned meal missing from the table is never named.
+    @Test fun aPlannedMealMissingFromTheTableIsNeverNamed() {
+        rig.store.update { it.copy(food = it.food.filter { f -> f.name != "給力盒子 南加州烤雞腿" }) }
+        val r = say("我想吃臭豆腐", parsed("craving", item("臭豆腐", fried = true)))
+        assertFalse(r, r.contains("南加州"))
+        assertTrue(r, r.startsWith("今天不是放縱餐。今天至少還要吃 1200 大卡。今天剩 1700 大卡。點之前先把菜單傳來，我來選。"))
+    }
+
+    // M-c (review 3): 百 or 千 with no digit before it means one.
+    @Test fun aBareHundredOrThousandMeansOne() {
+        assertEquals(150.0, CoachNumbers.chinese("百五")!!, 1e-9)
+        assertEquals(1200.0, CoachNumbers.chinese("千二")!!, 1e-9)
+        assertEquals(100.0, CoachNumbers.chinese("百")!!, 1e-9)
+        assertEquals(205.0, CoachNumbers.chinese("兩百零五")!!, 1e-9)
     }
 }
