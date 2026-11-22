@@ -24,8 +24,8 @@ import app.agency.core.tools.ToolRegistry
 /**
  * One owner message in chat: the prompt ([system] and [turns], built by PromptBuilder), who answers ([role]) in which [mode]
  * and [tone], and the evidence the guard checks against, rebuilt with the outputs of the tools called so far ([evidence]).
- * [judgeContext] is the code-written context line for the second-pass judge (arch 1.9b), or null when this turn needs no
- * judge ([SecondPassJudge.contextLine]).
+ * [judgeContext] gives the code-written context line for the second-pass judge (arch 1.9b) from the reply he would read
+ * (the guarded text, the question and the options), or null when this turn needs no judge ([SecondPassJudge.contextLine]).
  */
 class ChatRound(
     val system: String,
@@ -33,7 +33,7 @@ class ChatRound(
     val role: RoleKey,
     val mode: MessageMode,
     val tone: Tone,
-    val judgeContext: String? = null,
+    val judgeContext: (visibleReply: String) -> String? = { null },
     val evidence: (toolOutputs: List<String>) -> Evidence,
 )
 
@@ -108,10 +108,11 @@ class ChatLoop(
             }
             when (val checked = evaluate(ok.text.orEmpty(), round, outputs)) {
                 is Checked.Accept -> {
-                    val context = round.judgeContext
+                    val shown = visible(checked.value)
+                    val context = if (judge != null) round.judgeContext(shown) else null
                     val verdict = if (judge != null && context != null) {
                         judged++
-                        judge.judge(visible(checked.value), context)
+                        judge.judge(shown, context)
                     } else {
                         null
                     }

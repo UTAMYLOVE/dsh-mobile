@@ -3,6 +3,7 @@ package app.agency.core.brain
 import app.agency.core.engine.Tone
 import app.agency.core.guard.Evidence
 import app.agency.core.guard.JudgeClass
+import app.agency.core.guard.RubricFollowingJudge
 import app.agency.core.guard.SecondPassJudge
 import app.agency.core.llm.ChatResult
 import app.agency.core.llm.Fail
@@ -50,8 +51,8 @@ class ChatLoopTest {
     private val tool = Left()
     private val tools = ToolRegistry(listOf(tool))
 
-    private fun round(tone: Tone = Tone.COLD, judgeContext: String? = null) =
-        ChatRound("系統", listOf(Turn.User("今天還能吃多少")), RoleKey.MANAGER, MessageMode.NORMAL, tone, judgeContext) { outputs ->
+    private fun round(tone: Tone = Tone.COLD, judgeContext: String? = null, mode: MessageMode = MessageMode.NORMAL) =
+        ChatRound("系統", listOf(Turn.User("今天還能吃多少")), RoleKey.MANAGER, mode, tone, { judgeContext }) { outputs ->
         Evidence(listOf("""{"rules":{"quota_kcal":1700}}""") + outputs, ownerText = "今天還能吃多少")
     }
 
@@ -66,9 +67,15 @@ class ChatLoopTest {
         if (cls == null) """{"violation":false,"class":"none","reason":""}""" else """{"violation":true,"class":"${cls.key}","reason":"$reason"}""",
     )
 
-    private fun judged(writer: ScriptedLlm, judge: LlmClient, context: String? = OVER, timeoutMs: Long = SecondPassJudge.TIMEOUT_MS) = runBlocking {
+    private fun judged(
+        writer: ScriptedLlm,
+        judge: LlmClient,
+        context: String? = OVER,
+        timeoutMs: Long = SecondPassJudge.TIMEOUT_MS,
+        mode: MessageMode = MessageMode.NORMAL,
+    ) = runBlocking {
         ChatLoop(writer, { ProviderChoice.DEEPSEEK }, judge = SecondPassJudge(judge, { ProviderChoice.DEEPSEEK }, timeoutMs))
-            .run(round(judgeContext = context), tools)
+            .run(round(judgeContext = context, mode = mode), tools)
     }
 
     @Test fun aNumberFromAToolResultIsKeptAndAnInventedOneIsDropped() {
@@ -205,7 +212,8 @@ class ChatLoopTest {
         assertEquals(null, r.fail)
     }
 
-    @Test fun aJudgeTimeoutKeepsTheGuardedReply() {
+    // The time limit makes a judge without its own timeout fail here instead of hanging the suite.
+    @Test(timeout = 5_000) fun aJudgeTimeoutKeepsTheGuardedReply() {
         var asked: String? = null
         val slow = LlmClient { req ->
             asked = (req.turns.single() as Turn.User).text
@@ -231,6 +239,47 @@ class ChatLoopTest {
         }
         val unreadable = judged(ScriptedLlm(ScriptedLlm.ok(utter("去喝水。"))), ScriptedLlm(ScriptedLlm.ok("好")))
         assertEquals("去喝水。", unreadable.utterance.text)
+    }
+
+    @Test fun inDiscussionTheJudgeReadsTheTextTheQuestionAndTheOptionsInThatOrder() {
+        val judge = ScriptedLlm(verdict(null))
+        val reply = """{"text":"我們先看晚餐。","ask":"晚餐要怎麼調？","options":["照原本","多一份蛋白質"],"recommended":0,"memory":[]}"""
+        val r = judged(ScriptedLlm(ScriptedLlm.ok(reply)), judge, mode = MessageMode.DISCUSS)
+        assertTrue(r.fromModel)
+        assertEquals("晚餐要怎麼調？", r.utterance.ask)
+        assertEquals(
+            listOf(Turn.User(SecondPassJudge.userText("我們先看晚餐。\n晚餐要怎麼調？\n照原本\n多一份蛋白質", OVER))),
+            judge.requests.single().turns,
+        )
+    }
+
+    @Test fun theContextIsAskedWithTheReplyHeWouldRead() {
+        val seen = mutableListOf<String>()
+        val judge = ScriptedLlm(verdict(null))
+        val loop = ChatLoop(ScriptedLlm(ScriptedLlm.ok(utter("去吃午餐。其實你只能再吃 1234 大卡。"))), { ProviderChoice.DEEPSEEK },
+            judge = SecondPassJudge(judge, { ProviderChoice.DEEPSEEK }))
+        val round = ChatRound("系統", listOf(Turn.User("在嗎")), RoleKey.MANAGER, MessageMode.NORMAL, Tone.COLD, { shown -> seen += shown; "他正在討論吃的" }) {
+            Evidence(listOf("{}"), ownerText = "在嗎")
+        }
+        val r = runBlocking { loop.run(round, tools) }
+        assertEquals("去吃午餐。", r.utterance.text)
+        assertEquals(listOf("去吃午餐。"), seen)
+        assertEquals(1, judge.requests.size)
+    }
+
+    @Test fun gentleComfortOnABreachDayIsNotSentBackByAJudgeThatFollowsTheRubric() {
+        // A corpus line the rule guard passes in GENTLE on a breach day; the fake judge applies the rubric's own excuse examples.
+        val line = "被罵了心情很差，沒關係，先睡。"
+        val writer = ScriptedLlm(ScriptedLlm.ok(utter(line)))
+        val loop = ChatLoop(writer, { ProviderChoice.DEEPSEEK }, judge = SecondPassJudge(RubricFollowingJudge(), { ProviderChoice.DEEPSEEK }))
+        val round = ChatRound("系統", listOf(Turn.User("被罵了心情很差")), RoleKey.MANAGER, MessageMode.NORMAL, Tone.GENTLE, { "今天有違規" }) {
+            Evidence(listOf("{}"), ownerText = "被罵了心情很差", breachToday = true)
+        }
+        val r = runBlocking { loop.run(round, tools) }
+        assertTrue(r.fromModel)
+        assertEquals(line, r.utterance.text)
+        assertEquals(1, writer.requests.size)
+        assertEquals(1, r.judged)
     }
 
     private companion object {

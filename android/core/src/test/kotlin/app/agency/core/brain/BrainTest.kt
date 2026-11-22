@@ -62,7 +62,7 @@ class BrainTest {
     }
 
     @Test fun chatGoesToTheManagersLoopAndOnlyTheGuardedReplyIsStored() {
-        val llm = ScriptedLlm(intake("chat"), utter("你今天還能吃 1234 大卡。現在去吃午餐。"))
+        val llm = ScriptedLlm(intake("chat"), utter("你今天還能吃 1234 大卡。現在去吃午餐。"), judgeOk())
         val b = brain(llm)
         val out = runBlocking { b.onText("姐姐在嗎") }
         val reply = out[1]
@@ -80,7 +80,7 @@ class BrainTest {
 
     @Test fun aFoodTableNameIsEvidenceForTheGuard() {
         runBlocking { store.food.insert(FoodEntry("悟饕池上便當", emptyList(), 760, 30.0, null, null, false, false, false, 0)) }
-        val llm = ScriptedLlm(intake("chat"), utter("晚餐可以吃悟饕池上便當。吃完拍給我。"))
+        val llm = ScriptedLlm(intake("chat"), utter("晚餐可以吃悟饕池上便當。吃完拍給我。"), judgeOk())
         val out = runBlocking { brain(llm).onText("晚餐吃什麼好") }
         assertEquals("晚餐可以吃悟饕池上便當。吃完拍給我。", out[1].text)
     }
@@ -90,7 +90,7 @@ class BrainTest {
             store.messages.insert(Message("old-1", 1, Who.OWNER, text = "早安", legacy = true))
             store.messages.insert(Message("old-2", 2, Who.COMPANY, role = RoleKey.BODY, text = "記得吃早餐。", legacy = true))
         }
-        val llm = ScriptedLlm(intake("chat"), utter("去吃早餐。"))
+        val llm = ScriptedLlm(intake("chat"), utter("去吃早餐。"), judgeOk())
         runBlocking { brain(llm).onText("好") }
         val turns = llm.requests[1].turns
         assertEquals(Turn.User("早安"), turns[0])
@@ -126,7 +126,7 @@ class BrainTest {
     }
 
     @Test fun theSeedTableIsEvidenceOnAFreshInstall() {
-        val llm = ScriptedLlm(intake("chat"), utter("早餐可以吃全家 紐奧良風味烤雞鮮蔬三明治。吃完拍給我。"))
+        val llm = ScriptedLlm(intake("chat"), utter("早餐可以吃全家 紐奧良風味烤雞鮮蔬三明治。吃完拍給我。"), judgeOk())
         val out = runBlocking { brain(llm).onText("早餐吃什麼") }
         assertEquals("早餐可以吃全家 紐奧良風味烤雞鮮蔬三明治。吃完拍給我。", out[1].text)
     }
@@ -207,23 +207,42 @@ class BrainTest {
         assertFalse(stored().any { it.text.contains("省了") })
     }
 
-    @Test fun anOrdinaryDayAndChatNeverCallTheJudge() {
+    @Test fun anOrdinaryDayAndChatWithoutFoodNeverCallTheJudge() {
         eat(500)
         val clerk = ScriptedLlm(intake("chat"))
-        val llm = ScriptedLlm(utter("去喝水。"))
+        val llm = ScriptedLlm(utter("早點睡。"))
         runBlocking { withClerk(clerk, llm).onText("姐姐在嗎") }
         assertEquals(listOf(Purpose.INTAKE), clerk.requests.map { it.purpose })
-    }
-
-    @Test fun aDiscussionAboutFoodCallsTheJudgeEvenOnAnOrdinaryDay() {
-        val clerk = ScriptedLlm(intake("discuss"), judgeOk())
-        val llm = ScriptedLlm(utter("先照計畫試一週。"))
-        runBlocking { withClerk(clerk, llm).onText("晚餐的份量是不是太少") }
-        assertEquals(listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
-        assertTrue((clerk.requests[1].turns.single() as Turn.User).text.startsWith("今天的情況：他正在討論吃的\n"))
 
         val other = ScriptedLlm(intake("discuss"))
         runBlocking { withClerk(other, ScriptedLlm(utter("好，先照計畫。"))).onText("核心可以改到晚上嗎") }
         assertEquals(listOf(Purpose.INTAKE), other.requests.map { it.purpose })
+    }
+
+    @Test fun foodTalkInAnyChatKindCallsTheJudgeOnACleanDay() {
+        // No meal today, no breach: only the conversation is about food. 「chat」, 「mood」 and 「discuss」 all count.
+        for (kind in listOf("chat", "mood", "discuss")) {
+            val clerk = ScriptedLlm(intake(kind), judgeOk())
+            val llm = ScriptedLlm(utter("今天照計畫走。"))
+            runBlocking { withClerk(clerk, llm).onText("昨天宵夜吃太多今天怎麼辦") }
+            assertEquals(kind, listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
+            assertEquals(kind, SecondPassJudge.userText("今天照計畫走。", "他正在討論吃的"), (clerk.requests[1].turns.single() as Turn.User).text)
+        }
+    }
+
+    @Test fun foodItemsTheClerkFindsMakeItFoodTalkWithoutAFoodWord() {
+        val items = """[{"name":"雞腿便當","portion":1,"fried":false,"processed":false,"zero_cal":false,"kcal_low":700,"kcal_high":900,"protein_low":30,"protein_high":40}]"""
+        val clerk = ScriptedLlm(ScriptedLlm.ok("""{"kind":"chat","items":$items}"""), judgeOk())
+        val llm = ScriptedLlm(utter("好，照計畫。"))
+        runBlocking { withClerk(clerk, llm).onText("雞腿便當好不好") }
+        assertEquals(listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
+    }
+
+    @Test fun aReplyThatNamesFoodIsJudgedEvenWhenHisWordsDoNot() {
+        val clerk = ScriptedLlm(intake("chat"), judgeOk())
+        val llm = ScriptedLlm(utter("晚餐照平常吃。"))
+        runBlocking { withClerk(clerk, llm).onText("姐姐在嗎") }
+        assertEquals(listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
+        assertEquals(SecondPassJudge.userText("晚餐照平常吃。", "他正在討論吃的"), (clerk.requests[1].turns.single() as Turn.User).text)
     }
 }

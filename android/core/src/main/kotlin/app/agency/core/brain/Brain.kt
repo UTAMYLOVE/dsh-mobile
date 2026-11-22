@@ -128,7 +128,8 @@ class Brain(
         // The seed table too: on a fresh install the store has no food yet, and 給力盒子 or 全家 must not read as unknown chains.
         val names = (FoodTable.seed(0) + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct()
         val factsText = facts.json.toString()
-        val judgeContext = judgeContext(input, kind, parsed?.items.orEmpty().isNotEmpty(), owner.text)
+        val foodItems = parsed?.items.orEmpty().isNotEmpty()
+        val judgeContext = { shown: String -> judgeContext(input, foodItems, owner.text, shown) }
         val round = ChatRound(system, PromptBuilder.turns(facts, owner), RoleKey.MANAGER, MessageMode.NORMAL, tone, judgeContext) { outputs ->
             Evidence(listOf(factsText) + outputs, names, latin, ownerText = owner.text, breachToday = input.today.breachToday)
         }
@@ -152,7 +153,6 @@ class Brain(
         const val MAX_OWNER_CHARS = 2000
         const val INTAKE_TOKENS = 600
         private const val CHAT = "chat"
-        private const val DISCUSS = "discuss"
 
         /** The fixed line after the template when the provider gave no answer (code-written; no model). */
         fun failLine(fail: Fail): String = when (fail) {
@@ -163,16 +163,21 @@ class Brain(
             else -> "現在連不上模型，等一下再試。"
         }
 
-        /** Words that make a 討論 a discussion about food. */
-        private val FOOD_TALK = Regex("吃|喝|餐|飯|麵|熱量|大卡|卡路里|食物|零食|飲料|宵夜|點心|甜點|蛋白質|份量|分量|菜單|外送")
+        /**
+         * Words that make a conversation one about food (his words or the reply). A bare 喝 is left out: 「去喝水」 is in many
+         * replies and is no food talk; drinks that are food are named (咖啡, 奶茶, 手搖, 含糖, 飲料, 酒).
+         */
+        private val FOOD_TALK = Regex("吃|餐|飯|麵|熱量|大卡|卡路里|食物|零食|飲料|咖啡|奶茶|手搖|含糖|酒|宵夜|點心|甜點|蛋白質|份量|分量|菜單|外送")
 
         /**
-         * The second-pass judge's context line for this turn (arch 1.9b), from code only: today's meals over the quota, a breach
-         * today, or a discussion about food (the clerk's kind is discuss and it found food items, or his words name food).
+         * The second-pass judge's context line for a ChatLoop turn (arch 1.9b), from code only: today's meals over the quota, a
+         * breach today, or a conversation about food. Every ChatLoop turn is conversation (chat, mood, unwell, discuss: command
+         * words and record kinds never get here), so food talk is any of them where the clerk found food items or his words
+         * or the [reply] he would read name food.
          */
-        fun judgeContext(input: FactsInput, kind: String, foodItems: Boolean, ownerText: String): String? {
+        fun judgeContext(input: FactsInput, foodItems: Boolean, ownerText: String, reply: String): String? {
             val over = input.today.meals.sumOf { it.kcal } - input.rules.quotaKcal
-            val foodTalk = kind == DISCUSS && (foodItems || FOOD_TALK.containsMatchIn(ownerText))
+            val foodTalk = foodItems || FOOD_TALK.containsMatchIn(ownerText) || FOOD_TALK.containsMatchIn(reply)
             return SecondPassJudge.contextLine(over, input.today.breachToday, foodTalk)
         }
 

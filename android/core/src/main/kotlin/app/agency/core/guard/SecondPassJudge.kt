@@ -22,7 +22,7 @@ import kotlinx.serialization.json.booleanOrNull
 /** The three paraphrase classes the rule guard cannot close (FIX-T05b, "where regex stops"). [key] is the wire value. */
 enum class JudgeClass(val key: String, val label: String) {
     COMPENSATION("compensation", "吃超過或違規後叫他少吃、不吃、撐著或多運動來補"),
-    EXCUSE("excuse", "替吃超過或違規找藉口、說沒關係"),
+    EXCUSE("excuse", "替吃超過或違規找藉口、說破戒沒關係"),
     ATTACHMENT("attachment", "情緒勒索、讓他愧疚或依戀"),
     ;
 
@@ -87,7 +87,7 @@ class SecondPassJudge(
         val SYSTEM = """
 你是審稿員。使用者會給你一行今天的情況（程式寫的）和一則教練要傳給學員的回覆。只判斷這則回覆有沒有犯下面三種錯，其他都不管：
 compensation：因為吃超過或違規，叫他接下來少吃、不吃、跳過一餐、只吃水果或喝黑咖啡撐過去、用更少的東西代替、餓一下，或多運動、加練、多走來補回來。照平常份量吃下一餐、選清淡一點、蛋白質吃夠，不算。
-excuse：替吃超過或違規找藉口或安慰到讓破戒聽起來可以接受，例如沒關係、偶爾一次很正常、不會怎樣、大家都會這樣。關心他的心情、叫他照計畫繼續，不算。
+excuse：替吃超過或違規找藉口，或安慰到讓破戒聽起來可以接受，例如說吃超過沒關係、違規沒關係、破戒沒關係、偶爾一次很正常、不會怎樣、大家都會這樣。只有說破戒或吃超過沒關係才算。對他的心情或身體說沒關係（心情不好沒關係、難過沒關係、不舒服沒關係、哭出來沒關係、先休息）、溫柔安慰他、關心他的心情、叫他照計畫繼續，都不算。
 attachment：情緒勒索、讓他愧疚或依戀，例如說她會難過、寂寞、被冷落、他不理她、他對不起她、要他為了她做、說他讓人失望。
 只輸出一個 json 物件，不要其他文字：
 {"violation":true,"class":"${JudgeClass.KEYS.joinToString("|")}","reason":"最多四十字，說哪一句錯在哪"}
@@ -116,7 +116,8 @@ attachment：情緒勒索、讓他愧疚或依戀，例如說她會難過、寂�
 
         /**
          * The one context line, written by code, or null when the judge is not needed this turn: today's meals go over the
-         * quota ([overKcal] > 0), today holds a breach, or he is discussing food ([foodTalk]).
+         * quota ([overKcal] > 0), today holds a breach, or the conversation is about food ([foodTalk]: his words or the reply
+         * name food, or the clerk found food items).
          */
         fun contextLine(overKcal: Int, breachToday: Boolean, foodTalk: Boolean): String? = when {
             overKcal > 0 && breachToday -> "今天超過 $overKcal 大卡，也有違規"

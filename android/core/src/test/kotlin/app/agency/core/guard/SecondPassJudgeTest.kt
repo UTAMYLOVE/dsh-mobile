@@ -1,8 +1,10 @@
 package app.agency.core.guard
 
+import app.agency.core.llm.CompatEndpoint
 import app.agency.core.llm.Fail
 import app.agency.core.llm.LlmClient
 import app.agency.core.llm.LlmTestKit
+import app.agency.core.llm.OpenAiCompatClient
 import app.agency.core.llm.Output
 import app.agency.core.llm.ProviderChoice
 import app.agency.core.llm.Purpose
@@ -79,7 +81,8 @@ class SecondPassJudgeTest {
         assertEquals(JudgeClass.EXCUSE.label, Verdict.Breach(JudgeClass.EXCUSE, "").violation.reason)
     }
 
-    @Test fun aTimeoutIsNoAnswer() = runBlocking {
+    // The time limit makes a judge without its own timeout fail here instead of hanging the suite.
+    @Test(timeout = 5_000) fun aTimeoutIsNoAnswer() = runBlocking {
         var cancelled = false
         val slow = LlmClient {
             try {
@@ -126,6 +129,51 @@ class SecondPassJudgeTest {
             assertEquals(Verdict.NoAnswer(Fail.CAP), judge(kit.deepseek()).judge(reply, context))
             assertEquals(0, kit.server.requestCount)
             assertTrue(kit.recorded.isEmpty())
+        }
+    }
+
+    @Test fun theExcuseClassIsAboutTheSlipAndExemptsComfortForHisFeelingsOrBody() {
+        val excuse = RubricFollowingJudge.examples(SecondPassJudge.SYSTEM).toMap().getValue("excuse")
+        assertTrue(excuse.toString(), "吃超過沒關係" in excuse && "破戒沒關係" in excuse && "偶爾一次很正常" in excuse)
+        // A bare 「沒關係」 is never an example on its own.
+        assertTrue(excuse.toString(), "沒關係" !in excuse)
+        assertTrue(SecondPassJudge.SYSTEM.contains("只有說破戒或吃超過沒關係才算"))
+        assertTrue(SecondPassJudge.SYSTEM.contains("對他的心情或身體說沒關係"))
+        assertTrue(SecondPassJudge.SYSTEM.contains("溫柔安慰他"))
+        assertEquals("替吃超過或違規找藉口、說破戒沒關係", JudgeClass.EXCUSE.label)
+    }
+
+    @Test fun gentleCorpusLinesOnABreachDayAreCleanForAJudgeThatFollowsTheRubric() = runBlocking {
+        val gentle = javaClass.getResource("/guard/corpus.tsv")!!.readText().lines()
+            .filter { it.isNotBlank() && !it.startsWith("#") }
+            .map { it.split('\t') }
+            .filter { it[1] == "CLEAN" && it[2] == "GENTLE" }
+            .map { it[5] }
+        assertTrue(gentle.size >= 15)
+        assertTrue(gentle.count { "沒關係" in it } >= 8)
+        val fake = RubricFollowingJudge()
+        val j = judge(fake)
+        for (line in gentle + listOf("沒關係，心情不好就先休息，難過可以跟我說。", "哭出來沒關係，我在。")) {
+            assertEquals(line, Verdict.Clean, j.judge(line, "今天超過 380 大卡，也有違規"))
+        }
+        // The same fake is not blind: a slip excused in the rubric's words is a breach.
+        assertEquals(JudgeClass.EXCUSE, (j.judge("吃超過沒關係，明天再說。", "今天超過 380 大卡") as Verdict.Breach).cls)
+        assertEquals(JudgeClass.EXCUSE, (j.judge("偶爾一次很正常。", "今天有違規") as Verdict.Breach).cls)
+    }
+
+    @Test fun theCompatibleServicesDailyQuotaCountsTheJudge() = runBlocking {
+        LlmTestKit().use { kit ->
+            val ep = CompatEndpoint.generic(kit.base.toString(), "m", jsonMode = true, tools = false, allowHttp = true)
+            var taken = 0
+            val counting = OpenAiCompatClient(kit.transport, { ep }, { kit.key }, kit.checks, kit.sink, takeQuota = { taken++; true })
+            kit.enqueue(200, LlmTestKit.completion("""{"role":"assistant","content":"{\"violation\":false,\"class\":\"none\",\"reason\":\"\"}"}"""))
+            assertEquals(Verdict.Clean, judge(counting).judge(reply, context))
+            assertEquals(1, taken)
+            assertEquals(1, kit.server.requestCount)
+
+            val spent = OpenAiCompatClient(kit.transport, { ep }, { kit.key }, kit.checks, kit.sink, takeQuota = { false })
+            assertEquals(Verdict.NoAnswer(Fail.CAP), judge(spent).judge(reply, context))
+            assertEquals(1, kit.server.requestCount)
         }
     }
 }
