@@ -48,6 +48,8 @@ sealed interface Effect {
         val at: Long? = null,
         /** While riding: sound once, later updates silent (L8, L12). */
         val soundOnce: Boolean = false,
+        /** Not posted when by then he has had this many half bottles of water (L8, L10: nothing to remind). */
+        val unlessWaterHalves: Int? = null,
     ) : Effect
 
     /**
@@ -64,8 +66,11 @@ sealed interface Effect {
     data class Chain(val signal: Signal) : Effect
 }
 
-/** What a link reads besides the signal and the day state: the time, the rules (read only) and the plan sections. */
-data class LinkContext(val now: Instant, val zone: ZoneId, val rules: CompanyRules, val specs: PlanSpecs)
+/**
+ * What a link reads besides the signal and the day state: the time, the rules (read only), the plan sections and the day he
+ * joined (the water plan counts from it unless he set a start).
+ */
+data class LinkContext(val now: Instant, val zone: ZoneId, val rules: CompanyRules, val specs: PlanSpecs, val joinDate: String? = null)
 
 /**
  * One connection (agency-links §4): 「收到訊號 A，在條件 B 下，產生效果 C」, pure Kotlin. [dailyCap] is how many signals it may

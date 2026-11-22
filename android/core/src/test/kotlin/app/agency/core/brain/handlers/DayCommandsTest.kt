@@ -26,7 +26,7 @@ class DayCommandsTest {
     private val clock = MutableClock(Instant.parse("2026-12-07T02:00:00Z")) // Monday 10:00 in Taipei
     private val llm = ScriptedLlm()
     private var n = 0
-    private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-${++n}" }
+    private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%05d".format(++n) }
 
     private fun say(text: String): Message = runBlocking { brain.onText(text) }.last()
     private fun day(d: String) = runBlocking { store.days.get(d) }
@@ -89,7 +89,7 @@ class DayCommandsTest {
 
     @Test fun aDeclarationTheClerkGuessesIsNeverApplied() {
         val clerk = ScriptedLlm(ScriptedLlm.ok("""{"kind":"rest_day"}"""))
-        val b = Brain(store, clerk, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-${++n}" }
+        val b = Brain(store, clerk, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%05d".format(++n) }
         val r = runBlocking { b.onText("我今天好像該休息一下") }.last()
         assertEquals("要換成休息日，就打「今天休息」。", r.text)
         assertFalse(day("2026-12-07")?.restDay ?: false)

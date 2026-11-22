@@ -66,7 +66,10 @@ class GetTodayTool(
             put("protein", buildJsonObject {
                 put("eaten", protein.toInt()); put("left", CoachRules.remainingProtein(rules.proteinG, protein))
             })
-            put("water", buildJsonObject { put("done_half", t.water.sumOf { it.halfBottles }) })
+            put("water", buildJsonObject {
+                put("target_half", app.agency.core.engine.WaterPlan.target(day, snapshot.plans.specs().water, profile.joinDate))
+                put("done_half", t.water.sumOf { it.halfBottles })
+            })
             put("training", buildJsonObject {
                 put("core", t.training.any { it.kind == TrainingKind.CORE7 })
                 put("strength", t.training.any { it.kind == TrainingKind.STRENGTH })

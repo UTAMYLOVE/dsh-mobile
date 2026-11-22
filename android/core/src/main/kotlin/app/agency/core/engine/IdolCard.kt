@@ -32,6 +32,9 @@ data class IdolCardFacts(
     val slots: List<SlotState> = emptyList(),
     /** Today's meals without a photo (「未證實」, T15), by what they were: 午餐, 晚餐, 加餐. */
     val unverified: List<String> = emptyList(),
+    /** Today's water and its target, in half bottles of his 1 L bottle (T17). */
+    val waterHalves: Int = 0,
+    val waterTargetHalves: Int = 0,
 ) {
     /** What comes next: the first slot still open or later, in time order. */
     val next: SlotState? get() = slots.firstOrNull { it.status == SlotStatus.OPEN || it.status == SlotStatus.LATER }
@@ -73,6 +76,7 @@ object IdolCard {
         photoMediaId: String?,
         stickers: List<Sticker> = Stickers.fromRecords(today),
         slots: List<SlotState> = emptyList(),
+        waterTargetHalves: Int = 0,
     ): IdolCardFacts {
         val labels = slots.associate { it.key.name to it.slot.label }
         val eaten = today.meals.sumOf { it.kcal }
@@ -92,6 +96,8 @@ object IdolCard {
             baselineMissing = baselineMissing,
             photoMediaId = photoMediaId,
             slots = slots,
+            waterHalves = today.water.sumOf { it.halfBottles },
+            waterTargetHalves = waterTargetHalves,
             unverified = today.meals.filter { !it.verified && it.items.isNotEmpty() }.map { m -> m.slotKey?.let { labels[it] ?: app.agency.core.schedule.SlotKey.parse(it)?.zh } ?: EXTRA },
         )
     }

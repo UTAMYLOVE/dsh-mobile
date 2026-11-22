@@ -176,7 +176,7 @@ private fun MediaLine(agency: AgencyApp) {
 private const val PAGE = 500
 
 /**
- * The quick buttons: 拍這餐 (T15: the camera for the meal being reported), 出門跑單 / 收工 (arch T13: the same words he may
+ * The quick buttons: 拍這餐 (T15: the camera for the meal being reported), 喝完一壺 / 喝了半壺 (T17), 出門跑單 / 收工 (arch T13: the same words he may
  * type; riding makes reminders sound once) and 「這裡有問題」 (T12: 討論 with the manager). The row scrolls sideways.
  */
 @Composable
@@ -188,6 +188,11 @@ private fun QuickButtons(busy: Boolean, onPhoto: () -> Unit, onSay: (String) -> 
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         PinkButton(stringResource(R.string.ag_meal_photo), onClick = onPhoto, enabled = !busy, modifier = Modifier.testTag(MealTags.PHOTO))
+        // 喝水 (T17): the same words he may type.
+        val full = stringResource(R.string.ag_water_full)
+        val half = stringResource(R.string.ag_water_half)
+        SoftButton(full, onClick = { onSay(full) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.WATER_FULL))
+        SoftButton(half, onClick = { onSay(half) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.WATER_HALF))
         SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
         SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
         SoftButton(stringResource(R.string.ag_discuss), onClick = { onSay(Discussion.OPEN_WORD) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.DISCUSS))

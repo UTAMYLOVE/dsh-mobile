@@ -305,4 +305,12 @@
     <string name="ag_favorites">常去店家</string>
     <string name="ag_favorites_none">還沒有。在搜尋結果按「存成常去店家」，你按好才會存。</string>
     <string name="ag_favorite_delete">刪掉</string>
+    <!-- 喝水 (T17) -->
+    <string name="ag_water_full">喝完一壺</string>
+    <string name="ag_water_half">喝了半壺</string>
+    <string name="ag_card_water">喝水：%1$s，今天要喝 %2$s</string>
+    <string name="ag_water_start_title">喝水計畫</string>
+    <string name="ag_water_start_note">用你的一公升水壺：前兩週一天一壺，之後每兩週加半壺，最多一天兩壺。只有白開水算，跑單前喝完，路上只小口喝。沒填開始日就從入社那天算。</string>
+    <string name="ag_water_start_field">從哪天開始算（例如 2026-11-21）</string>
+    <string name="ag_water_start_now">今天的目標：%1$s</string>
 </resources>

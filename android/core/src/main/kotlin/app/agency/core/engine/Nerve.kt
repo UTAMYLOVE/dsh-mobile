@@ -79,7 +79,7 @@ class Nerve(
         val state = state(day)
         val base = plans.plan(day)
         val rules = store.rules.current() ?: CompanyRules()
-        val ctx = LinkContext(clock.now(), clock.zone, rules, plans.specs())
+        val ctx = LinkContext(clock.now(), clock.zone, rules, plans.specs(), store.profile.get()?.joinDate)
         var result = NerveResult()
         var msgAt = maxOf(signal.at, clock.millis())
         for (link in links) {

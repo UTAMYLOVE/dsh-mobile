@@ -25,10 +25,12 @@ object MealWords {
     /** 「我還沒吃」「今天沒吃午餐」: not a report of a meal (「吃了一半沒吃完」 is). */
     fun notEaten(text: String): Boolean = NOT_EATEN.containsMatchIn(text) && ATE.none { text.contains(it) }
 
-    /** The clerk's [kind] with the word rules on top: a craving is no meal, and nor is 「還沒吃」. */
+    /** The clerk's [kind] with the word rules on top: a craving is no meal, nor is 「還沒吃」; a drink that is not water is a meal. */
     fun kindOf(kind: String, text: String): String = when {
         kind == "meal" && isCraving(text) -> "craving"
         kind == "meal" && notEaten(text) -> "chat"
+        // Only plain water is water (「喝了豆漿」 is a meal, whatever the clerk says).
+        kind == "water" && !WaterDesk.plain(text) -> "meal"
         else -> kind
     }
 

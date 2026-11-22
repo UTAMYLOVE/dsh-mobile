@@ -21,7 +21,7 @@ import kotlin.math.ceil
  */
 object Links {
     fun all(): List<Link> = listOf(
-        L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd,
+        L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd, L10Water,
         L12Chase, L13Violation, L14Discuss, L16Spend, L17Grooming, L18NoClassDay, L21WeightStop, L22TiredRiding, L23WeightTrend,
     ) + Pending.all
 
@@ -206,15 +206,52 @@ object Links {
             is Signal.RideStart -> if (DayFlag.RIDING_ONE_SOUND in state.flags) emptyList() else listOf(
                 Effect.AdjustToday(DayAdjust.Flag(DayFlag.RIDING_ONE_SOUND), "因為你出門跑單了，所以提醒改成只響一聲，不會一直跳出來。"),
             )
+            // Skipped when the day's water is in by then (T17: nothing left to drink before the run).
             is Signal.DayStarted -> state.plan.slot(SlotKey.RIDE_OUT)?.let { out ->
                 listOf(
                     Effect.Notify(
                         "preride", "快出門了：出門前先喝水，路上只能小口喝。", NotifyKind.REMINDER,
                         at = RuleEngineTime.at(state.plan.day, out.minute - BEFORE_MIN, ctx.zone).toEpochMilli(),
+                        unlessWaterHalves = WaterPlan.target(state.day, ctx.specs.water, ctx.joinDate),
                     ),
                 )
             } ?: emptyList()
             else -> emptyList()
+        }
+    }
+
+    /**
+     * L10: water behind → one more reminder in the afternoon gap: at 15:00 less than half of the day's target (only if he is
+     * not out on the run by then); on a day without a run, the bottle is due by 20:00. Never 「灌」: in sips, before the run
+     * (owner: he cannot drink much while riding). The reminder is not posted when the water is in by then. Only reminds.
+     */
+    object L10Water : Link {
+        override val id = "L10"
+        override val zh = "喝水落後：下午加一次提醒，跑單前不灌"
+        override val dailyCap = 1
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.DayStarted) return emptyList()
+            val plan = state.plan
+            val target = WaterPlan.target(state.day, ctx.specs.water, ctx.joinDate)
+            val deadline = WaterPlan.deadline(plan)
+            val out = mutableListOf<Effect>()
+            val wake = plan.slot(SlotKey.WAKE)?.minute ?: 0
+            if (WaterPlan.HALF_CHECK_MINUTE in (wake + 60) until deadline) {
+                out += Effect.Notify(
+                    "water-half",
+                    "下午三點了，水還不到一半（今天要喝 ${WaterPlan.bottles(target)}）。現在分幾口喝，出門前喝完，不要一次灌。",
+                    NotifyKind.REMINDER, at = RuleEngineTime.at(plan.day, WaterPlan.HALF_CHECK_MINUTE, ctx.zone).toEpochMilli(),
+                    unlessWaterHalves = WaterPlan.half(target),
+                )
+            }
+            if (plan.slot(SlotKey.RIDE_OUT) == null) {
+                out += Effect.Notify(
+                    "water-goal", "今天的水（${WaterPlan.bottles(target)}）還沒喝完，睡前不要猛喝，現在分幾次喝。", NotifyKind.REMINDER,
+                    at = RuleEngineTime.at(plan.day, deadline, ctx.zone).toEpochMilli(), unlessWaterHalves = target,
+                )
+            }
+            return out
         }
     }
 
@@ -460,7 +497,6 @@ object Links {
 
         companion object {
             val all = listOf(
-                Pending("L10", "喝水落後：下一個空檔加一次提醒", "第 4 批（T17）"),
                 Pending("L11", "核心或肌力第一次完成：撒嬌一次、照片牆加一張", "第 5 批（T18）、第 6 批（T20）"),
                 Pending("L15", "肌力一週都輕鬆：提案升級", "第 5 批（T18）"),
                 Pending("L19", "睡前簽退：檢討卡、明天的提案", "第 5 批（T19）"),

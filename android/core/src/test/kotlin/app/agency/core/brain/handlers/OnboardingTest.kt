@@ -38,7 +38,7 @@ class OnboardingTest {
         val requests = mutableListOf<ChatRequest>()
         override suspend fun chat(request: ChatRequest): ChatResult = ChatResult.Failed(Fail.OFFLINE).also { requests += request }
     }
-    private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-${++n}" }
+    private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%05d".format(++n) }
 
     private fun join(): Baseline? = runBlocking { store.baselines.get(Baseline.JOIN) }
     private fun step(): OnboardingStep? = join()?.let(BaselineSteps::open)

@@ -65,6 +65,8 @@ object AgencyTags {
     const val RIDE_END = "ag-ride-end"
     const val DISCUSS = "ag-discuss"
     const val MEDIA_NOTICE = "ag-media-notice"
+    const val WATER_FULL = "ag-water-full"
+    const val WATER_HALF = "ag-water-half"
 }
 
 enum class AgencyTab(val label: Int) { COMPANY(R.string.ag_tab_company), WAR_ROOM(R.string.ag_tab_warroom), SETTINGS(R.string.ag_tab_settings) }

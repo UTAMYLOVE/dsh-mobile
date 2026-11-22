@@ -50,6 +50,8 @@ data class FactsInput(
     val zone: ZoneId,
     /** Today's slots from the day planner (T11), so a reply or a nudge may name a slot's time. */
     val slots: List<SlotFact> = emptyList(),
+    /** Today's water target in half bottles (T17); null when unknown. */
+    val waterTargetHalves: Int? = null,
 )
 
 /** One slot of today's plan as the facts show it: [time] is `HH:mm`, [status] done / open / missed / later. */
@@ -137,6 +139,7 @@ object FactsBuilder {
                     put("eaten", protein.toInt()); put("left", CoachRules.remainingProtein(r.proteinG, protein))
                 })
                 put("water_half", t.water.sumOf { it.halfBottles })
+                i.waterTargetHalves?.let { put("water_target_half", it) }
                 put("training", buildJsonArray {
                     t.training.takeLast(MAX_LIST).forEach { tr ->
                         add(buildJsonObject {

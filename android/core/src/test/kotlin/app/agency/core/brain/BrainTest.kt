@@ -33,7 +33,7 @@ class BrainTest {
     private val clock = MutableClock(Instant.parse("2026-11-23T04:00:00Z")) // 12:00 in Taipei
     private var n = 0
 
-    private fun brain(llm: ScriptedLlm) = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-${++n}" }
+    private fun brain(llm: ScriptedLlm) = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%05d".format(++n) }
 
     private fun intake(kind: String) = ScriptedLlm.ok("""{"kind":"$kind"}""")
     private fun utter(text: String) = ScriptedLlm.ok("""{"text":"$text","ask":null,"options":[],"recommended":null,"memory":[]}""")
@@ -47,7 +47,9 @@ class BrainTest {
         assertTrue(llm.requests.isEmpty())
         assertEquals(listOf(Who.OWNER, Who.COMPANY), stored().map { it.who })
         assertEquals("喝完一壺！", out[0].text)
-        assertEquals(Router.NOT_YET, out[1].text)
+        // Water has its handler since T17: one bottle is two halves.
+        assertTrue(out[1].text, out[1].text.startsWith("記下：喝了 1 壺。"))
+        assertEquals(2, runBlocking { store.water.between("0000-01-01", "9999-12-31") }.sumOf { it.halfBottles })
         assertEquals(RoleKey.BODY, out[1].role)
         assertEquals(WordedBy.TEMPLATE, out[1].wordedBy)
     }
@@ -141,7 +143,7 @@ class BrainTest {
         runBlocking { (1..9).forEach { i -> store.messages.insert(Message("h$i", i.toLong(), if (i % 2 == 1) Who.OWNER else Who.COMPANY, role = RoleKey.MANAGER.takeIf { i % 2 == 0 }, text = "第${i}句")) } }
         val clerk = ScriptedLlm(intake("chat"))
         val llm = ScriptedLlm(utter("去喝水。"))
-        val b = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), intakeLlm = clerk) { "id-${++n}" }
+        val b = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), intakeLlm = clerk) { "id-%05d".format(++n) }
         runBlocking { b.onText("好") }
         assertEquals(listOf(Purpose.INTAKE), clerk.requests.map { it.purpose })
         assertEquals(listOf(Purpose.CHAT), llm.requests.map { it.purpose })
@@ -178,7 +180,7 @@ class BrainTest {
     }
 
     private fun withClerk(clerk: ScriptedLlm, llm: ScriptedLlm) =
-        Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), intakeLlm = clerk) { "id-${++n}" }
+        Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), intakeLlm = clerk) { "id-%05d".format(++n) }
 
     @Test fun onAnOverrunDayTheGuardedReplyGoesToTheJudgeOnTheCheapClientWithOnlyTheReplyAndOneLine() {
         eat(2080) // quota 1700: 380 over

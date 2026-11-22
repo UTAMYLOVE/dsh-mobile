@@ -10,6 +10,7 @@ import app.agency.core.brain.handlers.AreaText
 import app.agency.core.brain.handlers.MealOutcome
 import app.agency.core.brain.handlers.MealWords
 import app.agency.core.brain.handlers.WeightDesk
+import app.agency.core.brain.handlers.WaterDesk
 import app.agency.core.brain.handlers.HungryMorning
 import app.agency.core.brain.handlers.IdolProfile
 import app.agency.core.brain.handlers.RestDay
@@ -136,6 +137,7 @@ class Brain(
     private val meals = MealDesk(store, snapshot, clock, newId)
     private val cravings = CravingDesk(store, snapshot, clock, meals)
     private val weights = WeightDesk(store, snapshot, clock, newId)
+    private val water = WaterDesk(store, snapshot, clock, newId)
 
     private val _busy = MutableStateFlow(false)
     /** True while a message is being answered. */
@@ -275,7 +277,9 @@ class Brain(
         val due = nerve.dueNotifies(now.toEpochMilli())
         // An older chase that was never posted, anything left from an earlier day, and a reminder that was due before the
         // reminders started, is not posted any more.
-        val stale = due.filter { it.link == Links.L12Chase.id || it.day != day.toString() || (it.dueAt ?: it.at) < since.toEpochMilli() }
+        // A water reminder whose water is in by now has nothing to say (L8, L10).
+        val drunk = due.filter { e -> (Nerve.decodeEffect(e.json) as? Effect.Notify)?.unlessWaterHalves?.let { state.waterHalves >= it } == true }
+        val stale = due.filter { it.link == Links.L12Chase.id || it.day != day.toString() || (it.dueAt ?: it.at) < since.toEpochMilli() } + drunk
         stale.forEach { store.nerve.setStatus(it.id, EffectStatus.EXPIRED, now.toEpochMilli()) }
         if (!quiet) {
             (due - stale.toSet()).filter { Nudger.postable(it, state.riding) }.forEach { e ->
@@ -488,7 +492,7 @@ class Brain(
         val slots = snapshot.slots(day, records, profile)
         return IdolCard.build(
             profile, snapshot.rules(), records, day, snapshot.currentWeightKg(day, profile), missing,
-            status.baseline?.photoFront, Stickers.fromSlots(slots, records), slots,
+            status.baseline?.photoFront, Stickers.fromSlots(slots, records), slots, water.target(day, profile.joinDate),
         )
     }
 
@@ -683,6 +687,7 @@ class Brain(
             "craving" -> MealOutcome(null, cravings.answer(owner.text, parsed.items))
             "label" -> meals.label(parsed.label?.name ?: parsed.items.firstOrNull()?.name, parsed.label?.kcal, parsed.label?.proteinG)
             "weight" -> parsed.weightKg?.let { weights.record(it, parsed.waistCm) } ?: MealOutcome(null, listOf("沒聽到體重。說「今天體重 79.5」。"))
+            "water" -> water.record(WaterDesk.halvesIn(owner.text) ?: parsed.waterHalf ?: 0, nerve.state(snapshot.today(snapshot.profile())).riding)
             else -> return null
         }
         return said(outcome, kind)
@@ -725,6 +730,26 @@ class Brain(
         null
     }
 
+    /**
+     * 設定 › 作息 喝水計畫 (T17): the day the bottle plan counts from (his own settings: a new version of the water section,
+     * changed by him). The problem as he reads it, or null when it was kept.
+     */
+    suspend fun setWaterStart(text: String): String? = mutex.withLock {
+        val d = runCatching { java.time.LocalDate.parse(text.trim()) }.getOrNull() ?: return@withLock "日期要寫成 2026-11-21 這樣。"
+        val today = snapshot.today(snapshot.profile())
+        if (d.isAfter(today.plusDays(WATER_START_AHEAD_DAYS))) return@withLock "最多只能訂到一個月後開始。"
+        val water = snapshot.plans.specs().water.copy(startDay = d.toString())
+        store.rules.putSection(
+            app.agency.core.model.PlanSectionKey.WATER, app.agency.core.schedule.PlanSpecs.JSON.encodeToString(app.agency.core.schedule.WaterSpec.serializer(), water),
+            app.agency.core.model.PlanSection.BY_OWNER_SETTINGS, clock.millis(),
+        )
+        bump()
+        null
+    }
+
+    /** Today's water target in half bottles (設定 › 作息). */
+    suspend fun waterTarget(): Int = snapshot.profile().let { water.target(snapshot.today(it), it.joinDate) }
+
     /** His saved places (設定 › 附近搜尋). */
     suspend fun favorites(): List<app.agency.core.model.FavoritePlace> = store.places.favorites()
 
@@ -749,6 +774,11 @@ class Brain(
 
     /** A command word (code only, no model): its line, then what the links said about its signal. */
     private suspend fun command(route: Route.Command, owner: Message): List<Message> {
+        // 「喝完一壺」「喝了半壺」 (T17): the body teacher's line, like any record.
+        if (route.kind == "water") {
+            val riding = nerve.state(snapshot.today(snapshot.profile())).riding
+            return said(water.record(WaterDesk.halvesIn(owner.text) ?: 0, riding), "water")
+        }
         val profile = snapshot.profile()
         val today = snapshot.today(profile)
         val plan = nerve.plan(today)
@@ -826,6 +856,9 @@ class Brain(
 
         /** The kind of the manager's 藝名 lines. */
         const val PROFILE_KIND = "profile"
+
+        /** How far ahead the water plan's start may be set (T17). */
+        const val WATER_START_AHEAD_DAYS = 31L
 
         /** The kind of the body teacher's line about a meal photo (T15). */
         const val MEAL_PHOTO_KIND = "meal_photo"

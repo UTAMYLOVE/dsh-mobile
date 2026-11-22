@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -37,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.agency.core.engine.IdolCardFacts
+import app.agency.core.engine.WaterPlan
 import app.agency.core.rules.CoachRules
 import app.dshmobile.R
 import app.dshmobile.agency.AgencyApp
@@ -72,6 +75,7 @@ object IdolTags {
     const val NEXT = "ag-idol-next"
     const val GAPS = "ag-idol-gaps"
     const val UNVERIFIED = "ag-idol-unverified"
+    const val WATER = "ag-idol-water"
 }
 
 /**
@@ -123,11 +127,21 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
         }
         // The 代表色 band (the accent, readable text on it guaranteed by MemberColour).
         Box(Modifier.fillMaxWidth().height(6.dp).background(accent.fill).testTag(IdolTags.BAND))
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // The open card never takes the whole screen: its rows scroll inside it, the conversation and the composer stay.
+        Column(
+            Modifier.heightIn(max = OPEN_MAX).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             StickerStrip(facts)
             facts.next?.let { Text(stringResource(R.string.ag_card_next, it.slot.time, it.slot.label), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.NEXT)) }
             if (facts.gaps.isNotEmpty()) {
                 Text(stringResource(R.string.ag_card_gaps, facts.gaps.joinToString("、") { it.slot.label }), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.GAPS))
+            }
+            if (facts.waterTargetHalves > 0) {
+                Text(
+                    stringResource(R.string.ag_card_water, WaterPlan.bottles(facts.waterHalves), WaterPlan.bottles(facts.waterTargetHalves)),
+                    color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.WATER),
+                )
             }
             if (facts.unverified.isNotEmpty()) {
                 Text(
@@ -141,12 +155,18 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
             )
             Text(leftLine(facts), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.LEFT))
             Text(stringResource(R.string.ag_card_breaches, facts.breachesToday), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.BREACHES))
-            if (setupDue) {
+        }
+        // The setup stays in view (outside the scrolling rows).
+        if (setupDue) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp)) {
                 IdolSetup(agency, facts, onSaved = onSaved, onSkip = { agency.settings.idolSetupSkipped = true; onSaved() })
             }
         }
     }
 }
+
+/** The most the open card's rows take before they scroll. */
+private val OPEN_MAX = 260.dp
 
 /** The folded line (review A4). */
 @Composable

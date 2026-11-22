@@ -99,6 +99,7 @@ class SnapshotReader(
             history = history,
             zone = clock.zone,
             slots = slots(today, records, profile).map { SlotFact(it.key.name.lowercase(), it.slot.label, it.slot.time, it.status.name.lowercase()) },
+            waterTargetHalves = app.agency.core.engine.WaterPlan.target(today, plans.specs().water, profile.joinDate),
         )
     }
 

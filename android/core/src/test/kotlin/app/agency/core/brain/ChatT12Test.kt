@@ -60,7 +60,7 @@ class ChatT12Test {
     }
 
     private fun brain(llm: ScriptedLlm, clerk: ScriptedLlm = llm) =
-        Brain(store, llm, { provider }, AgencyClock.of(clock), intakeLlm = clerk, log = { logs += it }) { "id-${++n}" }
+        Brain(store, llm, { provider }, AgencyClock.of(clock), intakeLlm = clerk, log = { logs += it }) { "id-%05d".format(++n) }
 
     private fun intake(kind: String) = ScriptedLlm.ok("""{"kind":"$kind"}""")
 
