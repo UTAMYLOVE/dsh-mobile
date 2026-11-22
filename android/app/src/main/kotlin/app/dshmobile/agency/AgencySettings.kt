@@ -53,6 +53,11 @@ class AgencySettings(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(COMPAT_JSON, false)
         set(v) = putBool(COMPAT_JSON, v)
 
+    /** 「先不要」 on the card's 藝名 and 代表色 setup (arch T10): it is not shown again; 設定 › 練習生資料 still sets both. */
+    var idolSetupSkipped: Boolean
+        get() = prefs.getBoolean(IDOL_SETUP_SKIPPED, false)
+        set(v) = putBool(IDOL_SETUP_SKIPPED, v)
+
     /** 「這個服務支援工具」: off by default; then chat runs without tools on that service. */
     var compatTools: Boolean
         get() = prefs.getBoolean(COMPAT_TOOLS, false)
@@ -79,6 +84,7 @@ class AgencySettings(private val prefs: SharedPreferences) {
         const val COMPAT_DAILY_CAP = 300
         const val COMPAT_JSON = "compat_json"
         const val COMPAT_TOOLS = "compat_tools"
+        const val IDOL_SETUP_SKIPPED = "idol_setup_skipped"
 
         /** The compatible service's key, in KeyVault's named slots (the coach's slot, kept). */
         const val COMPAT_KEY = "COACH_COMPAT"

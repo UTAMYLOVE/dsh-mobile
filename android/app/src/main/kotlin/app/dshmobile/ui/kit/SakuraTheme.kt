@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -67,7 +68,14 @@ internal val SakuraShapes = Shapes(
     extraLarge = RoundedCornerShape(30.dp),
 )
 
+/**
+ * The company's theme. [accent] is his 代表色 (arch T10): it becomes the primary colour (buttons, the card band, the selected
+ * marks); the six Sakura colours stay for everything else.
+ */
 @Composable
-fun SakuraTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = SakuraColors, shapes = SakuraShapes, content = content)
+fun SakuraTheme(accent: Accent = Accent.DEFAULT, content: @Composable () -> Unit) {
+    val colors = SakuraColors.copy(primary = accent.fill, onPrimary = accent.onFill, inversePrimary = accent.fill, surfaceTint = accent.fill)
+    CompositionLocalProvider(LocalAccent provides accent) {
+        MaterialTheme(colorScheme = colors, shapes = SakuraShapes, content = content)
+    }
 }

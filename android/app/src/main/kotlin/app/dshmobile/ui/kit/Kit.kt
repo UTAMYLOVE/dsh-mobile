@@ -42,7 +42,7 @@ fun Panel(title: String? = null, modifier: Modifier = Modifier, content: @Compos
     ) {
         if (title != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.padding(top = 1.dp).background(Sakura.Primary, RoundedCornerShape(2.dp)).padding(3.5.dp))
+                Box(Modifier.padding(top = 1.dp).background(LocalAccent.current.fill, RoundedCornerShape(2.dp)).padding(3.5.dp))
                 Text(title, color = Sakura.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             }
         }
@@ -54,9 +54,9 @@ fun Panel(title: String? = null, modifier: Modifier = Modifier, content: @Compos
 fun PinkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Button(
         onClick = onClick, enabled = enabled, modifier = modifier.heightIn(min = 44.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Sakura.Primary, contentColor = Sakura.Text),
+        colors = ButtonDefaults.buttonColors(containerColor = LocalAccent.current.fill, contentColor = LocalAccent.current.onFill),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
-    ) { Text(text, fontSize = 15.sp) }
+    ) { Text(text, fontSize = 15.sp, color = LocalAccent.current.onFill) }
 }
 
 /** The quieter button beside a [PinkButton] (清除, 返回). */
@@ -71,16 +71,17 @@ fun SoftButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
 @Composable
 fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, tagPrefix: String? = null) {
     val shape = RoundedCornerShape(16.dp)
+    val accent = LocalAccent.current
     Row(modifier.fillMaxWidth().background(Sakura.Background, shape).padding(3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         options.forEachIndexed { i, label ->
             val on = i == selected
             Box(
-                Modifier.weight(1f).heightIn(min = 40.dp).background(if (on) Sakura.Primary else Sakura.White, shape)
+                Modifier.weight(1f).heightIn(min = 40.dp).background(if (on) accent.fill else Sakura.White, shape)
                     .semantics { this.selected = on }
                     .clickable(role = Role.Tab) { onSelect(i) }
                     .then(if (tagPrefix != null) Modifier.testTag("$tagPrefix$i") else Modifier),
                 contentAlignment = Alignment.Center,
-            ) { Text(label, color = Sakura.Text, fontSize = 14.sp) }
+            ) { Text(label, color = if (on) accent.onFill else Sakura.Text, fontSize = 14.sp) }
         }
     }
 }
@@ -90,7 +91,7 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
 fun Pill(text: String, modifier: Modifier = Modifier) {
     Text(
         text, color = Sakura.Text, fontSize = 12.sp,
-        modifier = modifier.background(Sakura.Background, RoundedCornerShape(12.dp)).border(1.dp, Sakura.Primary, RoundedCornerShape(12.dp))
+        modifier = modifier.background(Sakura.Background, RoundedCornerShape(12.dp)).border(1.dp, LocalAccent.current.fill, RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 3.dp),
     )
 }
@@ -99,9 +100,10 @@ fun Pill(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun Chip(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, marked: Boolean = false) {
     val shape = RoundedCornerShape(16.dp)
+    val accent = LocalAccent.current
     Text(
-        text, color = Sakura.Text, fontSize = 14.sp,
-        modifier = modifier.background(if (marked) Sakura.Primary else Sakura.White, shape).border(1.dp, Sakura.Primary, shape)
+        text, color = if (marked) accent.onFill else Sakura.Text, fontSize = 14.sp,
+        modifier = modifier.background(if (marked) accent.fill else Sakura.White, shape).border(1.dp, accent.fill, shape)
             .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
     )
 }

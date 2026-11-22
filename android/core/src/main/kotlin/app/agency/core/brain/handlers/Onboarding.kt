@@ -295,12 +295,14 @@ class Onboarding(
         store.baselines.upsert(done)
         if (!profile.onboardingDone) store.profile.put(profile.copy(onboardingDone = true))
         val missing = BaselineSteps.missing(done)
-        return listOf(
+        return listOfNotNull(
             if (missing.isEmpty()) {
                 "入社建檔完成。這是以後每次評鑑的比較基準，從今天開始照公司規章走。"
             } else {
                 "入社建檔先到這裡，還缺：${missing.joinToString("、") { it.zh }}。之後按練習生證上的「補交」。"
             },
+            // The addendum (arch T10): 藝名 and 代表色, asked once after 入社建檔; skippable on the card.
+            IdolProfile.ASK.takeIf { profile.stageName.isNullOrBlank() || profile.memberColor.isNullOrBlank() },
         )
     }
 

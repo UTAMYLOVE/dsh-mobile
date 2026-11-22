@@ -32,6 +32,33 @@
     <string name="ag_send">送出</string>
     <string name="ag_answering">公司正在回…</string>
 
+    <!-- 練習生證 (T10) -->
+    <string name="ag_card_open_state">已展開</string>
+    <string name="ag_card_folded_state">已收起</string>
+    <string name="ag_card_fold">收起練習生證</string>
+    <string name="ag_card_unfold">展開練習生證</string>
+    <string name="ag_card_no_name">還沒有藝名</string>
+    <string name="ag_card_number">%1$s ・ 練習生 第 %2$s 號</string>
+    <string name="ag_card_level">等級 練習生 %1$s</string>
+    <string name="ag_card_goal">下一個目標 %1$s 公斤</string>
+    <string name="ag_card_goal_none">目標都到了，等重新評估</string>
+    <string name="ag_card_left">今天還剩 %1$d 大卡、蛋白質還差 %2$d 克</string>
+    <string name="ag_card_over">今天超過 %1$d 大卡、蛋白質還差 %2$d 克</string>
+    <string name="ag_card_left_short">剩 %1$d 大卡</string>
+    <string name="ag_card_over_short">超過 %1$d 大卡</string>
+    <string name="ag_card_breaches">今日違規 %1$d</string>
+    <string name="ag_card_photo">大頭照</string>
+    <string name="ag_card_no_stickers">今天還沒有貼紙，做完一項貼一張。</string>
+    <string name="ag_card_stickers_desc">今天的貼紙 %1$d 張</string>
+    <string name="ag_card_setup_title">藝名和代表色（你自己訂）</string>
+    <string name="ag_card_setup_name">藝名</string>
+    <string name="ag_card_setup_color">代表色（按一下就選好）</string>
+    <string name="ag_card_setup_skip">先不要</string>
+    <string name="ag_set_trainee">練習生資料</string>
+    <string name="ag_trainee_now">藝名：%1$s　代表色：%2$s</string>
+    <string name="ag_trainee_no_colour">還沒選</string>
+    <string name="ag_trainee_adjusted">這個顏色調深或調淺了一點，字才看得清楚。</string>
+
     <!-- War room -->
     <string name="ag_warroom_title">指揮室</string>
     <string name="ag_warroom_closed">指揮室整修中</string>

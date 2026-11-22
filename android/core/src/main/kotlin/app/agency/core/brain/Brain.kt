@@ -1,8 +1,11 @@
 package app.agency.core.brain
 
+import app.agency.core.brain.handlers.IdolProfile
 import app.agency.core.brain.handlers.Onboarding
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.agency.core.brain.handlers.OnboardingStep
+import app.agency.core.engine.IdolCard
+import app.agency.core.engine.IdolCardFacts
 import app.agency.core.engine.ToneDecider
 import app.agency.core.engine.ToneInputs
 import app.agency.core.guard.Evidence
@@ -67,6 +70,7 @@ class Brain(
     private val loop = ChatLoop(llm, provider, judge = SecondPassJudge(intakeLlm, provider))
     private val tools = ToolRegistry(readTools(store, snapshot))
     private val onboarding = Onboarding(store, clock, newId)
+    private val idol = IdolProfile(store)
 
     private val _busy = MutableStateFlow(false)
     /** True while a message is being answered. */
@@ -114,12 +118,30 @@ class Brain(
     /** What 入社建檔 shows on the card (the open question, what is missing). */
     suspend fun onboardingStatus(): OnboardingStatus = onboarding.status()
 
+    /** 藝名 and 代表色 from the card or 設定 › 練習生資料 (null leaves a field as it is); the problem with the name, or null. */
+    suspend fun setIdol(stageName: String?, memberColor: String?): String? = mutex.withLock {
+        idol.set(stageName, memberColor).also { if (it == null) bump() }
+    }
+
+    /** What the 練習生證 shows now (arch T10), computed by code. */
+    suspend fun card(): IdolCardFacts {
+        val profile = snapshot.profile()
+        val day = snapshot.today(profile)
+        val status = onboarding.status()
+        val missing = if (status.completed && status.open == null) status.missing.size else 0
+        return IdolCard.build(
+            profile, snapshot.rules(), snapshot.records(day), day, snapshot.currentWeightKg(day, profile), missing,
+            status.baseline?.photoFront,
+        )
+    }
+
     private suspend fun baselineLine(text: String): Message =
         reply(RoleKey.MANAGER, text, WordedBy.TEMPLATE, BASELINE_KIND).also { bump() }
 
     private suspend fun answer(owner: Message, history: List<Message>): Message {
         // An open 入社建檔 question reads his message as its answer first (code, no model); anything else goes on as usual.
         onboarding.answer(owner.text)?.let { return reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, BASELINE_KIND) }
+        idol.answer(owner.text)?.let { return reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, PROFILE_KIND) }
         when (val route = Router.route(owner.text)) {
             is Route.NotYet -> return reply(route.role, Router.NOT_YET, WordedBy.TEMPLATE, route.kind)
             Route.Model -> Unit
@@ -184,6 +206,9 @@ class Brain(
 
         /** The kind of the manager's 入社建檔 lines. */
         const val BASELINE_KIND = "baseline"
+
+        /** The kind of the manager's 藝名 lines. */
+        const val PROFILE_KIND = "profile"
 
         /** The fixed line after the template when the provider gave no answer (code-written; no model). */
         fun failLine(fail: Fail): String = when (fail) {

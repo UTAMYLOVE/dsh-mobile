@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -29,9 +30,14 @@ import androidx.compose.ui.unit.sp
 import app.dshmobile.R
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.StartState
+import app.dshmobile.ui.kit.LocalAccent
+import app.dshmobile.ui.kit.MemberColour
 import app.dshmobile.ui.kit.Panel
 import app.dshmobile.ui.kit.PinkButton
 import app.dshmobile.ui.kit.Sakura
+import app.dshmobile.ui.kit.SakuraTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.dshmobile.ui.settings.SettingsScreen
 
 /** Test tags of the company's screens. */
@@ -92,6 +98,16 @@ private fun Plate(tag: String, title: String, hint: String?, busy: Boolean = fal
 @Composable
 fun AgencyNav(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions = AgencyActions()) {
     var tab by rememberSaveable { mutableStateOf(AgencyTab.COMPANY) }
+    // His 代表色 becomes the accent (arch T10); read again after every message (a 藝名/代表色 change bumps the revision).
+    val revision by ready.brain.revision.collectOnMain()
+    val colour by produceState<String?>(null, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.store.profile.get()?.memberColor }.getOrNull() } }
+    }
+    SakuraTheme(MemberColour.accent(colour)) { Tabs(agency, ready, actions, tab) { tab = it } }
+}
+
+@Composable
+private fun Tabs(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions, tab: AgencyTab, onTab: (AgencyTab) -> Unit) {
     Scaffold(
         containerColor = Sakura.Background,
         bottomBar = {
@@ -99,7 +115,7 @@ fun AgencyNav(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions
                 AgencyTab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t,
-                        onClick = { tab = t },
+                        onClick = { onTab(t) },
                         icon = { Dot(tab == t) },
                         label = { Text(stringResource(t.label), fontSize = 13.sp) },
                         colors = NavigationBarItemDefaults.colors(
@@ -124,7 +140,7 @@ fun AgencyNav(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions
 @Composable
 private fun Dot(on: Boolean) {
     val shape = androidx.compose.foundation.shape.CircleShape
-    Box(Modifier.padding(4.dp).background(if (on) Sakura.Primary else Sakura.MilkTea, shape).padding(5.dp))
+    Box(Modifier.padding(4.dp).background(if (on) LocalAccent.current.fill else Sakura.MilkTea, shape).padding(5.dp))
 }
 
 /** 指揮室 is rebuilt in T19; until then one panel. */

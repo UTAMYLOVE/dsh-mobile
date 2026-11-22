@@ -71,6 +71,10 @@ class OnboardingTest {
         assertTrue(say("伏地挺身 18 下").text.contains("棒式"))
         val last = say("1 分 05 秒")
         assertTrue(last.text, last.text.contains("記下：棒式 65 秒。") && last.text.contains("入社建檔完成"))
+        // The T10 addendum: 藝名 and 代表色 are asked once, last; typing one is code too.
+        assertTrue(last.text, last.text.endsWith(IdolProfile.ASK))
+        assertTrue(say("藝名 小雨").text.startsWith("記下：藝名「小雨」。"))
+        assertEquals("小雨", runBlocking { store.profile.get() }!!.stageName)
         val b = join()!!
         assertEquals(listOf("m-front", "m-side", "m-back", "m-rec"), listOf(b.photoFront, b.photoSide, b.photoBack, b.recording))
         assertEquals(18, b.pushupsMax)

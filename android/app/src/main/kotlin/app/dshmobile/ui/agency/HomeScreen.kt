@@ -27,10 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.agency.core.model.Message
-import app.agency.core.model.Profile
-import app.agency.core.persona.PromptInput
-import app.agency.core.rules.CoachRules
-import app.agency.core.time.AgencyClock
+import app.agency.core.engine.IdolCardFacts
 import app.dshmobile.R
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.ImportNotice
@@ -38,16 +35,13 @@ import app.dshmobile.agency.StartState
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.dshmobile.ui.agency.onboarding.BaselineBadges
 import app.dshmobile.ui.agency.onboarding.OnboardingFlow
-import app.dshmobile.ui.kit.Pill
 import app.dshmobile.ui.kit.Sakura
-import java.time.LocalDate
-import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 公司 (T06): a simple trainee header (the full idol card is T10), the import notice once, the one conversation (imported lines
- * with their role labels) and the composer.
+ * 公司: the 練習生證 (arch T10), the import notice once, the one conversation (imported lines with their role labels) and the
+ * composer.
  */
 @Composable
 fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions = AgencyActions()) {
@@ -69,16 +63,18 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             total = count
         }
     }
-    val profile by produceState<Profile?>(null, revision) {
-        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.store.profile.get() }.getOrNull() } }
-    }
     val onboarding by produceState<OnboardingStatus?>(null, revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.onboardingStatus() }.getOrNull() } }
     }
+    var cardRevision by remember { mutableIntStateOf(0) }
+    val settingsRevision by agency.settings.revision.collectOnMain()
+    val card by produceState<IdolCardFacts?>(null, revision, cardRevision, settingsRevision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.card() }.getOrNull() } }
+    }
     Column(Modifier.fillMaxSize().imePadding().testTag(AgencyTags.HOME)) {
-        TraineeHeader(profile ?: Profile())
+        card?.let { IdolCardView(agency, it, onboarding, onSaved = { cardRevision++ }) }
         onboarding?.let { status ->
-            Row(Modifier.fillMaxWidth().background(Sakura.White).padding(horizontal = 16.dp).padding(bottom = 8.dp)) { BaselineBadges(agency, status) }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 4.dp)) { BaselineBadges(agency, status) }
         }
         notice?.let { NoticeBar(it, agency::dismissNotice) }
         ChatList(messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f))
@@ -88,30 +84,6 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
 }
 
 private const val PAGE = 500
-
-@Composable
-private fun TraineeHeader(p: Profile) {
-    val day = joinDay(p, AgencyClock.system())
-    Row(
-        Modifier.fillMaxWidth().background(Sakura.White).padding(horizontal = 16.dp, vertical = 10.dp).testTag(AgencyTags.TRAINEE),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(p.companyName ?: PromptInput.DEFAULT_COMPANY, color = Sakura.Text, fontSize = 17.sp)
-            p.stageName?.let { Text(it, color = Sakura.TextSecondary, fontSize = 13.sp) }
-        }
-        Pill(stringResource(R.string.ag_trainee, p.level))
-        day?.let { Pill(stringResource(R.string.ag_join_day, it)) }
-    }
-}
-
-/** 入社第 N 天: the join day is day 1; null without a join day. */
-internal fun joinDay(p: Profile, clock: AgencyClock): Long? {
-    val join = p.joinDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
-    val today = CoachRules.coachDay(clock.now(), clock.zone, p.dayStartHour)
-    return (ChronoUnit.DAYS.between(join, today) + 1).takeIf { it >= 1 }
-}
 
 @Composable
 private fun NoticeBar(n: ImportNotice, onDismiss: () -> Unit) {
