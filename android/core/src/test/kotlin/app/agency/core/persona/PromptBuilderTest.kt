@@ -5,6 +5,8 @@ import app.agency.core.brain.Fixtures
 import app.agency.core.engine.Tone
 import app.agency.core.llm.Turn
 import app.agency.core.model.CompanyRules
+import app.agency.core.memory.MemoryBlocks
+import app.agency.core.memory.RenderedMemory
 import app.agency.core.model.MemoryItem
 import app.agency.core.model.Message
 import app.agency.core.model.MessageMode
@@ -21,7 +23,9 @@ class PromptBuilderTest {
     private val facts = FactsBuilder.build(Fixtures.input())
 
     private fun input(role: RoleCard = Roles.MANAGER, mode: MessageMode = MessageMode.NORMAL, tone: Tone = Tone.COLD, reply: ReplyKind = ReplyKind.UTTERANCE) =
-        PromptInput(role, mode, tone, CompanyRules(), listOf(MemoryItem("mem-1", "likes", "不吃地瓜", 0, 0, null)), facts, today, { today }, reply)
+        PromptInput(role, mode, tone, CompanyRules(), memory, facts, reply)
+
+    private val memory = MemoryBlocks.render(listOf(MemoryItem("4f1c2d3e-0000-4000-8000-123456789abc", "likes", "不吃地瓜", 0, 0, null)), today) { today }
 
     @Test fun theManagerPromptHasTheFourApprovedExamplesVerbatimAndTheForbiddenList() {
         val s = PromptBuilder.system(input())
@@ -44,7 +48,7 @@ class PromptBuilderTest {
         val at = marks.map { s.indexOf(it) }
         assertTrue(at.toString(), at.all { it >= 0 } && at == at.sorted())
         // The stable prefix (base, rules, role, mode) is the same whatever the tone, memory or facts.
-        val other = PromptBuilder.system(input(tone = Tone.SWEET).copy(memory = emptyList()))
+        val other = PromptBuilder.system(input(tone = Tone.SWEET).copy(memory = RenderedMemory.EMPTY))
         val prefixEnd = s.indexOf("【這一次的語氣")
         assertEquals(s.substring(0, prefixEnd), other.substring(0, prefixEnd))
     }
@@ -86,7 +90,7 @@ class PromptBuilderTest {
         val f = FactsBuilder.build(Fixtures.input(history = history))
         val turns = PromptBuilder.turns(f, Message("now", 5, Who.OWNER, text = "好"))
         assertEquals(
-            listOf(Turn.User("起來了"), Turn.AssistantText("【經紀人】簽到\n【體態管理老師】喝水"), Turn.User("【他剛說，編號 now】\n好")),
+            listOf(Turn.User("起來了"), Turn.AssistantText("【經紀人】簽到\n【體態管理老師】喝水"), Turn.User("【他剛說】\n好")),
             turns,
         )
         assertEquals(Turn.User("【程式】午餐還沒回報。"), PromptBuilder.turns(FactsBuilder.build(Fixtures.input(history = emptyList()), false), null, "午餐還沒回報。").single())
@@ -97,5 +101,21 @@ class PromptBuilderTest {
         assertTrue(Roles.LATER.none { it.enabledIn(Roles.STAGE) })
         assertTrue(Roles.MANAGER.enabledIn(Roles.STAGE) && Roles.BODY.enabledIn(Roles.STAGE))
         assertTrue(Roles.ALL.all { it.forbidden == Roles.FORBIDDEN && it.pushToRealPeople })
+    }
+
+    @Test fun noIdReachesThePrompt() {
+        val uuid = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+        val owner = Message("9b2e7c41-1111-4222-8333-0123456789ab", 99, Who.OWNER, text = "好")
+        val s = PromptBuilder.system(input())
+        assertFalse(uuid.containsMatchIn(s))
+        assertTrue(s.contains("[記1] 不吃地瓜"))
+        assertFalse(uuid.containsMatchIn(PromptBuilder.turns(facts, owner).joinToString { it.toString() }))
+    }
+
+    @Test fun dishNamesAreAllowedInThePrompt() {
+        assertTrue(PromptBuilder.system(input()).contains("菜名可以講（例如雞腿便當、燙青菜）"))
+        assertTrue(Roles.MANAGER.tones.getValue(Tone.COLD).contains("這次不撒嬌"))
+        assertTrue(Roles.BODY.tones.getValue(Tone.GENTLE).contains("這次不撒嬌"))
+        assertTrue(Roles.MANAGER.tones.getValue(Tone.GENTLE).contains("不要說「沒關係」"))
     }
 }

@@ -1,5 +1,6 @@
 package app.agency.core.structured
 
+import app.agency.core.engine.Tone
 import app.agency.core.guard.Evidence
 import app.agency.core.guard.GuardMode
 import app.agency.core.guard.OutputGuard
@@ -30,9 +31,12 @@ data class NudgeLine(val text: String) {
             }
         }
 
-        /** The output guard in nudge mode (at most two sentences); dropped sentences are taken out. */
-        fun checker(evidence: Evidence): (NudgeLine) -> Checked<NudgeLine> = { n ->
-            val r = OutputGuard.check(n.text, evidence, GuardMode.NUDGE)
+        /**
+         * The output guard in nudge mode (at most two sentences); dropped sentences are taken out. A nudge has no template of
+         * its own here: the code's template was posted first (§1.6) and stays when this call ends on the template path.
+         */
+        fun checker(evidence: Evidence, tone: Tone): (NudgeLine) -> Checked<NudgeLine> = { n ->
+            val r = OutputGuard.check(n.text, evidence, GuardMode.NUDGE, tone)
             if (r.needsRetry) Checked.Reject(Utterance.reasons("text", r).ifEmpty { listOf(Violation("text", "每一句都不能用")) })
             else Checked.Accept(NudgeLine(r.kept))
         }

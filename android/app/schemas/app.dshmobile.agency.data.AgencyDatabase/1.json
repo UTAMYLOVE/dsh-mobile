@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "19950868ecdd0449bbd01f960e4e1c3c",
+    "identityHash": "9757b098eca89671854662b82856c4dd",
     "entities": [
       {
         "tableName": "profile",
@@ -1490,7 +1490,7 @@
       },
       {
         "tableName": "memory_item",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `block` TEXT NOT NULL, `text` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `source_message_id` TEXT, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `block` TEXT NOT NULL, `text` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `source_message_id` TEXT, `deleted` INTEGER NOT NULL, `due_day` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1532,6 +1532,11 @@
             "columnName": "deleted",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "dueDay",
+            "columnName": "due_day",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -1543,7 +1548,7 @@
       },
       {
         "tableName": "memory_event",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `at` INTEGER NOT NULL, `op` TEXT NOT NULL, `block` TEXT NOT NULL, `item_id` TEXT NOT NULL, `before` TEXT, `after` TEXT, `source_message_id` TEXT, `undone` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `at` INTEGER NOT NULL, `op` TEXT NOT NULL, `block` TEXT NOT NULL, `item_id` TEXT NOT NULL, `before` TEXT, `after` TEXT, `source_message_id` TEXT, `undone` INTEGER NOT NULL, `before_due` TEXT, `after_due` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1595,6 +1600,16 @@
             "columnName": "undone",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "beforeDue",
+            "columnName": "before_due",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "afterDue",
+            "columnName": "after_due",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -1759,7 +1774,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '19950868ecdd0449bbd01f960e4e1c3c')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9757b098eca89671854662b82856c4dd')"
     ]
   }
 }

@@ -1,5 +1,6 @@
 package app.agency.core.structured
 
+import app.agency.core.engine.Tone
 import app.agency.core.guard.Evidence
 import app.agency.core.guard.GuardMode
 import app.agency.core.guard.GuardResult
@@ -8,6 +9,8 @@ import app.agency.core.memory.MemoryBlock
 import app.agency.core.memory.MemoryRequest
 import app.agency.core.model.MemoryOp
 import app.agency.core.model.MessageMode
+import app.agency.core.model.RoleKey
+import app.agency.core.persona.Roles
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -46,7 +49,7 @@ data class Utterance(
                 "memory" to arr(
                     obj(
                         "op" to enum(OPS), "block" to enum(MemoryBlock.KEYS), "item_id" to nullable(str()),
-                        "text" to nullable(str()), "evidence" to nullable(str()),
+                        "text" to nullable(str()), "quote" to str(),
                     ),
                 ),
             )
@@ -56,8 +59,8 @@ data class Utterance(
         val FORMAT = """
 只輸出一個 json 物件，不要其他文字：
 {"text":"要說的話（最多 $TEXT_CHARS 字，最多四句）","ask":null,"options":[],"recommended":null,
- "memory":[{"op":"add|update|delete","block":"${MemoryBlock.KEYS.joinToString("|")}","item_id":null,"text":"要記的事（最多八十字，不要數字）","evidence":"他這一輪訊息的編號"}]}
-memory 只放他這一輪親口說的、以後用得到的事，最多兩件；沒有就給空陣列。update 和 delete 要填 item_id。
+ "memory":[{"op":"add|update|delete","block":"${MemoryBlock.KEYS.joinToString("|")}","item_id":null,"text":"要記的事（最多八十字，不要數字）","quote":"他這一輪原話裡的一小段（二到二十字）"}]}
+memory 只放他這一輪親口說的、以後用得到的事，最多兩件；沒有就給空陣列。quote 照抄他的原話。update 和 delete 的 item_id 填記得的事前面的編號（例如記三）。
 """.trimIndent()
 
         val SPEC: StructuredSpec<Utterance> = object : StructuredSpec<Utterance> {
@@ -92,7 +95,7 @@ memory 只放他這一輪親口說的、以後用得到的事，最多兩件；�
                     v += Violation("memory[$i]", "op 要是 ${OPS.joinToString("、")}，block 要是 ${MemoryBlock.KEYS.joinToString("、")}")
                     return@mapIndexedNotNull null
                 }
-                MemoryRequest(MemoryOp.valueOf(op.uppercase()), block, str(m["item_id"]), str(m["text"])?.trim(), str(m["evidence"]))
+                MemoryRequest(MemoryOp.valueOf(op.uppercase()), block, str(m["item_id"]), str(m["text"])?.trim(), str(m["quote"]))
             }
             if (v.isNotEmpty()) return Decoded(null, v)
             return Decoded(Utterance(text, ask, options, recommended, memory))
@@ -103,7 +106,7 @@ memory 只放他這一輪親口說的、以後用得到的事，最多兩件；�
          * [ask][Utterance.ask] and every option. Sentences the guard drops are taken out; nothing left, a hard rule, or a dropped
          * question or option sends the reasons back to the model.
          */
-        fun checker(evidence: Evidence, mode: MessageMode): (Utterance) -> Checked<Utterance> = { u ->
+        fun checker(evidence: Evidence, mode: MessageMode, tone: Tone): (Utterance) -> Checked<Utterance> = { u ->
             val v = mutableListOf<Violation>()
             when (mode) {
                 MessageMode.NORMAL -> if (u.ask != null || u.options.isNotEmpty()) v += Violation("ask", "現在不是討論，ask 要是 null，options 要是空的")
@@ -114,17 +117,20 @@ memory 只放他這一輪親口說的、以後用得到的事，最多兩件；�
             }
             val guardMode = if (mode == MessageMode.DISCUSS) GuardMode.DISCUSS else GuardMode.NORMAL
             // In 討論 the question is part of the reply: counted together, so the text itself may not ask another one.
-            val whole = OutputGuard.check(u.text + (u.ask?.let { "\n$it" } ?: ""), evidence, guardMode)
-            val body = OutputGuard.check(u.text, evidence, GuardMode.NORMAL)
+            val whole = OutputGuard.check(u.text + (u.ask?.let { "\n$it" } ?: ""), evidence, guardMode, tone)
+            val body = OutputGuard.check(u.text, evidence, GuardMode.NORMAL, tone)
             v += reasons("text", whole)
             if (body.kept.isBlank()) v += Violation("text", "每一句都不能用")
-            u.ask?.let { a -> OutputGuard.check(a, evidence, GuardMode.NORMAL).takeIf { it.kept != a.trim() }?.let { v += reasons("ask", it, all = true) } }
+            u.ask?.let { a -> OutputGuard.check(a, evidence, GuardMode.NORMAL, tone).takeIf { it.kept != a.trim() }?.let { v += reasons("ask", it, all = true) } }
             u.options.forEachIndexed { i, o ->
-                OutputGuard.check(o, evidence, GuardMode.NORMAL).takeIf { it.kept != o.trim() || it.hard.isNotEmpty() }
+                OutputGuard.check(o, evidence, GuardMode.NORMAL, tone).takeIf { it.kept != o.trim() || it.hard.isNotEmpty() }
                     ?.let { v += reasons("options[$i]", it, all = true) }
             }
             if (v.isEmpty()) Checked.Accept(u.copy(text = body.kept)) else Checked.Reject(v.distinct())
         }
+
+        /** The fixed reply when the model gives none that passes: never empty, never colder than the tone code chose. */
+        fun template(role: RoleKey, tone: Tone): Utterance = Utterance(Roles.template(role, tone))
 
         /** The guard's findings as retry reasons: hard rules always; dropped sentences only when [all] (or nothing is left). */
         fun reasons(field: String, r: GuardResult, all: Boolean = false): List<Violation> {

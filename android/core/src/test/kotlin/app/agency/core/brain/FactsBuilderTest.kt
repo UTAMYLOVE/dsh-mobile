@@ -76,4 +76,30 @@ class FactsBuilderTest {
         assertFalse(t.contains("storage"))
         assertFalse(t.contains(".jpg"))
     }
+
+    @Test fun linksWithoutASchemeAndFileNamesAreTakenOut() {
+        for (t in listOf("youtu.be/xyz123", "bit.ly/3abc", "line.me/ti/p/xyz", "shop.example.co.jp/menu", "IMG_20261120.jpg", "錄音 a1.m4a")) {
+            val c = FactsBuilder.clean("看 $t 這個")
+            assertFalse("$t → $c", c.contains(t))
+        }
+        assertEquals("早上七十九點二，79.2 公斤", FactsBuilder.clean("早上七十九點二，79.2 公斤"))
+    }
+
+    @Test fun todaysListsAreCappedAndSlotsCarryTheirTimes() {
+        val meals = (1..15).map { Fixtures.meal.copy(id = "meal-$it", at = Fixtures.meal.at + it) }
+        val signs = (1..14).map { Fixtures.sign.copy(id = "sign-$it") }
+        val base = Fixtures.input()
+        val json = FactsBuilder.facts(
+            base.copy(today = base.today.copy(meals = meals, signs = signs), slots = listOf(SlotFact("dinner", "晚餐", "17:15", "open"))),
+        )
+        val today = json["today"]!!.jsonObject
+        assertEquals(FactsBuilder.MAX_MEALS, (today["meals"] as JsonArray).size)
+        assertEquals("meal-15", (today["meals"] as JsonArray).last().jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals(3, today["meals_more"]!!.jsonPrimitive.content.toInt())
+        assertEquals(FactsBuilder.MAX_LIST, (today["signs"] as JsonArray).size)
+        assertTrue(today["slots"].toString().contains("\"time\":\"17:15\""))
+        // Totals still count every meal.
+        assertEquals(15 * 629, today["kcal"]!!.jsonObject["eaten"]!!.jsonPrimitive.content.toInt())
+        assertTrue(TodayRecords("d", meals = listOf(Fixtures.meal.copy(breaches = listOf("PROCESSED")))).breachToday)
+    }
 }

@@ -2,8 +2,9 @@ package app.agency.core.guard
 
 /** Numbers the way the owner writes them: Arabic (79.2) or Chinese (七十九點二, 兩百五十). */
 object CoachNumbers {
-    val ARABIC = Regex("\\d+(?:\\.\\d+)?")
-    private val CHINESE = Regex("[零〇一二兩三四五六七八九十百千萬]+(?:點[零〇一二兩三四五六七八九]+)?")
+    /** Arabic figures, half-width or full-width, with thousands separators (1,071) and a decimal part (79.2, ７９．２). */
+    val ARABIC = Regex("[0-9０-９]+(?:[,，][0-9０-９]{3})*(?:[.．][0-9０-９]+)?")
+    val CHINESE = Regex("[零〇一二兩三四五六七八九十百千萬]+(?:點[零〇一二兩三四五六七八九]+)?")
     private val DIGIT = mapOf('零' to 0, '〇' to 0, '一' to 1, '二' to 2, '兩' to 2, '三' to 3, '四' to 4, '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9)
 
     /** 七十九點二 → 79.2; null when [s] is not a Chinese number. */
@@ -36,9 +37,19 @@ object CoachNumbers {
         return "${whole.toLong()}.$frac".toDouble()
     }
 
+    /** An [ARABIC] match as a number: full-width digits made half-width, separators dropped. */
+    fun arabic(s: String): Double? = buildString {
+        for (c in s) when (c) {
+            in '０'..'９' -> append('0' + (c - '０'))
+            '．' -> append('.')
+            ',', '，' -> Unit
+            else -> append(c)
+        }
+    }.toDoubleOrNull()
+
     /** Every number in [text], Arabic or Chinese. */
     fun all(text: String): List<Double> =
-        ARABIC.findAll(text).mapNotNull { it.value.toDoubleOrNull() }.toList() + CHINESE.findAll(text).mapNotNull { chinese(it.value) }.toList()
+        ARABIC.findAll(text).mapNotNull { arabic(it.value) }.toList() + CHINESE.findAll(text).mapNotNull { chinese(it.value) }.toList()
 
     /** [v] (from the model) only if the owner wrote that same number himself; null otherwise. */
     fun ownersOnly(v: Double?, ownerText: String): Double? = v?.takeIf { x -> all(ownerText).any { kotlin.math.abs(it - x) < 1e-6 } }

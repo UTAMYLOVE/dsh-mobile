@@ -4,12 +4,19 @@ package app.agency.core.engine
 enum class Tone { COLD, GENTLE, SWEET }
 
 /**
+ * A major completion: the only things that earn 撒嬌 (controller ruling on T05 review I7). [DAY_DONE] is every meal of the
+ * day reported and the strength rounds done; the milestones come from the rule engine's weekly and monthly reviews (stage 2+).
+ */
+enum class Completion { DAY_DONE, WEEK_MILESTONE, MONTH_MILESTONE }
+
+/**
  * What the tone may depend on. There is deliberately no input for unanswered messages, time since his last reply or how often
  * he talks: she never turns cold because he was away (no attachment mechanics).
  *
  * [ownerText] is his message of this turn (null for a nudge); [intakeKind] the Intake kind code settled on; [redFlag] the
- * red flags of §1.5 (dizziness, unwell, two or more reported days under the floor); [breachToday], [openGapDue] and
- * [doneSinceLastSweet] come from the rule engine (T11) once it exists.
+ * red flags of §1.5 (dizziness, unwell, two or more reported days under the floor); [breachToday] and [openGapDue] come from
+ * the rule engine (T11); [completion] is the major completion this turn just recorded, if any; [sweetToday] counts the SWEET
+ * replies already sent today.
  */
 data class ToneInputs(
     val ownerText: String? = null,
@@ -17,15 +24,17 @@ data class ToneInputs(
     val redFlag: Boolean = false,
     val breachToday: Boolean = false,
     val openGapDue: Boolean = false,
-    val doneSinceLastSweet: Int = 0,
+    val completion: Completion? = null,
+    val sweetToday: Int = 0,
 )
 
 /**
  * GENTLE whenever he talks about feelings, being unwell or a real difficulty, or a red flag is on: unconditional, whatever
- * else happened today. SWEET (a little 撒嬌) only as a reward: no breach today, no gap due so far, and at least one item done
- * since the last SWEET. Otherwise COLD, her normal voice (never a punishment).
+ * else happened today. SWEET (a little 撒嬌) only as a reward for a major completion, on a day with no breach and no gap due,
+ * at most [MAX_SWEET_PER_DAY] a day. Otherwise COLD, her normal voice (never a punishment).
  */
 object ToneDecider {
+    const val MAX_SWEET_PER_DAY = 1
     val GENTLE_KINDS = setOf("unwell", "mood")
 
     /** Feelings, illness and real difficulty, in the words he uses. */
@@ -37,9 +46,13 @@ object ToneDecider {
 
     fun wantsGentle(ownerText: String?): Boolean = ownerText != null && GENTLE_WORDS.any { ownerText.contains(it) }
 
+    /** [Completion.DAY_DONE] when every meal slot of the day is reported and the strength rounds are done. */
+    fun dayDone(allMealsReported: Boolean, strengthDone: Boolean): Completion? =
+        if (allMealsReported && strengthDone) Completion.DAY_DONE else null
+
     fun decide(i: ToneInputs): Tone = when {
         i.redFlag || i.intakeKind in GENTLE_KINDS || wantsGentle(i.ownerText) -> Tone.GENTLE
-        !i.breachToday && !i.openGapDue && i.doneSinceLastSweet >= 1 -> Tone.SWEET
+        i.completion != null && !i.breachToday && !i.openGapDue && i.sweetToday < MAX_SWEET_PER_DAY -> Tone.SWEET
         else -> Tone.COLD
     }
 }

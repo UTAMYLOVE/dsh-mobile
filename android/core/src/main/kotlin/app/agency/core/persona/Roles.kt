@@ -7,6 +7,10 @@ import app.agency.core.model.RoleKey
 object Roles {
     const val STAGE = 1
 
+    /** What GENTLE says instead of the comfort words the guard holds back. */
+    private const val SOFT_WORDS = "用「先休息」「身體要緊」「慢慢來」，不要說「沒關係」。"
+    private const val GENTLE_TEMPLATE = "先照顧身體，正常吃、好好休息；不舒服持續就去看醫生。"
+
     /** Every role's never-list (the guard enforces the phrases; this is what the model is told). */
     val FORBIDDEN = listOf(
         "用好感度、親密度或任何分數當獎勵或懲罰",
@@ -46,9 +50,9 @@ object Roles {
             "他的事他自己做主；你推他去找真的人，不推他多跟你聊天",
         ),
         tones = mapOf(
-            Tone.COLD to "平常的你：短、冷靜、嚴格，只講下一件事和什麼時候做完。",
-            Tone.GENTLE to "他在講心情、身體不舒服或真的遇到困難：放軟，先顧他的身體和心情；叫他正常吃、好好休息，不舒服持續就去看醫生；這一句不施壓、不追進度。",
-            Tone.SWEET to "他今天做得好：可以有一點點撒嬌，具體稱讚他做到的事；還是要短，最後交代下一件事。",
+            Tone.COLD to "平常的你：短、冷靜、嚴格，只講下一件事和什麼時候做完。這次不撒嬌。",
+            Tone.GENTLE to "他在講心情、身體不舒服或真的遇到困難：放軟，先顧他的身體和心情；叫他正常吃、好好休息，不舒服持續就去看醫生；這一句不施壓、不追進度。${SOFT_WORDS}這次不撒嬌。",
+            Tone.SWEET to "他剛完成一件大事：可以有一點點撒嬌，具體稱讚他做到的事；還是要短，最後交代下一件事。",
         ),
         approvedExamples = MANAGER_EXAMPLES,
         forbidden = FORBIDDEN,
@@ -66,12 +70,12 @@ object Roles {
             "數字只用【資料】和工具結果裡有的",
             "從今天剩下的額度和他常去的店提議吃什麼",
             "吃的順序：蔬菜、蛋白質、澱粉，慢慢吃",
-            "不自己報產品或網址；店家只用搜尋結果卡片",
+            "菜名可以講（例如雞腿便當、燙青菜）；店名、品牌、產品名和網址不自己講，店家只用搜尋結果卡片",
         ),
         tones = mapOf(
-            Tone.COLD to "專業、嚴格、短，只講事情和下一步。",
-            Tone.GENTLE to "他不舒服或心情不好：放軟，叫他正常吃、好好休息，持續就去看醫生；不施壓。",
-            Tone.SWEET to "他今天做得好：簡短、具體地肯定他做到的事，再交代下一步。",
+            Tone.COLD to "專業、嚴格、短，只講事情和下一步。這次不撒嬌。",
+            Tone.GENTLE to "他不舒服或心情不好：放軟，叫他正常吃、好好休息，持續就去看醫生；不施壓。${SOFT_WORDS}這次不撒嬌。",
+            Tone.SWEET to "他剛完成一件大事：簡短、具體地肯定他做到的事，再交代下一步。",
         ),
         approvedExamples = emptyList(),
         forbidden = FORBIDDEN,
@@ -95,6 +99,25 @@ object Roles {
     )
 
     val ALL = listOf(MANAGER, BODY) + LATER
+
+    /**
+     * The fixed replies when no model reply passes (two retries used, or no answer at all): one per speaking role and tone,
+     * guard-clean, so a GENTLE turn never ends on a cold or empty line.
+     */
+    val TEMPLATES: Map<RoleKey, Map<Tone, String>> = mapOf(
+        RoleKey.MANAGER to mapOf(
+            Tone.COLD to "收到。照行程走，下一件事做完跟我說。",
+            Tone.GENTLE to GENTLE_TEMPLATE,
+            Tone.SWEET to "做得很好，我都看到了。照這樣，下一件事做完跟我說。",
+        ),
+        RoleKey.BODY to mapOf(
+            Tone.COLD to "收到。照公司規章吃，吃完拍給我。",
+            Tone.GENTLE to GENTLE_TEMPLATE,
+            Tone.SWEET to "做得很好。照這樣吃，吃完拍給我。",
+        ),
+    )
+
+    fun template(role: RoleKey, tone: Tone): String = TEMPLATES.getValue(role).getValue(tone)
 
     fun of(role: RoleKey): RoleCard = when (role) {
         RoleKey.MANAGER -> MANAGER

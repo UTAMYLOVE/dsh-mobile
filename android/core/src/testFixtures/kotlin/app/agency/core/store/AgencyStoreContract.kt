@@ -287,6 +287,15 @@ abstract class AgencyStoreContract {
         assertEquals(e1, memory.event("e-1"))
     }
 
+    @Test fun anOpenLoopKeepsItsDueDayAndEventsTheirDueDays() = test {
+        val loop = MemoryItem("i-9", "open_loops", "星期五考試", 1, 1, "m1", dueDay = "2026-11-20")
+        memory.putItem(loop)
+        assertEquals(loop, memory.item("i-9"))
+        val e = MemoryEvent("e-9", 2, MemoryOp.UPDATE, "open_loops", "i-9", "星期五考試", "明天補考", "m2", beforeDue = "2026-11-20", afterDue = "2026-11-22")
+        memory.putEvent(e)
+        assertEquals(e, memory.event("e-9"))
+    }
+
     @Test fun nudgesAreAnsweredOnce() = test {
         val n = Nudge("n-1", 1_000, listOf("WATER", "LUNCH"), "slot", 7, "記得喝水。", WordedBy.TEMPLATE)
         assertTrue(nudges.insert(n))

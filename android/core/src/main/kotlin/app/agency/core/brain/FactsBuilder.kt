@@ -1,5 +1,6 @@
 package app.agency.core.brain
 
+import app.agency.core.guard.Links
 import app.agency.core.model.CompanyRules
 import app.agency.core.model.ConditionLog
 import app.agency.core.model.Meal
@@ -32,7 +33,10 @@ data class TodayRecords(
     val signs: List<SignLog> = emptyList(),
     val condition: ConditionLog? = null,
     val weights: List<WeightLog> = emptyList(),
-)
+) {
+    /** A meal of today holds a breach (the guard's GENTLE comfort rule reads this through `Evidence.breachToday`). */
+    val breachToday: Boolean get() = meals.any { it.breaches.isNotEmpty() }
+}
 
 data class FactsInput(
     val rules: CompanyRules,
@@ -44,7 +48,12 @@ data class FactsInput(
     /** The stored conversation before this turn, oldest first. */
     val history: List<Message>,
     val zone: ZoneId,
+    /** Today's slots from the day planner (T11), so a reply or a nudge may name a slot's time. */
+    val slots: List<SlotFact> = emptyList(),
 )
+
+/** One slot of today's plan as the facts show it: [time] is `HH:mm`, [status] done / open / missed / later. */
+data class SlotFact(val key: String, val label: String, val time: String, val status: String)
 
 /** What one call may carry: the 【資料】 object and the message window (his current message is added by the caller). */
 data class CallFacts(val json: JsonObject, val window: List<Message>)
@@ -61,8 +70,9 @@ object FactsBuilder {
     const val MESSAGE_CHARS = 800
 
     private val HHMM = DateTimeFormatter.ofPattern("HH:mm")
-    private val LINK = Regex("(?i)(https?|content|file)://\\S*|www\\.\\S*|[A-Za-z0-9-]+\\.(com|tw|net|org|io|app)(/\\S*)?")
-    private val PATH = Regex("(?:/(?:data|storage|sdcard|mnt|system|cache)|/?[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]*\\.(?:bin|jpg|jpeg|png|webp|m4a|wav|mp4|json|db))\\S*")
+    const val MAX_MEALS = 12
+    const val MAX_LIST = 10
+    private val PATH = Regex("/(?:data|storage|sdcard|mnt|system|cache)\\S*|/?[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]*\\.(?:json|db)\\S*")
 
     fun build(input: FactsInput, hasCurrentMessage: Boolean = true): CallFacts =
         CallFacts(facts(input), window(input.history, hasCurrentMessage))
@@ -74,7 +84,8 @@ object FactsBuilder {
             .map { it.copy(text = clean(it.text)) }
 
     /** A message as it may go out: no links or file paths, at most [MESSAGE_CHARS] characters. */
-    fun clean(text: String): String = PATH.replace(LINK.replace(text, "（連結）"), "（檔案）").take(MESSAGE_CHARS)
+    fun clean(text: String): String =
+        PATH.replace(Links.FILE.replace(Links.URL.replace(text, "（連結）"), "（檔案）"), "（檔案）").take(MESSAGE_CHARS)
 
     fun facts(i: FactsInput): JsonObject {
         val r = i.rules
@@ -98,8 +109,12 @@ object FactsBuilder {
             })
             put("today", buildJsonObject {
                 put("day", t.day)
+                if (i.slots.isNotEmpty()) put("slots", buildJsonArray {
+                    i.slots.forEach { sl -> add(buildJsonObject { put("key", sl.key); put("label", sl.label); put("time", sl.time); put("status", sl.status) }) }
+                })
+                if (t.meals.size > MAX_MEALS) put("meals_more", t.meals.size - MAX_MEALS)
                 put("meals", buildJsonArray {
-                    t.meals.forEach { m ->
+                    t.meals.takeLast(MAX_MEALS).forEach { m ->
                         add(buildJsonObject {
                             put("id", m.id); put("time", time(m.at)); m.slotKey?.let { put("slot", it) }
                             put("kcal", m.kcal); put("verified", m.verified); put("cheat", m.cheat)
@@ -123,7 +138,7 @@ object FactsBuilder {
                 })
                 put("water_half", t.water.sumOf { it.halfBottles })
                 put("training", buildJsonArray {
-                    t.training.forEach { tr ->
+                    t.training.takeLast(MAX_LIST).forEach { tr ->
                         add(buildJsonObject {
                             put("id", tr.id); put("time", time(tr.at)); put("kind", tr.kind.name.lowercase())
                             tr.rounds?.let { put("rounds", it) }; put("reduced", tr.reduced)
@@ -131,7 +146,7 @@ object FactsBuilder {
                     }
                 })
                 put("signs", buildJsonArray {
-                    t.signs.forEach { s ->
+                    t.signs.takeLast(MAX_LIST).forEach { s ->
                         add(buildJsonObject {
                             put("id", s.id); put("time", time(s.at)); put("kind", s.kind.name.lowercase())
                             s.onTime?.let { put("on_time", it) }
@@ -144,7 +159,7 @@ object FactsBuilder {
                     })
                 }
                 put("weights", buildJsonArray {
-                    t.weights.forEach { w ->
+                    t.weights.takeLast(MAX_LIST).forEach { w ->
                         add(buildJsonObject { put("id", w.id); put("kg", w.kg); w.waistCm?.let { put("waist_cm", it) } })
                     }
                 })

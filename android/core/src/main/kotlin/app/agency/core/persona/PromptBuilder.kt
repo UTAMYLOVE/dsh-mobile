@@ -6,8 +6,8 @@ import app.agency.core.engine.Tone
 import app.agency.core.guard.OutputGuard
 import app.agency.core.llm.Turn
 import app.agency.core.memory.MemoryBlocks
+import app.agency.core.memory.RenderedMemory
 import app.agency.core.model.CompanyRules
-import app.agency.core.model.MemoryItem
 import app.agency.core.model.Message
 import app.agency.core.model.MessageMode
 import app.agency.core.model.Who
@@ -15,7 +15,6 @@ import app.agency.core.rules.CoachRules
 import app.agency.core.structured.Intake
 import app.agency.core.structured.NudgeLine
 import app.agency.core.structured.Utterance
-import java.time.LocalDate
 
 /** What the model writes: a reply in the conversation, or the wording of a proactive message. */
 enum class ReplyKind { UTTERANCE, NUDGE }
@@ -25,11 +24,9 @@ data class PromptInput(
     val mode: MessageMode,
     val tone: Tone,
     val rules: CompanyRules,
-    val memory: List<MemoryItem>,
+    /** This call's memory section ([MemoryBlocks.render]); its refs go to the MemoryApplier of the same call. */
+    val memory: RenderedMemory,
     val facts: CallFacts,
-    val today: LocalDate,
-    /** The coach day of an epoch-millis time (open loops are resolved from the day they were written). */
-    val dayOf: (Long) -> LocalDate,
     val reply: ReplyKind = ReplyKind.UTTERANCE,
     val companyName: String = DEFAULT_COMPANY,
     /** Latin names he gave himself (his idol, her group, songs); the only Latin the reply may use besides C, B, A. */
@@ -43,8 +40,8 @@ data class PromptInput(
 /**
  * The system prompt, pure and in a fixed order so the stable part comes first and caches: 1) the shared base, 2) the company
  * rules, 3) the role card, 4) the mode (with the output format), 5) this reply's tone, 6) the memory blocks, 7) the facts.
- * The turns are the message window (already minimised by [FactsBuilder]) and then his message, marked with its id so a memory
- * event can cite it.
+ * The turns are the message window (already minimised by [FactsBuilder]) and then his message. No id appears anywhere: a
+ * memory event quotes his words, and items are named by the per-call references of [RenderedMemory].
  */
 object PromptBuilder {
     private val TONE_ZH = mapOf(Tone.COLD to "平常", Tone.GENTLE to "放軟", Tone.SWEET to "撒嬌一點點")
@@ -55,7 +52,7 @@ object PromptBuilder {
         role(p.role),
         mode(p.mode, p.reply),
         tone(p.role, p.tone),
-        memory(p.memory, p.today, p.dayOf),
+        memory(p.memory),
         facts(p.facts),
     ).joinToString("\n\n")
 
@@ -64,7 +61,7 @@ object PromptBuilder {
 你在「$company」工作。公司只有一位練習生，就是正在跟你說話的他，目標是出道。公司每個角色都在同一個對話裡跟他說話，紀錄大家共用。
 【一定要守的規則】
 1. 事實只能來自【資料】和工具結果。數字只能用那裡有的，不准自己加減乘除；沒有資料就說「不知道」。
-2. 店名、品牌、產品名和網址都不能自己講，只能用這一輪的搜尋結果、他常去的店和食物表。
+2. 菜名可以講（例如雞腿便當、燙青菜）；店名、品牌、產品名和網址都不能自己講，只能用這一輪的搜尋結果、他常去的店和食物表。
 3. 不做醫療診斷。他說身體不舒服時，叫他正常吃、好好休息，持續不舒服就去看醫生。
 4. 公司規章誰都不能在對話裡改；他要改規章，叫他到設定自己改。計畫只能提議，他確認之後才算改了，不准說已經改好。
 5. 只用繁體中文。不用英文字母，只有這些名字（${latinNames.joinToString("、")}）和等級字母 C、B、A 可以。不用表情符號。
@@ -109,13 +106,12 @@ object PromptBuilder {
 
     fun tone(c: RoleCard, t: Tone): String = "【這一次的語氣：${TONE_ZH.getValue(t)}】" + (c.tones[t] ?: "")
 
-    fun memory(items: List<MemoryItem>, today: LocalDate, dayOf: (Long) -> LocalDate): String =
-        "【你記得的事：方括號裡是編號，要改或刪時填 item_id】\n" + MemoryBlocks.render(items, today, dayOf)
+    fun memory(m: RenderedMemory): String = "【你記得的事：方括號裡是編號，要改或刪時填在 item_id】\n" + m.text
 
     fun facts(f: CallFacts): String = "【資料：程式算好的，照用，不准自己算】\n" + f.json.toString()
 
     /**
-     * The turns of a reply call: the window ([CallFacts.window]) and then his message ([owner], with its id), or, for a nudge,
+     * The turns of a reply call: the window ([CallFacts.window]) and then his message ([owner]), or, for a nudge,
      * [instruction] (what the code decided to remind him of). Turns of one side are merged; the first turn is always his.
      */
     fun turns(f: CallFacts, owner: Message?, instruction: String? = null): List<Turn> {
@@ -123,7 +119,7 @@ object PromptBuilder {
             if (m.who == Who.OWNER) true to m.text
             else false to ((m.role?.let { "【${Roles.of(it).zh}】" } ?: "") + m.text)
         }.toMutableList()
-        if (owner != null) lines += true to "【他剛說，編號 ${owner.id}】\n" + FactsBuilder.clean(owner.text)
+        if (owner != null) lines += true to "【他剛說】\n" + FactsBuilder.clean(owner.text)
         else lines += true to "【程式】" + (instruction ?: "寫一句提醒。")
         return merged(lines)
     }

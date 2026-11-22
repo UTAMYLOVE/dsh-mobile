@@ -51,7 +51,10 @@ data class Proposal(
     val appliedVersion: Int? = null,
 )
 
-/** One remembered fact in a fixed memory block (≤ 80 characters). */
+/**
+ * One remembered fact in a fixed memory block (≤ 80 characters). [dueDay] (`yyyy-MM-dd`) is set for an open loop: the day
+ * code worked out from its words when they were written.
+ */
 data class MemoryItem(
     val id: String,
     val block: String,
@@ -60,11 +63,12 @@ data class MemoryItem(
     val updatedAt: Long,
     val sourceMessageId: String?,
     val deleted: Boolean = false,
+    val dueDay: String? = null,
 )
 
 enum class MemoryOp { ADD, UPDATE, DELETE }
 
-/** A change to memory, shown in 設定 › 她記得的事 and undoable. */
+/** A change to memory, shown in 設定 › 她記得的事 and undoable; [beforeDue] and [afterDue] are the item's due day around it. */
 data class MemoryEvent(
     val id: String,
     val at: Long,
@@ -75,6 +79,8 @@ data class MemoryEvent(
     val after: String?,
     val sourceMessageId: String?,
     val undone: Boolean = false,
+    val beforeDue: String? = null,
+    val afterDue: String? = null,
 )
 
 /** A proactive message the company sent (the caps and the war room read this log). */

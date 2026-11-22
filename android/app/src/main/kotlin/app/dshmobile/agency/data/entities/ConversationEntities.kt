@@ -69,11 +69,12 @@ data class MemoryItemEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
     @ColumnInfo(name = "source_message_id") val sourceMessageId: String?,
     val deleted: Boolean,
+    @ColumnInfo(name = "due_day") val dueDay: String?,
 ) {
-    fun toModel() = MemoryItem(id, block, text, createdAt, updatedAt, sourceMessageId, deleted)
+    fun toModel() = MemoryItem(id, block, text, createdAt, updatedAt, sourceMessageId, deleted, dueDay)
 
     companion object {
-        fun of(i: MemoryItem) = MemoryItemEntity(i.id, i.block, i.text, i.createdAt, i.updatedAt, i.sourceMessageId, i.deleted)
+        fun of(i: MemoryItem) = MemoryItemEntity(i.id, i.block, i.text, i.createdAt, i.updatedAt, i.sourceMessageId, i.deleted, i.dueDay)
     }
 }
 
@@ -88,11 +89,14 @@ data class MemoryEventEntity(
     val after: String?,
     @ColumnInfo(name = "source_message_id") val sourceMessageId: String?,
     val undone: Boolean,
+    @ColumnInfo(name = "before_due") val beforeDue: String?,
+    @ColumnInfo(name = "after_due") val afterDue: String?,
 ) {
-    fun toModel() = MemoryEvent(id, at, op, block, itemId, before, after, sourceMessageId, undone)
+    fun toModel() = MemoryEvent(id, at, op, block, itemId, before, after, sourceMessageId, undone, beforeDue, afterDue)
 
     companion object {
-        fun of(e: MemoryEvent) = MemoryEventEntity(e.id, e.at, e.op, e.block, e.itemId, e.before, e.after, e.sourceMessageId, e.undone)
+        fun of(e: MemoryEvent) =
+            MemoryEventEntity(e.id, e.at, e.op, e.block, e.itemId, e.before, e.after, e.sourceMessageId, e.undone, e.beforeDue, e.afterDue)
     }
 }
 
