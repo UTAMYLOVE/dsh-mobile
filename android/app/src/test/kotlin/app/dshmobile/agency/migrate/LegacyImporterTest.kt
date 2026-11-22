@@ -24,10 +24,6 @@ import app.agency.core.store.MessageRepo
 import app.dshmobile.agency.data.AgencyDatabase
 import app.dshmobile.agency.data.RoomAgencyStore
 import app.dshmobile.agency.media.MediaVault
-import app.dshmobile.coach.CoachJson
-import app.dshmobile.coach.CoachMessage
-import app.dshmobile.coach.CoachState
-import app.dshmobile.coach.Speaker
 import java.io.File
 import java.io.RandomAccessFile
 import java.security.MessageDigest
@@ -599,7 +595,7 @@ class LegacyImporterTest {
         // A read error made the coach move his file aside and seed a fresh one.
         seedV083()
         File(coach, "state.json").renameTo(File(coach, "state.json.bad-1795300000000"))
-        File(coach, "state.json").writeText(CoachJson.encode(CoachState(seeded = true, food = FoodTable.seed(1_795_300_000_100L))).toString())
+        File(coach, "state.json").writeText(freshCoachState(FoodTable.seed(1_795_300_000_100L)))
         File(coach, "state.json.bad-1795300000500-copy").writeText("not a state file")
         val r = importer(prefs("legacy", "v083-prefs.xml")).run()
         assertTrue(r.ok)
@@ -852,7 +848,7 @@ class LegacyImporterTest {
     @Test fun everyLineOfALongConversationArrives() = runBlocking {
         seedV083()
         val more = (1..400).joinToString("") { i ->
-            CoachJson.encodeMessage(CoachMessage("long-$i", NOW - 1_000_000 + i, if (i % 2 == 0) Speaker.COACH else Speaker.OWNER, "第 $i 句", if (i % 2 == 0) "chat" else null)) + "\n"
+            coachLine("long-$i", NOW - 1_000_000 + i, if (i % 2 == 0) "COACH" else "OWNER", "第 $i 句", if (i % 2 == 0) "chat" else null) + "\n"
         }
         File(coach, "messages.jsonl").appendText(more)
         val r = importer(prefs("legacy")).run()
@@ -915,4 +911,39 @@ class LegacyImporterTest {
         private const val FRIED_MEAL = "0b6f3c2e-1a4d-4c55-9a51-3f7d2e8a9c01"
         private const val TWO_ITEM_MEAL = "9a3c7e21-4f6b-4d08-b2a5-1e9f8c3d6a23"
     }
+
+    /** A fresh state as the coach's encoder wrote it after setting a damaged file aside (version 2, the seed table only). */
+    private fun freshCoachState(food: List<app.agency.core.model.FoodEntry>): String = kotlinx.serialization.json.buildJsonObject {
+        put("version", kotlinx.serialization.json.JsonPrimitive(2))
+        put("seeded", kotlinx.serialization.json.JsonPrimitive(true))
+        put("meals", kotlinx.serialization.json.JsonArray(emptyList()))
+        put("weights", kotlinx.serialization.json.JsonArray(emptyList()))
+        put("food", kotlinx.serialization.json.JsonArray(food.map { f ->
+            kotlinx.serialization.json.buildJsonObject {
+                put("name", kotlinx.serialization.json.JsonPrimitive(f.name))
+                put("aliases", kotlinx.serialization.json.JsonArray(f.aliases.map(::JsonPrimitiveOf)))
+                put("kcal", kotlinx.serialization.json.JsonPrimitive(f.kcal))
+                f.proteinG?.let { put("protein", kotlinx.serialization.json.JsonPrimitive(it)) }
+                f.fatG?.let { put("fat", kotlinx.serialization.json.JsonPrimitive(it)) }
+                f.carbsG?.let { put("carbs", kotlinx.serialization.json.JsonPrimitive(it)) }
+                put("fried", kotlinx.serialization.json.JsonPrimitive(f.fried))
+                put("estimated", kotlinx.serialization.json.JsonPrimitive(f.estimated))
+                put("seeded", kotlinx.serialization.json.JsonPrimitive(f.seeded))
+                put("addedAt", kotlinx.serialization.json.JsonPrimitive(f.addedAt))
+            }
+        }))
+        put("pending", kotlinx.serialization.json.JsonArray(emptyList()))
+        put("trainings", kotlinx.serialization.json.JsonArray(emptyList()))
+    }.toString()
+
+    private fun JsonPrimitiveOf(s: String) = kotlinx.serialization.json.JsonPrimitive(s)
+
+    /** One line of `messages.jsonl` as the coach's encoder wrote it. */
+    private fun coachLine(id: String, at: Long, who: String, text: String, kind: String?): String = kotlinx.serialization.json.buildJsonObject {
+        put("id", kotlinx.serialization.json.JsonPrimitive(id))
+        put("at", kotlinx.serialization.json.JsonPrimitive(at))
+        put("who", kotlinx.serialization.json.JsonPrimitive(who))
+        put("text", kotlinx.serialization.json.JsonPrimitive(text))
+        kind?.let { put("kind", kotlinx.serialization.json.JsonPrimitive(it)) }
+    }.toString()
 }

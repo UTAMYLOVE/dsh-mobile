@@ -11,8 +11,9 @@ import org.robolectric.RobolectricTestRunner
 import org.xmlpull.v1.XmlPullParser
 
 /**
- * targetSdk 37 forbids cleartext HTTP by default, but dsh, its health check, the heartbeat and the WebView all speak
- * `http://127.0.0.1:<port>`. Robolectric's NetworkSecurityPolicy shadow does not read the config, so the XML itself is asserted.
+ * No cleartext HTTP (arch 1.11, T09): the release config allows none at all; the debug build (what these tests run) allows only
+ * `http://127.0.0.1`, for the e2e suite's fake model. Robolectric's NetworkSecurityPolicy shadow does not read the config, so
+ * the XML itself is asserted (the release file is read from the source tree).
  */
 @RunWith(RobolectricTestRunner::class)
 class NetworkSecurityConfigTest {
@@ -28,7 +29,14 @@ class NetworkSecurityConfigTest {
         assertEquals(id, field.getInt(context.applicationInfo))
     }
 
-    @Test fun cleartextIsOffExceptForExactly127_0_0_1() {
+    @Test fun theReleaseConfigHasNoCleartextAtAll() {
+        val release = java.io.File("src/main/res/xml/network_security_config.xml").readText()
+        val body = Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL).replace(release, "")
+        assertTrue(body.contains("<base-config cleartextTrafficPermitted=\"false\" />"))
+        assertTrue(body, !body.contains("domain") && !body.contains("\"true\""))
+    }
+
+    @Test fun theDebugConfigOnlyAddsExactly127_0_0_1() {
         val parser: XmlResourceParser = context.resources.getXml(configId())
         val elements = mutableListOf<String>()
         var baseCleartext: String? = null

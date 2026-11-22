@@ -142,4 +142,29 @@
     <string name="ag_ob_file_recording">清唱錄音</string>
     <string name="ag_ob_file_cannot_open">打不開</string>
     <string name="ag_ob_close">關閉</string>
+    <!-- 舊資料: delete the kept folder, export the old chats (T09) -->
+    <string name="ag_legacy_delete">刪除舊資料夾</string>
+    <string name="ag_legacy_delete_hint">紀錄都在新的公司裡了。確認紀錄都對之後，可以刪掉舊資料夾。</string>
+    <string name="ag_legacy_share_first">還有照片或錄音沒搬進來，刪除之前要先把整個舊資料夾分享出去存起來。</string>
+    <string name="ag_legacy_share_folder">先分享整個舊資料夾</string>
+    <string name="ag_legacy_confirm">確定要刪除舊資料夾嗎？刪了就找不回來；新公司裡的紀錄不受影響。</string>
+    <string name="ag_legacy_confirm_yes">確定刪除</string>
+    <string name="ag_legacy_confirm_no">不要</string>
+    <string name="ag_legacy_deleted">舊資料夾刪掉了。</string>
+    <string name="ag_legacy_delete_failed">沒有刪乾淨，剩下的還在，可以再試一次。</string>
+    <string name="ag_legacy_chats">以前的聊天和小說</string>
+    <string name="ag_legacy_chats_hint">舊版的對話和小說還留在手機裡。可以打包分享出去存起來；要不要刪掉等你決定，現在不會刪。</string>
+    <string name="ag_legacy_chats_export">匯出舊聊天與小說</string>
+    <string name="ag_legacy_preparing">正在打包…</string>
+    <!-- 授權 (T09): one Chinese line above each notice says what it covers; the notices themselves are legal text. -->
+    <string name="ag_lic_title">開放原始碼授權</string>
+    <string name="ag_lic_intro">這個應用程式用到的開放原始碼零件，和它們的授權。授權本文是法律文字，照原文放。</string>
+    <string name="ag_lic_sqlcipher">把手機裡的紀錄加密存起來的資料庫。</string>
+    <string name="ag_lic_androidx">畫面、資料庫、相機、錄音和背景工作等安卓的基本零件。</string>
+    <string name="ag_lic_okhttp">連到模型服務商的網路連線。</string>
+    <string name="ag_lic_kotlin">寫這個應用程式的程式語言，和它的基本程式庫。</string>
+    <string name="ag_lic_kai">工具呼叫的配對和從文字裡找出工具呼叫：參考它的做法自己重寫，沒有拷貝它的程式碼。</string>
+    <string name="ag_lic_show">看授權全文</string>
+    <string name="ag_lic_hide">收起授權全文</string>
+    <string name="ag_lic_close">關閉</string>
 </resources>

@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- The one_stroke startup look's own words (Traditional Chinese, short and plain). Every string here is drawn in the intro's
-     handwriting font: after changing one, rerun tools/fonts/subset_intro_font.py so none falls back to the system font. -->
-<resources>
-</resources>

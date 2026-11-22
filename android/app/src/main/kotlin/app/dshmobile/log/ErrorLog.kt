@@ -32,7 +32,7 @@ class ErrorLog(filesDir: File, private val clock: Clock = Clock.systemUTC()) {
                 rotateIfNeeded()
                 logFile.appendText(text, Charsets.UTF_8)
             } catch (_: IOException) {
-                // A full disk must not take dsh down with it.
+                // A full disk must not take the app down with it.
             }
         }
     }

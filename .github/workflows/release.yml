@@ -1,13 +1,10 @@
 name: Release
 
-# A tag push (v<versionName>+<versionCode>, e.g. v0.2.0+2) builds, signs and publishes the shell app to the public releases repo.
+# A tag push (v<versionName>+<versionCode>, e.g. v0.9.0+18) builds, signs and publishes 小雨娛樂 to the public releases repo.
 # It only runs once CI (ci.yml) is green on the tagged commit, emulator end-to-end suite included (job "gate"), and only for a
 # versionCode above the newest published release. The release is created as a draft and published after both assets are up.
-# A manual run (workflow_dispatch) only does the dry run: tests, rootfs and an UNSIGNED release APK, stopping before signing.
-# The dry run needs no secret and skips the CI gate.
-#
-# Ruling: the rootfs is built fresh here, as in CI. dsh itself is pinned (version + integrity); its transitive npm dependencies
-# and the Debian packages float, so the published tree can differ slightly from the one CI's e2e run tested (accepted risk).
+# A manual run (workflow_dispatch) only does the dry run: tests and an UNSIGNED release APK, stopping before signing.
+# The dry run needs no secret and skips the CI gate. Since T09 the APK carries no rootfs and no native runtime (arm64 only).
 on:
   push:
     tags: ["v*"]
@@ -47,7 +44,7 @@ jobs:
           gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100&filter=all" \
             --jq '.check_runs[] | select(.app.slug == "github-actions") | [.name, (.conclusion // "pending")] | @tsv' > runs.tsv
           missing=0
-          for job in "android" "plugins" "rootfs (arm64)" "rootfs (x86_64)" "e2e"; do
+          for job in "android" "e2e"; do
             if awk -F'\t' -v j="$job" '$1 == j && $2 == "success" { found = 1 } END { exit !found }' runs.tsv; then
               echo "ok: $job"
             else
@@ -108,8 +105,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "### Release build: v${version_name}+${version_code} (publish=$publish)" >> "$GITHUB_STEP_SUMMARY"
 
-      # An update must have a higher versionCode than what users have (Android refuses a downgrade, and the app's update check
-      # only offers a higher code). No published release yet passes.
+      # An update must have a higher versionCode than what users have (Android refuses a downgrade). No published release yet
+      # passes.
       - name: Require a versionCode above the newest published release
         if: steps.ver.outputs.publish == 'true'
         env:
@@ -147,67 +144,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Android unit tests
         working-directory: android
-        run: ./gradlew :core:test :app:testDebugUnitTest --no-daemon
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.28.10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: pnpm
-          cache-dependency-path: plugins/pnpm-lock.yaml
-      - name: Plugin tests and build
-        run: |
-          pnpm -C plugins install --frozen-lockfile
-          pnpm -C plugins test
-          pnpm -C plugins build
-
-      # ---- rootfs (arm64 only: the release targets the phone; same steps as ci.yml) ----
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-      - name: Stage plugins for the rootfs
-        run: |
-          mkdir -p out/staging/plugins/memory out/staging/plugins/notify out/staging/plugins/ui out/staging/plugins/guard
-          cp plugins/packages/memory/dist/index.js out/staging/plugins/memory/index.js
-          cp plugins/packages/notify/dist/index.js out/staging/plugins/notify/index.js
-          cp plugins/packages/ui/dist/index.js out/staging/plugins/ui/index.js
-          cp plugins/packages/guard/dist/index.js out/staging/plugins/guard/index.js
-      - name: Build rootfs
-        run: bash rootfs/build-rootfs.sh arm64 out/dshm-rootfs-arm64.tar.xz out/staging
-      - name: Smoke test rootfs
-        run: bash rootfs/smoke-test.sh out/dshm-rootfs-arm64.tar.xz
-
-      # ---- native runtime for 「實驗：原生模式」 (same steps as ci.yml's native job, arm64) ----
-      - name: Restore the pinned Termux packages
-        uses: actions/cache@v4
-        with:
-          path: native-debs
-          key: native-debs-${{ hashFiles('native/termux.lock') }}
-      - name: Build the native runtime
-        run: |
-          bash native/build.sh arm64 out/dshm-rootfs-arm64.package-lock.json out/native-arm64 "$GITHUB_WORKSPACE/native-debs" | tee native-build.txt
-          echo "native runtime: $(tail -1 native-build.txt)" >> "$GITHUB_STEP_SUMMARY"
-
+        run: ./gradlew :core:test :app:testDebugUnitTest :app:verifyNoTelemetry --no-daemon
       # ---- unsigned release APK (no signing environment is present in this step) ----
       - name: Build unsigned release APK
         working-directory: android
         env:
-          ROOTFS_FILE: ${{ github.workspace }}/out/dshm-rootfs-arm64.tar.xz
           VERSION_NAME: ${{ steps.ver.outputs.version_name }}
           VERSION_CODE: ${{ steps.ver.outputs.version_code }}
         run: |
           ./gradlew :app:assembleRelease --no-daemon \
-            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" -Pdshm.nativeDir="$GITHUB_WORKSPACE/out/native-arm64" \
-            -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
+            -Pdshm.abi=arm64-v8a -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
       - name: Inspect unsigned APK
         run: |
           set -euo pipefail
           apk=android/app/build/outputs/apk/release/app-release-unsigned.apk
           test -f "$apk"
-          unzip -v "$apk" | grep -E 'Stored .* assets/rootfs\.tar\.xz$'
-          unzip -Z1 "$apk" | grep -x 'lib/arm64-v8a/libdshn_bin_node.so'
-          unzip -Z1 "$apk" | grep -x 'assets/native/manifest.json'
+          # No dsh: no rootfs, no native runtime, no proot (arch T09). The encrypted database's library is there.
+          if unzip -Z1 "$apk" | grep -E '^assets/(rootfs|native|dshn|skills|intro-web)|libproot|libtalloc|libdshn_'; then
+            echo "::error::APK still carries dsh files"
+            exit 1
+          fi
+          unzip -Z1 "$apk" | grep -x 'lib/arm64-v8a/libsqlcipher.so'
           if unzip -Z1 "$apk" | grep '^lib/' | grep -v '^lib/arm64-v8a/'; then
             echo "::error::APK contains native libraries for another ABI"
             exit 1
@@ -245,7 +202,6 @@ jobs:
         if: steps.ver.outputs.publish == 'true'
         working-directory: android
         env:
-          ROOTFS_FILE: ${{ github.workspace }}/out/dshm-rootfs-arm64.tar.xz
           VERSION_NAME: ${{ steps.ver.outputs.version_name }}
           VERSION_CODE: ${{ steps.ver.outputs.version_code }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -254,8 +210,7 @@ jobs:
         run: |
           rm -rf app/build/outputs/apk/release
           ./gradlew :app:assembleRelease --no-daemon --no-build-cache \
-            -Pdshm.rootfsAbi=arm64 -Pdshm.rootfsFile="$ROOTFS_FILE" -Pdshm.nativeDir="$GITHUB_WORKSPACE/out/native-arm64" \
-            -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
+            -Pdshm.abi=arm64-v8a -Pdshm.versionName="$VERSION_NAME" -Pdshm.versionCode="$VERSION_CODE"
 
       - name: Verify signature and compute SHA-256
         if: steps.ver.outputs.publish == 'true'
@@ -280,12 +235,12 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
           RELEASES_REPO: ${{ steps.ver.outputs.releases_repo }}
           VERSION_NAME: ${{ steps.ver.outputs.version_name }}
-        # A draft first: nobody (and no app's daily check, which reads releases/latest) sees a release until both assets are up.
+        # A draft first: nobody sees a release until both assets are up.
         run: |
           set -euo pipefail
           gh release create "$TAG" --repo "$RELEASES_REPO" --draft \
-            --title "DSH Mobile $VERSION_NAME" \
-            --notes "DSH Mobile $VERSION_NAME. The app checks this page once a day; verify the APK against the .sha256 file."
+            --title "小雨娛樂 $VERSION_NAME" \
+            --notes "小雨娛樂 $VERSION_NAME. Verify the APK against the .sha256 file."
           gh release upload "$TAG" --repo "$RELEASES_REPO" --clobber "$apk" "$apk.sha256"
           names="$(gh release view "$TAG" --repo "$RELEASES_REPO" --json assets --jq '[.assets[].name] | sort | join(",")')"
           want="$(printf '%s\n' "$(basename "$apk")" "$(basename "$apk").sha256" | sort | paste -sd, -)"

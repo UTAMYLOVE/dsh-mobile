@@ -4,7 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
-import app.dshmobile.heartbeat.HeartbeatWorkerFactory
+import app.dshmobile.agency.migrate.RetiredWork
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,7 +14,7 @@ import org.robolectric.RobolectricTestRunner
 /**
  * WorkManager must be initialised on demand from [DshMobileApp.workManagerConfiguration]. If the default startup
  * initializer stays in the manifest it runs first with a default Configuration, our WorkerFactory is never used and
- * WorkManager fails to reflect a `HeartbeatWorker(Context, WorkerParameters)` that does not exist.
+ * WorkManager fails to reflect the old heartbeat's class, which no longer exists.
  */
 @RunWith(RobolectricTestRunner::class)
 class WorkManagerInitTest {
@@ -29,8 +29,8 @@ class WorkManagerInitTest {
         assertFalse("WorkManagerInitializer must be removed: $keys", "androidx.work.WorkManagerInitializer" in keys)
     }
 
-    @Test fun theAppsConfigurationCarriesTheHeartbeatWorkerFactory() {
+    @Test fun theAppsConfigurationCarriesTheRetiredWorkFactory() {
         val factory = (context as DshMobileApp).workManagerConfiguration.workerFactory
-        assertTrue("got ${factory.javaClass}", factory is HeartbeatWorkerFactory)
+        assertTrue("got ${factory.javaClass}", factory is RetiredWork.Factory)
     }
 }

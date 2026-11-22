@@ -9,8 +9,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
- * The FOGCITY palette shared by every screen of the app, the same colours the `@dshm/ui` plugin gives dsh's own interface
- * (plugins/packages/ui/src/fogcity.ts). Text is only ever [Text] or [TextSecondary]; [Aqua] is a fill, never text (too faint).
+ * The Sakura palette shared by every screen of the company (the owner's six colours, kept from the old app). Text is only ever
+ * [Text] or [TextSecondary]; [Aqua] is a fill, never text (too faint).
  */
 object Sakura {
     val Background = Color(0xFFFEDFE1)

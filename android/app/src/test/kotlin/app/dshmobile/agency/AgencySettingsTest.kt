@@ -2,7 +2,7 @@ package app.dshmobile.agency
 
 import app.agency.core.llm.ProviderChoice
 import app.agency.core.migrate.AgencyPrefKeys
-import app.dshmobile.gateway.InMemorySharedPreferences
+import app.dshmobile.agency.support.InMemorySharedPreferences
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

@@ -25,7 +25,7 @@ interface KeyVault {
     fun put(p: Provider, key: String)
     fun clear(p: Provider)
 
-    /** Keys the app uses itself and never routes for dsh (0.5.0: the CWA open-data key, [CWA]); same encryption. */
+    /** Named keys the app uses itself (the compatible service key; the old CWA weather key slot stays readable); same encryption. */
     fun getNamed(name: String): String? = null
     fun hasNamed(name: String): Boolean = getNamed(name) != null
     fun putNamed(name: String, key: String) {}

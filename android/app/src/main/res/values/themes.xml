@@ -12,10 +12,9 @@
     </style>
 
     <!--
-        Starting windows for the themes whose window is not blush: ThemeWindow.kt hands the worn theme's one to the system with
-        SplashScreen.setSplashScreenTheme, so the next cold start opens on that colour. Each names its parent explicitly (the dot
-        name alone would imply a Theme.DshMobile.Start that does not exist). The bars match the window, so the starting window
-        shows no blush band; the two dark ones have light bar icons.
+        Starting windows an older build handed to the system (SplashScreen.setSplashScreenTheme) for its colour themes. The
+        theme engine is gone (T08), but the system may still hold one of these for the next cold start after the update: they
+        stay so that start resolves to a known style.
     -->
     <style name="Theme.DshMobile.Start.Night" parent="Theme.DshMobile">
         <item name="android:windowBackground">@color/start_night</item>

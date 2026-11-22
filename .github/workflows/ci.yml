@@ -4,16 +4,8 @@ on:
   push:
     paths-ignore:
       - "docs/**"
-      - "spike/**"
-      - ".github/workflows/native-spike.yml"
   pull_request:
-  # A manual run can bisect a renderer crash on the emulator: the shell then draws only its plain pink ground.
   workflow_dispatch:
-    inputs:
-      plain_background:
-        description: "e2e: plain background (no glows, no grids)"
-        type: boolean
-        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -35,131 +27,16 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :core:test :app:testDebugUnitTest --no-daemon
-
-  plugins:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.28.10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: pnpm
-          cache-dependency-path: plugins/pnpm-lock.yaml
-      - run: pnpm -C plugins install --frozen-lockfile
-      - run: pnpm -C plugins test
-      # The scripts app skills ship next to their SKILL.md (assets/skills/), e.g. the bookkeeping skill's life.mjs.
-      - name: Skill scripts
-        run: node --test 'android/app/src/test/node/**/*.test.mjs'
-
-  rootfs:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [arm64, x86_64]
-    steps:
-      - uses: actions/checkout@v4
-      # The rootfs only depends on rootfs/, plugins/ and the staging steps below (this file): unchanged, the last build is reused
-      # (saves ~15 min per push). Its version marker is ROOTFS_VERSION plus a content hash of rootfs/ and plugins/ (source-hash.sh).
-      - name: Restore a rootfs built from the same sources
-        id: rootfs-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            out/dshm-rootfs-${{ matrix.arch }}.tar.xz
-            out/dshm-rootfs-${{ matrix.arch }}.package-lock.json
-            out/dshm-rootfs-${{ matrix.arch }}.npm-ls.txt
-          key: rootfs-${{ matrix.arch }}-${{ hashFiles('rootfs/**', 'plugins/**', '.github/workflows/ci.yml') }}
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-      - uses: pnpm/action-setup@v4
-        if: steps.rootfs-cache.outputs.cache-hit != 'true'
-        with:
-          version: 11.28.10
-      - uses: actions/setup-node@v4
-        if: steps.rootfs-cache.outputs.cache-hit != 'true'
-        with:
-          node-version: "24"
-          cache: pnpm
-          cache-dependency-path: plugins/pnpm-lock.yaml
-      - name: Build plugins
-        if: steps.rootfs-cache.outputs.cache-hit != 'true'
-        run: |
-          pnpm -C plugins install --frozen-lockfile
-          pnpm -C plugins build
-      - name: Stage plugins for the rootfs
-        if: steps.rootfs-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p out/staging/plugins/memory out/staging/plugins/notify out/staging/plugins/ui out/staging/plugins/guard
-          cp plugins/packages/memory/dist/index.js out/staging/plugins/memory/index.js
-          cp plugins/packages/notify/dist/index.js out/staging/plugins/notify/index.js
-          cp plugins/packages/ui/dist/index.js out/staging/plugins/ui/index.js
-          cp plugins/packages/guard/dist/index.js out/staging/plugins/guard/index.js
-      - name: Build rootfs
-        if: steps.rootfs-cache.outputs.cache-hit != 'true'
-        run: bash rootfs/build-rootfs.sh ${{ matrix.arch }} out/dshm-rootfs-${{ matrix.arch }}.tar.xz out/staging
-      - name: Smoke test
-        run: bash rootfs/smoke-test.sh out/dshm-rootfs-${{ matrix.arch }}.tar.xz
-      - name: Size summary
-        run: |
-          f=out/dshm-rootfs-${{ matrix.arch }}.tar.xz
-          echo "### rootfs ${{ matrix.arch }}: $(du -h $f | cut -f1) ($(stat -c %s $f) bytes)" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dshm-rootfs-${{ matrix.arch }}
-          path: |
-            out/dshm-rootfs-${{ matrix.arch }}.tar.xz
-            out/dshm-rootfs-${{ matrix.arch }}.package-lock.json
-            out/dshm-rootfs-${{ matrix.arch }}.npm-ls.txt
-          retention-days: 7
-
-  # The experimental Android-native dsh runtime (native/): Termux's node, bash, ripgrep and git (pinned in native/termux.lock) plus
-  # dsh's file-lock addon built with the NDK, as jniLibs. Only x86_64 for now: the emulator suite checks it runs inside the app.
-  native:
-    needs: rootfs
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-      - uses: android-actions/setup-android@v4
-      # Termux keeps only the newest build of each package in its pool; the pinned .debs are kept here once downloaded.
-      - name: Restore the pinned Termux packages
-        uses: actions/cache@v4
-        with:
-          path: native-debs
-          key: native-debs-${{ hashFiles('native/termux.lock') }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: dshm-rootfs-x86_64
-          path: rootfs-artifact
-      - name: Build the native runtime
-        run: |
-          echo "NDK: ${ANDROID_NDK_LATEST_HOME:-none}"
-          bash native/build.sh x86_64 rootfs-artifact/dshm-rootfs-x86_64.package-lock.json out/native-x86_64 "$GITHUB_WORKSPACE/native-debs" | tee native-build.txt
-          echo "### native runtime x86_64: $(tail -1 native-build.txt)" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dshm-native-x86_64
-          path: out/native-x86_64
-          retention-days: 7
+      # Unit tests, and no analytics, crash-report or tracking library anywhere (arch 1.11).
+      - run: ./gradlew :core:test :app:testDebugUnitTest :app:verifyNoTelemetry --no-daemon
 
   # 小雨娛樂 end to end on a real Android (x86_64 emulator): AgencyE2eTest on the real encrypted database and Keystore.
-  # The model is an in-process fake (src/androidTest/.../FakeModel.kt) with a fake key: no real key, no cost. Since the cutover
-  # (arch §2 D0) the APK carries no rootfs and no native runtime; T09 removes the `needs` and the jobs that built them.
+  # The model is an in-process fake (src/androidTest/.../FakeModel.kt) with a fake key: no real key, no cost. The APK carries no
+  # rootfs and no native runtime (arch T09), so this job needs no other job and builds a plain debug APK.
   e2e:
-    needs: [rootfs, native]
     runs-on: ubuntu-latest
     # AgencyE2eTest gates the release; the jank gate comes back for the conversation in T21 (advisory).
-    timeout-minutes: 90
+    timeout-minutes: 45
     steps:
       # The emulator's userdata image needs 1.2 x disk-size free on the runner; the stock image leaves ~5 GB.
       - name: Free runner disk space
@@ -187,12 +64,9 @@ jobs:
         working-directory: android
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
       - name: Run the instrumentation tests on the emulator
-        # The suite takes about 35 minutes. A test that hangs must end this step, not the job: the steps below then still
-        # list what ran and upload the logcat (run 43308098768 was cancelled at the job's limit with nothing to read).
-        timeout-minutes: 60
+        # A test that hangs must end this step, not the job: the steps below then still list what ran and upload the logcat.
+        timeout-minutes: 25
         uses: reactivecircus/android-emulator-runner@v2
-        env:
-          PLAIN_BACKGROUND: ${{ inputs.plain_background && 'true' || 'false' }}
         with:
           api-level: 34
           arch: x86_64
@@ -202,9 +76,7 @@ jobs:
           # the likely cause of the emulator that vanished without a word).
           ram-size: 3072M
           cores: 2
-          # SwANGLE (SwiftShader Vulkan behind ANGLE) instead of the legacy GLES translator: on swiftshader_indirect the emulator
-          # went silent 0.2 s after the native shell's first frame (runs 77, 80, 84: logcat ends at the app's first RenderThread
-          # buffer, then "device not found"); the WebView shell before it rendered fine there.
+          # SwANGLE (SwiftShader Vulkan behind ANGLE) instead of the legacy GLES translator, which went silent on this runner.
           emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim
           disable-animations: true
           working-directory: android
@@ -212,7 +84,7 @@ jobs:
           script: |
             adb logcat -c
             adb logcat -v threadtime > "$GITHUB_WORKSPACE/logcat.txt" 2>&1 < /dev/null &
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m "-Pandroid.testInstrumentationRunnerArguments.plainBackground=$PLAIN_BACKGROUND"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m
       # Names, times and pass/fail only (failure messages stay in the uploaded report), so a green job shows what ran.
       - name: List the instrumentation test results
         if: always()

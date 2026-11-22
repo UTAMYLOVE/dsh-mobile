@@ -13,7 +13,7 @@ import app.dshmobile.ui.kit.SakuraTheme
 
 /**
  * The launcher (arch 1.13): 小雨娛樂. Opens the company ([app.dshmobile.agency.AgencyApp.start], off the main thread) and shows
- * the start screens, then 公司 / 指揮室 / 設定. Nothing of dsh is started from here.
+ * the start screens, then 公司 / 指揮室 / 設定.
  *
  * The camera's answer is registered here, before the screen exists, so a result that comes back after the process died (the
  * camera app was open for a long time) still reaches the pending capture (arch T07).

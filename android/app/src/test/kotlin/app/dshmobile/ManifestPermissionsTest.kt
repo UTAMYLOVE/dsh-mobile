@@ -21,15 +21,12 @@ class ManifestPermissionsTest {
     }
 
     companion object {
+        /** Arch 1.13 without what later tasks add (USE_EXACT_ALARM with the scheduler, T13). */
         val ALLOWED_PERMISSIONS = setOf(
             "android.permission.INTERNET",
-            "android.permission.FOREGROUND_SERVICE",
-            "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
             "android.permission.WAKE_LOCK",
             "android.permission.POST_NOTIFICATIONS",
-            "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
             "android.permission.RECEIVE_BOOT_COMPLETED",
-            "android.permission.REQUEST_INSTALL_PACKAGES",
             "android.permission.ACCESS_NETWORK_STATE",
             "android.permission.RECORD_AUDIO",
         )

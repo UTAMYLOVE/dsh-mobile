@@ -1,10 +1,9 @@
 package app.dshmobile.ui
 
+import android.content.Context
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -12,6 +11,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.ui.kit.SakuraTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -19,84 +19,41 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+/** 設定 › 授權 after dsh (arch T09): SQLCipher, AndroidX, OkHttp, Kotlin and the Kai credit, each with its Chinese line. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class LicensesPageTest {
     @get:Rule val rule = createComposeRule()
+    private val context = ApplicationProvider.getApplicationContext<Context>()
     private var closed = 0
 
     private fun show() = rule.setContent { SakuraTheme { Box { LicensesPage(onClose = { closed++ }) } } }
 
-    @Test fun everyFontShowsItsCopyrightAndItsFullOflText() {
+    @Test fun everyNoticeHasItsChineseLineItsCopyrightAndItsFullText() {
         show()
-        for (l in OpenSourceLicences.introFonts + OpenSourceLicences.otherFonts) {
-            l.copyrights.forEach { rule.onNodeWithText(it).performScrollTo() }
-            rule.onNodeWithTag(LicensesTags.TEXT + l.id).assertDoesNotExist()
-            rule.onNodeWithTag(LicensesTags.SHOW + l.id).performScrollTo().performClick()
-            rule.onNodeWithTag(LicensesTags.TEXT + l.id).performScrollTo()
-                .assertTextContains("SIL OPEN FONT LICENSE Version 1.1", substring = true)
-                .assertTextContains("Reserved Font Name", substring = true)
+        assertEquals(listOf("sqlcipher", "androidx", "okhttp", "kotlin", "kai"), OpenSourceLicences.notices.map { it.id })
+        for (n in OpenSourceLicences.notices) {
+            rule.onNodeWithText(context.getString(n.what)).performScrollTo()
+            assertTrue(context.getString(n.what).any { it in '一'..'鿿' })
+            n.copyrights.forEach { rule.onNodeWithText(it).performScrollTo() }
+            rule.onNodeWithTag(LicensesTags.TEXT + n.id).assertDoesNotExist()
+            rule.onNodeWithTag(LicensesTags.SHOW + n.id).performScrollTo().performClick()
+            val text = rule.onNodeWithTag(LicensesTags.TEXT + n.id).performScrollTo()
+            if (n.asset == OpenSourceLicences.APACHE) text.assertTextContains("Apache License", substring = true).assertTextContains("Version 2.0", substring = true)
+            else text.assertTextContains("Redistribution and use in source and binary forms", substring = true)
+            rule.onNodeWithTag(LicensesTags.SHOW + n.id).performScrollTo().performClick()
         }
-        // The renamed subset names its source and why it was renamed.
-        rule.onNodeWithTag(LicensesTags.TEXT + "intro-hand").assertTextContains("Modified Version of 辰宇落雁體 2.0 Thin", substring = true)
-    }
-
-    @Test fun theStartupPluginsAreCreditedWithAuthorLinkAndTheMitText() {
-        show()
-        val credits = OpenSourceLicences.startupPlugins
-        assertTrue(credits.size >= 7)
-        for (c in credits) {
-            rule.onNodeWithText("${c.project} · ${c.author}").performScrollTo()
-            rule.onNodeWithText(c.url).performScrollTo()
-            rule.onNodeWithText("MIT License, ${c.copyright}").performScrollTo()
-            assertTrue(c.url, c.url.startsWith("https://github.com/"))
-        }
-        rule.onNodeWithTag(LicensesTags.SHOW + "mit").performScrollTo().performClick()
-        val mit = rule.onNodeWithTag(LicensesTags.TEXT + "mit").performScrollTo()
-        mit.assertTextContains("Permission is hereby granted, free of charge", substring = true)
-        // Every credited copyright line travels with the permission notice.
-        credits.forEach { mit.assertTextContains(it.copyright, substring = true) }
-    }
-
-    @Test fun theDshCommunityLooksAreCreditedWithCommitLicenceAndChanges() {
-        show()
-        val ported = OpenSourceLicences.portedLooks
-        assertEquals(listOf("sakura", "neon", "wave", "access"), ported.map { it.key })
-        val access = ported.last()
-        assertEquals("沈宏宏", access.author)
-        assertEquals("https://github.com/6shenhonghong9/dsh-startup-screen", access.url)
-        assertEquals("7f3d2837c1aaef8293abc69093b0a35c80d0f0e8", access.commit)
-        for (p in ported) {
-            rule.onNodeWithText("原作：${p.project} · ${p.author}").performScrollTo()
-            rule.onNodeWithText("版本：${p.commit}").performScrollTo()
-            rule.onNodeWithText("連結：${p.url}").performScrollTo()
-            rule.onNodeWithText("授權：MIT License, ${p.copyright}").performScrollTo()
-            assertTrue(p.url, p.url.startsWith("https://github.com/"))
-            assertTrue(p.commit, Regex("[0-9a-f]{40}").matches(p.commit))
-            rule.onNodeWithTag(LicensesTags.SHOW + "ported-" + p.key).performScrollTo().performClick()
-            val text = rule.onNodeWithTag(LicensesTags.TEXT + "ported-" + p.key).performScrollTo()
-            text.assertTextContains("Permission is hereby granted, free of charge", substring = true)
-            text.assertTextContains(p.copyright, substring = true)
-        }
-        rule.onNodeWithTag(LicensesTags.PORTED + "sakura").performScrollTo()
-        rule.onAllNodesWithText("櫻花動漫風（dsh 社群作品）").assertCountEquals(1)
-        rule.onNodeWithTag(LicensesTags.PORTED + "access").performScrollTo()
-        rule.onAllNodesWithText("科技檔案授權（dsh 社群作品）").assertCountEquals(1)
-        rule.onAllNodesWithText("我們改了什麼：", substring = true).assertCountEquals(4)
-    }
-
-    @Test fun theLibraryLicenceIsThereAndClosingWorks() {
-        show()
-        rule.onNodeWithTag(LicensesTags.SHOW + "commonmark").performScrollTo().performClick()
-        rule.onNodeWithTag(LicensesTags.TEXT + "commonmark").performScrollTo().assertTextContains("Robin Stocker", substring = true)
         rule.onNodeWithTag(LicensesTags.CLOSE).performScrollTo().performClick()
         assertEquals(1, closed)
     }
 
+    @Test fun nothingOfDshIsListedAnyMore() {
+        val all = OpenSourceLicences.notices.joinToString { it.project + it.copyrights.joinToString() }
+        listOf("PRoot", "proot", "talloc", "Termux", "Node", "dsh", "Orbitron", "commonmark").forEach { assertFalse(it, all.contains(it)) }
+    }
+
     @Test fun everyListedAssetExists() {
-        val assets = ApplicationProvider.getApplicationContext<android.content.Context>().assets
-        val files = (OpenSourceLicences.introFonts + OpenSourceLicences.otherFonts + OpenSourceLicences.libraries).map { it.asset } + OpenSourceLicences.MIT_ASSET +
-            OpenSourceLicences.portedLooks.map { it.licence }
-        files.forEach { f -> assertTrue(f, assets.open(f).use { it.readBytes().size } > 500) }
+        OpenSourceLicences.notices.map { it.asset }.distinct().forEach { f -> assertTrue(f, context.assets.open(f).use { it.readBytes().size } > 1000) }
+        assertEquals(listOf("apache-2.0.txt", "sqlcipher-BSD.txt"), context.assets.list("licenses")!!.sorted())
     }
 }

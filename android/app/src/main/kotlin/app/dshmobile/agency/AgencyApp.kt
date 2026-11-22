@@ -38,6 +38,8 @@ import app.dshmobile.agency.media.PlayerEngine
 import app.dshmobile.agency.media.RecorderEngine
 import app.dshmobile.agency.metering.CostMeter
 import app.dshmobile.agency.migrate.ImportReport
+import app.dshmobile.agency.migrate.LegacyCleanup
+import app.dshmobile.agency.migrate.LegacyExport
 import app.dshmobile.agency.migrate.LegacyImporter
 import app.dshmobile.agency.notify.AgencyNotifier
 import app.dshmobile.agency.secure.TransientDataException
@@ -457,6 +459,46 @@ class AgencyApp(
         return LegacyStatus(if (row.ok) LegacyStatus.Kind.DONE else LegacyStatus.Kind.PARTIAL, counts, note, folder)
     }
 
+    /** His old dsh conversations and novels (`filesDir/userdata`), when anything is left there; never deleted by the app. */
+    fun oldChats(): File? = File(context.filesDir, LegacyCleanup.USER_DATA).takeIf { d -> d.isDirectory && d.walkTopDown().any { it.isFile } }
+
+    /**
+     * 匯出舊聊天與小說 / 先分享整個舊資料夾: [folder] zipped into `cache/export/` (served by the FileProvider, swept at the next
+     * start); the folder itself is not changed. Null when it could not be written.
+     */
+    suspend fun zipForShare(folder: File, name: String): File? = scope.async {
+        try {
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.ROOT).format(java.util.Date(clock.millis()))
+            val r = LegacyExport.zip(folder, File(File(context.cacheDir, EXPORT_DIR), "$name-$stamp.zip"))
+            errorLog.append(TAG, "zipped files=${r.files} skipped=${r.skipped}")
+            r.zip
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "zip failed (${e.javaClass.simpleName})")
+            null
+        }
+    }.await()
+
+    /**
+     * 刪除舊資料夾 (arch 1.14 step 5): the kept `coach.migrated-*` folder, only after a finished import, only that folder in
+     * `filesDir`, and an `audit_log` row (counts only). True when it is gone.
+     */
+    suspend fun deleteLegacyFolder(folder: File): Boolean {
+        val ready = _start.value as? StartState.Ready ?: return false
+        val ok = folder.parentFile?.canonicalFile == context.filesDir.canonicalFile &&
+            folder.name.startsWith(LegacyImporter.LEGACY_DIR + ".migrated-") && legacyStatus().kind == LegacyStatus.Kind.DONE
+        if (!ok) return false
+        return scope.async {
+            val gone = folder.deleteRecursively() || !folder.exists()
+            runCatching {
+                ready.store.journal.audit(app.agency.core.model.AuditLog(UUID.randomUUID().toString(), clock.millis(), "legacy_folder_deleted", "ok=$gone"))
+            }
+            errorLog.append(TAG, "legacy folder deleted ok=$gone")
+            gone
+        }.await()
+    }
+
     /** 設定 › 舊資料 「再試一次」 after a partial import: in the company's own scope on IO, like [retryFirstImport]. */
     suspend fun retryImport(): ImportReport? {
         val imp = importer ?: return null
@@ -486,7 +528,7 @@ class AgencyApp(
             onBlocked = { host -> errorLog.append("net", "blocked host $host") },
         )
         val transport = Transport(HttpFactory.create(gate))
-        val checks = CallChecks(costMeter, CallBudget(clock = Clock.systemUTC()))
+        val checks = CallChecks(costMeter, CallBudget(clock = Clock.systemUTC()), onBudgetRefused = notifier::rateLimited)
         val deepseek = OpenAiCompatClient(
             transport,
             { if (base != null) CompatEndpoint.deepseek(settings.deepseekModel, base) else CompatEndpoint.deepseek(settings.deepseekModel) },

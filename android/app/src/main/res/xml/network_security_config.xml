@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- targetSdk 37 forbids cleartext HTTP. dsh, its health check, the heartbeat, downloads and the WebView talk plain HTTP to the
-     in-app dsh on 127.0.0.1:<port> only: that exact host is allowed, nothing else (no localhost, no subdomains, no other host). -->
+<!-- No cleartext HTTP anywhere (arch 1.11): the company talks only to its model and search providers, over HTTPS. The debug
+     build replaces this file (src/debug) to let the e2e suite's fake model on 127.0.0.1 answer. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-    </domain-config>
 </network-security-config>

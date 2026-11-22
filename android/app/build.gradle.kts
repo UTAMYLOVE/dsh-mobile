@@ -1,7 +1,3 @@
-import java.nio.file.Files
-import java.nio.file.LinkOption
-import java.security.MessageDigest
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -10,68 +6,10 @@ plugins {
     alias(libs.plugins.room)
 }
 
-abstract class StageRootfsAsset : DefaultTask() {
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val rootfs: RegularFileProperty
-
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @TaskAction
-    fun stage() {
-        val dir = outputDir.get().asFile
-        dir.deleteRecursively()
-        dir.mkdirs()
-        rootfs.get().asFile.copyTo(File(dir, "rootfs.tar.xz"))
-    }
-}
-
 // Release inputs, all optional so a plain build (unit tests, CI's android job) is unchanged:
 //  -Pdshm.versionName / -Pdshm.versionCode  override the defaults (release tags are v<versionName>+<versionCode>)
-//  -Pdshm.rootfsAbi=arm64|x86_64 and -Pdshm.rootfsFile=<tar.xz>  bundle that rootfs as assets/rootfs.tar.xz and package only that ABI
-val rootfsAbiProp = providers.gradleProperty("dshm.rootfsAbi").orNull
-val rootfsFileProp = providers.gradleProperty("dshm.rootfsFile").orNull
-check((rootfsAbiProp == null) == (rootfsFileProp == null)) { "dshm.rootfsAbi and dshm.rootfsFile must be set together" }
-val rootfsNdkAbi = rootfsAbiProp?.let {
-    mapOf("arm64" to "arm64-v8a", "x86_64" to "x86_64")[it] ?: error("dshm.rootfsAbi must be arm64 or x86_64, not '$it'")
-}
-val rootfsSource = rootfsFileProp?.let { file(it).also { f -> check(f.isFile) { "dshm.rootfsFile is not a file: $it" } } }
-
-// The rootfs is built from rootfs/ and plugins/ (versions in rootfs/versions.env, the single source). Its version is
-// ROOTFS_VERSION-<8-hex content hash of rootfs/** and plugins/**>: any plugin or rootfs change makes installed apps reinstall
-// the rootfs (the user's data lives outside it). rootfs/source-hash.sh computes the same hash for the rootfs marker; the
-// definition (sha256 of the `sha256sum` lines of the sorted regular files, build products excluded) must stay identical.
-val repoRoot: File = rootProject.projectDir.parentFile
-val versionsEnv: Map<String, String> = File(repoRoot, "rootfs/versions.env").readLines()
-    .map { it.trim() }
-    .filter { it.isNotEmpty() && !it.startsWith("#") && '=' in it }
-    .associate { it.substringBefore('=') to it.substringAfter('=') }
-fun envValue(key: String): String = requireNotNull(versionsEnv[key]?.takeIf { it.isNotBlank() }) { "rootfs/versions.env has no $key" }
-fun sha256Hex(bytes: ByteArray): String =
-    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-fun compareBytes(a: String, b: String): Int {
-    val x = a.toByteArray(Charsets.UTF_8)
-    val y = b.toByteArray(Charsets.UTF_8)
-    for (i in 0 until minOf(x.size, y.size)) {
-        val c = (x[i].toInt() and 0xff) - (y[i].toInt() and 0xff)
-        if (c != 0) return c
-    }
-    return x.size - y.size
-}
-val rootfsSourceHash: String = run {
-    val prunedDirs = setOf("node_modules", "dist", ".turbo", "coverage")
-    val files = listOf("rootfs", "plugins").flatMap { top ->
-        File(repoRoot, top).walkTopDown()
-            .onEnter { (it.name !in prunedDirs || it == File(repoRoot, top)) && !Files.isSymbolicLink(it.toPath()) }
-            .filter { Files.isRegularFile(it.toPath(), LinkOption.NOFOLLOW_LINKS) && !it.name.endsWith(".tsbuildinfo") }
-            .map { it.relativeTo(repoRoot).invariantSeparatorsPath to it }
-            .toList()
-    }.sortedWith { a, b -> compareBytes(a.first, b.first) }
-    val lines = files.joinToString("") { (rel, f) -> "${sha256Hex(f.readBytes())}  $rel\n" }
-    sha256Hex(lines.toByteArray(Charsets.UTF_8)).take(8)
-}
-val rootfsVersion = "${envValue("ROOTFS_VERSION")}-$rootfsSourceHash"
+//  -Pdshm.abi=arm64-v8a  package only that ABI's native library (SQLCipher); the release is arm64 only (arch 1.12)
+val abiProp = providers.gradleProperty("dshm.abi").orNull
 
 // Signing comes from the environment only (the release workflow sets it); without it the release APK stays unsigned.
 val keystorePath: String? = System.getenv("DSHM_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
@@ -86,16 +24,10 @@ android {
         targetSdk = 37
         versionCode = providers.gradleProperty("dshm.versionCode").map(String::toInt).getOrElse(1)
         versionName = providers.gradleProperty("dshm.versionName").getOrElse("0.1.0")
-        // Starts the fake model and points the gateway at it before the app's onCreate (see src/androidTest/.../E2eRunner.kt).
+        // Starts the fake model and points the company at it before the app's onCreate (see src/androidTest/.../E2eRunner.kt).
         testInstrumentationRunner = "app.dshmobile.E2eRunner"
 
-        buildConfigField("String", "ROOTFS_VERSION", "\"$rootfsVersion\"")
-        // The dsh version the rootfs ships; DshVersions falls back to it when `/opt/dsh/current` points at nothing.
-        buildConfigField("String", "DSH_PINNED_VERSION", "\"${envValue("DSH_PINNED_VERSION")}\"")
-        val releasesRepo = providers.gradleProperty("dshm.releasesRepo").get()
-        buildConfigField("String", "RELEASES_REPO", "\"$releasesRepo\"")
-
-        if (rootfsNdkAbi != null) ndk { abiFilters += rootfsNdkAbi }
+        if (abiProp != null) ndk { abiFilters += abiProp }
     }
 
     signingConfigs {
@@ -115,18 +47,6 @@ android {
         }
     }
 
-    // The bundled rootfs is already xz-compressed (130 MB): storing it uncompressed avoids a second pass and lets AssetFileDescriptor.length work.
-    androidResources {
-        noCompress += "xz"
-    }
-
-    packaging {
-        // Android only execs files from nativeLibraryDir; proot ships as lib*.so and must be extracted to disk.
-        jniLibs.useLegacyPackaging = true
-        // The native runtime's programs and libraries ship exactly as Termux built them (native/build-runtime.py): no strip.
-        jniLibs.keepDebugSymbols += "**/libdshn_*.so"
-    }
-
     buildFeatures {
         buildConfig = true
         compose = true
@@ -140,7 +60,6 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
-            // The theme goldens draw whole screens with native graphics (tall pages up to 3,000 px): room for them.
             it.maxHeapSize = "2g"
             // Robolectric needs JDK-internal access on JDK 17+.
             it.jvmArgs(
@@ -168,11 +87,6 @@ dependencies {
     // The agency brain: pure Kotlin/JVM, no Android (android/core).
     implementation(project(":core"))
     implementation(libs.androidx.work.runtime.ktx)
-    implementation(libs.commons.compress)
-    implementation(libs.androidsvg)
-    implementation(libs.xz)
-    implementation(libs.ktor.server.core)
-    implementation(libs.ktor.server.cio)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
@@ -183,23 +97,12 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.sqlcipher.android)
     implementation(libs.androidx.sqlite)
-    // Ktor logs through SLF4J; the no-op binding keeps request URLs (which carry the session token) out of any log.
-    implementation(libs.slf4j.nop)
-
-    // Model replies are parsed with commonmark-java (BSD-2, pure Java, offline) and drawn natively; see ui/markdown/Markdown.kt.
-    implementation(libs.commonmark)
-    implementation(libs.commonmark.ext.gfm.tables)
-    implementation(libs.commonmark.ext.gfm.strikethrough)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.activity.compose)
-    // JankStats: frame timing that feeds the auto-degrade of effects (ui/fog/JankGovernor.kt).
-    implementation(libs.androidx.metrics.performance)
-    // WebViewAssetLoader: the community startup looks (assets/intro-web/) play in a locked-down WebView (ui/fog/WebIntro.kt).
-    implementation(libs.androidx.webkit)
 
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)
@@ -233,32 +136,38 @@ dependencies {
     androidTestImplementation(libs.androidx.test.uiautomator)
 }
 
-// The rootfs becomes assets/rootfs.tar.xz through a generated directory under build/ (never in the source tree).
-if (rootfsSource != null) {
-    val stageRootfs = tasks.register<StageRootfsAsset>("stageRootfsAsset") {
-        rootfs.set(rootfsSource)
-        outputDir.set(layout.buildDirectory.dir("generated/rootfs-assets"))
-    }
-    androidComponents.onVariants { variant ->
-        variant.sources.assets?.addGeneratedSourceDirectory(stageRootfs, StageRootfsAsset::outputDir)
-    }
-}
-
-// -Pdshm.nativeDir=<dir> (native/build-runtime.py's OUT): the experimental Android-native dsh runtime — node, bash, ripgrep,
-// git, python3 (and its extension modules) and the file-lock addon as jniLibs/<abi>/libdshn_*.so, plus assets/native/manifest.json,
-// ca-bundle.crt and python.tar.xz (the pure-Python standard library and pip). Optional: without it the app has the proot runtime
-// only and the native mode reports itself unavailable.
-providers.gradleProperty("dshm.nativeDir").orNull?.let { dir ->
-    val native = file(dir).also { check(File(it, "assets/native/manifest.json").isFile) { "dshm.nativeDir has no assets/native/manifest.json: $dir" } }
-    android.sourceSets.getByName("main") {
-        jniLibs.srcDir(File(native, "jniLibs"))
-        assets.srcDir(File(native, "assets"))
-    }
-}
-
 // Room writes schemas/<db>/<version>.json at compile time; the files are checked in (arch 1.2).
 room {
     schemaDirectory("$projectDir/schemas")
 }
 
-apply(from = "proot.gradle.kts")
+// No telemetry (arch 1.11): no analytics, crash-report or tracking library may reach the app, and no source may import one.
+// CI runs it next to the unit tests; it reads the resolved runtime classpaths and the main sources of :app and :core.
+val forbiddenTelemetry = listOf(
+    "com.google.firebase", "com.google.android.gms:play-services-analytics", "com.google.android.gms:play-services-measurement",
+    "com.crashlytics", "io.sentry", "com.bugsnag", "com.microsoft.appcenter", "com.amplitude", "com.mixpanel",
+    "com.segment.analytics", "io.opentelemetry", "com.datadoghq", "com.newrelic", "com.instabug", "io.embrace", "ly.count",
+)
+tasks.register("verifyNoTelemetry") {
+    group = "verification"
+    description = "Fails when an analytics, crash-report or tracking library is on a runtime classpath or imported."
+    val classpaths = listOf("debugRuntimeClasspath", "releaseRuntimeClasspath").map { configurations.getByName(it) }
+    val sources = listOf(file("src/main"), rootProject.file("core/src/main"))
+    inputs.files(classpaths)
+    inputs.files(sources)
+    doLast {
+        val modules = classpaths.flatMap { c ->
+            c.incoming.resolutionResult.allComponents.mapNotNull { (it.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)?.let { m -> "${m.group}:${m.module}" } }
+        }.distinct()
+        val badModules = modules.filter { m -> forbiddenTelemetry.any { m.startsWith(it) } }
+        val importPrefixes = forbiddenTelemetry.map { it.substringBefore(':') }
+        val badImports = sources.flatMap { root ->
+            root.walkTopDown().filter { it.isFile && (it.extension == "kt" || it.extension == "xml") }.flatMap { f ->
+                f.readLines().withIndex().filter { (_, l) -> importPrefixes.any { p -> l.contains("import $p") || l.contains("\"$p") } }
+                    .map { "${f.relativeTo(rootProject.projectDir)}:${it.index + 1}" }
+            }.toList()
+        }
+        check(badModules.isEmpty() && badImports.isEmpty()) { "telemetry found: modules=$badModules imports=$badImports" }
+        logger.lifecycle("verifyNoTelemetry: ${modules.size} modules, no telemetry")
+    }
+}

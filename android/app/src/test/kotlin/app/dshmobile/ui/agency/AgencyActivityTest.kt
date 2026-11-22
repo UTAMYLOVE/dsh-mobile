@@ -102,10 +102,9 @@ class AgencyActivityTest {
         // dsh is never started: no service, and the old shell is not the screen.
         assertNull(shadowOf(app).nextStartedService)
         assertFalse(shadowOf(app).nextStartedActivity?.component?.className == "app.dshmobile.ui.MainActivity")
-        // Nothing of dsh or the old coach was even built.
-        listOf("controller", "coach", "coachStore", "rootfsInstaller").forEach { f ->
-            val lazy = DshMobileApp::class.java.getDeclaredField("$f\$delegate").apply { isAccessible = true }.get(app) as Lazy<*>
-            assertFalse("$f was built", lazy.isInitialized())
+        // Nothing of dsh or the old coach is left in the app to build (T09).
+        listOf("controller", "coach", "coachStore", "rootfsInstaller", "notifier").forEach { f ->
+            assertTrue(f, DshMobileApp::class.java.declaredFields.none { it.name.startsWith(f + "\$") || it.name == f })
         }
     }
 

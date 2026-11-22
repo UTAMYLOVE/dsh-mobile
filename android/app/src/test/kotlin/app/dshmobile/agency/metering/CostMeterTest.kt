@@ -1,7 +1,7 @@
 package app.dshmobile.agency.metering
 
 import app.agency.core.metering.MutableClock
-import app.dshmobile.gateway.InMemorySharedPreferences
+import app.dshmobile.agency.support.InMemorySharedPreferences
 import app.agency.core.metering.PriceTable
 import app.agency.core.metering.Provider
 import app.agency.core.metering.Usage

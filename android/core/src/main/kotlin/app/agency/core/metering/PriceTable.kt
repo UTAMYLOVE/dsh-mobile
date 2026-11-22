@@ -5,7 +5,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 
 /**
- * USD per million tokens (docs/dsh-findings.md, Providers, 2026-11-02).
+ * USD per million tokens (the providers notes of 2026-11-02).
  * Estimates only: holidays are not modelled, which errs on the high side.
  */
 class PriceTable {

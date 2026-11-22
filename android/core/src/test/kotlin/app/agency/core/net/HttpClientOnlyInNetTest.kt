@@ -17,7 +17,8 @@ class HttpClientOnlyInNetTest {
             """\bHttpClient\s*\(|\bHttpClient\.new(?:HttpClient|Builder)\b|\bSocket\s*\(|\.toURL\(\)|openConnection\(|newWebSocket\(""",
     )
     private val okHttpName = Regex("""\bOkHttpClient\b""")
-    private val legacy = setOf("app/dshmobile/DshMobileApp.kt", "app/dshmobile/gateway/LocalGateway.kt", "app/dshmobile/runtime/DshClient.kt")
+    /** Files allowed to build their own client: none since dsh's gateway, client and app wiring were deleted (T09). */
+    private val legacy = emptySet<String>()
 
     private fun root(): File = listOf(File(".."), File("."), File("android")).map { it.canonicalFile }
         .first { File(it, "core/src/main").isDirectory && File(it, "app/src/main").isDirectory }
@@ -52,13 +53,11 @@ class HttpClientOnlyInNetTest {
         assertEquals(emptyList<String>(), offenders)
     }
 
-    @Test fun theLegacyFilesStillNeedTheirException() {
-        // When a legacy file is deleted or stops building clients, drop it from the list.
+    @Test fun noLegacyFileIsExceptedAnyMore() {
+        // dsh's LocalGateway, DshClient and the old app wiring built their own clients; they are gone (T09), and so is the list.
         val app = File(root(), "app/src/main/kotlin")
-        legacy.forEach { rel ->
-            val f = File(app, rel)
-            assertTrue("$rel is gone: remove it from the list", f.isFile && f.readLines().any { pattern.containsMatchIn(it) })
-        }
+        listOf("app/dshmobile/gateway/LocalGateway.kt", "app/dshmobile/runtime/DshClient.kt").forEach { assertTrue(it, !File(app, it).exists()) }
+        assertTrue(legacy.isEmpty())
     }
 
     @Test fun theScanCatchesEachForm() {
