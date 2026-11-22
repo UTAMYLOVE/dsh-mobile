@@ -326,6 +326,24 @@ class MealT14Test {
         assertFalse(MealBudget.next(plan, rules, 600, 40.0, setOf(SlotKey.LUNCH), dinner - 1)!!.smaller)
     }
 
+    @Test fun theFloorLinksReadTheRealMealsAtDinnerAndAfterTheRide() {
+        // L6 at dinner: two reported meals come to 1100, under 1200: eat enough (never less).
+        food("測試午餐", 600)
+        food("測試晚餐", 500)
+        say("12:30", "吃了測試午餐", meal(item("測試午餐")))
+        say("17:20", "晚餐吃了測試晚餐", meal(item("測試晚餐")))
+        val floor = runBlocking { store.nerve.effects(day.toString()) }.filter { it.link == "L6" }
+        assertEquals(listOf("今天才吃 1100 大卡，不到 1200。要吃夠，不准少吃；吃了拍照回報。"), floor.map { it.because })
+        // L9 → L6 the next day: the 21:00 portion reported on the run, home at 23:30: no 宵夜, and 310 is under the floor.
+        day = day.plusDays(1)
+        say("18:05", "出門跑單")
+        say("21:05", "跑單路上吃了即食雞胸和統一高纖豆漿", meal(item("即食雞胸"), item("統一高纖豆漿")))
+        say("23:30", "收工")
+        val effects = runBlocking { store.nerve.effects(day.toString()) }
+        assertTrue(effects.any { it.link == "L9" && it.kind == EffectKind.ADJUST })
+        assertEquals(listOf("今天才吃 310 大卡，不到 1200。要吃夠，不准少吃；吃了拍照回報。"), effects.filter { it.link == "L6" }.map { it.because })
+    }
+
     @Test fun recordingAMealCallsOnlyTheClerk() {
         at("12:30")
         val llm = ScriptedLlm(meal(item("雞腿便當", 650)))
