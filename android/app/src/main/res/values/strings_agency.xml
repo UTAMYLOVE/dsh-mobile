@@ -14,6 +14,7 @@
 
     <!-- Navigation -->
     <string name="ag_tab_company">公司</string>
+    <string name="ag_tab_lessons">理論課</string>
     <string name="ag_tab_warroom">指揮室</string>
     <string name="ag_tab_settings">設定</string>
 
@@ -358,4 +359,36 @@
     <string name="ag_review_good">今天做得好的一件事</string>
     <string name="ag_review_fix">明天要改的一件事</string>
     <string name="ag_review_send">交出</string>
+    <!-- 理論課 (T19c) -->
+    <string name="ag_lesson_said">經紀人說</string>
+    <string name="ag_lesson_today_title">今天的理論課（通過 %1$d／%2$d 支）</string>
+    <string name="ag_lesson_not_started">還沒有課程清單。先找影片，按好的才會排進每天的行程。</string>
+    <string name="ag_lesson_locked">前一支通過才開</string>
+    <string name="ag_lesson_go">去看</string>
+    <string name="ag_lesson_watched">看完了</string>
+    <string name="ag_lesson_points_hint">用自己的話寫三個重點，每個至少 %1$d 個字。</string>
+    <string name="ag_lesson_point">重點 %1$d</string>
+    <string name="ag_lesson_send">交出</string>
+    <string name="ag_lesson_wait_quiz">題目準備中，等一下。</string>
+    <string name="ag_lesson_submit">交卷</string>
+    <string name="ag_lesson_note">筆記（至少 %1$d 個字）</string>
+    <string name="ag_lesson_note_count">現在 %1$d 個字</string>
+    <string name="ag_lesson_practical">實作（可做可不做）：%1$s</string>
+    <string name="ag_lesson_practical_photo">拍照交實作</string>
+    <string name="ag_lesson_practical_record">錄音交實作</string>
+    <string name="ag_lesson_practical_done">實作交了</string>
+    <string name="ag_lesson_review_title">複習考</string>
+    <string name="ag_lesson_review_hint">兩天前的課，各考三題。只記錄，不擋下一支。</string>
+    <string name="ag_lesson_review_start">開始複習考</string>
+    <string name="ag_lesson_find_title">找影片</string>
+    <string name="ag_lesson_find_hint">只列真的搜尋結果；你按好才放進課程清單。不選類別就輪到下一類。</string>
+    <string name="ag_lesson_find">找影片</string>
+    <string name="ag_lesson_yes">好</string>
+    <string name="ag_lesson_no">不要</string>
+    <string name="ag_lesson_list_title">課程清單（%1$d 支）</string>
+    <string name="ag_lesson_history_title">成績</string>
+    <string name="ag_lesson_score">第一輪 %1$d／3</string>
+    <string name="ag_lesson_points_instead">寫重點代替</string>
+    <string name="ag_lesson_retries">重考 %1$d 題</string>
+    <string name="ag_lesson_review_score">複習考 %1$d／3</string>
 </resources>

@@ -8,6 +8,15 @@ import app.agency.core.model.DayOverride
 import app.agency.core.model.FavoritePlace
 import app.agency.core.model.FoodEntry
 import app.agency.core.model.KcalSource
+import app.agency.core.model.Lesson
+import app.agency.core.model.LessonCategory
+import app.agency.core.model.LessonStatus
+import app.agency.core.model.Quiz
+import app.agency.core.model.QuizAnswer
+import app.agency.core.model.QuizKind
+import app.agency.core.model.QuizQuestion
+import app.agency.core.model.QuizStatus
+import app.agency.core.model.StudyLanguage
 import app.agency.core.model.Meal
 import app.agency.core.model.MealItem
 import app.agency.core.model.MealOrder
@@ -341,6 +350,37 @@ abstract class AgencyStoreContract {
         assertEquals(2, thinking.count())
         assertEquals(1, thinking.prune(150))
         assertEquals(listOf("m-2"), thinking.of(listOf("m-1", "m-2")).map { it.messageId })
+    }
+
+    @Test fun lessonsAndTheirQuizzesRoundTrip() = test {
+        val a = Lesson(
+            "l-1", "r-1", LessonCategory.LANGUAGE, StudyLanguage.ENGLISH, "英文會話第一課", "https://example.org/v/1", "教材：打招呼的說法",
+            foundAt = 10,
+        )
+        assertTrue(lessons.insert(a))
+        assertFalse(lessons.insert(a.copy(title = "別的")))
+        lessons.insert(Lesson("l-0", "r-0", LessonCategory.VOCAL, null, "發聲", "https://example.org/v/0", "腹式呼吸", foundAt = 5))
+        assertEquals(listOf("l-0", "l-1"), lessons.all().map { it.id })
+        val done = a.copy(
+            status = LessonStatus.LISTED, listedAt = 11, openedAt = 12, watchedAt = 13, keyPoints = "一\n二\n三", quizPassedAt = 14,
+            note = "筆記", passedAt = 15, passedDay = "2026-12-07", score = 1, retries = 1, fallback = false, practicalMediaId = "media-1",
+            reviewDay = "2026-12-09", reviewScore = 3, reviewedAt = 20,
+        )
+        lessons.upsert(done)
+        assertEquals(done, lessons.get("l-1"))
+        assertEquals(listOf("l-1"), lessons.withStatus(LessonStatus.LISTED).map { it.id })
+        assertEquals(listOf("l-0"), lessons.withStatus(LessonStatus.CANDIDATE).map { it.id })
+        val q = Quiz(
+            "q-1", "l-1", QuizKind.MAIN, 13, listOf(QuizQuestion("問？", listOf("甲", "乙", "丙", "丁"), 2, "原文")), shown = 1,
+            answers = listOf(QuizAnswer(0, 2, true)), status = QuizStatus.PASSED, score = 1,
+        )
+        lessons.putQuiz(q)
+        lessons.putQuiz(Quiz("q-2", "l-1", QuizKind.REVIEW, 30, emptyList(), shown = 0))
+        assertEquals(q, lessons.quiz("q-1"))
+        assertEquals(listOf("q-1", "q-2"), lessons.quizzes("l-1").map { it.id })
+        lessons.putQuiz(q.copy(status = QuizStatus.FAILED))
+        assertEquals(QuizStatus.FAILED, lessons.quiz("q-1")!!.status)
+        assertTrue(lessons.quizzes("l-0").isEmpty())
     }
 
     @Test fun anUnsentMessageAndItsRefsRoundTrip() = test {

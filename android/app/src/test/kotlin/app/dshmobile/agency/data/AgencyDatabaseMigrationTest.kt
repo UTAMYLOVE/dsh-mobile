@@ -84,7 +84,7 @@ class AgencyDatabaseMigrationTest {
             assertTrue(store.nerve.insertSignal(StoredSignal("sig", "2026-11-22", 1, "woke_up", "{}")))
             assertTrue(store.nerve.insertEffect(NerveEffect("e", "2026-11-22", 2, "L1", "sig", EffectKind.ADJUST, "{}", "因為…所以…", EffectStatus.ACTIVE)))
             assertEquals(1, store.nerve.effects("2026-11-22").size)
-            assertEquals(3, db.openHelper.readableDatabase.version)
+            assertEquals(4, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -144,7 +144,7 @@ class AgencyDatabaseMigrationTest {
             assertTrue(store.messages.get("m1")!!.unsent)
             store.thinking.put(app.agency.core.model.StoredThinking("m2", 6, "DEEPSEEK", "OPENAI", "想一下"))
             assertEquals("想一下", store.thinking.of(listOf("m2")).single().payload)
-            assertEquals(3, db.openHelper.readableDatabase.version)
+            assertEquals(4, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -165,5 +165,68 @@ class AgencyDatabaseMigrationTest {
         val v2Tables = schema(2).getJSONArray("entities").let { a -> (0 until a.length()).map { a.getJSONObject(it).getString("tableName") } }.toSet()
         assertEquals(setOf("thinking"), byName.keys - v2Tables)
         assertTrue((v2Tables - byName.keys).isEmpty())
+    }
+
+    /** The v3 file as batches 3–5 left it: a line, a stored search result of a place, the manager's thinking. */
+    private fun writeV3() {
+        val db = create(3)
+        db.execSQL("INSERT INTO message (id, at, who, role, kind, mode, text, refs, worded_by, legacy, unsent) VALUES ('m1', 5, 'OWNER', NULL, NULL, 'NORMAL', '找影片', '{}', NULL, 0, 0)")
+        db.execSQL("INSERT INTO search_result (id, kind, query, url, title, summary, date, authority, rerank, fetched_at) VALUES ('r1', 'PLACE', '大安區 雞胸 推薦', 'https://a.example/1', '甲店', '摘要', NULL, 2.0, 2.0, 7)")
+        db.execSQL("INSERT INTO thinking (message_id, at, provider, wire, payload) VALUES ('m1', 5, 'DEEPSEEK', 'OPENAI', '想')")
+        db.close()
+    }
+
+    @Test fun aVersionThreeFileMigratesToFourAndTheLessonTablesWork() = runBlocking {
+        writeV3()
+        val db = AgencyDatabase.build(context, file.path, FrameworkSQLiteOpenHelperFactory())
+        try {
+            val store = RoomAgencyStore(db)
+            assertEquals(listOf("找影片"), store.messages.recent(10).map { it.text })
+            assertEquals("甲店", store.places.result("r1")!!.title)
+            assertEquals(1, store.thinking.count())
+            assertTrue(store.lessons.all().isEmpty())
+            val l = app.agency.core.model.Lesson("l1", "r1", app.agency.core.model.LessonCategory.VOCAL, null, "發聲", "https://a.example/v", "教材", foundAt = 9)
+            assertTrue(store.lessons.insert(l))
+            assertEquals(l, store.lessons.get("l1"))
+            store.lessons.putQuiz(app.agency.core.model.Quiz("q1", "l1", app.agency.core.model.QuizKind.MAIN, 10, emptyList(), shown = 0))
+            assertEquals(listOf("q1"), store.lessons.quizzes("l1").map { it.id })
+            assertEquals(4, db.openHelper.readableDatabase.version)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun theMigrationToFourIsWhatTheV4SchemaSays() {
+        val v4 = schema(4).getJSONArray("entities")
+        val byName = (0 until v4.length()).map { v4.getJSONObject(it) }.associateBy { it.getString("tableName") }
+        val expected = listOf("lesson", "quiz").flatMap { t ->
+            val e = byName.getValue(t)
+            val idx = e.getJSONArray("indices")
+            listOf(e.getString("createSql").replace("\${TABLE_NAME}", t)) +
+                (0 until idx.length()).map { idx.getJSONObject(it).getString("createSql").replace("\${TABLE_NAME}", t) }
+        }
+        assertEquals(expected, AgencyDatabase.MIGRATION_3_4_SQL)
+        val v3Tables = schema(3).getJSONArray("entities").let { a -> (0 until a.length()).map { a.getJSONObject(it).getString("tableName") } }.toSet()
+        assertEquals(setOf("lesson", "quiz"), byName.keys - v3Tables)
+        assertTrue((v3Tables - byName.keys).isEmpty())
+        // Every v3 table is unchanged in v4 (nothing else was altered).
+        val v3 = schema(3).getJSONArray("entities").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.associateBy { it.getString("tableName") }
+        v3.forEach { (t, e) -> assertEquals(t, e.getString("createSql"), byName.getValue(t).getString("createSql")) }
+    }
+
+    @Test fun withoutTheMigrationAVersionThreeFileDoesNotOpenAndIsKept() {
+        writeV3()
+        val before = file.length()
+        val db = Room.databaseBuilder(context, AgencyDatabase::class.java, file.path).openHelperFactory(FrameworkSQLiteOpenHelperFactory())
+            .addMigrations(AgencyDatabase.MIGRATION_1_2, AgencyDatabase.MIGRATION_2_3).build()
+        try {
+            db.openHelper.writableDatabase
+            fail("v3 must not open as v4 without its migration")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message, e.message!!.contains("migration", ignoreCase = true))
+        } finally {
+            db.close()
+        }
+        assertTrue(file.exists() && file.length() >= before)
     }
 }

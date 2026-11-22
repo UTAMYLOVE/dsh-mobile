@@ -291,4 +291,16 @@ class RoomAgencyStore(private val db: AgencyDatabase) : AgencyStore {
         override suspend fun prune(before: Long): Int = dao.prune(before)
         override suspend fun count(): Int = dao.count()
     }
+
+    override val lessons = object : app.agency.core.store.LessonRepo {
+        private val dao = db.lessons()
+        override suspend fun insert(lesson: app.agency.core.model.Lesson): Boolean = dao.insert(app.dshmobile.agency.data.entities.LessonEntity.of(lesson)) != -1L
+        override suspend fun upsert(lesson: app.agency.core.model.Lesson) = dao.upsert(app.dshmobile.agency.data.entities.LessonEntity.of(lesson))
+        override suspend fun get(id: String): app.agency.core.model.Lesson? = dao.get(id)?.toModel()
+        override suspend fun all(): List<app.agency.core.model.Lesson> = dao.all().map { it.toModel() }
+        override suspend fun withStatus(status: app.agency.core.model.LessonStatus): List<app.agency.core.model.Lesson> = dao.withStatus(status).map { it.toModel() }
+        override suspend fun putQuiz(quiz: app.agency.core.model.Quiz) = dao.putQuiz(app.dshmobile.agency.data.entities.QuizEntity.of(quiz))
+        override suspend fun quiz(id: String): app.agency.core.model.Quiz? = dao.quiz(id)?.toModel()
+        override suspend fun quizzes(lessonId: String): List<app.agency.core.model.Quiz> = dao.quizzes(lessonId).map { it.toModel() }
+    }
 }

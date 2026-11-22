@@ -37,6 +37,8 @@ import app.dshmobile.agency.data.AgencyDatabase
 import app.dshmobile.agency.migrate.LegacyImporter
 import app.dshmobile.ui.agency.AgencyActivity
 import app.dshmobile.ui.agency.AgencyTags
+import app.dshmobile.ui.agency.lessons.LessonTags
+import app.dshmobile.ui.agency.AgencyTab
 import app.dshmobile.ui.agency.onboarding.OnboardingTags
 import app.agency.core.brain.handlers.OnboardingStep
 import java.io.File
@@ -458,6 +460,44 @@ class AgencyE2eTest {
         rule.onNodeWithTag(SignTags.FIX).performTextInput("早點睡")
         rule.onNodeWithTag(SignTags.REVIEW_SEND).performClick()
         rule.waitUntil(30_000) { runBlocking { ready().store.messages.recent(5) }.any { it.text.startsWith("今天的檢討卡") } }
+    }
+
+    /**
+     * T19c on the phone: 找影片 on the 理論課 tab sends code's words to the search only; the real result is a candidate until 好;
+     * 看完了 brings three questions (each quote checked by code); 交卷 is graded by the app; the note passes the lesson.
+     */
+    @Test fun e14_lessonFromSearchToPass() {
+        app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
+        val text = (1..5).joinToString("") { "吐氣的時候用嘴巴發出嘶的聲音，盡量維持十五秒以上。唱高音的時候不要用喉嚨擠，要把氣往下沉。吸氣的時候肩膀不要抬起來。" }
+        fake.searchResults = org.json.JSONArray()
+            .put(org.json.JSONObject().put("url", "https://www.youtube.com/watch?v=e2e").put("title", "腹式呼吸練習").put("summary", "呼吸").put("content", text).put("rerank_score", 2.0))
+        fun q(q: String, o: List<String>, a: Int, quote: String) = org.json.JSONObject().put("q", q).put("options", org.json.JSONArray(o)).put("answer", a).put("quote", quote)
+        fake.quizJson = org.json.JSONObject().put(
+            "questions",
+            org.json.JSONArray()
+                .put(q("嘶的聲音要維持多久以上？", listOf("五秒", "十秒", "十五秒", "三十秒"), 2, "盡量維持十五秒以上"))
+                .put(q("唱高音時氣要怎樣？", listOf("往上提", "往下沉", "憋住", "用喉嚨擠"), 1, "要把氣往下沉"))
+                .put(q("吸氣時肩膀要怎樣？", listOf("抬起來", "不要抬起來", "往前縮", "往後夾"), 1, "吸氣的時候肩膀不要抬起來")),
+        ).toString()
+        open()
+        rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.LESSONS.name).performClick()
+        rule.onNodeWithTag(LessonTags.FIND).performScrollTo().performClick()
+        rule.waitUntil(60_000) { runBlocking { ready().store.lessons.all() }.isNotEmpty() }
+        val id = runBlocking { ready().store.lessons.all() }.single().id
+        val search = fake.seen.single { it.path.endsWith("/v1/tools/search") }
+        assertTrue(search.body, search.body.contains("發聲練習 唱歌技巧 教學 影片"))
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(LessonTags.YES + id).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(LessonTags.YES + id).performScrollTo().performClick()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(LessonTags.WATCHED + id).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(LessonTags.WATCHED + id).performScrollTo().performClick()
+        rule.waitUntil(60_000) { rule.onAllNodesWithTag(LessonTags.SUBMIT).fetchSemanticsNodes().isNotEmpty() }
+        listOf("0-2", "1-1", "2-1").forEach { rule.onNodeWithTag(LessonTags.OPTION + it).performScrollTo().performClick() }
+        rule.onNodeWithTag(LessonTags.SUBMIT).performScrollTo().performClick()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(LessonTags.NOTE).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(LessonTags.NOTE).performScrollTo().performTextInput("嘶的聲音要維持十五秒以上，高音時氣往下沉，吸氣肩膀不要抬起來，每天早上練五分鐘。")
+        rule.onNodeWithTag(LessonTags.NOTE_SEND).performScrollTo().performClick()
+        rule.waitUntil(30_000) { runBlocking { ready().store.lessons.get(id) }!!.passed }
+        assertEquals(3, runBlocking { ready().store.lessons.get(id) }!!.score)
     }
 
     private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }

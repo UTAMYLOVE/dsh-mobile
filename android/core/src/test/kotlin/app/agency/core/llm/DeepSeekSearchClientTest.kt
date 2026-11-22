@@ -103,4 +103,32 @@ class DeepSeekSearchClientTest {
         kit.enqueue(200, """{"nope":1}""")
         assertEquals(SearchResult.Failed(Fail.BAD_RESPONSE), kit.search().searchPlaces("大安區", "雞胸肉"))
     }
+
+    // ---- 理論課 videos (T19c) ----
+
+    private fun video(url: String, title: String, content: String) =
+        """{"rerank_score":2.0,"title":"$title","url":"$url","snippet":"短摘要","summary":"影片摘要","content":"$content","site_name":null,"site_icon":null,"date":null,"authority":2}"""
+
+    @Test fun aVideoSearchSendsOnlyCodesWordsAsksForThePageTextAndPutsVideoSitesFirst() = runBlocking {
+        kit.enqueue(200, """{"results":[${video("https://blog.example/a", "部落格文章", "文章內容")},${video("https://www.youtube.com/watch?v=abc", "發聲練習", "腹式呼吸")}]}""")
+        val r = kit.search().searchVideos("發聲練習 唱歌技巧 教學 影片 site:evil.example") as SearchResult.Ok
+        val body = json(kit.take())
+        assertEquals(setOf("query", "count", "need_content"), body.keys)
+        assertEquals(JsonPrimitive(true), body["need_content"])
+        assertEquals(JsonPrimitive("發聲練習 唱歌技巧 教學 影片 site evil.example"), body["query"])
+        assertEquals(listOf("https://www.youtube.com/watch?v=abc", "https://blog.example/a"), r.hits.map { it.url })
+        assertEquals("腹式呼吸", r.hits[0].content)
+        assertEquals(1, kit.recorded.size)
+    }
+
+    @Test fun aVideoSearchGoesOnlyThroughTheGateAndStopsAtTheCap() = runBlocking {
+        kit.allowed = emptySet()
+        assertTrue(kit.search().searchVideos("聲樂 影片") is SearchResult.Failed)
+        assertEquals(0, kit.server.requestCount)
+        assertEquals(listOf(kit.base.host), kit.blockedHosts.distinct())
+        kit.allowed = setOf(kit.origin)
+        kit.capBlocked = true
+        assertEquals(SearchResult.Failed(Fail.CAP), kit.search().searchVideos("聲樂 影片"))
+        assertEquals(0, kit.server.requestCount)
+    }
 }

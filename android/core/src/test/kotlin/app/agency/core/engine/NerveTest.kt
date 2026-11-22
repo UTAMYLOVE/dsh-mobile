@@ -114,8 +114,8 @@ class NerveTest {
 
     @Test fun everyLinkOfTheTableIsRegistered() {
         val ids = Links.all().map { it.id }
-        assertEquals((1..23).map { "L$it" }.toSet(), ids.filter { it.matches(Regex("L\\d+")) }.toSet())
-        // Every link of the table has its data now (T19 brought the last two, L19 and L20).
+        assertEquals((1..24).map { "L$it" }.toSet(), ids.filter { it.matches(Regex("L\\d+")) }.toSet())
+        // Every link of the table has its data now (T19 brought L19 and L20; T19c adds L24, 理論課).
         assertTrue(Links.Pending.all.isEmpty())
         Links.Pending.all.forEach { assertTrue(it.id, it.batch.isNotBlank()) }
     }

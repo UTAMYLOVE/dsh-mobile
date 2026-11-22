@@ -29,3 +29,17 @@ import app.dshmobile.agency.data.entities.SignalEntity
     @Query("DELETE FROM thinking WHERE at < :before") suspend fun prune(before: Long): Int
     @Query("SELECT COUNT(*) FROM thinking") suspend fun count(): Int
 }
+
+/** 理論課 (schema v4, T19c). */
+@Dao interface LessonDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insert(row: app.dshmobile.agency.data.entities.LessonEntity): Long
+    @androidx.room.Upsert suspend fun upsert(row: app.dshmobile.agency.data.entities.LessonEntity)
+    @Query("SELECT * FROM lesson WHERE id = :id") suspend fun get(id: String): app.dshmobile.agency.data.entities.LessonEntity?
+    @Query("SELECT * FROM lesson ORDER BY found_at, id") suspend fun all(): List<app.dshmobile.agency.data.entities.LessonEntity>
+    @Query("SELECT * FROM lesson WHERE status = :status ORDER BY found_at, id")
+    suspend fun withStatus(status: app.agency.core.model.LessonStatus): List<app.dshmobile.agency.data.entities.LessonEntity>
+    @androidx.room.Upsert suspend fun putQuiz(row: app.dshmobile.agency.data.entities.QuizEntity)
+    @Query("SELECT * FROM quiz WHERE id = :id") suspend fun quiz(id: String): app.dshmobile.agency.data.entities.QuizEntity?
+    @Query("SELECT * FROM quiz WHERE lesson_id = :lessonId ORDER BY created_at, id")
+    suspend fun quizzes(lessonId: String): List<app.dshmobile.agency.data.entities.QuizEntity>
+}

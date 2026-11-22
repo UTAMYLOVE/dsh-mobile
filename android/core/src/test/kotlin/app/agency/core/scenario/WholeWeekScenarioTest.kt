@@ -24,6 +24,7 @@ import app.agency.core.schedule.SlotKey
 import app.agency.core.store.InMemoryAgencyStore
 import app.agency.core.structured.ScriptedLlm
 import app.agency.core.time.AgencyClock
+import app.agency.core.lessons.LessonKit
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -37,6 +38,8 @@ import org.junit.Test
  * still), the real-person task on Thursday, tomorrow's fix said yes to every night. Sunday's rounds earn the one progression
  * proposal (背包划船, his yes changes the training plan); the next Monday's start brings the week's evaluation: on target, the
  * first week on target, the photocard wall, and the next real-person task.
+ * Batch 5b (T19c): 理論課 every day (fourteen videos found by search and said 好 to on Monday morning; two lessons a day,
+ * each quiz passed and its note written), and Monday's two 複習考 on Wednesday (day +2), recorded only.
  */
 class WholeWeekScenarioTest {
     private val store = InMemoryAgencyStore()
@@ -53,11 +56,15 @@ class WholeWeekScenarioTest {
             Purpose.INTAKE -> ScriptedLlm.ok(meals.removeFirst())
             Purpose.NUDGE -> ScriptedLlm.ok("""{"text":"今天做得很好，現在去睡。"}""")
             Purpose.JUDGE -> ScriptedLlm.ok("""{"violation":false,"class":"none","reason":""}""")
+            // A lesson's quiz from its 教材; a 複習考 (it lists the questions asked before) gets three new ones.
+            Purpose.QUIZ -> if ((r.turns.single() as app.agency.core.llm.Turn.User).text.contains("【之前考過的題目")) LessonKit.quiz(LessonKit.VOCAL_REVIEW)
+            else LessonKit.quiz(LessonKit.VOCAL_QS)
             else -> error("unexpected ${r.purpose}")
         }
     }
     private var n = 0
-    private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%05d".format(++n) }
+    private val search = LessonKit.FakeSearch()
+    private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), search = search) { "id-%05d".format(++n) }
 
     init {
         runBlocking { store.profile.put(Profile(joinDate = "2026-12-01", onboardingDone = true)) }
@@ -80,6 +87,20 @@ class WholeWeekScenarioTest {
         return say(hhmm, text)
     }
 
+    private val note = "腹式呼吸要讓肚子鼓起來，肩膀不能抬，吐氣維持十五秒，高音時氣往下沉不要擠喉嚨。"
+
+    /** The day's two lessons after the first meal (in class on a class day): watch, three questions, the note. */
+    private fun lessons() = runBlocking {
+        listOf("14:10", "14:20").forEach { hhmm ->
+            at(hhmm)
+            val id = brain.lessonBoard().list.first { !it.locked }.id
+            brain.openLesson(id)
+            brain.lessonWatched(id)
+            assertTrue(brain.answerLesson(id, listOf(2, 1, 1)).last().text.contains("答對 3 題，考過了。"))
+            assertTrue(brain.lessonNote(id, note).first { it.who == Who.COMPANY }.text.startsWith("通過："))
+        }
+    }
+
     private val full = mapOf("push_up" to 15, "squat" to 12, "plank" to 45, "row" to 12, "bridge" to 15)
 
     /** One day as he lives it; [rest] declares 「今天休息」. Returns what the evening's rounds said. */
@@ -90,6 +111,7 @@ class WholeWeekScenarioTest {
         assertTrue(say(if (cls) "08:31" else "11:31", "4").single().startsWith("記下：今天 4 分"))
         if (rest) say("11:40", "今天休息")
         meal(if (cls) "12:15" else "13:05", if (cls) "午餐吃了南加州烤雞腿" else "第一餐吃了南加州烤雞腿", item("南加州烤雞腿", 714, 48))
+        lessons()
         if (!cls) runBlocking { at("16:50"); brain.walkDone() }
         if (!rest) runBlocking { at("17:07"); brain.coreDone(seconds = 425) }
         meal("17:20", "晚餐吃了雞胸沙拉", item("雞胸沙拉", 500, 80))
@@ -120,10 +142,29 @@ class WholeWeekScenarioTest {
         at("07:00")
         runBlocking { brain.tick() }
         assertTrue(runBlocking { store.messages.recent(5) }.any { it.text == RealTasks.line(monday) })
+        // 07:10–07:20 理論課: three searches (five, five, four real results), all fourteen said 好 to.
+        val vocal = LessonKit.VOCAL
+        listOf(0 until 5, 5 until 10, 10 until 14).forEach { range ->
+            search.hits = range.map { LessonKit.hit("https://www.youtube.com/watch?v=week-$it", "發聲練習第 ${it + 1} 課", vocal) }
+            at("07:10")
+            runBlocking { brain.findVideos(app.agency.core.model.LessonCategory.VOCAL) }.single { it.kind == Brain.LESSON_FOUND_KIND }.refs.records
+                .forEach { runBlocking { brain.approveLesson(it) } }
+        }
+        assertEquals(14, runBlocking { brain.lessonBoard() }.list.size)
         val evenings = mutableListOf<List<String>>()
         for (i in 0 until 7) {
             day = monday.plusDays(i.toLong())
             evenings += live(rest = i == 2)
+            // Wednesday: Monday's two lessons have their 複習考 (day +2): three new questions each, recorded only.
+            if (i == 2) runBlocking {
+                at("14:40")
+                val due = brain.lessonBoard().reviews
+                assertEquals(2, due.size)
+                due.forEach { r ->
+                    brain.startReview(r.id)
+                    assertTrue(brain.answerReview(r.id, listOf(1, 1, 1)).single { it.who == Who.COMPANY }.text.endsWith("複習考答對 3 題，記下了。"))
+                }
+            }
             // Thursday: the real-person task, reported before bed.
             if (i == 3) assertEquals(listOf("記下：這週的真人任務做到了。跟真的人相處，就是這樣。"), say("00:40", "真人任務完成"))
             // Each day's meals: 1574 kcal, 143 g protein.
@@ -150,7 +191,8 @@ class WholeWeekScenarioTest {
         val lines = runBlocking { store.messages.recent(10) }.filter { it.who == Who.COMPANY }.map { it.text }
         val summary = lines.single { it.startsWith("一週結果") }.lines()
         assertEquals("一週結果（12/14–12/20）", summary[0])
-        assertEquals("完成率 100%（該做 62 項，做到 62 項）", summary[1])
+        // 理論課 is one of each day's items (seven more than before T19c).
+        assertEquals("完成率 100%（該做 69 項，做到 69 項）", summary[1])
         assertEquals("訓練 21/21", summary[2])
         assertEquals("違規 0 次", summary[3])
         assertEquals("照片牆加了 6 張", summary[4])
@@ -165,9 +207,16 @@ class WholeWeekScenarioTest {
         assertEquals(1, runBlocking { store.messages.recent(30) }.count { it.text.startsWith("一週結果") })
         // The new step is in the plan: the rounds now have the backpack row.
         assertTrue(runBlocking { brain.nerve.plan(day) }.slot(SlotKey.STRENGTH)!!.note!!.contains("背包划船 12 下"))
-        // The model was asked only to sort his meals (21) and for her bedtime sentence (7).
+        // 理論課 of the week: fourteen passed, two a day, every score recorded (L24); Monday's two reviewed on Wednesday.
+        val all = runBlocking { store.lessons.all() }
+        assertEquals((0..6).associate { monday.plusDays(it.toLong()).toString() to 2 }, all.groupingBy { it.passedDay!! }.eachCount())
+        assertEquals(listOf(3, 3), all.filter { it.reviewScore != null }.map { it.reviewScore })
+        assertTrue(all.filter { it.reviewScore != null }.all { it.passedDay == monday.toString() })
+        assertEquals(2, runBlocking { store.nerve.effects(monday.plusDays(2).toString()) }.count { it.link == Links.L24Lessons.id && it.because == Links.L24Lessons.REVIEW })
+        // The model was asked only to sort his meals (21), for her bedtime sentence (7) and for the quizzes (14 lessons, 2 reviews).
         assertEquals(21, requests.count { it.purpose == Purpose.INTAKE })
         assertEquals(7, requests.count { it.purpose == Purpose.NUDGE })
-        assertEquals(28, requests.size)
+        assertEquals(16, requests.count { it.purpose == Purpose.QUIZ })
+        assertEquals(44, requests.size)
     }
 }

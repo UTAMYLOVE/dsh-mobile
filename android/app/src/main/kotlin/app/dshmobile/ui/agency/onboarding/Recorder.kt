@@ -38,10 +38,10 @@ import kotlinx.coroutines.launch
 /**
  * 清唱錄音 in the app (arch T07): 開始錄音 (the microphone permission is asked here, the first time), 停 (or three minutes),
  * 聽一次, 重錄, 交出. Only 交出 keeps it: the plaintext file is sealed into the vault and deleted; leaving the screen throws an
- * unfinished one away.
+ * unfinished one away. [handIn] is 入社建檔's by default; a 理論課 實作 (T19c) hands it to its lesson.
  */
 @Composable
-fun Recorder(agency: AgencyApp) {
+fun Recorder(agency: AgencyApp, handIn: suspend (java.io.File, Long) -> Boolean = agency::handInRecording) {
     val context = LocalContext.current
     val recorder = remember { AudioRecorder(AudioRecorder.recordDir(context), agency.recorderEngine()) }
     val player = remember { agency.playerEngine() }
@@ -115,7 +115,7 @@ fun Recorder(agency: AgencyApp) {
                     val file = recorder.take() ?: return@PinkButton
                     saving = true
                     scope.launch {
-                        agency.handInRecording(file, s.durationMs)
+                        handIn(file, s.durationMs)
                         onMain { saving = false }
                     }
                 }, modifier = Modifier.testTag(OnboardingTags.REC_HAND_IN))

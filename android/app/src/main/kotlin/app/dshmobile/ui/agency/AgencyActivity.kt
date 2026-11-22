@@ -41,7 +41,10 @@ class AgencyActivity : ComponentActivity() {
         agency.start()
         setContent {
             SakuraTheme {
-                AgencyRoot(agency, AgencyActions(takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto, openLink = ::openLink))
+                AgencyRoot(
+                    agency,
+                    AgencyActions(takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto, openLink = ::openLink, takeLessonPhoto = ::takeLessonPhoto),
+                )
             }
         }
         if (savedInstanceState == null) fromNotification(intent)
@@ -67,6 +70,16 @@ class AgencyActivity : ComponentActivity() {
 
     private fun takeMealPhoto() {
         val intent = agency.mealPhotoIntent() ?: return
+        try {
+            camera.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            agency.cameraMissing()
+        }
+    }
+
+    /** A 理論課 實作 photo (T19c): the same camera round trip, for the lesson. */
+    private fun takeLessonPhoto(lessonId: String) {
+        val intent = agency.lessonPhotoIntent(lessonId) ?: return
         try {
             camera.launch(intent)
         } catch (_: ActivityNotFoundException) {
@@ -105,6 +118,8 @@ class AgencyActions(
     val askNotifications: () -> Unit = {},
     /** 拍這餐 (T15): the camera for the meal being reported. */
     val takeMealPhoto: () -> Unit = {},
-    /** 打開 on a nearby result (T16): its link in his browser (the app has no web view). */
+    /** 打開 on a nearby result (T16), 去看 on a lesson (T19c): its link in his browser or YouTube app (the app has no web view). */
     val openLink: (String) -> Unit = {},
+    /** A 理論課 實作 photo (T19c). */
+    val takeLessonPhoto: (String) -> Unit = {},
 )

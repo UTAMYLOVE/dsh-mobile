@@ -242,10 +242,11 @@ class OpenAiCompatClient(
     private companion object {
         val inlineSeq = java.util.concurrent.atomic.AtomicLong()
 
-        /** Low for the data clerk, zero for the second-pass judge (a verdict, not wording), 0.7 for wording. */
+        /** Low for the data clerk, zero for the second-pass judge (a verdict, not wording), low for a quiz, 0.7 for wording. */
         fun temperature(p: Purpose): Double = when (p) {
             Purpose.INTAKE -> 0.2
             Purpose.JUDGE -> 0.0
+            Purpose.QUIZ -> 0.3
             Purpose.UTTERANCE, Purpose.NUDGE, Purpose.CHAT -> 0.7
         }
     }

@@ -33,6 +33,11 @@ data class TodayRecords(
     val signs: List<SignLog> = emptyList(),
     val condition: ConditionLog? = null,
     val weights: List<WeightLog> = emptyList(),
+    /** 理論課 (T19c): the lessons that passed today, and the ones whose 複習考 he took today. */
+    val lessonsPassed: List<app.agency.core.model.Lesson> = emptyList(),
+    val lessonsReviewed: List<app.agency.core.model.Lesson> = emptyList(),
+    /** The course has started (he said 好 to a video): the facts say how today's 理論課 stands. */
+    val lessonsStarted: Boolean = false,
 ) {
     /** A meal of today holds a breach (the guard's GENTLE comfort rule reads this through `Evidence.breachToday`). */
     val breachToday: Boolean get() = meals.any { it.breaches.isNotEmpty() }
@@ -165,6 +170,19 @@ object FactsBuilder {
                     t.weights.takeLast(MAX_LIST).forEach { w ->
                         add(buildJsonObject { put("id", w.id); put("kg", w.kg); w.waistCm?.let { put("waist_cm", it) } })
                     }
+                })
+                // 理論課 (T19c): counts and categories only; of a 實作 only 交了／沒交 (never a title, a link or a file).
+                if (t.lessonsStarted) put("lessons", buildJsonObject {
+                    put("passed", t.lessonsPassed.size); put("daily", app.agency.core.lessons.LessonPlan.DAILY)
+                    put("passed_today", buildJsonArray {
+                        t.lessonsPassed.forEach { l ->
+                            add(buildJsonObject {
+                                put("category", l.category.zh)
+                                l.category.practical?.let { put("practical", if (l.practicalMediaId != null) "交了" else "沒交") }
+                            })
+                        }
+                    })
+                    put("reviews_today", t.lessonsReviewed.size)
                 })
             })
             put("last_days", buildJsonArray {

@@ -32,13 +32,16 @@ class CameraCapture(
     private val now: () -> Long = System::currentTimeMillis,
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
-    /** A waiting capture: for a 入社建檔 [step], or (step null) for a meal (拍這餐). */
-    data class Pending(val step: OnboardingStep?, val file: File) {
-        val meal: Boolean get() = step == null
+    /** A waiting capture: for a 入社建檔 [step], a 理論課 實作 ([lessonId], T19c), or (both null) for a meal (拍這餐). */
+    data class Pending(val step: OnboardingStep?, val file: File, val lessonId: String? = null) {
+        val meal: Boolean get() = step == null && lessonId == null
     }
 
-    /** The step (null: a meal) and the [Media] row of a sealed shot (not yet in the store: the caller writes it with its link). */
-    data class Captured(val step: OnboardingStep?, val media: Media)
+    /**
+     * The step (null: a meal), the lesson of a 實作, and the [Media] row of a sealed shot (not yet in the store: the caller
+     * writes it with its link).
+     */
+    data class Captured(val step: OnboardingStep?, val media: Media, val lessonId: String? = null)
 
     /** Prepares the file and returns the camera intent for a 入社建檔 photo; the pending capture is saved first. */
     fun begin(step: OnboardingStep): Intent {
@@ -48,6 +51,12 @@ class CameraCapture(
 
     /** 拍這餐 (T15): the same round trip, for the meal being reported. */
     fun beginMeal(): Intent = start(MEAL)
+
+    /** A 理論課 實作 photo (T19c): the same round trip, for lesson [lessonId]. */
+    fun beginLesson(lessonId: String): Intent {
+        require(ID.matches(lessonId)) { "not a lesson id" }
+        return start(LESSON + lessonId)
+    }
 
     private fun start(what: String): Intent {
         cameraDir.mkdirs()
@@ -66,9 +75,10 @@ class CameraCapture(
     fun pending(): Pending? {
         val v = prefs.getString(KEY, null) ?: return null
         val what = v.substringBefore(SEP)
-        val step = if (what == MEAL) null else OnboardingStep.parse(what)?.takeIf { it in OnboardingStep.PHOTOS } ?: return null
         val name = v.substringAfter(SEP, "")
         if (!NAME.matches(name)) return null
+        if (what.startsWith(LESSON)) return what.removePrefix(LESSON).takeIf { ID.matches(it) }?.let { Pending(null, File(cameraDir, name), it) }
+        val step = if (what == MEAL) null else OnboardingStep.parse(what)?.takeIf { it in OnboardingStep.PHOTOS } ?: return null
         return Pending(step, File(cameraDir, name))
     }
 
@@ -87,8 +97,12 @@ class CameraCapture(
             val bytes = downsize(p.file) ?: p.file.readBytes()
             val sealed = vault.put(id, bytes)
             bytes.fill(0)
-            val purpose = if (p.meal) MediaPurpose.MEAL else MediaPurpose.BASELINE
-            return Captured(p.step, Media(id, MediaKind.PHOTO, purpose, MIME, sealed.bytes, sealed.sha256, now()))
+            val purpose = when {
+                p.lessonId != null -> MediaPurpose.LESSON
+                p.meal -> MediaPurpose.MEAL
+                else -> MediaPurpose.BASELINE
+            }
+            return Captured(p.step, Media(id, MediaKind.PHOTO, purpose, MIME, sealed.bytes, sealed.sha256, now()), p.lessonId)
         } finally {
             p.file.delete()
             prefs.edit().remove(KEY).commit()
@@ -104,6 +118,8 @@ class CameraCapture(
     companion object {
         const val KEY = "pending_capture"
         const val MEAL = "MEAL"
+        const val LESSON = "LESSON~"
+        private val ID = Regex("[A-Za-z0-9-]{1,64}")
         const val MIME = "image/jpeg"
         const val MAX_PX = 1600
         const val QUALITY = 85

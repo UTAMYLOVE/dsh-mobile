@@ -37,6 +37,8 @@ class FakeModel {
     @Volatile var intakeJson: String? = null
     /** What `POST /v1/tools/search` answers (e12); empty by default. */
     @Volatile var searchResults: JSONArray = JSONArray()
+    /** What a 理論課 quiz call answers (e14, T19c). */
+    @Volatile var quizJson: String? = null
     @Volatile var reply = "收到。現在去喝水。"
     @Volatile var toolFirst = false
     /** A tool the chat call asks for first (name to arguments), once per message (e10). */
@@ -83,6 +85,7 @@ class FakeModel {
         intakeKind = "chat"
         intakeJson = null
         searchResults = JSONArray()
+        quizJson = null
         reply = "收到。現在去喝水。"
         toolFirst = false
         toolCall = null
@@ -98,6 +101,7 @@ class FakeModel {
         val message = JSONObject().put("role", "assistant")
         when {
             system.contains("資料整理員") -> message.put("content", intakeJson ?: JSONObject().put("kind", intakeKind).toString())
+            system.contains("理論課的出題老師") -> message.put("content", quizJson ?: "{}")
             toolFirst && req.has("tools") && last?.optString("role") != "tool" -> message.put("content", "")
                 .put("reasoning_content", "先看今天的紀錄")
                 .put("tool_calls", JSONArray().put(JSONObject().put("id", "call_${ids.incrementAndGet()}").put("type", "function")

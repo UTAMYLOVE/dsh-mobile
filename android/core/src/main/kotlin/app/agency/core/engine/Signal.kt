@@ -181,6 +181,30 @@ sealed interface Signal {
     @Serializable @SerialName("real_task_done")
     data class RealTaskDone(override val id: String, override val at: Long, override val source: String = "command") : Signal
 
+    /**
+     * A 理論課 lesson passed (T19c): its quiz (first-round [score] of three, [retries] fresh questions after it, or [fallback] to
+     * 「寫下三個重點」) and his note are in. [category] is the [app.agency.core.model.LessonCategory] name.
+     */
+    @Serializable @SerialName("lesson_passed")
+    data class LessonPassed(
+        override val id: String,
+        override val at: Long,
+        val lessonId: String,
+        val category: String,
+        val score: Int? = null,
+        val retries: Int = 0,
+        val fallback: Boolean = false,
+        override val source: String = "lesson",
+    ) : Signal
+
+    /** The 兩天後複習考 of a lesson answered (recorded only): right answers out of three. */
+    @Serializable @SerialName("lesson_reviewed")
+    data class LessonReviewed(override val id: String, override val at: Long, val lessonId: String, val category: String, val score: Int, override val source: String = "lesson") : Signal
+
+    /** A lesson's 實作 handed in (a recording or a photo, sealed on the phone): only that it was handed in goes anywhere. */
+    @Serializable @SerialName("practical_handed_in")
+    data class PracticalHandedIn(override val id: String, override val at: Long, val lessonId: String, val category: String, override val source: String = "lesson") : Signal
+
     companion object {
         const val REMINDERS_ON = "reminders:on"
 

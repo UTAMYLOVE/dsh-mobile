@@ -24,7 +24,7 @@ object Links {
     fun all(): List<Link> = listOf(
         L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd, L10Water,
         L11Completion, L12Chase, L13Violation, L14Discuss, L15Progression, L16Spend, L17Grooming, L18NoClassDay, L19Review, L20Week,
-        L21WeightStop, L22TiredRiding, L23WeightTrend,
+        L21WeightStop, L22TiredRiding, L23WeightTrend, L24Lessons,
     ) + Pending.all
 
     /** Minutes of [at] from 00:00 of the coach day's date (after midnight is past 24 × 60, like a slot's minute). */
@@ -468,11 +468,17 @@ object Links {
         }
     }
 
-    /** L18: a no-class day (not a rest day) → the 30-minute walk placed in the gap before the core (videos with stage 3). */
+    /**
+     * L18: a no-class day (not a rest day) → the 30-minute walk placed in the gap before the core, and (once the course has
+     * started, T19c) the 理論課 in the gap after the first meal, done before the walk.
+     */
     object L18NoClassDay : Link {
         override val id = "L18"
-        override val zh = "沒課日：快走排進空檔"
+        override val zh = "沒課日：理論課和快走排進空檔"
         override val dailyCap = 1
+
+        /** How long before the walk the day's lessons are to be done. */
+        const val LESSONS_BEFORE_WALK_MIN = 20
 
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
             if (signal !is Signal.DayStarted || state.plan.type != DayType.NO_CLASS || state.plan.rest) return emptyList()
@@ -480,7 +486,15 @@ object Links {
             val first = state.plan.slot(SlotKey.FIRST_MEAL)?.minute ?: return emptyList()
             val core = state.plan.slot(SlotKey.CORE)?.minute ?: return emptyList()
             val at = maxOf(walk.minute, first + 90).coerceAtMost(core - ctx.specs.training.walkMin - 10)
-            return listOf(Effect.AdjustToday(DayAdjust.Move(SlotKey.WALK, at), "因為今天沒課，所以 ${hhmm(at)} 快走 ${ctx.specs.training.walkMin} 分鐘。"))
+            val out = mutableListOf<Effect>(Effect.AdjustToday(DayAdjust.Move(SlotKey.WALK, at), "因為今天沒課，所以 ${hhmm(at)} 快走 ${ctx.specs.training.walkMin} 分鐘。"))
+            state.plan.slot(SlotKey.LESSONS)?.let { lessons ->
+                val due = (at - LESSONS_BEFORE_WALK_MIN).coerceAtLeast(first + 60)
+                out += Effect.AdjustToday(
+                    DayAdjust.Move(SlotKey.LESSONS, due),
+                    "因為今天沒課，所以理論課 ${lessons.count ?: 1} 支排在第一餐之後，${hhmm(due)} 前看完、考完、寫好筆記。",
+                )
+            }
+            return out
         }
     }
 
@@ -648,6 +662,42 @@ object Links {
      * The links whose data comes in a later batch: their signal types exist and they are registered, so the hub is ready; they
      * answer nothing until their batch fills them in.
      */
+    /**
+     * L24 (T19c 理論課): a 複習考 due today → a reminder at its slot (recorded only, it locks nothing); 「課程清單」 running low → at
+     * the sign-in, a reminder to find more (real search results only, nothing listed without his 好); a lesson passed, a review
+     * taken, a 實作 handed in → recorded for the month-end evaluation (stage 4).
+     */
+    object L24Lessons : Link {
+        override val id = "L24"
+        override val zh = "理論課：複習考提醒、清單快沒了提醒、分數和實作記進評鑑"
+        override val dailyCap = 40
+        const val LESSON = "lesson"
+        const val REVIEW = "lesson_review"
+        const val PRACTICAL = "practical"
+
+        fun reviewLine(n: Int) = "複習考：兩天前的課有 $n 支，到理論課各考三題。只記錄，不擋下一支。"
+        fun lowLine(n: Int) = if (n == 0) "課程清單沒有影片了。說「找影片」，我只列真的搜尋結果，你按好才放進清單。"
+        else "課程清單只剩 $n 支。說「找影片」補，我只列真的搜尋結果，你按好才放進清單。"
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
+            is Signal.DayStarted -> if (state.reviewsDue > 0) {
+                val at = state.plan.slot(SlotKey.LESSON_REVIEW)?.let { RuleEngineTime.at(state.day, it.minute, ctx.zone).toEpochMilli() }
+                listOf(Effect.Notify("lesson-review", reviewLine(state.reviewsDue), NotifyKind.REMINDER, at = at))
+            } else {
+                emptyList()
+            }
+            is Signal.WokeUp -> state.lessonsLeft?.takeIf { it < app.agency.core.lessons.LessonPlan.LOW_LIST }?.let {
+                listOf(Effect.Notify("lesson-list", lowLine(it), NotifyKind.REMINDER))
+            }.orEmpty()
+            is Signal.LessonPassed -> listOf(
+                Effect.Record(LESSON, "${signal.category} 第一輪 ${signal.score?.let { "$it/3" } ?: "寫重點代替"} 重考 ${signal.retries} 題"),
+            )
+            is Signal.LessonReviewed -> listOf(Effect.Record(REVIEW, "${signal.category} ${signal.score}/3"))
+            is Signal.PracticalHandedIn -> listOf(Effect.Record(PRACTICAL, "${signal.category} 交了"))
+            else -> emptyList()
+        }
+    }
+
     class Pending(override val id: String, override val zh: String, val batch: String) : Link {
         override val dailyCap = 10
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = emptyList()

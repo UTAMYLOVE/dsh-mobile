@@ -142,6 +142,7 @@ class Brain(
     private val weights = WeightDesk(store, snapshot, clock, newId)
     private val water = WaterDesk(store, snapshot, clock, newId)
     private val training = app.agency.core.brain.handlers.TrainingDesk(store, snapshot, clock, newId)
+    private val lessons = app.agency.core.brain.handlers.LessonDesk(store, clock, newId, structured, search) { snapshot.today(snapshot.profile()) }
 
     private val _busy = MutableStateFlow(false)
     /** True while a message is being answered. */
@@ -969,6 +970,65 @@ class Brain(
         id
     }
 
+    // ---- 理論課 (T19c) ----
+
+    /** 找影片 from the tab (a category, or the one with the fewest videos so far). */
+    suspend fun findVideos(category: app.agency.core.model.LessonCategory? = null): List<Message> = lessonLocked { lessons.find(category) }
+
+    /** His 好 / 不要 on a video candidate card. */
+    suspend fun approveLesson(id: String): List<Message> = lessonLocked { lessons.approve(id) }
+
+    suspend fun dropLesson(id: String): List<Message> = lessonLocked { lessons.drop(id) }
+
+    /** 去看: the stored link of the open lesson, for his YouTube app or browser (the app never opens the page itself). */
+    suspend fun openLesson(id: String): String? = mutex.withLock { lessons.open(id) }
+
+    suspend fun lessonWatched(id: String): List<Message> = lessonLocked { lessons.watched(id) }
+
+    suspend fun lessonKeyPoints(id: String, points: List<String>): List<Message> = lessonLocked { lessons.keyPoints(id, points) }
+
+    /** His picks for the open questions (in order), graded by index. */
+    suspend fun answerLesson(id: String, choices: List<Int>): List<Message> = lessonLocked { lessons.answer(id, choices) }
+
+    suspend fun lessonNote(id: String, text: String): List<Message> = lessonLocked { lessons.note(id, text) }
+
+    /** A lesson's 實作, already sealed in the vault ([media] is written with its link). */
+    suspend fun handInPractical(id: String, media: Media): List<Message> = lessonLocked { lessons.practical(id, media) }
+
+    suspend fun startReview(id: String): List<Message> = lessonLocked { lessons.startReview(id) }
+
+    suspend fun answerReview(id: String, choices: List<Int>): List<Message> = lessonLocked { lessons.answerReview(id, choices) }
+
+    /** The 理論課 tab (T19c). */
+    suspend fun lessonBoard(): app.agency.core.brain.handlers.LessonBoard = mutex.withLock { lessons.board() }
+
+    private suspend fun lessonLocked(act: suspend () -> app.agency.core.brain.handlers.LessonOutcome?): List<Message> = mutex.withLock {
+        val started = ensureDay()
+        val out = act() ?: return@withLock started.also { bump() }
+        (started + lessonSaid(out)).also { bump() }
+    }
+
+    /** A lesson action's lines as one bubble of the manager (its candidate cards with it), then what the links said. */
+    private suspend fun lessonSaid(out: app.agency.core.brain.handlers.LessonOutcome): List<Message> {
+        val m = Message(
+            newId(), clock.millis(), Who.COMPANY, role = RoleKey.MANAGER, kind = if (out.cards.isEmpty()) LESSON_KIND else LESSON_FOUND_KIND,
+            text = out.lines.joinToString("\n"), refs = MessageRefs(records = out.cards), wordedBy = WordedBy.TEMPLATE,
+        )
+        store.messages.insert(m)
+        var r = NerveResult()
+        out.signals.forEach { r += nerve.emit(it) }
+        return listOf(m) + r.messages
+    }
+
+    /** 「理論課」「再一支」: today's count and the open lesson's step (code only). */
+    private suspend fun lessonStatus(): String {
+        val b = lessons.board()
+        if (!b.started) return "理論課還沒開始。說「找影片」，我只列真的搜尋結果，你按好才放進課程清單。"
+        val cur = b.list.firstOrNull { !it.locked }
+        val head = "今天的理論課：通過 ${b.passedToday} 支，每天要 ${app.agency.core.lessons.LessonPlan.DAILY} 支。"
+        return head + (cur?.let { "現在這支是「${it.category.zh}」，${it.stage.zh}，到理論課繼續。" } ?: "課程清單沒有影片了，說「找影片」補。")
+    }
+
     /** Today's items waiting for their label (the card's 補標示). */
     suspend fun pendingLabels(): List<app.agency.core.model.PendingLabel> = meals.pendingToday()
 
@@ -981,6 +1041,9 @@ class Brain(
         }
         // 「核心完成」「伸展完成」 (T18): typed, so 「未證實」; 「核心開始」 points at the timer.
         if (route.kind == "training") return said(training.typed(owner.text, null), "training")
+        // 理論課 (T19c): 「找影片」 searches (real results only, as cards), 「理論課」「再一支」 says where today stands.
+        if (route.kind == Router.FIND_VIDEOS) return lessonSaid(lessons.find(app.agency.core.lessons.LessonPlan.categoryIn(owner.text)))
+        if (route.kind == Router.LESSON_STATUS) return lessonSaid(app.agency.core.brain.handlers.LessonOutcome(listOf(lessonStatus())))
         val profile = snapshot.profile()
         val today = snapshot.today(profile)
         val plan = nerve.plan(today)
@@ -1081,6 +1144,10 @@ class Brain(
 
         /** How far ahead the water plan's start may be set (T17). */
         const val WATER_START_AHEAD_DAYS = 31L
+
+        /** The kinds of the manager's 理論課 lines (T19c); [LESSON_FOUND_KIND] carries candidate cards (`refs.records`). */
+        const val LESSON_KIND = "lesson"
+        const val LESSON_FOUND_KIND = "lesson_found"
 
         /** The kind of the body teacher's line about a meal photo (T15). */
         const val MEAL_PHOTO_KIND = "meal_photo"

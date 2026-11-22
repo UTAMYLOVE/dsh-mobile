@@ -47,6 +47,10 @@ import org.junit.Test
  * stretch-only proposal that he turns down (the plan stands), the core 7 minutes by the timer (the day's one 撒嬌 and the
  * polaroid, L11), the strength rounds and the stretch after 收工 (no second 撒嬌), and the bedtime review at sign-out (two
  * questions, the 檢討卡, her one guarded sentence, tomorrow's fix as a proposal, reminded at tomorrow's sign-in, L19).
+ * Batch 5b (T19c) adds 理論課: 「找影片」 in the morning (real search results only; nothing listed before his 好), two lessons in
+ * class: the first passes its three questions at once (two right) and his note opens the second; the second has a wrong answer
+ * first, shows the right one with the 教材's words, and passes on the one fresh question; both are done before 16:00, so the
+ * 理論課 slot is never chased (L12), and both scores are recorded (L24).
  * At the end: the day state, the plan, the proposals, the reminders and the lines; the emulator plays it last.
  */
 class WholeDayScenarioTest {
@@ -54,6 +58,8 @@ class WholeDayScenarioTest {
     private val clock = MutableClock()
     // The model is asked only for the conversation (T12): the clerk and the manager's tool loop; every other line is code's.
     private val llm = ScriptedLlm(
+        // 10:25 the first lesson's quiz (T19c): six questions from its 教材, each quote checked by code.
+        app.agency.core.lessons.LessonKit.quiz(app.agency.core.lessons.LessonKit.VOCAL_QS),
         // 12:30 his report: the clerk, a get_today call, then the reply (with its thinking).
         intake("chat"), call("get_today", "{}"), reply("收到。上課專心，下課回報。", reasoning = "他在學校"),
         // 13:10 lunch with friends: the body teacher's pick as an order card (no clerk), then the judge (it is about food).
@@ -61,6 +67,8 @@ class WholeDayScenarioTest {
         reply("點清燉牛肉麵加燙青菜，湯不要喝完。你按好就是這個。"), judge(),
         // 13:45 (he had an egg more than the card said), 17:20, 21:05 his meal reports: the clerk only (the rest is code).
         meal(item("清燉牛肉麵", 520, 30), item("燙青菜", 80, 2), item("滷蛋", 70, 6)),
+        // 14:20 the second lesson's quiz.
+        app.agency.core.lessons.LessonKit.quiz(app.agency.core.lessons.LessonKit.SMILE_QS),
         meal(item("炸雞排", 500, 30, fried = true)),
         meal(item("即食雞胸", 130, 20), item("統一高纖豆漿", 200, 15)),
         // 23:40 his 「這裡有問題」: a reply with two questions goes back once, then one question with options; the judge reads it
@@ -74,7 +82,8 @@ class WholeDayScenarioTest {
         ScriptedLlm.ok("""{"text":"今天的訓練都做完了，做得好。明天不吃炸的，記住，現在去睡。"}"""), judge(),
     )
     private var n = 0
-    private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%05d".format(++n) }
+    private val search = app.agency.core.lessons.LessonKit.FakeSearch()
+    private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), search = search) { "id-%05d".format(++n) }
     private val monday = LocalDate.parse("2026-12-07")
 
     init {
@@ -141,6 +150,31 @@ class WholeDayScenarioTest {
         assertEquals("13:40", plan().slot(SlotKey.LUNCH)!!.time)
         assertEquals("02:30", plan().slot(SlotKey.SIGN_OUT)!!.time)
         assertEquals(listOf("記下：刮鬍子。"), say("10:05", "刮好了"))
+        // 10:10 理論課 (T19c): 「找影片」 lists real search results only (code's query, no model); his 好 puts two in the list, and
+        // from then on today's plan has the 理論課 slot (in class: by 16:00, two lessons).
+        val found = say("10:10", "找影片")
+        assertTrue(found.single(), found.single().startsWith("找到 2 支「聲樂」的影片，都是真的搜尋結果。"))
+        assertEquals(listOf("發聲練習 唱歌技巧 教學 影片"), search.queries)
+        val lessons = runBlocking { store.messages.recent(1) }.single().refs.records
+        assertNull(plan().slot(SlotKey.LESSONS))
+        runBlocking { at("10:11"); lessons.forEach { brain.approveLesson(it) } }
+        assertEquals("16:00", plan().slot(SlotKey.LESSONS)!!.time)
+        // 10:15–10:28 the first lesson: 去看 hands over the stored link (the second stays locked); 看完了 → three questions;
+        // two right pass at once (the miss shows the right answer and its quote); his note opens the second.
+        runBlocking {
+            at("10:15")
+            assertEquals(app.agency.core.lessons.LessonKit.VOCAL_URL, brain.openLesson(lessons[0]))
+            assertNull(brain.openLesson(lessons[1]))
+            at("10:25")
+            brain.lessonWatched(lessons[0])
+            at("10:27")
+            val graded = brain.answerLesson(lessons[0], listOf(2, 1, 0)).single { it.who == Who.COMPANY }.text
+            assertTrue(graded, graded.contains("正確答案：不要抬起來。教材原文：「吸氣的時候肩膀不要抬起來」") && graded.contains("答對 2 題，考過了。"))
+            at("10:28")
+            val passed = brain.lessonNote(lessons[0], "腹式呼吸要讓肚子鼓起來，肩膀不能抬，吐氣維持十五秒，高音時氣往下沉不要擠喉嚨。").first { it.who == Who.COMPANY }.text
+            assertTrue(passed, passed.startsWith("通過：今天第 1 支。兩天後有複習考。\n下一支開了"))
+        }
+        assertEquals(1, runBlocking { store.places.results(app.agency.core.model.SearchKind.VIDEO) }.count { it.url == app.agency.core.lessons.LessonKit.VOCAL_URL })
         // 10:30 the first half of the bottle (his target these first two weeks: one bottle).
         assertEquals(listOf("記下：喝了半壺。今天 半壺，目標 1 壺。\n出門跑單前還要喝 半壺，分幾次喝，不要一次灌。"), say("10:30", "喝了半壺"))
 
@@ -161,10 +195,10 @@ class WholeDayScenarioTest {
         val chat = runBlocking { store.messages.recent(100) }.last()
         assertEquals(app.agency.core.model.WordedBy.MODEL, chat.wordedBy)
         assertEquals("他在學校", runBlocking { store.thinking.of(listOf(chat.id)) }.single().payload)
-        assertTrue(llm.requests[1].system.contains("【這一次的語氣：放軟】"))
+        assertTrue(llm.requests[2].system.contains("【這一次的語氣：放軟】"))
         // 12:40 an attempt to change the rules in chat: the fixed reply, no model, nothing written.
         assertEquals(listOf(app.agency.core.rules.RulesBook.LOCKED), say("12:40", "每天熱量可以調高嗎"))
-        assertEquals(3, llm.requests.size)
+        assertEquals(4, llm.requests.size)
 
         // The alarm (T13): what was due goes out (the shave reminder); the next fire is the moved lunch.
         val shave = tick("10:06")
@@ -176,7 +210,7 @@ class WholeDayScenarioTest {
         val friends = runBlocking { at("13:10"); brain.onText("中午跟朋友吃牛肉麵") }.filter { it.who == Who.COMPANY }.single()
         assertEquals(RoleKey.BODY, friends.role)
         assertEquals("點清燉牛肉麵加燙青菜，湯不要喝完。你按好就是這個。", friends.text)
-        assertTrue(llm.requests[3].system.contains("他要跟朋友去吃「牛肉麵」"))
+        assertTrue(llm.requests[4].system.contains("他要跟朋友去吃「牛肉麵」"))
         // 572 + 88 = 660 fits what lunch may be today (1700 less a usual dinner and the 21:00 portion: 676).
         assertEquals(listOf("好，這餐就點這個：清燉牛肉麵、燙青菜，660 大卡。吃完拍照回報。"), say("13:11", "好"))
         // 13:40 the moved lunch is pushed; 13:45 his report (the clerk sorts it, code counts it: strict estimates; he had an
@@ -193,6 +227,25 @@ class WholeDayScenarioTest {
         assertEquals(app.agency.core.model.OrderStatus.EATEN, runBlocking { store.orders.onDay(monday.toString()) }.single().status)
         assertEquals("照片收到，午餐已證實。", photo("13:46", "photo-lunch"))
         assertTrue(tick("14:10").posts.isEmpty())
+        // 14:20–14:35 the second lesson (in class): one right of three, the misses with their right answers and quotes, one
+        // fresh question, right: passed (a retake of one question). Two lessons by 16:00: the slot is done.
+        runBlocking {
+            at("14:20")
+            assertEquals(app.agency.core.lessons.LessonKit.SMILE_URL, brain.openLesson(lessons[1]))
+            at("14:30")
+            brain.lessonWatched(lessons[1])
+            at("14:32")
+            val first = brain.answerLesson(lessons[1], listOf(0, 0, 0)).single { it.who == Who.COMPANY }.text
+            assertTrue(first, first.contains("正確答案：鏡頭中間偏上的位置。教材原文：「眼神要看鏡頭中間偏上的位置」"))
+            assertTrue(first.endsWith("答對 1 題，要答對 2 題才過。下面多一題新的，再答一次。"))
+            assertEquals(listOf("拍之前眼睛要先怎樣？"), brain.lessonBoard().questions.map { it.q })
+            at("14:33")
+            assertTrue(brain.answerLesson(lessons[1], listOf(0)).single { it.who == Who.COMPANY }.text.contains("答對 2 題，考過了。"))
+            at("14:35")
+            val done = brain.lessonNote(lessons[1], "笑的時候先想開心的事眼睛才會跟著笑，眼神看鏡頭中間偏上，身體斜四十五度臉轉回來。").first { it.who == Who.COMPANY }.text
+            assertTrue(done, done.contains("今天的理論課做到了。"))
+        }
+        assertEquals(listOf(2 to 0, 1 to 1), runBlocking { lessons.map { store.lessons.get(it)!! } }.map { it.score!! to it.retries })
         // 15:00 the water check (L10): half of the bottle is in, so there is nothing to say.
         assertTrue(tick("15:00").posts.isEmpty())
 
@@ -253,18 +306,18 @@ class WholeDayScenarioTest {
         // the reply (a violation today).
         val open = say("00:10", "這裡有問題")
         assertEquals(listOf("說說看。\n是早上起床太趕，還是晚上太晚睡？"), open)
-        assertTrue(llm.requests[10].turns.last().let { it is app.agency.core.llm.Turn.User && it.text.contains("上一個輸出不合格") })
-        assertEquals(app.agency.core.llm.Purpose.JUDGE, llm.requests[11].purpose)
+        assertTrue(llm.requests[12].turns.last().let { it is app.agency.core.llm.Turn.User && it.text.contains("上一個輸出不合格") })
+        assertEquals(app.agency.core.llm.Purpose.JUDGE, llm.requests[13].purpose)
         assertEquals(listOf("早上太趕", "晚上太晚"), runBlocking { store.messages.recent(1) }.single().refs.options)
         // 00:11 his answer: she proposes moving tomorrow's wake; nothing changes until his yes.
         assertEquals(listOf("那上課日早十分鐘起床。你說好才改。\n這樣可以嗎？"), say("00:11", "我想早一點起來吃早餐再去上課"))
-        assertTrue(llm.requests[13].system.contains("【模式：討論】"))
+        assertTrue(llm.requests[15].system.contains("【模式：討論】"))
         assertEquals("08:30", runBlocking { brain.nerve.plan(monday.plusDays(1)) }.slot(SlotKey.WAKE)!!.time)
         assertEquals(1, runBlocking { brain.pendingProposals() }.size)
         // 00:12 his 「好」: applied by code, a new version of the schedule; the discussion is over.
         assertEquals(listOf("好，改了：上課日起床 08:30 → 08:20。"), say("00:12", "好"))
         assertEquals("08:20", runBlocking { brain.nerve.plan(monday.plusDays(1)) }.slot(SlotKey.WAKE)!!.time)
-        assertEquals(16, llm.requests.size) // the script up to the night, nothing more
+        assertEquals(18, llm.requests.size) // the script up to the night, nothing more
 
         // 01:00 to bed early (fine): signed out, and the bedtime review (T19): two questions, one at a time, code's.
         assertEquals(listOf("簽退了。", app.agency.core.brain.handlers.ReviewDesk.ASK_GOOD), say("01:00", "我要睡了"))
@@ -272,13 +325,13 @@ class WholeDayScenarioTest {
         val review = say("01:02", "明天不吃炸的")
         val card = review[0].lines()
         assertEquals("今天的檢討卡", card[0])
-        assertEquals("做到：起床簽到、午餐、核心七分鐘、晚餐、出門跑單、跑單途中的雞胸、肌力三輪、伸展、簽退", card[1])
+        assertEquals("做到：起床簽到、午餐、理論課、核心七分鐘、晚餐、出門跑單、跑單途中的雞胸、肌力三輪、伸展、簽退", card[1])
         assertEquals("沒做到：沒有，全部做到", card[2])
         assertEquals("違規：1 次", card[3])
         assertEquals("你說做得好：三輪和伸展都照計時做完", card[4])
         assertEquals("明天要改：明天不吃炸的", card[5])
         assertEquals("今天的訓練都做完了，做得好。明天不吃炸的，記住，現在去睡。", review[1])
-        assertEquals(18, llm.requests.size)
+        assertEquals(20, llm.requests.size)
         // His yes: tomorrow's sign-in will remind him (L19).
         assertEquals(listOf("好，明天起床簽到的時候我提醒你：明天不吃炸的"), say("01:03", "好"))
         val night = tick("01:30")
@@ -302,7 +355,9 @@ class WholeDayScenarioTest {
         assertEquals(listOf(emptyList(), listOf("PROCESSED"), emptyList()), meals.map { it.breaches })
         assertTrue(runBlocking { brain.card() }.let { it.unverified.isEmpty() && it.waterHalves == 2 && it.waterTargetHalves == 2 && it.breachesToday == 1 })
         val byLink = effects().groupBy { it.link }
-        assertEquals(setOf("L1", "L2", "L3", "L3b", "L5", "L8", "L9", "L10", "L11", "L12", "L13", "L17", "L19", "L20"), byLink.keys)
+        assertEquals(setOf("L1", "L2", "L3", "L3b", "L5", "L8", "L9", "L10", "L11", "L12", "L13", "L17", "L19", "L20", "L24"), byLink.keys)
+        // 理論課: both lessons recorded for the month-end evaluation (L24); never chased (both were in by 16:00).
+        assertEquals(listOf("lesson", "lesson"), byLink.getValue("L24").map { it.because })
         // The training of the day: all three by the timer, one 撒嬌 and one polaroid.
         assertEquals(
             listOf(app.agency.core.model.TrainingKind.CORE7, app.agency.core.model.TrainingKind.STRENGTH, app.agency.core.model.TrainingKind.STRETCH),
@@ -331,7 +386,7 @@ class WholeDayScenarioTest {
         assertNull(runBlocking { store.rules.current() })
         assertTrue(runBlocking { store.rules.history() }.isEmpty())
         assertEquals(
-            listOf("INTAKE", "CHAT", "CHAT", "CHAT", "CHAT", "JUDGE", "INTAKE", "INTAKE", "INTAKE", "CHAT", "CHAT", "JUDGE", "INTAKE", "CHAT", "CHAT", "JUDGE", "NUDGE", "JUDGE"),
+            listOf("QUIZ", "INTAKE", "CHAT", "CHAT", "CHAT", "CHAT", "JUDGE", "INTAKE", "QUIZ", "INTAKE", "INTAKE", "CHAT", "CHAT", "JUDGE", "INTAKE", "CHAT", "CHAT", "JUDGE", "NUDGE", "JUDGE"),
             llm.requests.map { it.purpose.name },
         )
         assertTrue(runBlocking { store.messages.recent(300) }.none { it.text.contains("他在學校") || it.text.contains("查一下") })

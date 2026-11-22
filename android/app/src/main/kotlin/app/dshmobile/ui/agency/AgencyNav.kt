@@ -69,9 +69,11 @@ object AgencyTags {
     const val WATER_HALF = "ag-water-half"
 }
 
-enum class AgencyTab(val label: Int) { COMPANY(R.string.ag_tab_company), WAR_ROOM(R.string.ag_tab_warroom), SETTINGS(R.string.ag_tab_settings) }
+enum class AgencyTab(val label: Int) {
+    COMPANY(R.string.ag_tab_company), LESSONS(R.string.ag_tab_lessons), WAR_ROOM(R.string.ag_tab_warroom), SETTINGS(R.string.ag_tab_settings),
+}
 
-/** The start screens until the company is open, then the three tabs. */
+/** The start screens until the company is open, then the four tabs (公司, 理論課 since T19c, 指揮室, 設定). */
 @Composable
 fun AgencyRoot(agency: AgencyApp, actions: AgencyActions = AgencyActions()) {
     // Defensive (main on the phone already; not under the Compose test rule). Keep it: AgencyMainThreadTest fails without it.
@@ -139,6 +141,7 @@ private fun Tabs(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActi
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (tab) {
                 AgencyTab.COMPANY -> HomeScreen(agency, ready, actions)
+                AgencyTab.LESSONS -> app.dshmobile.ui.agency.lessons.LessonsScreen(agency, ready, actions)
                 AgencyTab.WAR_ROOM -> WarRoomPlaceholder(ready)
                 AgencyTab.SETTINGS -> SettingsScreen(agency, ready)
             }

@@ -51,6 +51,7 @@ object DayPlanner {
         override: DayOverride? = null,
         adjust: List<DayAdjust> = emptyList(),
         reduction: Reduction? = null,
+        lessons: LessonDay = LessonDay(),
     ): DayPlan {
         val s = specs.schedule
         val m = specs.meals
@@ -81,6 +82,19 @@ object DayPlanner {
             // Rest day: stretch is allowed, not owed. Otherwise it follows the rounds (or, on a reduced day, stays as the minimum).
             add(Slot(SlotKey.STRETCH, if (rest) REST_STRETCH else strengthLatest + 20, required = !rest, afterRide = !rest, note = stretchNote))
             add(Slot(SlotKey.SIGN_OUT, sleep))
+            // 理論課 (T19c): class days in class (Friday's classes end at 16:00), no-class days before the walk; rest days too.
+            if (lessons.lessons > 0) {
+                val due = when {
+                    !cls -> app.agency.core.lessons.LessonPlan.NO_CLASS_DUE
+                    day.dayOfWeek == DayOfWeek.FRIDAY -> app.agency.core.lessons.LessonPlan.FRIDAY_DUE
+                    else -> app.agency.core.lessons.LessonPlan.CLASS_DUE
+                }
+                add(Slot(SlotKey.LESSONS, DayClock.minute(due), note = "${lessons.lessons} 支，看完考完寫筆記", count = lessons.lessons))
+            }
+            if (lessons.review) {
+                val at = if (cls) app.agency.core.lessons.LessonPlan.REVIEW_CLASS else app.agency.core.lessons.LessonPlan.REVIEW_NO_CLASS
+                add(Slot(SlotKey.LESSON_REVIEW, DayClock.minute(at), required = false, note = "兩天前的課，三題"))
+            }
         }
         val moved = slots.map { sl -> adjust.filterIsInstance<DayAdjust.Move>().lastOrNull { it.key == sl.key }?.let { sl.copy(minute = it.minute) } ?: sl }
         return DayPlan(

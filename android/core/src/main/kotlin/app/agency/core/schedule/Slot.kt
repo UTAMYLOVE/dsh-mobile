@@ -2,7 +2,7 @@ package app.agency.core.schedule
 
 import kotlinx.serialization.Serializable
 
-enum class SlotKind { SIGN, MEAL, TRAINING, RIDE }
+enum class SlotKind { SIGN, MEAL, TRAINING, RIDE, STUDY }
 
 /** The slots of a day (arch 1.5 / plan v3 §4); [zh] is the label he reads. */
 enum class SlotKey(val zh: String, val kind: SlotKind) {
@@ -18,6 +18,12 @@ enum class SlotKey(val zh: String, val kind: SlotKind) {
     STRENGTH("肌力三輪", SlotKind.TRAINING),
     STRETCH("伸展", SlotKind.TRAINING),
     SIGN_OUT("簽退", SlotKind.SIGN),
+
+    /** 理論課 (T19c): done when [Slot.count] lessons passed today; in the plan once the course has started. */
+    LESSONS("理論課", SlotKind.STUDY),
+
+    /** 兩天後複習考 (T19c): on the days a review is due; recorded only, never chased. */
+    LESSON_REVIEW("複習考", SlotKind.STUDY),
     ;
 
     companion object {
@@ -39,6 +45,7 @@ data class Slot(
     val afterRide: Boolean = false,
     val untilMinute: Int? = null,
     val note: String? = null,
+    val count: Int? = null,
 ) {
     val label: String get() = key.zh
     val time: String get() = DayClock.hhmm(minute)
@@ -62,6 +69,12 @@ sealed interface DayAdjust {
      */
     @Serializable data class MealBudget(val key: SlotKey, val kcal: Int) : DayAdjust
 }
+
+/**
+ * The 理論課 of one day (T19c) for the planner: [lessons] owed (0: the course has not started, no slot), and whether a
+ * 複習考 is due ([review]).
+ */
+data class LessonDay(val lessons: Int = 0, val review: Boolean = false)
 
 enum class DayFlag { RIDING_ONE_SOUND, LATE_SNACK_OFF }
 

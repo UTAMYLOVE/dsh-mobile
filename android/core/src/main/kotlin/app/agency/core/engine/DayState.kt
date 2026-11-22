@@ -70,6 +70,11 @@ data class DayState(
     val fixToday: String? = null,
     /** The real-person task of this Mon–Sun week is done (L20). */
     val realTaskThisWeek: Boolean = false,
+    /** 理論課 (T19c): lessons passed today. */
+    val lessonsPassed: Int = 0,
+    /** Lessons of 「課程清單」 still to pass (null: the course has not started), and 複習考 due today (set by the nerve). */
+    val lessonsLeft: Int? = null,
+    val reviewsDue: Int = 0,
 ) {
     val riding: Boolean get() = rideStartAt != null && (rideEndAt == null || rideEndAt < rideStartAt) && signedOutAt == null
     /** Ill, low, or a morning score of [LOW_SCORE] or less: she speaks gently (the plan stays, agency-links §3b). */
@@ -124,6 +129,7 @@ object DayStateBuilder {
                 is Signal.WaterLogged -> st.copy(waterHalves = st.waterHalves + s.halves)
                 is Signal.TrainingDone -> st.copy(training = st.training + s.kind)
                 is Signal.ConditionScored -> st.copy(conditionScore = s.score)
+                is Signal.LessonPassed -> st.copy(lessonsPassed = st.lessonsPassed + 1)
                 else -> st
             }
         }

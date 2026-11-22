@@ -6,9 +6,9 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * What a call is for; it picks temperature and thinking on DeepSeek. Discussion mode calls use [CHAT]; [JUDGE] is the
- * second-pass judge (arch 1.9b).
+ * second-pass judge (arch 1.9b); [QUIZ] writes a 理論課 quiz from its 教材 (T19c).
  */
-enum class Purpose { INTAKE, UTTERANCE, NUDGE, CHAT, JUDGE }
+enum class Purpose { INTAKE, UTTERANCE, NUDGE, CHAT, JUDGE, QUIZ }
 
 enum class Thinking { OFF, LOW }
 

@@ -29,6 +29,12 @@ object Router {
     /** 「真人任務完成」 (L20): the week's real-person task is done. */
     const val REAL_TASK = "real_task"
 
+    /** 「找影片」「找聲樂影片」 (T19c): code searches for 理論課 candidates. */
+    const val FIND_VIDEOS = "find_videos"
+
+    /** 「理論課」「再一支」 (T19c): where today's lessons stand (more on demand: the next one is always open after a pass). */
+    const val LESSON_STATUS = "lesson_status"
+
     /** The kind prefix of a grooming report (「刮好了」 → `grooming:SHAVE`). */
     const val GROOMING = "grooming:"
 
@@ -59,6 +65,7 @@ object Router {
         listOf("收工", "收工了", "跑完了").forEach { put(it, "ride_end") }
         listOf("核心開始", "肌力開始", "伸展開始", "核心完成", "核心做完了", "肌力完成", "伸展完成", "伸展做完了", "快走完成", "快走完了").forEach { put(it, "training") }
         listOf(app.agency.core.engine.RealTasks.DONE_WORDS, "真人任務做完了", "真人任務做好了", "真人任務做到了").forEach { put(it, REAL_TASK) }
+        listOf("理論課", "今天的理論課", "再一支", "再來一支", "多看一支", "再看一支", "多一支", "下一支").forEach { put(it, LESSON_STATUS) }
         listOf("刮好了", "鬍子刮好了", "刮鬍子了", "刮好鬍子了").forEach { put(it, GROOMING + "SHAVE") }
         listOf("指甲剪好了", "剪指甲了", "指甲剪了").forEach { put(it, GROOMING + "NAILS") }
         listOf("眉毛修好了", "修眉了", "修好眉毛了").forEach { put(it, GROOMING + "BROWS") }
@@ -68,12 +75,16 @@ object Router {
     /** A 休假餐 declaration starts with one of these (「休假餐 星期四晚餐」, 「這週休假餐是明天晚餐」). */
     private val CHEAT_PREFIXES = listOf("休假餐", "這週休假餐", "這周休假餐", "本週休假餐")
 
+    /** 「找影片」「再找影片」「幫我找聲樂影片」「找英文的課」: at most ten characters of category in between. */
+    private val FIND = Regex("^(?:再|幫我|再幫我)?找(?:一些|幾支|新的|更多)?(.{0,10}?)(?:的)?(?:影片|課程|課)$")
+
     private val TRIM = Regex("^[\\s　。！!？?，,、～~]+|[\\s　。！!？?，,、～~]+$")
 
     fun route(text: String): Route {
         val t = TRIM.replace(text, "")
         COMMANDS[t]?.let { return Route.Command(it, roleOf(it)) }
         if (CHEAT_PREFIXES.any { t.startsWith(it) }) return Route.Command("cheat_declare", RoleKey.MANAGER)
+        if (FIND.matches(t)) return Route.Command(FIND_VIDEOS, RoleKey.MANAGER)
         if (RulesBook.isChangeAttempt(t)) return Route.RulesLocked
         return Route.Model
     }

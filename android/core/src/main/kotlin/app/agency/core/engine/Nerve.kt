@@ -46,7 +46,7 @@ class Nerve(
     private val newId: () -> String,
     val links: List<Link> = Links.all(),
 ) {
-    private val plans = PlanStore(store)
+    private val plans = PlanStore(store, clock.zone)
 
     fun dayOf(at: Long, dayStartHour: Int = 5): LocalDate = CoachRules.coachDay(Instant.ofEpochMilli(at), clock.zone, dayStartHour)
 
@@ -68,7 +68,11 @@ class Nerve(
         val effects = store.nerve.effects(day.toString())
         val signals = store.nerve.signals(day.minusDays(DayStateBuilder.LOOKBACK_DAYS).toString(), day.toString())
         val progression = store.nerve.effectsWith(EffectStatus.PROPOSED).any { it.link == Links.L15Progression.id }
-        return DayStateBuilder.build(day, plan(day), signals, effects).copy(pendingProgression = progression)
+        // 理論課 (T19c): what is left in 「課程清單」 once it started, and the 複習考 of today not taken yet.
+        val lessons = store.lessons.all()
+        val left = if (lessons.any { it.listedAt != null }) app.agency.core.lessons.LessonPlan.queue(lessons).size else null
+        val reviews = lessons.count { it.reviewDay == day.toString() && it.reviewedAt == null }
+        return DayStateBuilder.build(day, plan(day), signals, effects).copy(pendingProgression = progression, lessonsLeft = left, reviewsDue = reviews)
     }
 
     /** Takes one signal (a repeat of a handled id does nothing). */

@@ -29,7 +29,7 @@ class SnapshotReader(
     /** Today's 今天微調 and the accepted illness change (the nerve, T11b); none without it. */
     private val todayChanges: suspend (LocalDate) -> Pair<List<DayAdjust>, Reduction?> = { emptyList<DayAdjust>() to null },
 ) {
-    val plans = PlanStore(store)
+    val plans = PlanStore(store, clock.zone)
 
     /** [day]'s plan with its adjustments. */
     suspend fun plan(day: LocalDate): DayPlan {
@@ -51,6 +51,8 @@ class SnapshotReader(
 
     suspend fun records(day: LocalDate): TodayRecords {
         val d = day.toString()
+        val lessons = store.lessons.all()
+        val profile = if (lessons.isEmpty()) Profile() else profile()
         return TodayRecords(
             day = d,
             meals = store.meals.onDay(d),
@@ -59,6 +61,9 @@ class SnapshotReader(
             signs = store.signs.onDay(d),
             condition = store.conditions.get(d),
             weights = store.weights.onDay(d),
+            lessonsPassed = lessons.filter { it.passedDay == d },
+            lessonsReviewed = lessons.filter { l -> l.reviewedAt?.let { dayOf(Instant.ofEpochMilli(it), profile).toString() } == d },
+            lessonsStarted = lessons.any { l -> l.listedAt?.let { !dayOf(Instant.ofEpochMilli(it), profile).isAfter(day) } == true },
         )
     }
 

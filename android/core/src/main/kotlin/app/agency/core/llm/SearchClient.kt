@@ -27,6 +27,8 @@ data class SearchHit(
     val authority: Int,
     /** 0..3; 1.5 and above is what the provider calls high quality. */
     val rerank: Double,
+    /** The page text the search returned (video searches ask for it: it is the lesson's 教材); empty otherwise. */
+    val content: String = "",
 )
 
 sealed interface SearchResult {
@@ -34,9 +36,15 @@ sealed interface SearchResult {
     data class Failed(val fail: Fail) : SearchResult
 }
 
-/** Web search for food places. The query is built by code from his coarse area and a dish name; nothing else is sent. */
+/**
+ * Web search for food places (T16) and for 理論課 videos (T19c). Every query is built by code: his coarse area and a dish name,
+ * or a lesson category's words; nothing else is sent.
+ */
 fun interface SearchClient {
     suspend fun searchPlaces(area: String, dish: String): SearchResult
+
+    /** Videos for [query] (code's words for a lesson category), with the page text; none by default. */
+    suspend fun searchVideos(query: String): SearchResult = SearchResult.Ok("", emptyList())
 }
 
 /**
@@ -73,7 +81,27 @@ class DeepSeekSearchClient(
         return SearchResult.Ok(query, filter(results))
     }
 
-    private fun filter(results: JsonArray): List<SearchHit> {
+    /**
+     * 理論課 candidates (T19c): the same endpoint with `need_content` so the page text comes back as the lesson's 教材 (at most
+     * [MAX_CONTENT] characters). Video sites come first; every hit is a real result with its own link.
+     */
+    override suspend fun searchVideos(query: String): SearchResult {
+        val k = key()
+        checks.blocked(k)?.let { return SearchResult.Failed(it) }
+        val q = words(query, MAX_QUERY).ifEmpty { return SearchResult.Ok("", emptyList()) }
+        checks.takeBudget()?.let { return SearchResult.Failed(it) }
+        val url = base.newBuilder().addPathSegments("v1/tools/search").build()
+        val body = buildJsonObject { put("query", q); put("count", REQUEST_COUNT); put("need_content", true) }
+        val outcome = transport.postJson(url, mapOf("Authorization" to "Bearer ${CallChecks.usableKey(k)}"), body.toString())
+        Fail.of(outcome)?.let { return SearchResult.Failed(it) }
+        val o = UsageParser.parseObject((outcome as HttpOutcome.Response).body) ?: return SearchResult.Failed(Fail.BAD_RESPONSE)
+        val results = o["results"] as? JsonArray ?: return SearchResult.Failed(Fail.BAD_RESPONSE)
+        if (results.isNotEmpty()) runCatching { usage.record(Provider.DEEPSEEK, METER_MODEL, Usage(0, 0, webSearchRequests = 1)) }
+        val hits = filter(results, withContent = true)
+        return SearchResult.Ok(q, hits.sortedBy { if (videoSite(it.url)) 0 else 1 })
+    }
+
+    private fun filter(results: JsonArray, withContent: Boolean = false): List<SearchHit> {
         val seen = HashSet<String>()
         return results.asSequence().mapNotNull { it as? JsonObject }.mapNotNull { r ->
             val url = r.str("url")?.trim()?.toHttpUrlOrNull()?.toString() ?: return@mapNotNull null
@@ -88,6 +116,7 @@ class DeepSeekSearchClient(
                 date = r.str("date"),
                 authority = (r["authority"] as? JsonPrimitive)?.intOrNull ?: -1,
                 rerank = rerank,
+                content = if (withContent) takeCodePoints(clean(r.str("content").orEmpty()), MAX_CONTENT) else "",
             )
         }.take(MAX_HITS).toList()
     }
@@ -104,6 +133,12 @@ class DeepSeekSearchClient(
         const val MAX_AREA = 40
         const val REQUEST_COUNT = 10
         const val METER_MODEL = "deepseek-search"
+        const val MAX_CONTENT = 3500
+
+        /** Hosts that are video sites (their results come first in a video search). */
+        val VIDEO_HOSTS = setOf("youtube.com", "youtu.be", "bilibili.com", "vimeo.com")
+
+        fun videoSite(url: String): Boolean = url.toHttpUrlOrNull()?.host?.let { h -> VIDEO_HOSTS.any { h == it || h.endsWith(".$it") } } == true
 
         private val operatorChars = Regex("""["'“”:：()（）|]""")
         // `\s` alone misses the full-width space U+3000, which would leave `雞排　-炸物` as one word with a live `-` in it.

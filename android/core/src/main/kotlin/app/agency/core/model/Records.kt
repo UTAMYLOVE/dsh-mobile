@@ -153,7 +153,7 @@ data class Baseline(
 }
 
 enum class MediaKind { PHOTO, AUDIO }
-enum class MediaPurpose { MEAL, BASELINE, LABEL, WATER, AVATAR }
+enum class MediaPurpose { MEAL, BASELINE, LABEL, WATER, AVATAR, LESSON }
 
 /** A media file's record; the encrypted bytes live in the vault as `<id>.bin`. [bytes] and [sha256] are of the plaintext. */
 data class Media(

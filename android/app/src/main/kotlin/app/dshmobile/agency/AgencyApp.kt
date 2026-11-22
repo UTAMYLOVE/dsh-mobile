@@ -327,6 +327,9 @@ class AgencyApp(
     /** 拍這餐 (T15): the camera intent for the meal being reported, or null when the test camera already answered. */
     fun mealPhotoIntent(): Intent? = capture { camera.beginMeal() }
 
+    /** A 理論課 實作 photo (T19c) for lesson [lessonId], or null when the test camera already answered. */
+    fun lessonPhotoIntent(lessonId: String): Intent? = capture { camera.beginLesson(lessonId) }
+
     private fun capture(begin: () -> Intent): Intent? {
         _mediaNotice.value = null
         val intent = try {
@@ -367,7 +370,12 @@ class AgencyApp(
                 null
             } ?: return@launch
             val step = captured.step
-            if (step != null) handIn(ready, v, step, captured.media) else mealPhoto(ready, v, captured.media)
+            val lesson = captured.lessonId
+            when {
+                lesson != null -> practical(ready, v, lesson, captured.media)
+                step != null -> handIn(ready, v, step, captured.media)
+                else -> mealPhoto(ready, v, captured.media)
+            }
         }
     }
 
@@ -383,6 +391,66 @@ class AgencyApp(
             runCatching { if (ready.store.media.get(media.id) == null) v.delete(media.id) }
             _mediaNotice.value = MediaNotice.NOT_SAVED
         }
+    }
+
+    /**
+     * A lesson's 實作 (T19c), sealed in the vault: the media row and its link are written together; when the brain does not
+     * take it (another kind, a lesson without a 實作) or it fails, the sealed file goes again. It never leaves the phone.
+     */
+    private suspend fun practical(ready: StartState.Ready, v: MediaVault, lessonId: String, media: Media): Boolean {
+        val kept = try {
+            ready.brain.handInPractical(lessonId, media)
+            ready.store.media.get(media.id) != null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "practical not saved (${e.javaClass.simpleName})")
+            false
+        }
+        if (!kept) {
+            runCatching { if (ready.store.media.get(media.id) == null) v.delete(media.id) }
+            _mediaNotice.value = MediaNotice.NOT_SAVED
+        } else {
+            _mediaNotice.value = null
+        }
+        return kept
+    }
+
+    /** 交出 for a lesson's recording (T19c): sealed as a stream, the plaintext deleted, handed in. */
+    suspend fun handInLessonRecording(lessonId: String, file: File, durationMs: Long): Boolean {
+        val ready = _start.value as? StartState.Ready ?: return false.also { file.delete() }
+        val v = vault ?: return false.also { file.delete() }
+        return scope.async {
+            val id = UUID.randomUUID().toString()
+            val sealed = try {
+                v.putFile(id, file)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                errorLog.append(TAG, "lesson recording not sealed (${e.javaClass.simpleName})")
+                _mediaNotice.value = if (e is app.dshmobile.agency.secure.DataUnavailableException) MediaNotice.LOCKED else MediaNotice.NOT_SAVED
+                return@async false
+            }
+            errorLog.append(TAG, "lesson recording sealed ms=$durationMs")
+            practical(ready, v, lessonId, Media(id, MediaKind.AUDIO, MediaPurpose.LESSON, AudioRecorder.MIME, sealed.bytes, sealed.sha256, clock.millis()))
+        }.await()
+    }
+
+    /** 理論課 (T19c): what the tab's buttons do, off the main thread (each answer is a manager line and reloads the tab). */
+    fun findVideos(category: app.agency.core.model.LessonCategory?) = talk { it.findVideos(category) }
+    fun approveLesson(id: String) = talk { it.approveLesson(id) }
+    fun dropLesson(id: String) = talk { it.dropLesson(id) }
+    fun lessonWatched(id: String) = talk { it.lessonWatched(id) }
+    fun lessonKeyPoints(id: String, points: List<String>) = talk { it.lessonKeyPoints(id, points) }
+    fun answerLesson(id: String, choices: List<Int>) = talk { it.answerLesson(id, choices) }
+    fun lessonNote(id: String, text: String) = talk { it.lessonNote(id, text) }
+    fun startReview(id: String) = talk { it.startReview(id) }
+    fun answerReview(id: String, choices: List<Int>) = talk { it.answerReview(id, choices) }
+
+    /** 去看: the stored link of the open lesson (the activity hands it to his YouTube app or browser), or null. */
+    suspend fun openLesson(id: String): String? {
+        val ready = _start.value as? StartState.Ready ?: return null
+        return scope.async { runCatching { ready.brain.openLesson(id) }.getOrNull() }.await()
     }
 
     /** 刪掉照片 on a meal, after his confirm (T15): the meal goes back to 「未證實」 and the sealed file goes. */

@@ -43,7 +43,7 @@ object RuleEngine {
             }
             val ids = records(sl.key, r)
             val status = when {
-                ids.isNotEmpty() -> SlotStatus.DONE
+                ids.size >= (sl.count ?: 1) -> SlotStatus.DONE
                 now >= dayEnd || (signedOut != null && sl.key != SlotKey.SIGN_OUT) -> SlotStatus.MISSED
                 now < due -> SlotStatus.LATER
                 else -> SlotStatus.OPEN
@@ -61,6 +61,8 @@ object RuleEngine {
         SlotKey.STRENGTH -> r.training.filter { it.kind == TrainingKind.STRENGTH }.map { it.id }
         SlotKey.STRETCH -> r.training.filter { it.kind == TrainingKind.STRETCH }.map { it.id }
         SlotKey.WALK -> r.training.filter { it.kind == TrainingKind.WALK }.map { it.id }
+        SlotKey.LESSONS -> r.lessonsPassed.map { it.id }
+        SlotKey.LESSON_REVIEW -> r.lessonsReviewed.map { it.id }
         else -> r.meals.filter { it.slotKey == key.name }.map { it.id }
     }
 

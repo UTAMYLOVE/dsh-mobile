@@ -17,6 +17,7 @@ enum class StickerKind(val zh: String) {
     WALK("快走"),
     RIDE("跑單"),
     SIGN_OUT("簽退"),
+    LESSON("理論課"),
 }
 
 /** A sticker earned today; [ref] is the record (or slot) it stands for, so the same item never earns two. */
@@ -51,6 +52,7 @@ object Stickers {
         SlotKind.MEAL -> StickerKind.MEAL
         SlotKind.RIDE -> StickerKind.RIDE
         SlotKind.SIGN -> if (key == SlotKey.WAKE) StickerKind.SIGN_IN else StickerKind.SIGN_OUT
+        SlotKind.STUDY -> StickerKind.LESSON
         SlotKind.TRAINING -> when (key) {
             SlotKey.CORE -> StickerKind.CORE
             SlotKey.STRENGTH -> StickerKind.STRENGTH

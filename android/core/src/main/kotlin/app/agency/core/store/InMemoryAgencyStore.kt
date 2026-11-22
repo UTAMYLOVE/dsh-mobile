@@ -11,6 +11,9 @@ import app.agency.core.model.NerveEffect
 import app.agency.core.model.StoredSignal
 import app.agency.core.model.StoredThinking
 import app.agency.core.model.FavoritePlace
+import app.agency.core.model.Lesson
+import app.agency.core.model.LessonStatus
+import app.agency.core.model.Quiz
 import app.agency.core.model.FoodEntry
 import app.agency.core.model.Meal
 import app.agency.core.model.MealOrder
@@ -67,6 +70,8 @@ class InMemoryAgencyStore : AgencyStore {
         val signals: MutableMap<String, StoredSignal> = mutableMapOf(),
         val effects: MutableMap<String, NerveEffect> = mutableMapOf(),
         val thinking: MutableMap<String, StoredThinking> = mutableMapOf(),
+        val lessons: MutableMap<String, Lesson> = mutableMapOf(),
+        val quizzes: MutableMap<String, Quiz> = mutableMapOf(),
     ) {
         /** The records are immutable, so copying the containers is a full snapshot. */
         fun snapshot() = Tables(
@@ -75,7 +80,8 @@ class InMemoryAgencyStore : AgencyStore {
             water.toMutableMap(), training.toMutableMap(), signs.toMutableMap(), weights.toMutableMap(), conditions.toMutableMap(),
             baselines.toMutableMap(), media.toMutableMap(), messages.toMutableMap(), proposals.toMutableMap(),
             memoryItems.toMutableMap(), memoryEvents.toMutableMap(), nudges.toMutableMap(), migrations.toMutableList(),
-            audits.toMutableList(), signals.toMutableMap(), effects.toMutableMap(), thinking.toMutableMap(),
+            audits.toMutableList(), signals.toMutableMap(), effects.toMutableMap(), thinking.toMutableMap(), lessons.toMutableMap(),
+            quizzes.toMutableMap(),
         )
     }
 
@@ -301,5 +307,17 @@ class InMemoryAgencyStore : AgencyStore {
             old.size
         }
         override suspend fun count(): Int = locked { thinking.size }
+    }
+
+    override val lessons = object : LessonRepo {
+        override suspend fun insert(lesson: Lesson): Boolean = locked { lessons.putIfAbsent(lesson.id, lesson) == null }
+        override suspend fun upsert(lesson: Lesson) = locked { lessons[lesson.id] = lesson }
+        override suspend fun get(id: String): Lesson? = locked { lessons[id] }
+        override suspend fun all(): List<Lesson> = locked { lessons.values.sortedWith(compareBy({ it.foundAt }, { it.id })) }
+        override suspend fun withStatus(status: LessonStatus): List<Lesson> = all().filter { it.status == status }
+        override suspend fun putQuiz(quiz: Quiz) = locked { quizzes[quiz.id] = quiz }
+        override suspend fun quiz(id: String): Quiz? = locked { quizzes[id] }
+        override suspend fun quizzes(lessonId: String): List<Quiz> =
+            locked { quizzes.values.filter { it.lessonId == lessonId }.sortedWith(compareBy({ it.createdAt }, { it.id })) }
     }
 }

@@ -12,7 +12,7 @@ import app.agency.core.schedule.SlotKey
  * breast, and it has no way to touch 公司規章 (no effect carries them).
  */
 object AdjustBounds {
-    val MOVABLE = setOf(SlotKey.LUNCH, SlotKey.FIRST_MEAL, SlotKey.WALK)
+    val MOVABLE = setOf(SlotKey.LUNCH, SlotKey.FIRST_MEAL, SlotKey.WALK, SlotKey.LESSONS)
 
     fun allows(change: DayAdjust, plan: DayPlan, base: DayPlan, firstMealGapMin: Int): Boolean = when (change) {
         is DayAdjust.Flag -> true
@@ -24,6 +24,12 @@ object AdjustBounds {
             val slot = plan.slot(change.key)
             when {
                 slot == null || change.key !in MOVABLE -> false
+                // 理論課 (L18): earlier only (never later than planned), at least an hour after the first meal.
+                change.key == SlotKey.LESSONS -> {
+                    val first = plan.slot(plan.firstMeal)?.minute
+                    val from = base.slot(SlotKey.LESSONS)?.minute
+                    first != null && from != null && change.minute <= from && change.minute >= first + 60
+                }
                 change.key == SlotKey.WALK -> {
                     val core = plan.slot(SlotKey.CORE)?.minute ?: plan.slot(SlotKey.DINNER)!!.minute
                     change.minute in DayClock.minute("13:00")..(core - 30)

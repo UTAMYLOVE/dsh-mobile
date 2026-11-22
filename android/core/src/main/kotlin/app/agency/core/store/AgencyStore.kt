@@ -11,6 +11,9 @@ import app.agency.core.model.NerveEffect
 import app.agency.core.model.StoredSignal
 import app.agency.core.model.StoredThinking
 import app.agency.core.model.FavoritePlace
+import app.agency.core.model.Lesson
+import app.agency.core.model.LessonStatus
+import app.agency.core.model.Quiz
 import app.agency.core.model.FoodEntry
 import app.agency.core.model.Meal
 import app.agency.core.model.MealOrder
@@ -63,6 +66,7 @@ interface AgencyStore {
     val journal: JournalRepo
     val nerve: NerveRepo
     val thinking: ThinkingRepo
+    val lessons: LessonRepo
 
     /** Runs [block] atomically: if it throws, nothing it wrote stays. Calls may nest (the outermost one commits). */
     suspend fun <T> transaction(block: suspend () -> T): T
@@ -248,6 +252,26 @@ interface ThinkingRepo {
     /** Deletes the rows written before [before]; returns how many went. */
     suspend fun prune(before: Long): Int
     suspend fun count(): Int
+}
+
+/**
+ * 理論課 (T19c, schema v4): the videos (search candidates, 「課程清單」, his progress) and their quizzes. A video's title, link
+ * and 教材 are copied by code from a stored search result; nothing here is ever model text except checked quiz questions.
+ */
+interface LessonRepo {
+    /** INSERT OR IGNORE on the id. */
+    suspend fun insert(lesson: Lesson): Boolean
+    suspend fun upsert(lesson: Lesson)
+    suspend fun get(id: String): Lesson?
+
+    /** Every lesson, by the time it was found, then id. */
+    suspend fun all(): List<Lesson>
+    suspend fun withStatus(status: LessonStatus): List<Lesson>
+    suspend fun putQuiz(quiz: Quiz)
+    suspend fun quiz(id: String): Quiz?
+
+    /** The quizzes of [lessonId], oldest first. */
+    suspend fun quizzes(lessonId: String): List<Quiz>
 }
 
 /** The import log and the audit log. */
