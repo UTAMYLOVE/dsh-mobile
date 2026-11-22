@@ -222,20 +222,33 @@ class AgencyE2eTest {
      * reach the model, and once the network is back he can send again and gets a real answer.
      */
     @Test fun e05_offlineStillKeepsHisMessage() {
-        app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
-        fake.online = false
         // The screen's Compose state changes on the main thread only (the first CI run of b7b2703 drew while an IO thread
-        // observed layout reads): any write or snapshot apply off the main thread is kept and fails the test.
+        // observed layout reads): a write or snapshot apply on one of the app's own threads (IO, Default, the HTTP client)
+        // is kept and fails the test. The instrumentation thread is left out: it runs the Compose test framework's own code
+        // (waitUntil, semantics fetches, text input) and this test's set-up, which may send apply notifications there by
+        // design or after a framework upgrade without any app bug. The Robolectric AgencyMainThreadTest checks every thread.
+        val testThread = Thread.currentThread()
         val offMain = java.util.Collections.synchronizedList(mutableListOf<String>())
         fun check(what: String) {
-            if (android.os.Looper.myLooper() !== android.os.Looper.getMainLooper()) offMain += "$what on ${Thread.currentThread().name}"
+            val t = Thread.currentThread()
+            if (android.os.Looper.myLooper() !== android.os.Looper.getMainLooper() && t !== testThread) offMain += "$what on ${t.name}"
         }
         val handles = listOf(
             Snapshot.registerGlobalWriteObserver { check("state write") },
             Snapshot.registerApplyObserver { _, _ -> check("snapshot apply") },
         )
         try {
-            offlineThenOnline()
+            // The flow three times in a row (a fresh install each time), so one CI run samples the old flake three times.
+            repeat(ROUNDS) { round ->
+                if (round > 0) {
+                    watch?.cancel()
+                    scenario?.close()
+                    fresh()
+                }
+                app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
+                fake.online = false
+                offlineThenOnline()
+            }
         } finally {
             handles.forEach { it.dispose() }
         }
@@ -280,6 +293,7 @@ class AgencyE2eTest {
 
     private companion object {
         const val FAKE_KEY = "sk-e2e-fake-key-0123456789"
+        const val ROUNDS = 3
         val BASELINE = listOf("photo-1795224000000.jpg", "photo-1795224600000.jpg", "recording-1795225200000.m4a")
         val PREF = Regex("<(int|string) name=\"([^\"]+)\"(?: value=\"([^\"]*)\" />|>([^<]*)</string>)")
     }

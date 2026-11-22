@@ -8,13 +8,26 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.onAllNodesWithTag
+import app.dshmobile.ui.settings.LegacyTags
+import app.dshmobile.ui.settings.ModelKeyTags
+import app.dshmobile.ui.settings.SettingsPage
+import app.dshmobile.ui.settings.SettingsTags
+import app.dshmobile.ui.settings.SpendTags
+import kotlin.concurrent.thread
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import app.agency.core.brain.Brain
 import app.agency.core.llm.Fail
 import app.agency.core.metering.Provider
 import app.dshmobile.DshMobileApp
+import app.dshmobile.R
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import app.agency.core.model.Profile
+import app.dshmobile.agency.data.AgencyDatabase
+import app.dshmobile.agency.data.RoomAgencyStore
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
@@ -81,20 +94,120 @@ class AgencyMainThreadTest {
                 if (online.get()) answer.dispatch(request) else MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
         }
         AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys(Provider.DEEPSEEK to "sk-test-0123456789abcdef"))
+        // An invented profile, so the header's profile load writes a value (not null over null).
+        runBlocking {
+            AgencyDatabase.build(app, File(tmp, "agency.db").path, FrameworkSQLiteOpenHelperFactory()).let { db ->
+                RoomAgencyStore(db).profile.put(Profile(dayStartHour = 4))
+                db.close()
+            }
+        }
         AgencyApp.testOverrides = kit.overrides(s.url("/"))
         watchThreads()
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
         rule.waitForTag(AgencyTags.HOME)
 
+        // Each send bumps the brain's revision and the header reloads the profile: a changed one each time, so it is written.
+        changeProfile(5)
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
         rule.waitForText(Brain.failLine(Fail.OFFLINE))
 
         online.set(true)
+        changeProfile(6)
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(AgencyTags.SEND).assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
         rule.waitForText("現在去喝水。")
+        rule.waitForIdle()
+
+        assertEquals(emptyList<String>(), offMain.toList().distinct())
+    }
+
+    private fun changeProfile(dayStartHour: Int) = runBlocking {
+        (app.agency.start.value as app.dshmobile.agency.StartState.Ready).store.profile.put(Profile(dayStartHour = dayStartHour))
+    }
+
+    private fun openSettings(page: SettingsPage) {
+        rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + page.name).performClick()
+    }
+
+    /** Runs [block] on a plain background thread (no looper), as the brain and the meter do from IO. */
+    private fun offThread(block: () -> Unit) = thread(name = "invented-worker") { block() }.join()
+
+    /** 設定 › 模型與金鑰 and 花費上限: the flows they follow change on other threads; the pages change on the main thread. */
+    @Test fun theModelAndSpendPagesChangeOnlyOnTheMainThread() {
+        val s = MockWebServer().also { server = it }
+        s.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(401)
+        }
+        s.start()
+        AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys(Provider.DEEPSEEK to "sk-test-0123456789abcdef"))
+        AgencyApp.testOverrides = kit.overrides(s.url("/"))
+        scenario = ActivityScenario.launch(AgencyActivity::class.java)
+        rule.waitForTag(AgencyTags.HOME)
+        watchThreads()
+
+        openSettings(SettingsPage.MODEL)
+        rule.waitForTag(ModelKeyTags.KEY_STATUS)
+        offThread { app.agency.settings.deepseekModel = "deepseek-v4-pro" }
+        // The key is refused: the brain sets lastFail on its IO thread and the page says so.
+        app.agency.send("姐姐在嗎")
+        rule.waitForTag(ModelKeyTags.REJECTED)
+
+        rule.onNodeWithTag(SettingsTags.BACK).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.SPEND.name).performClick()
+        rule.waitForTag(SpendTags.SUGGEST)
+        offThread { app.costMeter.hardCapUsd = 2.0 }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag(SpendTags.SUGGEST).fetchSemanticsNodes().isEmpty() }
+        offThread { app.costMeter.hardCapUsd = null }
+        rule.waitForTag(SpendTags.SUGGEST)
+        rule.waitForIdle()
+
+        assertEquals(emptyList<String>(), offMain.toList().distinct())
+    }
+
+    /** 設定 › 舊資料 after a failed first import: loading the page and 再試一次 change it on the main thread only. */
+    @Test fun theLegacyPageRetryChangesOnlyOnTheMainThread() {
+        AgencyTestKit.seedV2(app)
+        kit.dropMessages = true
+        AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys())
+        AgencyApp.testOverrides = kit.overrides()
+        scenario = ActivityScenario.launch(AgencyActivity::class.java)
+        rule.waitForTag(AgencyTags.HOME, 20_000)
+        rule.waitForText("搬資料沒有成功，舊資料都還在。")
+        kit.dropMessages = false
+        watchThreads()
+        // The notice goes away from another thread (as the import's bookkeeping does on IO): 公司 changes on the main thread.
+        offThread { app.agency.dismissNotice() }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag(AgencyTags.NOTICE).fetchSemanticsNodes().isEmpty() }
+
+        openSettings(SettingsPage.LEGACY)
+        rule.waitForTag(LegacyTags.RETRY)
+        rule.onNodeWithTag(LegacyTags.RETRY).performClick()
+        rule.waitForText("搬完了", 20_000)
+        rule.waitForIdle()
+
+        assertEquals(emptyList<String>(), offMain.toList().distinct())
+    }
+
+    /** 設定 › 舊資料 分享 of a file that is gone: the page says it could not, on the main thread. */
+    @Test fun theLegacyPageShareChangesOnlyOnTheMainThread() {
+        AgencyTestKit.seedV2(app)
+        kit.vaultLocked = true
+        AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys())
+        AgencyApp.testOverrides = kit.overrides()
+        scenario = ActivityScenario.launch(AgencyActivity::class.java)
+        rule.waitForTag(AgencyTags.HOME, 20_000)
+        val name = "recording-1795225200000.m4a"
+        val kept = app.filesDir.listFiles { f -> f.name.startsWith("coach.migrated-") }!!.single()
+        watchThreads()
+
+        openSettings(SettingsPage.LEGACY)
+        rule.waitForTag(LegacyTags.SHARE + name)
+        File(kept, "baseline/$name").delete()
+        rule.onNodeWithTag(LegacyTags.SHARE + name).performScrollTo().performClick()
+        rule.waitForText(app.getString(R.string.ag_legacy_share_failed))
         rule.waitForIdle()
 
         assertEquals(emptyList<String>(), offMain.toList().distinct())

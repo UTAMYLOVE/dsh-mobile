@@ -39,6 +39,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -247,11 +248,12 @@ class AgencyApp(
 
     /**
      * 設定 › 舊資料 「再試一次」 after a failed first import (NOT_YET): runs the import now instead of at the next process
-     * start, and the pending media after it.
+     * start, and the pending media after it. It runs in the company's own scope on IO (its prefs writes and log lines too), so
+     * leaving the page does not cut it short; the caller only waits for it.
      */
     suspend fun retryFirstImport() {
         val imp = importer ?: return
-        importAndSeal(imp)
+        scope.async { importAndSeal(imp) }.await()
     }
 
     /** Sends his message to the brain, off the main thread; a failure is logged, never thrown at the screen. */
@@ -292,17 +294,19 @@ class AgencyApp(
         return LegacyStatus(if (row.ok) LegacyStatus.Kind.DONE else LegacyStatus.Kind.PARTIAL, counts, note, folder)
     }
 
-    /** 設定 › 舊資料 「再試一次」 after a partial import. */
+    /** 設定 › 舊資料 「再試一次」 after a partial import: in the company's own scope on IO, like [retryFirstImport]. */
     suspend fun retryImport(): ImportReport? {
         val imp = importer ?: return null
-        return try {
-            imp.retry().also { logImport(it) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            errorLog.append(TAG, "retry threw (${e.javaClass.simpleName})")
-            null
-        }
+        return scope.async {
+            try {
+                imp.retry().also { logImport(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                errorLog.append(TAG, "retry threw (${e.javaClass.simpleName})")
+                null
+            }
+        }.await()
     }
 
     /** The provider clients behind the one network gate, and the brain on top. */

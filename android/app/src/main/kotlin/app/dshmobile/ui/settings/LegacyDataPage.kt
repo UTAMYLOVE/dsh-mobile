@@ -68,6 +68,8 @@ fun LegacyDataPage(agency: AgencyApp) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val shareFailed = stringResource(R.string.ag_legacy_share_failed)
+    // The onMain wrappers on this page are defensive: on the phone these already run on the main thread; under the Compose
+    // test rule they would not. Keep them (AgencyMainThreadTest fails without each).
     LaunchedEffect(reload) { onMain { status = withContext(Dispatchers.IO) { runCatching { agency.legacyStatus() }.getOrNull() } } }
     Section(stringResource(R.string.ag_set_legacy)) {
         val s = status ?: return@Section

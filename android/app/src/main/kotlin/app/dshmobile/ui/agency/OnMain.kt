@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 /*
- * The company's screens change Compose state, and drive layout, on the main thread only, whatever dispatcher runs the
+ * The company's screens change Compose state on the main thread only, whatever dispatcher runs the
  * composition's effects. On the phone the effects already run on the main thread and these cost nothing (Main.immediate does
  * not dispatch there). Under the Compose test rule the effects run unconfined: without these, a flow the brain sets on an IO
  * thread, or the rest of an effect after `withContext(Dispatchers.IO)`, went on on that IO thread, wrote the screen's state and
@@ -21,5 +21,5 @@ import kotlinx.coroutines.withContext
 @Composable
 fun <T> StateFlow<T>.collectOnMain(): State<T> = collectAsState(Dispatchers.Main.immediate)
 
-/** Runs [block] on the main thread: for an effect that writes the screen's state or scrolls after work elsewhere. */
+/** Runs [block] on the main thread: for an effect that writes the screen's state after work elsewhere. */
 suspend fun <T> onMain(block: suspend CoroutineScope.() -> T): T = withContext(Dispatchers.Main.immediate, block)

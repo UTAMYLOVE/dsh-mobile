@@ -48,6 +48,8 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun HomeScreen(agency: AgencyApp, ready: StartState.Ready) {
+    // collectOnMain / onMain below are defensive: on the phone these already run on the main thread; under the Compose test
+    // rule they would not. Keep them (AgencyMainThreadTest fails without each).
     val revision by ready.brain.revision.collectOnMain()
     val busy by ready.brain.busy.collectOnMain()
     val notice by agency.notice.collectOnMain()

@@ -59,6 +59,7 @@ enum class AgencyTab(val label: Int) { COMPANY(R.string.ag_tab_company), WAR_ROO
 /** The start screens until the company is open, then the three tabs. */
 @Composable
 fun AgencyRoot(agency: AgencyApp) {
+    // Defensive (main on the phone already; not under the Compose test rule). Keep it: AgencyMainThreadTest fails without it.
     val start by agency.start.collectOnMain()
     Box(Modifier.fillMaxSize().background(Sakura.Background)) {
         when (val s = start) {

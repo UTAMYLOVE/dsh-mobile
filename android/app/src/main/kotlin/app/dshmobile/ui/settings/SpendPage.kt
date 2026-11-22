@@ -30,6 +30,7 @@ object SpendTags {
  */
 @Composable
 fun SpendPage(meter: CostMeter) {
+    // Defensive (main on the phone already; not under the Compose test rule). Keep it: AgencyMainThreadTest fails without it.
     val revision by meter.revision.collectOnMain()
     val today = remember(revision) { meter.todayUsd() }
     val month = remember(revision) { meter.monthUsd() }

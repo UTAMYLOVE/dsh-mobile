@@ -50,6 +50,7 @@ object ModelKeyTags {
  */
 @Composable
 fun ModelKeyPage(settings: AgencySettings, vault: KeyVault, brain: Brain) {
+    // Defensive (main on the phone already; not under the Compose test rule). Keep it: AgencyMainThreadTest fails without it.
     val revision by settings.revision.collectOnMain()
     val lastFail by brain.lastFail.collectOnMain()
     val provider = remember(revision) { settings.provider }
