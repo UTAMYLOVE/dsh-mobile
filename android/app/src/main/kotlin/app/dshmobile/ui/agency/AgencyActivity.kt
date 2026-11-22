@@ -4,6 +4,10 @@ import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.content.ActivityNotFoundException
+import android.content.Intent
+import app.agency.core.schedule.SlotKey
+import app.agency.core.schedule.SlotKind
+import app.dshmobile.agency.notify.AgencyNotifier
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,7 +39,31 @@ class AgencyActivity : ComponentActivity() {
         enableEdgeToEdge()
         val agency = agency
         agency.start()
-        setContent { SakuraTheme { AgencyRoot(agency, AgencyActions(takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce)) } }
+        setContent {
+            SakuraTheme { AgencyRoot(agency, AgencyActions(takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto)) }
+        }
+        if (savedInstanceState == null) fromNotification(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        fromNotification(intent)
+    }
+
+    /** A meal slot's reminder leads to the camera (arch T13/T15): its photo goes on the meal being reported. */
+    private fun fromNotification(intent: Intent?) {
+        val slot = SlotKey.parse(intent?.getStringExtra(AgencyNotifier.EXTRA_SLOT)) ?: return
+        intent?.removeExtra(AgencyNotifier.EXTRA_SLOT)
+        if (slot.kind == SlotKind.MEAL) takeMealPhoto()
+    }
+
+    private fun takeMealPhoto() {
+        val intent = agency.mealPhotoIntent() ?: return
+        try {
+            camera.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            agency.cameraMissing()
+        }
     }
 
     private fun askNotificationsOnce() {
@@ -59,7 +87,12 @@ class AgencyActivity : ComponentActivity() {
 private const val ASKED_NOTIFICATIONS = "asked_notifications"
 
 /**
- * What the screens ask the activity to do (things that need an activity): the camera app, and the notification permission
- * (asked once when the reminders start, after 入社建檔).
+ * What the screens ask the activity to do (things that need an activity): the camera app (a 入社建檔 photo, a meal's), and
+ * the notification permission (asked once when the reminders start, after 入社建檔).
  */
-class AgencyActions(val takePhoto: (OnboardingStep) -> Unit = {}, val askNotifications: () -> Unit = {})
+class AgencyActions(
+    val takePhoto: (OnboardingStep) -> Unit = {},
+    val askNotifications: () -> Unit = {},
+    /** 拍這餐 (T15): the camera for the meal being reported. */
+    val takeMealPhoto: () -> Unit = {},
+)

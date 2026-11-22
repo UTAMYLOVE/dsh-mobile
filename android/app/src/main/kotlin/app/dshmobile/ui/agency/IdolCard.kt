@@ -71,6 +71,7 @@ object IdolTags {
     const val PHOTO = "ag-idol-photo"
     const val NEXT = "ag-idol-next"
     const val GAPS = "ag-idol-gaps"
+    const val UNVERIFIED = "ag-idol-unverified"
 }
 
 /**
@@ -127,6 +128,12 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
             facts.next?.let { Text(stringResource(R.string.ag_card_next, it.slot.time, it.slot.label), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.NEXT)) }
             if (facts.gaps.isNotEmpty()) {
                 Text(stringResource(R.string.ag_card_gaps, facts.gaps.joinToString("、") { it.slot.label }), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.GAPS))
+            }
+            if (facts.unverified.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.ag_card_unverified, facts.unverified.joinToString("、")), color = Sakura.Text, fontSize = 14.sp,
+                    modifier = Modifier.testTag(IdolTags.UNVERIFIED),
+                )
             }
             Text(
                 facts.nextGoalKg?.let { stringResource(R.string.ag_card_goal, CoachRules.kg(it)) } ?: stringResource(R.string.ag_card_goal_none),

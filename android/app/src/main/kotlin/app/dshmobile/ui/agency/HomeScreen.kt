@@ -40,8 +40,17 @@ import app.dshmobile.agency.StartState
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.dshmobile.ui.agency.onboarding.BaselineBadges
 import app.dshmobile.ui.agency.onboarding.OnboardingFlow
+import app.dshmobile.ui.kit.PinkButton
 import app.dshmobile.ui.kit.Sakura
 import app.dshmobile.ui.kit.SoftButton
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import app.agency.core.model.Meal
+import app.agency.core.model.PendingLabel
+import app.dshmobile.ui.agency.meal.LabelForm
+import app.dshmobile.ui.agency.meal.MealActions
+import app.dshmobile.ui.agency.meal.MealTags
+import app.dshmobile.ui.agency.meal.PhotoViewer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -77,11 +86,27 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.pendingProposals() }.getOrDefault(emptyList()) } }
     }
     val scope = rememberCoroutineScope()
-    val chatActions = remember(agency, ready) {
+    // The meals the lines point at (T15), the items waiting for a label, and the dialogs for a photo and a label.
+    val mealView by produceState(MealView(), revision, messages) {
+        onMain {
+            value = withContext(Dispatchers.IO) {
+                val ids = messages.flatMap { it.refs.records }.distinct()
+                MealView(
+                    ids.mapNotNull { id -> runCatching { ready.store.meals.get(id) }.getOrNull() }.associateBy { it.id },
+                    runCatching { ready.brain.pendingLabels() }.getOrDefault(emptyList()),
+                    agency.mediaVault(),
+                )
+            }
+        }
+    }
+    var viewing by remember { mutableStateOf<Meal?>(null) }
+    var labelling by remember { mutableStateOf<PendingLabel?>(null) }
+    val chatActions = remember(agency, ready, actions) {
         ChatActions(
             onResend = agency::resend,
             onOption = agency::send,
             onUndo = { id -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.undoMemory(id) } } } },
+            meal = MealActions(onPhoto = actions.takeMealPhoto, onOpen = { viewing = it }, onLabel = { labelling = it }),
         )
     }
     val onboarding by produceState<OnboardingStatus?>(null, revision) {
@@ -102,27 +127,62 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         notice?.let { NoticeBar(it, agency::dismissNotice) }
         ChatList(
             messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f),
-            memory = memory, actions = chatActions, busy = busy,
+            memory = memory, actions = chatActions, busy = busy, meals = mealView,
         )
         ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
         onboarding?.let { OnboardingFlow(agency, it, actions) }
-        // The ride buttons come with the reminders, after 入社建檔 (the 入社建檔 panel has the room until then).
-        if (onboarding?.completed == true) RideButtons(busy) { agency.send(it) }
+        // The quick buttons come with the reminders, after 入社建檔 (the 入社建檔 panel has the room until then).
+        labelling?.let { p ->
+            LabelForm(p, onSave = { kcal, protein -> labelling = null; agency.label(p.mealId, p.itemIdx, kcal, protein) }, onClose = { labelling = null })
+        }
+        if (onboarding?.completed == true) {
+            MediaLine(agency)
+            QuickButtons(busy, onPhoto = actions.takeMealPhoto) { agency.send(it) }
+        }
         Composer(busy = busy, onSend = agency::send)
     }
+    viewing?.let { m ->
+        PhotoViewer(
+            m, agency.mediaVault(),
+            onDelete = {
+                viewing = null
+                scope.launch { agency.deleteMealPhoto(m.id) }
+            },
+            onClose = { viewing = null },
+        )
+    }
+}
+
+/** Why the last meal photo was not kept (no camera app, the data lock, not saved), until the next try. */
+@Composable
+private fun MediaLine(agency: AgencyApp) {
+    val notice by agency.mediaNotice.collectOnMain()
+    val n = notice ?: return
+    val text = stringResource(
+        when (n) {
+            app.dshmobile.agency.MediaNotice.NO_CAMERA -> R.string.ag_media_no_camera
+            app.dshmobile.agency.MediaNotice.LOCKED -> R.string.ag_media_locked
+            app.dshmobile.agency.MediaNotice.NOT_SAVED -> R.string.ag_media_not_saved
+        },
+    )
+    Text(text, color = Sakura.RoseBrown, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp).testTag(AgencyTags.MEDIA_NOTICE))
 }
 
 private const val PAGE = 500
 
 /**
- * 出門跑單 / 收工 (arch T13): the same words he may type; riding makes reminders sound once. 「這裡有問題」 (T12) opens 討論
- * with the manager.
+ * The quick buttons: 拍這餐 (T15: the camera for the meal being reported), 出門跑單 / 收工 (arch T13: the same words he may
+ * type; riding makes reminders sound once) and 「這裡有問題」 (T12: 討論 with the manager). The row scrolls sideways.
  */
 @Composable
-private fun RideButtons(busy: Boolean, onSay: (String) -> Unit) {
+private fun QuickButtons(busy: Boolean, onPhoto: () -> Unit, onSay: (String) -> Unit) {
     val start = stringResource(R.string.ag_ride_start)
     val end = stringResource(R.string.ag_ride_end)
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PinkButton(stringResource(R.string.ag_meal_photo), onClick = onPhoto, enabled = !busy, modifier = Modifier.testTag(MealTags.PHOTO))
         SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
         SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
         SoftButton(stringResource(R.string.ag_discuss), onClick = { onSay(Discussion.OPEN_WORD) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.DISCUSS))

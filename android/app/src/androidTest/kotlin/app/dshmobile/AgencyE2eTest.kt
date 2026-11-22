@@ -1,5 +1,7 @@
 package app.dshmobile
 
+import app.agency.core.model.Profile
+import app.dshmobile.ui.agency.meal.MealTags
 import android.content.Context
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.assertIsEnabled
@@ -367,6 +369,35 @@ class AgencyE2eTest {
         photos.forEach { id -> rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.THUMB + id).fetchSemanticsNodes().isNotEmpty() } }
         rule.onNodeWithTag(OnboardingTags.FILE_PLAY).assertExists()
         assertTrue(fake.seen.isEmpty())
+    }
+
+    /**
+     * Arch T15 e2e: a meal reported in words is 「未證實」; 拍這餐 (the camera seam, real downsizing and sealing with the
+     * phone's key) puts the photo on it, the thumbnail opens in memory, and no plaintext is left in the camera cache.
+     */
+    @Test fun e11_mealWithPhoto() {
+        app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
+        fake.intakeJson = """{"kind":"meal","items":[{"name":"即食雞胸","portion":1,"fried":false,"processed":false,"zero_cal":false,"kcal_low":100,"kcal_high":130,"protein_low":20,"protein_high":25}]}"""
+        open()
+        runBlocking {
+            ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
+            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
+        }
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("吃了即食雞胸")
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitUntil(60_000) { runBlocking { ready().store.meals.count() } == 1 }
+        val meal = runBlocking { ready().store.meals.between("0000-01-01", "9999-12-31") }.single()
+        assertFalse(meal.verified)
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(MealTags.PHOTO).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(MealTags.PHOTO).performClick()
+        rule.waitUntil(30_000) { runBlocking { ready().store.meals.get(meal.id) }!!.verified }
+        val photo = runBlocking { ready().store.meals.get(meal.id) }!!.photoMediaId!!
+        val plain = MediaVault.forApp(context).get(photo)
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(plain, 0, plain.size, bounds)
+        assertEquals(1600, maxOf(bounds.outWidth, bounds.outHeight))
+        assertTrue(MediaVault.cameraDir(context).list().orEmpty().isEmpty())
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(MealTags.THUMB + photo).fetchSemanticsNodes().isNotEmpty() }
     }
 
     private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }

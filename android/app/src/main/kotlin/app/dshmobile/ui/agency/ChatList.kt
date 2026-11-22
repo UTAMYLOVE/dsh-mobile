@@ -29,7 +29,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.agency.core.model.Meal
 import app.agency.core.model.MemoryEvent
+import app.agency.core.model.PendingLabel
+import app.dshmobile.agency.media.MediaVault
+import app.dshmobile.ui.agency.meal.MealActions
+import app.dshmobile.ui.agency.meal.MealCard
 import app.agency.core.model.MemoryOp
 import app.agency.core.model.Message
 import app.agency.core.model.MessageMode
@@ -39,11 +44,22 @@ import app.dshmobile.R
 import app.dshmobile.ui.kit.Chip
 import app.dshmobile.ui.kit.Sakura
 
-/** What a bubble can do besides showing its text (T12): 重送, a 討論 chip, 撤銷 under a memory line. */
+/**
+ * What a bubble can do besides showing its text (T12): 重送, a 討論 chip, 撤銷 under a memory line; and (T15) the meal card
+ * under the body teacher's line about a meal ([meal]).
+ */
 data class ChatActions(
     val onResend: (String) -> Unit = {},
     val onOption: (String) -> Unit = {},
     val onUndo: (String) -> Unit = {},
+    val meal: MealActions = MealActions(),
+)
+
+/** The meals the visible lines point at (by id), the items waiting for a label, and the vault their photos open from. */
+data class MealView(
+    val meals: Map<String, Meal> = emptyMap(),
+    val pending: List<PendingLabel> = emptyList(),
+    val vault: MediaVault? = null,
 )
 
 object ChatTags {
@@ -69,6 +85,7 @@ fun ChatList(
     memory: Map<String, MemoryEvent> = emptyMap(),
     actions: ChatActions = ChatActions(),
     busy: Boolean = false,
+    meals: MealView = MealView(),
 ) {
     val state = rememberLazyListState()
     LaunchedEffect(messages.lastOrNull()?.id) {
@@ -93,12 +110,12 @@ fun ChatList(
                 TextButton(onClick = onOlder, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ag_older), color = Sakura.TextSecondary) }
             }
         }
-        items(messages, key = { it.id }) { Bubble(it, it.id == asking, memory, actions, busy) }
+        items(messages, key = { it.id }) { Bubble(it, it.id == asking, memory, actions, busy, meals) }
     }
 }
 
 @Composable
-private fun Bubble(m: Message, chips: Boolean, memory: Map<String, MemoryEvent>, actions: ChatActions, busy: Boolean) {
+private fun Bubble(m: Message, chips: Boolean, memory: Map<String, MemoryEvent>, actions: ChatActions, busy: Boolean, meals: MealView) {
     val mine = m.who == Who.OWNER
     Column(
         Modifier.fillMaxWidth().testTag(AgencyTags.BUBBLE + m.id),
@@ -141,6 +158,11 @@ private fun Bubble(m: Message, chips: Boolean, memory: Map<String, MemoryEvent>,
             }
         }
         m.refs.memory.mapNotNull { memory[it] }.forEach { e -> MemoryLine(m.role, e, actions.onUndo) }
+        if (m.who == Who.COMPANY) {
+            m.refs.records.mapNotNull { meals.meals[it] }.forEach { meal ->
+                MealCard(meal, meals.pending.filter { it.mealId == meal.id }, meals.vault, actions.meal, busy)
+            }
+        }
     }
 }
 

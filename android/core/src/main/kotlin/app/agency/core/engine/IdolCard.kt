@@ -30,6 +30,8 @@ data class IdolCardFacts(
     val photoMediaId: String?,
     /** Today's plan with status (the card's schedule reads the day planner, arch T11). */
     val slots: List<SlotState> = emptyList(),
+    /** Today's meals without a photo (「未證實」, T15), by what they were: 午餐, 晚餐, 加餐. */
+    val unverified: List<String> = emptyList(),
 ) {
     /** What comes next: the first slot still open or later, in time order. */
     val next: SlotState? get() = slots.firstOrNull { it.status == SlotStatus.OPEN || it.status == SlotStatus.LATER }
@@ -39,6 +41,9 @@ data class IdolCardFacts(
 }
 
 object IdolCard {
+    /** A meal that belongs to no slot. */
+    const val EXTRA = "加餐"
+
     /** His number on the card: 「001」 until the profile says otherwise (one trainee). */
     const val DEFAULT_NO = "001"
 
@@ -69,6 +74,7 @@ object IdolCard {
         stickers: List<Sticker> = Stickers.fromRecords(today),
         slots: List<SlotState> = emptyList(),
     ): IdolCardFacts {
+        val labels = slots.associate { it.key.name to it.slot.label }
         val eaten = today.meals.sumOf { it.kcal }
         val protein = today.meals.sumOf { m -> m.items.sumOf { it.proteinG ?: 0.0 } }
         return IdolCardFacts(
@@ -86,6 +92,7 @@ object IdolCard {
             baselineMissing = baselineMissing,
             photoMediaId = photoMediaId,
             slots = slots,
+            unverified = today.meals.filter { !it.verified && it.items.isNotEmpty() }.map { m -> m.slotKey?.let { labels[it] ?: app.agency.core.schedule.SlotKey.parse(it)?.zh } ?: EXTRA },
         )
     }
 }

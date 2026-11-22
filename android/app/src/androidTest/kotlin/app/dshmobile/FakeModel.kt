@@ -33,6 +33,8 @@ class FakeModel {
     val seen = CopyOnWriteArrayList<Seen>()
     @Volatile var online = true
     @Volatile var intakeKind = "chat"
+    /** The clerk's whole answer instead of `{"kind": [intakeKind]}` (a meal with its items, e11). */
+    @Volatile var intakeJson: String? = null
     @Volatile var reply = "收到。現在去喝水。"
     @Volatile var toolFirst = false
     /** A tool the chat call asks for first (name to arguments), once per message (e10). */
@@ -77,6 +79,7 @@ class FakeModel {
         cutOff.set(0)
         online = true
         intakeKind = "chat"
+        intakeJson = null
         reply = "收到。現在去喝水。"
         toolFirst = false
         toolCall = null
@@ -91,7 +94,7 @@ class FakeModel {
         val last = msgs.optJSONObject(msgs.length() - 1)
         val message = JSONObject().put("role", "assistant")
         when {
-            system.contains("資料整理員") -> message.put("content", JSONObject().put("kind", intakeKind).toString())
+            system.contains("資料整理員") -> message.put("content", intakeJson ?: JSONObject().put("kind", intakeKind).toString())
             toolFirst && req.has("tools") && last?.optString("role") != "tool" -> message.put("content", "")
                 .put("reasoning_content", "先看今天的紀錄")
                 .put("tool_calls", JSONArray().put(JSONObject().put("id", "call_${ids.incrementAndGet()}").put("type", "function")

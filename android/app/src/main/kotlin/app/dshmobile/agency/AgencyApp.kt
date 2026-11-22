@@ -321,10 +321,15 @@ class AgencyApp(
      * 拍照 for a 入社建檔 photo: the camera intent to launch, or null when the test camera already answered (then the result is
      * on its way, as from the camera app).
      */
-    fun photoIntent(step: OnboardingStep): Intent? {
+    fun photoIntent(step: OnboardingStep): Intent? = capture { camera.begin(step) }
+
+    /** 拍這餐 (T15): the camera intent for the meal being reported, or null when the test camera already answered. */
+    fun mealPhotoIntent(): Intent? = capture { camera.beginMeal() }
+
+    private fun capture(begin: () -> Intent): Intent? {
         _mediaNotice.value = null
         val intent = try {
-            camera.begin(step)
+            begin()
         } catch (e: Exception) {
             errorLog.append(TAG, "camera not prepared (${e.javaClass.simpleName})")
             _mediaNotice.value = MediaNotice.NOT_SAVED
@@ -344,7 +349,8 @@ class AgencyApp(
 
     /**
      * The camera's answer (also after the process died: the activity registers for it at once and this waits until the company
-     * is open). The shot is sealed and handed in for its step; cancelled leaves the step open.
+     * is open). The shot is sealed and handed in for its step, or put on the meal (拍這餐); cancelled leaves the step open and
+     * the meal 「未證實」.
      */
     fun onCameraResult(ok: Boolean) {
         scope.launch {
@@ -359,9 +365,44 @@ class AgencyApp(
                 _mediaNotice.value = if (e is app.dshmobile.agency.secure.DataUnavailableException) MediaNotice.LOCKED else MediaNotice.NOT_SAVED
                 null
             } ?: return@launch
-            handIn(ready, v, captured.step, captured.media)
+            val step = captured.step
+            if (step != null) handIn(ready, v, step, captured.media) else mealPhoto(ready, v, captured.media)
         }
     }
+
+    /** A meal's photo: the media row and its meal are written together; a failure removes the sealed file again. */
+    private suspend fun mealPhoto(ready: StartState.Ready, v: MediaVault, media: Media) {
+        try {
+            ready.brain.attachMealPhoto(media)
+            _mediaNotice.value = null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "meal photo not saved (${e.javaClass.simpleName})")
+            runCatching { if (ready.store.media.get(media.id) == null) v.delete(media.id) }
+            _mediaNotice.value = MediaNotice.NOT_SAVED
+        }
+    }
+
+    /** 刪掉照片 on a meal, after his confirm (T15): the meal goes back to 「未證實」 and the sealed file goes. */
+    suspend fun deleteMealPhoto(mealId: String): Boolean {
+        val ready = _start.value as? StartState.Ready ?: return false
+        return scope.async {
+            val media = try {
+                ready.brain.deleteMealPhoto(mealId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                errorLog.append(TAG, "meal photo not deleted (${e.javaClass.simpleName})")
+                null
+            } ?: return@async false
+            runCatching { vault?.delete(media) }
+            true
+        }.await()
+    }
+
+    /** The label form (T15): kcal and protein he typed for an item waiting for its label. */
+    fun label(mealId: String, itemIdx: Int, kcal: Int, proteinG: Double?) = talk { it.label(mealId, itemIdx, kcal, proteinG) }
 
     /**
      * 交出 for the 清唱錄音: [file] (the recorder's plaintext) is sealed as a stream, deleted, and handed in. False when it

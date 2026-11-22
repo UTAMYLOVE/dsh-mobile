@@ -271,4 +271,26 @@
     <string name="ag_mem_by_you">你</string>
     <string name="ag_mem_by_her">經紀人</string>
     <string name="ag_mem_due">（%1$s）</string>
+    <!-- 每餐拍照 (T15) -->
+    <string name="ag_meal_photo">拍這餐</string>
+    <string name="ag_meal_unverified">未證實</string>
+    <string name="ag_meal_verified">已證實</string>
+    <string name="ag_meal_photo_desc">這餐的照片，按一下放大</string>
+    <string name="ag_meal_photo_broken">照片打不開</string>
+    <string name="ag_meal_photo_delete">刪掉照片</string>
+    <string name="ag_meal_photo_delete_ask">確定刪掉這張照片？這餐會變回未證實。</string>
+    <string name="ag_meal_photo_delete_yes">刪掉</string>
+    <string name="ag_cancel">取消</string>
+    <string name="ag_close">關閉</string>
+    <string name="ag_label_button">補標示：%1$s</string>
+    <string name="ag_label_title">補標示：%1$s</string>
+    <string name="ag_label_hint">照包裝標示或菜單上寫的數字填。照片只是證據，不會給模型看。</string>
+    <string name="ag_label_kcal">大卡（一份）</string>
+    <string name="ag_label_protein">蛋白質克數（可以不填）</string>
+    <string name="ag_label_bad_kcal">大卡要是 1 到 5000 的整數。</string>
+    <string name="ag_label_bad_protein">蛋白質要是 0 到 500 之間的數字。</string>
+    <string name="ag_card_unverified">未證實：%1$s（按「拍這餐」補照片）</string>
+    <string name="ag_media_not_saved">照片沒有存到，再拍一次。</string>
+    <string name="ag_media_no_camera">這支手機找不到相機程式。</string>
+    <string name="ag_media_locked">資料鎖打不開，照片沒有存。</string>
 </resources>

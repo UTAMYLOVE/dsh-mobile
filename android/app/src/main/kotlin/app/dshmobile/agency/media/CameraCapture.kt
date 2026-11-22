@@ -18,7 +18,7 @@ import java.io.File
 import java.util.UUID
 
 /**
- * One photo through the system camera (arch 1.12, T07): [begin] makes an empty `cache/camera/<uuid>.jpg`, saves which step and
+ * One photo through the system camera (arch 1.12, T07; a meal's with T15): [begin] (a 入社建檔 step) or [beginMeal] makes an empty `cache/camera/<uuid>.jpg`, saves which step and
  * file are waiting in [prefs] (so a result that arrives after the process died still finds them, and the start-up sweep keeps
  * that file), and returns the `ACTION_IMAGE_CAPTURE` intent that writes into it through the FileProvider ([uriFor]). [finish]
  * takes the camera's answer: on RESULT_OK the shot is downsized (≤ [MAX_PX] px, JPEG q[QUALITY], turned upright, which also
@@ -32,19 +32,29 @@ class CameraCapture(
     private val now: () -> Long = System::currentTimeMillis,
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
-    data class Pending(val step: OnboardingStep, val file: File)
+    /** A waiting capture: for a 入社建檔 [step], or (step null) for a meal (拍這餐). */
+    data class Pending(val step: OnboardingStep?, val file: File) {
+        val meal: Boolean get() = step == null
+    }
 
-    /** The step and the [Media] row of a sealed shot (not yet in the store: the caller writes it with its link). */
-    data class Captured(val step: OnboardingStep, val media: Media)
+    /** The step (null: a meal) and the [Media] row of a sealed shot (not yet in the store: the caller writes it with its link). */
+    data class Captured(val step: OnboardingStep?, val media: Media)
 
-    /** Prepares the file and returns the camera intent; the pending capture is saved first. */
+    /** Prepares the file and returns the camera intent for a 入社建檔 photo; the pending capture is saved first. */
     fun begin(step: OnboardingStep): Intent {
         require(step in OnboardingStep.PHOTOS) { "not a photo step" }
+        return start(step.name)
+    }
+
+    /** 拍這餐 (T15): the same round trip, for the meal being reported. */
+    fun beginMeal(): Intent = start(MEAL)
+
+    private fun start(what: String): Intent {
         cameraDir.mkdirs()
         pending()?.file?.delete() // an older capture that never came back
         val file = File(cameraDir, newId() + ".jpg")
         file.createNewFile()
-        check(prefs.edit().putString(KEY, step.name + SEP + file.name).commit()) { "could not save the pending capture" }
+        check(prefs.edit().putString(KEY, what + SEP + file.name).commit()) { "could not save the pending capture" }
         val uri = uriFor(file)
         return Intent(MediaStore.ACTION_IMAGE_CAPTURE)
             .putExtra(MediaStore.EXTRA_OUTPUT, uri)
@@ -55,7 +65,8 @@ class CameraCapture(
     /** The capture waiting for the camera's answer, if any. */
     fun pending(): Pending? {
         val v = prefs.getString(KEY, null) ?: return null
-        val step = OnboardingStep.parse(v.substringBefore(SEP))?.takeIf { it in OnboardingStep.PHOTOS } ?: return null
+        val what = v.substringBefore(SEP)
+        val step = if (what == MEAL) null else OnboardingStep.parse(what)?.takeIf { it in OnboardingStep.PHOTOS } ?: return null
         val name = v.substringAfter(SEP, "")
         if (!NAME.matches(name)) return null
         return Pending(step, File(cameraDir, name))
@@ -76,7 +87,8 @@ class CameraCapture(
             val bytes = downsize(p.file) ?: p.file.readBytes()
             val sealed = vault.put(id, bytes)
             bytes.fill(0)
-            return Captured(p.step, Media(id, MediaKind.PHOTO, MediaPurpose.BASELINE, MIME, sealed.bytes, sealed.sha256, now()))
+            val purpose = if (p.meal) MediaPurpose.MEAL else MediaPurpose.BASELINE
+            return Captured(p.step, Media(id, MediaKind.PHOTO, purpose, MIME, sealed.bytes, sealed.sha256, now()))
         } finally {
             p.file.delete()
             prefs.edit().remove(KEY).commit()
@@ -91,6 +103,7 @@ class CameraCapture(
 
     companion object {
         const val KEY = "pending_capture"
+        const val MEAL = "MEAL"
         const val MIME = "image/jpeg"
         const val MAX_PX = 1600
         const val QUALITY = 85

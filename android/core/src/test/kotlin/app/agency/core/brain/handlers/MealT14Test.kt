@@ -262,11 +262,13 @@ class MealT14Test {
         assertEquals(waiting.id, m.id)
         assertEquals("p-1", m.photoMediaId)
         assertTrue(out.first().text.contains("照片有了，這餐已證實。"))
-        // Dinner: words first, the photo after.
+        // Dinner: words first, the photo after; until then the card lists it as 「未證實」.
         say("17:20", "晚餐吃了雞腿便當", meal(item("雞腿便當", 650)))
+        assertEquals(listOf("晚餐"), runBlocking { brain(ScriptedLlm()).card() }.unverified)
         at("17:25")
         assertEquals("照片收到，晚餐已證實。", runBlocking { brain(ScriptedLlm()).attachMealPhoto(media("p-2")) }.text)
         assertTrue(meals().all { it.verified })
+        assertTrue(runBlocking { brain(ScriptedLlm()).card() }.unverified.isEmpty())
         // Deleting a photo (after his confirm) makes it 「未證實」 again; the media row goes, the app deletes the file.
         assertEquals("p-2", runBlocking { brain(ScriptedLlm()).deleteMealPhoto(meals().last().id) })
         assertFalse(meals().last().verified)
