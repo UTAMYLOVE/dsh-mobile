@@ -18,11 +18,17 @@ import app.agency.core.model.WeightLog
 import app.agency.core.model.Who
 import app.agency.core.rules.FoodTable
 import java.security.MessageDigest
+import java.util.Locale
 
-/** A file in `coach/baseline/`: its name and modification time. */
-data class LegacyFile(val name: String, val lastModified: Long)
+/** A file in `coach/baseline/`: its name, modification time and size in bytes. */
+data class LegacyFile(val name: String, val lastModified: Long, val size: Long = 0)
 
-/** What the importer read from the legacy folder and prefs, untouched. [state] is null when no state file could be read. */
+/**
+ * What the importer read from the legacy folder and prefs, untouched. [state] is null when no state file could be read.
+ * [setAside] holds each `state.json.bad-*` file by name, with its records (null when nothing in it could be read).
+ * [salvagedFrom] names the cut file a [StateOrigin.SALVAGED] state came from; [tmpIgnored] says a `state.json.tmp` was left
+ * unread next to a readable `state.json`.
+ */
 data class LegacyInput(
     val state: LegacyState?,
     val origin: StateOrigin,
@@ -30,6 +36,9 @@ data class LegacyInput(
     val unreadableMessageLines: Int = 0,
     val baselineFiles: List<LegacyFile> = emptyList(),
     val prefs: LegacyPrefs = LegacyPrefs(emptyMap()),
+    val setAside: List<Pair<String, LegacyState?>> = emptyList(),
+    val salvagedFrom: String? = null,
+    val tmpIgnored: Boolean = false,
 )
 
 /**
@@ -56,6 +65,13 @@ object LegacyMapper {
     private const val OLD_PLANNED_MEAL = GELI_CHICKEN
     private const val OLD_EVIDENCE_MIN = 30
 
+    /**
+     * The largest baseline file the importer brings into the vault. Sealing holds the file and its ciphertext in memory at
+     * once; the recording picker accepted any audio, so a long voice memo could otherwise run the app out of memory on every
+     * start. A larger file is listed in [ImportNote.mediaTooLarge] and stays in `coach.migrated-*`.
+     */
+    const val MAX_IMPORT_MEDIA_BYTES: Long = 32L * 1024 * 1024
+
     /** The two foods plan v3 adds to his table. */
     fun newSeeds(now: Long): List<FoodEntry> = listOf(
         FoodEntry("即食雞胸", listOf("即食雞胸肉"), 117, null, null, null, fried = false, estimated = true, seeded = true, addedAt = now),
@@ -66,7 +82,13 @@ object LegacyMapper {
     fun mediaId(name: String): String = "legacy-" + sha256(name).take(24)
 
     fun map(input: LegacyInput, now: Long): ImportPlan {
-        val state = input.state ?: LegacyState()
+        val main = input.state ?: LegacyState()
+        // His food table is known only when a state file was read whole (or there is none, and the coach would have seeded
+        // one): a cut or unreadable table gets no seeds, which could bring back one he deleted or shadow one of his own.
+        val tableKnown = input.origin == StateOrigin.STATE || input.origin == StateOrigin.TMP || input.origin == StateOrigin.NONE
+        // The coach seeded its table on the first load of a state that was not seeded yet; he saw that table.
+        val baseTable = if (main.seeded || !tableKnown) main.food else FoodTable.seed(now) + main.food
+        val (state, setAsideNote) = withSetAside(main.copy(food = baseTable), input.setAside)
         val prefs = input.prefs
         val duplicates = linkedMapOf<String, Int>()
         fun <T> firstById(kind: ImportKind, list: List<T>, key: (T) -> Any): List<T> {
@@ -88,8 +110,7 @@ object LegacyMapper {
         val trainings = firstById(ImportKind.TRAININGS, state.trainings) { it.id }
             .map { TrainingLog(it.id, it.day, it.at, TrainingKind.STRENGTH, rounds = it.rounds, legacy = true) }
 
-        // The coach seeded its table on the first load of a state that was not seeded yet; he saw that table.
-        val table = if (state.seeded) state.food else FoodTable.seed(now) + state.food
+        val table = state.food
         // The coach replaced an entry by appending its new version: for a repeated name the last one is current.
         val lastByName = table.associateBy { it.name }
         if (lastByName.size < table.size) duplicates[ImportKind.FOOD.name] = table.size - lastByName.size
@@ -107,24 +128,28 @@ object LegacyMapper {
                 f.copy(updatedAt = f.addedAt)
             }
         }.toMutableList()
-        val added = newSeeds(now).filter { s -> food.none { it.name == s.name } && (listOf(s.name) + s.aliases).all { FoodTable.lookup(food, it) == null } }
+        val added = if (!tableKnown) emptyList() else newSeeds(now).filter { s -> food.none { it.name == s.name } && (listOf(s.name) + s.aliases).all { FoodTable.lookup(food, it) == null } }
         food += added
 
-        val files = input.baselineFiles.sortedBy { it.name }
+        val (tooLarge, files) = input.baselineFiles.sortedBy { it.name }.partition { it.size > MAX_IMPORT_MEDIA_BYTES }
         val present = files.map { it.name }.toSet()
+        val skippedLarge = tooLarge.map { it.name }.toSet()
         val missing = mutableListOf<String>()
         fun linked(name: String?, step: LegacyBaselineStep): String? = when {
             name == null -> null
             name in present -> mediaId(name)
+            name in skippedLarge -> null // listed in mediaTooLarge
             else -> null.also { missing += step.name }
         }
         val baseline = state.baseline?.let { b ->
-            Baseline(
+            val out = Baseline(
                 id = Baseline.JOIN, heightCm = b.heightCm, weightKg = b.weightKg,
                 photoFront = linked(b.photo, LegacyBaselineStep.PHOTO), recording = linked(b.recording, LegacyBaselineStep.RECORDING),
                 pushupsMax = b.pushups, plankMaxSec = b.plankSec,
                 skipped = LegacyBaselineStep.entries.filter { it in b.skipped }.map { it.name }, step = b.step?.name,
             )
+            // No question open and every step handed in or skipped: 入社建檔 was finished in the 5a94d3c build.
+            if (b.step == null && LegacyBaselineStep.entries.all { it.name in out.skipped || handedIn(out, it) }) out.copy(completedAt = now) else out
         }
         // Every file in the folder is carried, also older hand-ins the baseline no longer points at.
         val media = files.map { f ->
@@ -148,9 +173,16 @@ object LegacyMapper {
         val note = ImportNote(
             stateOrigin = input.origin.name,
             unreadableMessageLines = input.unreadableMessageLines,
+            salvagedFrom = input.salvagedFrom.takeIf { input.origin == StateOrigin.SALVAGED },
+            salvagedRecords = if (input.origin == StateOrigin.SALVAGED) main.records else 0,
+            tmpIgnored = input.tmpIgnored,
+            setAsideFiles = setAsideNote,
+            droppedRecords = (listOf(main) + input.setAside.mapNotNull { it.second }).fold(mapOf<String, Int>()) { acc, s ->
+                (acc.keys + s.dropped.keys).associateWith { (acc[it] ?: 0) + (s.dropped[it] ?: 0) }
+            },
             duplicates = duplicates,
             customisedSlots = LegacyPrefs.SLOT_DEFAULTS.mapNotNull { (key, def) ->
-                prefs.slotMinute(key)?.takeIf { it != def }?.let { key to "%d:%02d".format(it / 60, it % 60) }
+                prefs.slotMinute(key)?.takeIf { it != def }?.let { key to String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }
             }.toMap(),
             goalsKept = goals.kept,
             goalsDropped = goals.dropped,
@@ -163,12 +195,13 @@ object LegacyMapper {
                 prefs.evidenceMinutes?.takeIf { it != OLD_EVIDENCE_MIN }?.let { put(LegacyPrefs.EVIDENCE_MIN, it.toString()) }
             },
             missingMedia = missing,
+            mediaTooLarge = tooLarge.map { it.name },
             mealsWithEvidence = state.meals.count { it.evidence != null },
             correctedFood = corrected,
             addedSeeds = added.map { it.name },
         )
 
-        val agencyBuild = state.agencyBuild || input.messages.any { it.role != null } ||
+        val agencyBuild = state.agencyBuild || input.setAside.any { it.second?.agencyBuild == true } || input.messages.any { it.role != null } ||
             listOf(LegacyPrefs.COMPANY, LegacyPrefs.JOIN_DATE, *LegacyPrefs.SLOT_DEFAULTS.keys.toTypedArray()).any(prefs::has)
         return ImportPlan(
             source = if (agencyBuild) MigrationSource.AGENCY_V2_JSON else MigrationSource.V083_JSON,
@@ -183,7 +216,107 @@ object LegacyMapper {
             ),
             meals = meals, pending = pending, weights = weights, trainings = trainings, food = food, audits = audits,
             baseline = baseline, media = media, messages = messages, prefs = agencyPrefs(prefs), note = note,
+            fromPrefs = buildSet {
+                if (prefs.heightCm != null) add(PROFILE_HEIGHT)
+                if (prefs.startWeightKg != null) add(PROFILE_START_WEIGHT)
+                if (prefs.company != null) add(PROFILE_COMPANY)
+                if (prefs.joinDate != null) add(PROFILE_JOIN_DATE)
+                if (prefs.dayStartHour != null) add(PROFILE_DAY_START)
+                if (prefs.fatG != null) add(RULES_FAT)
+                if (prefs.carbsG != null) add(RULES_CARBS)
+                if (prefs.marginPct != null) add(RULES_MARGIN)
+                if (goals.kept != null) add(RULES_GOALS)
+            },
         )
+    }
+
+    private fun handedIn(b: Baseline, step: LegacyBaselineStep): Boolean = when (step) {
+        LegacyBaselineStep.BODY -> b.heightCm != null && b.weightKg != null
+        LegacyBaselineStep.PHOTO -> b.photoFront != null
+        LegacyBaselineStep.RECORDING -> b.recording != null
+        LegacyBaselineStep.PUSHUPS -> b.pushupsMax != null
+        LegacyBaselineStep.PLANK -> b.plankMaxSec != null
+    }
+
+    /**
+     * [main] (its food already the table he saw) with the records of each set-aside file it does not hold: meals, weights,
+     * trainings and pending labels by id (or meal and item), food by normalised name, and the baseline when [main] has none.
+     * One exception for food: his own entry (not a seed) replaces a name the main table holds only as an untouched seed, since
+     * a state the coach seeded afresh after setting his file aside holds nothing of his. Files are taken in name order, so an
+     * earlier one wins. Ids are random UUIDs, so this cannot join two different records. Also returns, per file, how many
+     * records it gave (-1 when unreadable).
+     */
+    private fun withSetAside(main: LegacyState, setAside: List<Pair<String, LegacyState?>>): Pair<LegacyState, Map<String, Int>> {
+        if (setAside.isEmpty()) return main to emptyMap()
+        val meals = main.meals.toMutableList()
+        val weights = main.weights.toMutableList()
+        val trainings = main.trainings.toMutableList()
+        val pending = main.pending.toMutableList()
+        val food = main.food.toMutableList()
+        var baseline = main.baseline
+        val mealIds = meals.mapTo(HashSet()) { it.id }
+        val weightIds = weights.mapTo(HashSet()) { it.id }
+        val trainingIds = trainings.mapTo(HashSet()) { it.id }
+        val pendingKeys = pending.mapTo(HashSet()) { it.mealId to it.itemIndex }
+        fun key(f: FoodEntry) = FoodTable.normalize(f.name)
+        val note = linkedMapOf<String, Int>()
+        for ((name, s) in setAside.sortedBy { it.first }) {
+            if (s == null) {
+                note[name] = -1
+                continue
+            }
+            var n = 0
+            s.meals.forEach { if (mealIds.add(it.id)) { meals += it; n++ } }
+            s.weights.forEach { if (weightIds.add(it.id)) { weights += it; n++ } }
+            s.trainings.forEach { if (trainingIds.add(it.id)) { trainings += it; n++ } }
+            s.pending.forEach { if (pendingKeys.add(it.mealId to it.itemIndex)) { pending += it; n++ } }
+            // Within one file the last entry of a name is current, as in the main table.
+            s.food.associateBy { it.name }.values.forEach { e ->
+                val same = food.filter { key(it) == key(e) }
+                if (same.isEmpty() || (!e.seeded && same.all { it.seeded })) {
+                    food.removeAll { key(it) == key(e) }
+                    food += e
+                    n++
+                }
+            }
+            if (baseline == null && s.baseline != null) { baseline = s.baseline; n++ }
+            note[name] = n
+        }
+        return main.copy(meals = meals, weights = weights, trainings = trainings, pending = pending, food = food, baseline = baseline) to note
+    }
+
+    const val PROFILE_HEIGHT = "profile.heightCm"
+    const val PROFILE_START_WEIGHT = "profile.startWeightKg"
+    const val PROFILE_COMPANY = "profile.companyName"
+    const val PROFILE_JOIN_DATE = "profile.joinDate"
+    const val PROFILE_DAY_START = "profile.dayStartHour"
+    const val RULES_FAT = "rules.fatG"
+    const val RULES_CARBS = "rules.carbsG"
+    const val RULES_MARGIN = "rules.marginPct"
+    const val RULES_GOALS = "rules.goalsKg"
+
+    /**
+     * The values he saved in the coach ([ImportPlan.fromPrefs]) that differ from a profile or 公司規章 row that already
+     * existed, so the import kept that row: field → his legacy value, for [ImportNote.notApplied]. Pass null for a row the
+     * import wrote itself.
+     */
+    fun notApplied(plan: ImportPlan, existingProfile: Profile?, existingRules: CompanyRules?): Map<String, String> = buildMap {
+        fun check(key: String, legacy: Any?, stored: Any?) {
+            if (key in plan.fromPrefs && legacy != stored) put(key, legacy.toString())
+        }
+        existingProfile?.let { p ->
+            check(PROFILE_HEIGHT, plan.profile.heightCm, p.heightCm)
+            check(PROFILE_START_WEIGHT, plan.profile.startWeightKg, p.startWeightKg)
+            check(PROFILE_COMPANY, plan.profile.companyName, p.companyName)
+            check(PROFILE_JOIN_DATE, plan.profile.joinDate, p.joinDate)
+            check(PROFILE_DAY_START, plan.profile.dayStartHour, p.dayStartHour)
+        }
+        existingRules?.let { r ->
+            check(RULES_FAT, plan.rules.fatG, r.fatG)
+            check(RULES_CARBS, plan.rules.carbsG, r.carbsG)
+            check(RULES_MARGIN, plan.rules.marginPct, r.marginPct)
+            check(RULES_GOALS, plan.rules.goalsKg, r.goalsKg)
+        }
     }
 
     private data class Goals(val goals: List<Double>, val kept: List<Double>?, val dropped: List<Double>)

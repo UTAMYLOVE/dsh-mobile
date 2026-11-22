@@ -86,6 +86,51 @@ class LegacyCoachJsonTest {
         assertEquals(LegacyState(), LegacyCoachJson.parseState("[1,2]"))
     }
 
+    @Test fun everyRecordTheDecodersLeaveOutIsCounted() {
+        val s = LegacyCoachJson.parseState(
+            """{"meals":[{"day":"2026-11-20"},{"id":"a"},{"id":"m","day":"2026-11-20","items":[{"kcal":5},3,{"name":"蛋"}]},7],
+               "weights":[{"id":"w","day":"2026-11-20"},{"id":"v","day":"2026-11-20","kg":80.1}],"food":[{"name":"x"},{"kcal":3},{"name":"y","kcal":1}],
+               "pending":[{"name":"p"}],"trainings":[{"id":"t"},{"id":"u","day":"2026-11-21"}]}""",
+        )!!
+        assertEquals(mapOf("MEALS" to 3, "MEAL_ITEMS" to 2, "WEIGHTS" to 1, "FOOD" to 2, "PENDING" to 1, "TRAININGS" to 1), s.dropped)
+        assertEquals(listOf("m"), s.meals.map { it.id })
+        assertEquals(1, s.weights.size)
+        assertEquals(listOf("y"), s.food.map { it.name })
+        assertEquals(listOf("u"), s.trainings.map { it.id })
+        assertEquals(emptyMap<String, Int>(), LegacyCoachJson.parseState(fixture("agency-v2-state.json"))!!.dropped)
+    }
+
+    @Test fun theCompleteRecordsOfACutStateAreSalvaged() {
+        // damaged-state.json is the v2 state cut in its third food entry.
+        val s = LegacyCoachJson.salvageState(fixture("damaged-state.json"))!!
+        val whole = LegacyCoachJson.parseState(fixture("agency-v2-state.json"))!!
+        assertEquals(2, s.version)
+        assertTrue(s.seeded)
+        assertEquals(whole.meals, s.meals)
+        assertEquals(whole.weights, s.weights)
+        assertEquals(whole.food.take(2), s.food)
+        assertTrue(s.pending.isEmpty() && s.trainings.isEmpty())
+        assertNull(s.baseline)
+        assertEquals(6, s.records)
+    }
+
+    @Test fun aRecordCutInTheMiddleIsLeftOutAndStringsDoNotConfuseTheScan() {
+        val text = """{"version":2,"seeded":true,"meals":[{"id":"a","day":"2026-11-20","text":"說 \"}]{\" 也行","items":[]},""" +
+            """{"id":"b","day":"2026-11-20","text":"切在這"""
+        val s = LegacyCoachJson.salvageState(text)!!
+        assertEquals(listOf("a"), s.meals.map { it.id })
+        assertEquals("說 \"}]{\" 也行", s.meals[0].text)
+        // Complete arrays before the cut are kept whole; a cut number is not trusted.
+        val w = LegacyCoachJson.salvageState("""{"weights":[{"id":"w","day":"2026-11-20","kg":80.1}],"food":[{"name":"x","kcal":12""")!!
+        assertEquals(1, w.weights.size)
+        assertTrue(w.food.isEmpty())
+        // Nothing complete, or not JSON at all: nothing to salvage.
+        assertNull(LegacyCoachJson.salvageState("""{"version":2,"seeded":true,"meals":[{"id":"d2be"""))
+        assertNull(LegacyCoachJson.salvageState("\u0000\u0000\u0000"))
+        assertNull(LegacyCoachJson.salvageState(""))
+        assertNull(LegacyCoachJson.salvageState("""[{"id":"a"}]"""))
+    }
+
     @Test fun everyMessageLineIsReadAndACutLineIsCounted() {
         val (v083, bad) = LegacyCoachJson.parseMessages(fixture("v083-messages.jsonl"))
         assertEquals(11, v083.size)

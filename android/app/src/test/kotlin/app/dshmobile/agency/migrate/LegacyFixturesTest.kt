@@ -55,6 +55,20 @@ class LegacyFixturesTest {
         assertEquals(1, (o["version"] as kotlinx.serialization.json.JsonPrimitive).content.toInt())
     }
 
+    @Test fun theUpgradedStateIsWhatThe5a94d3cEncoderWritesOverAV083File() {
+        // 5a94d3c installed over v0.8.3 keeps the loaded version 1 and writes every meal's breaches and the trainings.
+        val text = fixture("agency-v1-upgraded-state.json")
+        assertEquals(text, reencode(text).toString())
+        val o = Json.parseToJsonElement(text) as JsonObject
+        assertEquals(1, (o["version"] as kotlinx.serialization.json.JsonPrimitive).content.toInt())
+        assertTrue((o["meals"] as JsonArray).all { (it as JsonObject)["breaches"] is JsonArray })
+        assertEquals(1, (o["trainings"] as JsonArray).size)
+        assertTrue(o["baseline"] is JsonObject)
+        // The same records as the v0.8.3 file, plus one training and the baseline.
+        assertEquals(fixture("v083-state.json"), asV083(o))
+        assertTrue(LegacyCoachJson.parseState(text)!!.agencyBuild)
+    }
+
     @Test fun theDamagedStateIsACutAgencyState() {
         val damaged = fixture("damaged-state.json")
         assertTrue(fixture("agency-v2-state.json").startsWith(damaged))

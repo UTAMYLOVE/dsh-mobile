@@ -72,7 +72,12 @@ data class LegacyState(
     val baseline: LegacyBaseline? = null,
     /** True when the 5a94d3c build wrote the file (it always writes `trainings`, also over a version 1 file). */
     val agencyBuild: Boolean = false,
-)
+    /** Records the decoders left out (a required field missing), per [ImportKind] name. */
+    val dropped: Map<String, Int> = emptyMap(),
+) {
+    /** How many records the file holds (meals, weights, food, pending labels, trainings, and the baseline). */
+    val records: Int get() = meals.size + weights.size + food.size + pending.size + trainings.size + (if (baseline == null) 0 else 1)
+}
 
 enum class LegacySpeaker { OWNER, COACH }
 
@@ -120,24 +125,132 @@ object LegacyCoachJson {
         null
     }
 
+    /**
+     * The complete records of a cut state file (a crash or a full disk leaves a prefix of what the coach wrote, see
+     * `damaged-state.json`): every top-level value that ends before the cut, and every complete element of the top-level
+     * array the cut falls in. A record cut in the middle is left out. Null when the text is not the start of a JSON object or
+     * no record is left.
+     */
+    fun salvageState(text: String): LegacyState? {
+        val o = Salvage(text).topLevel() ?: return null
+        return decode(o).takeIf { it.records > 0 }
+    }
+
+    /** A scanner that knows strings (with escapes), objects and arrays, enough to find where each complete value ends. */
+    private class Salvage(private val s: String) {
+        private var i = 0
+
+        private fun ws() { while (i < s.length && s[i].isWhitespace()) i++ }
+
+        /** The end (exclusive) of the value that starts at [from], or -1 when the text ends before the value does. */
+        private fun end(from: Int): Int {
+            if (from >= s.length) return -1
+            val c = s[from]
+            if (c == '"') return stringEnd(from)
+            if (c == '{' || c == '[') {
+                var depth = 0
+                var j = from
+                while (j < s.length) {
+                    when (s[j]) {
+                        '"' -> { j = stringEnd(j); if (j < 0) return -1; continue }
+                        '{', '[' -> depth++
+                        '}', ']' -> { depth--; if (depth == 0) return j + 1 }
+                    }
+                    j++
+                }
+                return -1
+            }
+            // A number, true, false or null: complete only when something follows it (a cut "12" may have been "125").
+            var j = from
+            while (j < s.length && s[j] !in ",}] \t\r\n") j++
+            return if (j < s.length) j else -1
+        }
+
+        private fun stringEnd(from: Int): Int {
+            var j = from + 1
+            while (j < s.length) {
+                when (s[j]) {
+                    '\\' -> j += 2
+                    '"' -> return j + 1
+                    else -> j++
+                }
+            }
+            return -1
+        }
+
+        private fun parse(from: Int, to: Int): JsonElement? = runCatching { Json.parseToJsonElement(s.substring(from, to)) }.getOrNull()
+
+        /** The complete elements of the array starting at [i] (the text ends inside it). */
+        private fun cutArray(): JsonArray {
+            val out = mutableListOf<JsonElement>()
+            i++ // [
+            while (true) {
+                ws()
+                if (i >= s.length || s[i] == ']') break
+                if (s[i] == ',') { i++; continue }
+                val e = end(i)
+                if (e < 0) break
+                out += parse(i, e) ?: break
+                i = e
+            }
+            return JsonArray(out)
+        }
+
+        fun topLevel(): JsonObject? {
+            ws()
+            if (i >= s.length || s[i] != '{') return null
+            i++
+            val fields = linkedMapOf<String, JsonElement>()
+            while (true) {
+                ws()
+                if (i >= s.length || s[i] == '}') break
+                if (s[i] == ',') { i++; continue }
+                if (s[i] != '"') break
+                val keyEnd = end(i)
+                if (keyEnd < 0) break
+                val key = (parse(i, keyEnd) as? JsonPrimitive)?.content ?: break
+                i = keyEnd
+                ws()
+                if (i >= s.length || s[i] != ':') break
+                i++
+                ws()
+                val e = end(i)
+                if (e >= 0) {
+                    fields[key] = parse(i, e) ?: break
+                    i = e
+                } else {
+                    // The cut falls in this value: keep the complete elements of an array, nothing of anything else.
+                    if (i < s.length && s[i] == '[') fields[key] = cutArray()
+                    break
+                }
+            }
+            return JsonObject(fields)
+        }
+    }
+
     fun decode(e: JsonElement): LegacyState {
         val o = e as? JsonObject ?: return LegacyState()
+        val dropped = linkedMapOf<String, Int>()
+        fun drop(kind: ImportKind) { dropped[kind.name] = (dropped[kind.name] ?: 0) + 1 }
+        /** The objects of the array [key], decoded by [f]; each element it cannot use is counted as dropped. */
+        fun <T> records(key: String, kind: ImportKind, f: (JsonObject) -> T?): List<T> =
+            ((o[key] as? JsonArray) ?: emptyList()).mapNotNull { el -> (el as? JsonObject)?.let(f) ?: null.also { drop(kind) } }
         return LegacyState(
             version = o.int("version") ?: 1,
             seeded = o.bool("seeded") ?: false,
-            meals = o.arr("meals").mapNotNull(::decodeMeal),
-            weights = o.arr("weights").mapNotNull { w ->
+            meals = records("meals", ImportKind.MEALS) { decodeMeal(it) { drop(ImportKind.MEAL_ITEMS) } },
+            weights = records("weights", ImportKind.WEIGHTS) { w ->
                 LegacyWeight(
-                    w.str("id") ?: return@mapNotNull null, w.long("at") ?: 0, w.str("day") ?: return@mapNotNull null,
-                    w.dbl("kg") ?: return@mapNotNull null, w.dbl("waist"),
+                    w.str("id") ?: return@records null, w.long("at") ?: 0, w.str("day") ?: return@records null,
+                    w.dbl("kg") ?: return@records null, w.dbl("waist"),
                 )
             },
-            food = o.arr("food").mapNotNull(::decodeFood),
-            pending = o.arr("pending").mapNotNull { p ->
-                LegacyPending(p.str("mealId") ?: return@mapNotNull null, p.int("itemIndex") ?: 0, p.str("name") ?: "", p.int("counted") ?: 0, p.long("askedAt") ?: 0)
+            food = records("food", ImportKind.FOOD, ::decodeFood),
+            pending = records("pending", ImportKind.PENDING) { p ->
+                LegacyPending(p.str("mealId") ?: return@records null, p.int("itemIndex") ?: 0, p.str("name") ?: "", p.int("counted") ?: 0, p.long("askedAt") ?: 0)
             },
-            trainings = o.arr("trainings").mapNotNull { t ->
-                LegacyTraining(t.str("id") ?: return@mapNotNull null, t.long("at") ?: 0, t.str("day") ?: return@mapNotNull null, t.int("rounds"))
+            trainings = records("trainings", ImportKind.TRAININGS) { t ->
+                LegacyTraining(t.str("id") ?: return@records null, t.long("at") ?: 0, t.str("day") ?: return@records null, t.int("rounds"))
             },
             baseline = (o["baseline"] as? JsonObject)?.let { b ->
                 LegacyBaseline(
@@ -148,17 +261,20 @@ object LegacyCoachJson {
                 )
             },
             agencyBuild = (o.int("version") ?: 1) >= 2 || o["trainings"] is JsonArray,
+            dropped = dropped,
         )
     }
 
-    private fun decodeMeal(m: JsonObject): LegacyMeal? {
+    private fun decodeMeal(m: JsonObject, dropItem: () -> Unit): LegacyMeal? {
         val id = m.str("id") ?: return null
         val day = m.str("day") ?: return null
         return LegacyMeal(
             id = id, at = m.long("at") ?: 0, day = day, text = m.str("text").orEmpty(),
-            items = m.arr("items").mapNotNull { i ->
+            items = ((m["items"] as? JsonArray) ?: emptyList()).mapNotNull { el ->
+                val i = el as? JsonObject
+                val name = i?.str("name") ?: return@mapNotNull null.also { dropItem() }
                 MealItem(
-                    name = i.str("name") ?: return@mapNotNull null, portion = i.dbl("portion") ?: 1.0, kcal = i.int("kcal") ?: 0,
+                    name = name, portion = i.dbl("portion") ?: 1.0, kcal = i.int("kcal") ?: 0,
                     proteinG = i.dbl("protein"), fatG = i.dbl("fat"), carbsG = i.dbl("carbs"), fried = i.bool("fried") ?: false,
                     source = runCatching { KcalSource.valueOf(i.str("source").orEmpty()) }.getOrDefault(KcalSource.ESTIMATE),
                     tableEstimated = i.bool("tableEstimated") ?: false, estimateHigh = i.int("estimateHigh"), zeroCal = i.bool("zeroCal") ?: false,

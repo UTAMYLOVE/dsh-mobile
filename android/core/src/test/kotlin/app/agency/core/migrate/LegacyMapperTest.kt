@@ -16,6 +16,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 /** LegacyMapper, kind by kind (invented records). */
 class LegacyMapperTest {
@@ -26,7 +27,11 @@ class LegacyMapperTest {
         messages: List<LegacyMessage> = emptyList(),
         prefs: Map<String, Any?> = emptyMap(),
         files: List<LegacyFile> = emptyList(),
-    ) = LegacyMapper.map(LegacyInput(state, StateOrigin.STATE, messages, 0, files, LegacyPrefs(prefs)), now)
+        origin: StateOrigin = StateOrigin.STATE,
+        setAside: List<Pair<String, LegacyState?>> = emptyList(),
+    ) = LegacyMapper.map(LegacyInput(state, origin, messages, 0, files, LegacyPrefs(prefs), setAside), now)
+
+    private fun fixtureState(name: String) = LegacyCoachJson.parseState(javaClass.getResource("/legacy/$name")!!.readText())!!
 
     private fun item(name: String, kcal: Int, zero: Boolean = false) =
         MealItem(name, 1.0, kcal, null, null, null, fried = false, source = KcalSource.ESTIMATE, estimateHigh = kcal, zeroCal = zero)
@@ -336,5 +341,129 @@ class LegacyMapperTest {
         val n = plan(prefs = mapOf("goals" to "78,50", "t_lunch" to 750)).note
         assertEquals(n, ImportNote.fromJson(n.toJson()))
         assertEquals("""{"MEALS":2,"FOOD":3}""", ImportPlan.countsJson(linkedMapOf(ImportKind.MEALS to 2, ImportKind.FOOD to 3)))
+    }
+
+    @Test fun theRecordsOfASetAsideFileAreMergedIn() {
+        // The coach set his file aside after a read error and seeded a fresh state.
+        val fresh = LegacyState(version = 1, seeded = true, food = FoodTable.seed(9), meals = listOf(meal("new", emptyList())))
+        val old = fixtureState("v083-state.json")
+        val again = old.copy(meals = old.meals.take(1) + meal("other", emptyList()))
+        val p = plan(fresh, origin = StateOrigin.STATE, setAside = listOf(
+            "state.json.bad-1795300000001-copy" to again, "state.json.bad-1795300000000" to old, "state.json.bad-1795300000002" to null,
+        ))
+        assertEquals(listOf("new") + old.meals.map { it.id } + "other", p.meals.map { it.id })
+        assertEquals(old.weights.map { it.id }, p.weights.map { it.id })
+        assertEquals(old.pending.map { it.mealId }, p.pending.map { it.mealId })
+        // His own foods come in; the seeds of the old file are already in the fresh table.
+        assertEquals(FoodTable.seed(9).map { it.name } + listOf("牛肉麵", "無糖綠茶 一瓶", "即食雞胸", "統一高纖豆漿"), p.food.map { it.name })
+        // In name order: the first file gives 4 meals, 2 weights, 1 pending, 2 foods; the second only its new meal.
+        assertEquals(
+            mapOf("state.json.bad-1795300000000" to 9, "state.json.bad-1795300000001-copy" to 1, "state.json.bad-1795300000002" to -1),
+            p.note.setAsideFiles,
+        )
+        assertEquals(listOf("state.json.bad-1795300000000", "state.json.bad-1795300000001-copy", "state.json.bad-1795300000002"), p.note.setAsideFiles.keys.toList())
+        assertTrue(p.note.duplicates.isEmpty())
+        assertTrue(plan().note.setAsideFiles.isEmpty())
+    }
+
+    @Test fun aSetAsideFileKeepsHisOwnEntryOverAnUntouchedSeedAndGivesItsBaseline() {
+        val fresh = LegacyState(seeded = true, food = listOf(food("給力盒子 南加州烤雞腿", 629, 51.0, seeded = true), food("牛肉麵", 700, 30.0, seeded = false)))
+        val old = LegacyState(
+            seeded = true,
+            food = listOf(food("給力盒子  南加州烤雞腿", 650, 50.0, seeded = false), food("牛肉麵", 650, 28.0, seeded = false)),
+            baseline = LegacyBaseline(heightCm = 172.0, pushups = 12),
+        )
+        val p = plan(fresh, setAside = listOf("state.json.bad-1" to old))
+        assertEquals(650, p.food.single { FoodTable.normalize(it.name) == FoodTable.normalize(LegacyMapper.GELI_CHICKEN) }.kcal)
+        assertTrue(p.audits.isEmpty())
+        // His newer entry in the main table wins over the set-aside one.
+        assertEquals(700, p.food.single { it.name == "牛肉麵" }.kcal)
+        assertEquals(12, p.baseline!!.pushupsMax)
+        assertEquals(mapOf("state.json.bad-1" to 2), p.note.setAsideFiles)
+    }
+
+    @Test fun anUnreadableOrSalvagedStateGetsNoSeeds() {
+        for (origin in listOf(StateOrigin.UNREADABLE, StateOrigin.SALVAGED)) {
+            val p = plan(if (origin == StateOrigin.UNREADABLE) null else LegacyState(seeded = false, food = listOf(food("牛肉麵", 720, 32.0, false))), origin = origin)
+            assertEquals(origin.name, if (origin == StateOrigin.UNREADABLE) emptyList() else listOf("牛肉麵"), p.food.map { it.name })
+            assertTrue(p.note.addedSeeds.isEmpty())
+            assertFalse(p.stateRead)
+        }
+        // With no state file at all the coach would have seeded its table: so does the import.
+        val none = plan(null, origin = StateOrigin.NONE)
+        assertEquals(FoodTable.seed(now).map { it.name } + listOf("即食雞胸", "統一高纖豆漿"), none.food.map { it.name })
+        assertTrue(none.stateRead)
+    }
+
+    @Test fun aSalvagedStateIsCountedInTheNote() {
+        val s = LegacyCoachJson.salvageState(javaClass.getResource("/legacy/damaged-state.json")!!.readText())!!
+        val p = LegacyMapper.map(LegacyInput(s, StateOrigin.SALVAGED, emptyList(), salvagedFrom = "state.json"), now)
+        assertEquals("SALVAGED", p.note.stateOrigin)
+        assertEquals("state.json", p.note.salvagedFrom)
+        assertEquals(6, p.note.salvagedRecords)
+        assertEquals(3, p.meals.size)
+        assertEquals(0, plan().note.salvagedRecords)
+        assertNull(plan().note.salvagedFrom)
+    }
+
+    @Test fun aBaselineFileOverTheLimitIsLeftOutAndNoted() {
+        val big = LegacyMapper.MAX_IMPORT_MEDIA_BYTES + 1
+        val files = listOf(LegacyFile("photo-1795224600000.jpg", 1, 2_000), LegacyFile("recording-1795225200000.wav", 2, big))
+        val p = plan(LegacyState(seeded = true, baseline = LegacyBaseline(photo = "photo-1795224600000.jpg", recording = "recording-1795225200000.wav")), files = files)
+        assertEquals(listOf("photo-1795224600000.jpg"), p.media.map { it.file })
+        assertEquals(LegacyMapper.mediaId("photo-1795224600000.jpg"), p.baseline!!.photoFront)
+        assertNull(p.baseline!!.recording)
+        assertEquals(listOf("recording-1795225200000.wav"), p.note.mediaTooLarge)
+        assertTrue(p.note.missingMedia.isEmpty())
+        // Exactly at the limit is still imported.
+        assertEquals(1, plan(files = listOf(LegacyFile("recording-1.wav", 1, LegacyMapper.MAX_IMPORT_MEDIA_BYTES))).media.size)
+    }
+
+    @Test fun droppedRecordsOfEveryReadFileAreInTheNote() {
+        val p = plan(
+            LegacyState(seeded = true, dropped = mapOf("MEALS" to 1, "FOOD" to 2)),
+            setAside = listOf("state.json.bad-1" to LegacyState(seeded = true, dropped = mapOf("MEALS" to 2, "WEIGHTS" to 1)), "state.json.bad-2" to null),
+        )
+        assertEquals(mapOf("MEALS" to 3, "FOOD" to 2, "WEIGHTS" to 1), p.note.droppedRecords)
+        assertTrue(plan().note.droppedRecords.isEmpty())
+    }
+
+    @Test fun savedValuesAnExistingRowKeptOutAreListed() {
+        val p = plan(prefs = mapOf("height" to "172.0", "fat" to 55, "goals" to "78,72", "day_start" to 5))
+        assertEquals(
+            setOf(LegacyMapper.PROFILE_HEIGHT, LegacyMapper.PROFILE_DAY_START, LegacyMapper.RULES_FAT, LegacyMapper.RULES_GOALS),
+            p.fromPrefs,
+        )
+        val stored = p.profile.copy(heightCm = 170.0, companyName = "星光娛樂")
+        val rules = p.rules.copy(fatG = 50, goalsKg = listOf(75.0, 68.0), quotaKcal = 1600)
+        assertEquals(
+            mapOf("profile.heightCm" to "172.0", "rules.fatG" to "55", "rules.goalsKg" to "[78.0, 72.0]"),
+            LegacyMapper.notApplied(p, stored, rules),
+        )
+        // A row the import wrote itself, or one that holds his values, lists nothing.
+        assertTrue(LegacyMapper.notApplied(p, null, null).isEmpty())
+        assertTrue(LegacyMapper.notApplied(p, p.profile, p.rules.copy(version = 3)).isEmpty())
+    }
+
+    @Test fun slotTimesAreWrittenWithLatinDigitsWhateverThePhoneLanguage() {
+        val before = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("th-TH-u-nu-thai"))
+            assertEquals(mapOf("t_lunch" to "12:30"), plan(prefs = mapOf("t_lunch" to 750)).note.customisedSlots)
+        } finally {
+            Locale.setDefault(before)
+        }
+    }
+
+    @Test fun aFinishedBaselineIsMarkedComplete() {
+        val files = listOf(LegacyFile("photo-1.jpg", 1, 10), LegacyFile("recording-2.m4a", 2, 10))
+        val done = LegacyBaseline(heightCm = 172.0, weightKg = 79.2, photo = "photo-1.jpg", recording = "recording-2.m4a", pushups = 18, skipped = setOf(LegacyBaselineStep.PLANK))
+        assertEquals(now, plan(LegacyState(seeded = true, baseline = done), files = files).baseline!!.completedAt)
+        // A question still open, a step neither handed in nor skipped, or a file that is not there: not finished.
+        assertNull(plan(LegacyState(seeded = true, baseline = done.copy(step = LegacyBaselineStep.PLANK)), files = files).baseline!!.completedAt)
+        assertNull(plan(LegacyState(seeded = true, baseline = done.copy(skipped = emptySet())), files = files).baseline!!.completedAt)
+        assertNull(plan(LegacyState(seeded = true, baseline = done.copy(weightKg = null)), files = files).baseline!!.completedAt)
+        assertNull(plan(LegacyState(seeded = true, baseline = done), files = files.take(1)).baseline!!.completedAt)
+        assertNull(plan(LegacyState(seeded = true, baseline = LegacyBaseline())).baseline!!.completedAt)
     }
 }
