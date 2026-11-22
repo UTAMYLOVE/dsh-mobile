@@ -28,6 +28,7 @@ import app.dshmobile.R
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.LegacyStatus
 import app.dshmobile.agency.migrate.LegacyImporter
+import app.dshmobile.ui.agency.onMain
 import app.dshmobile.ui.kit.PinkButton
 import app.dshmobile.ui.kit.Sakura
 import app.dshmobile.ui.kit.SoftButton
@@ -67,7 +68,7 @@ fun LegacyDataPage(agency: AgencyApp) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val shareFailed = stringResource(R.string.ag_legacy_share_failed)
-    LaunchedEffect(reload) { status = withContext(Dispatchers.IO) { runCatching { agency.legacyStatus() }.getOrNull() } }
+    LaunchedEffect(reload) { onMain { status = withContext(Dispatchers.IO) { runCatching { agency.legacyStatus() }.getOrNull() } } }
     Section(stringResource(R.string.ag_set_legacy)) {
         val s = status ?: return@Section
         val headline = when (s.kind) {
@@ -91,9 +92,11 @@ fun LegacyDataPage(agency: AgencyApp) {
                 onClick = {
                     retrying = true
                     scope.launch {
-                        if (s.kind == LegacyStatus.Kind.PARTIAL) agency.retryImport() else agency.retryFirstImport()
-                        retrying = false
-                        reload++
+                        onMain {
+                            if (s.kind == LegacyStatus.Kind.PARTIAL) agency.retryImport() else agency.retryFirstImport()
+                            retrying = false
+                            reload++
+                        }
                     }
                 },
                 modifier = Modifier.testTag(LegacyTags.RETRY),
@@ -112,8 +115,10 @@ fun LegacyDataPage(agency: AgencyApp) {
                     Text(fileLabel(name, names), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.weight(1f).testTag(LegacyTags.FILE + name))
                     SoftButton(stringResource(R.string.ag_legacy_share), onClick = {
                         scope.launch {
-                            val ok = withContext(Dispatchers.IO) { runCatching { shareCopy(context, File(folder, "${LegacyImporter.BASELINE_DIR}/$name")) }.getOrNull() }
-                            if (ok == null) note = shareFailed else context.startActivity(ok)
+                            onMain {
+                                val ok = withContext(Dispatchers.IO) { runCatching { shareCopy(context, File(folder, "${LegacyImporter.BASELINE_DIR}/$name")) }.getOrNull() }
+                                if (ok == null) note = shareFailed else context.startActivity(ok)
+                            }
                         }
                     }, modifier = Modifier.testTag(LegacyTags.SHARE + name))
                 }

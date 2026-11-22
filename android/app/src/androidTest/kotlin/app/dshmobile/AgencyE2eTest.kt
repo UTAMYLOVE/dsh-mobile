@@ -1,6 +1,7 @@
 package app.dshmobile
 
 import android.content.Context
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
@@ -223,6 +224,25 @@ class AgencyE2eTest {
     @Test fun e05_offlineStillKeepsHisMessage() {
         app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
         fake.online = false
+        // The screen's Compose state changes on the main thread only (the first CI run of b7b2703 drew while an IO thread
+        // observed layout reads): any write or snapshot apply off the main thread is kept and fails the test.
+        val offMain = java.util.Collections.synchronizedList(mutableListOf<String>())
+        fun check(what: String) {
+            if (android.os.Looper.myLooper() !== android.os.Looper.getMainLooper()) offMain += "$what on ${Thread.currentThread().name}"
+        }
+        val handles = listOf(
+            Snapshot.registerGlobalWriteObserver { check("state write") },
+            Snapshot.registerApplyObserver { _, _ -> check("snapshot apply") },
+        )
+        try {
+            offlineThenOnline()
+        } finally {
+            handles.forEach { it.dispose() }
+        }
+        assertEquals(emptyList<String>(), offMain.toList().distinct())
+    }
+
+    private fun offlineThenOnline() {
         open()
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()

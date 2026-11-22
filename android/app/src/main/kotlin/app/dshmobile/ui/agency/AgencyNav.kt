@@ -15,7 +15,6 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,7 +59,7 @@ enum class AgencyTab(val label: Int) { COMPANY(R.string.ag_tab_company), WAR_ROO
 /** The start screens until the company is open, then the three tabs. */
 @Composable
 fun AgencyRoot(agency: AgencyApp) {
-    val start by agency.start.collectAsState()
+    val start by agency.start.collectOnMain()
     Box(Modifier.fillMaxSize().background(Sakura.Background)) {
         when (val s = start) {
             StartState.Opening -> Plate(AgencyTags.OPENING, stringResource(R.string.ag_opening), null, busy = true)

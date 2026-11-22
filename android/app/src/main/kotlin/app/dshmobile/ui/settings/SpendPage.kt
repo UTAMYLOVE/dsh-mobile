@@ -1,7 +1,6 @@
 package app.dshmobile.ui.settings
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -11,6 +10,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import app.dshmobile.R
 import app.dshmobile.agency.metering.CostMeter
+import app.dshmobile.ui.agency.collectOnMain
 import app.dshmobile.ui.kit.PinkButton
 import app.dshmobile.ui.kit.SoftButton
 import java.util.Locale
@@ -30,7 +30,7 @@ object SpendTags {
  */
 @Composable
 fun SpendPage(meter: CostMeter) {
-    val revision by meter.revision.collectAsState()
+    val revision by meter.revision.collectOnMain()
     val today = remember(revision) { meter.todayUsd() }
     val month = remember(revision) { meter.monthUsd() }
     val cap = remember(revision) { meter.hardCapUsd }

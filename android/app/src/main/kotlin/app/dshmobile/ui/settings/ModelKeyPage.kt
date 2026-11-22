@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +23,7 @@ import app.agency.core.metering.Provider
 import app.dshmobile.R
 import app.dshmobile.agency.AgencySettings
 import app.dshmobile.security.KeyVault
+import app.dshmobile.ui.agency.collectOnMain
 import app.dshmobile.ui.kit.PinkButton
 import app.dshmobile.ui.kit.Sakura
 import app.dshmobile.ui.kit.SoftButton
@@ -50,8 +50,8 @@ object ModelKeyTags {
  */
 @Composable
 fun ModelKeyPage(settings: AgencySettings, vault: KeyVault, brain: Brain) {
-    val revision by settings.revision.collectAsState()
-    val lastFail by brain.lastFail.collectAsState()
+    val revision by settings.revision.collectOnMain()
+    val lastFail by brain.lastFail.collectOnMain()
     val provider = remember(revision) { settings.provider }
     var note by remember { mutableStateOf<String?>(null) }
     Section(stringResource(R.string.ag_set_model)) {

@@ -13,7 +13,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,21 +48,25 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun HomeScreen(agency: AgencyApp, ready: StartState.Ready) {
-    val revision by ready.brain.revision.collectAsState()
-    val busy by ready.brain.busy.collectAsState()
-    val notice by agency.notice.collectAsState()
+    val revision by ready.brain.revision.collectOnMain()
+    val busy by ready.brain.busy.collectOnMain()
+    val notice by agency.notice.collectOnMain()
     var limit by rememberSaveable { mutableIntStateOf(PAGE) }
     var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
     var total by remember { mutableIntStateOf(0) }
     LaunchedEffect(revision, limit) {
-        val (list, count) = withContext(Dispatchers.IO) {
-            val list = runCatching { ready.store.messages.recent(limit) }.getOrDefault(emptyList())
-            list to runCatching { ready.store.messages.count() }.getOrDefault(list.size)
+        onMain {
+            val (list, count) = withContext(Dispatchers.IO) {
+                val list = runCatching { ready.store.messages.recent(limit) }.getOrDefault(emptyList())
+                list to runCatching { ready.store.messages.count() }.getOrDefault(list.size)
+            }
+            messages = list
+            total = count
         }
-        messages = list
-        total = count
     }
-    val profile by produceState<Profile?>(null, revision) { value = withContext(Dispatchers.IO) { runCatching { ready.store.profile.get() }.getOrNull() } }
+    val profile by produceState<Profile?>(null, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.store.profile.get() }.getOrNull() } }
+    }
     Column(Modifier.fillMaxSize().imePadding().testTag(AgencyTags.HOME)) {
         TraineeHeader(profile ?: Profile())
         notice?.let { NoticeBar(it, agency::dismissNotice) }

@@ -38,7 +38,7 @@ import app.dshmobile.ui.kit.Sakura
 fun ChatList(messages: List<Message>, hasOlder: Boolean, onOlder: () -> Unit, modifier: Modifier = Modifier) {
     val state = rememberLazyListState()
     LaunchedEffect(messages.lastOrNull()?.id) {
-        if (messages.isNotEmpty()) state.scrollToItem(messages.size - 1 + if (hasOlder) 1 else 0)
+        if (messages.isNotEmpty()) onMain { state.scrollToItem(messages.size - 1 + if (hasOlder) 1 else 0) }
     }
     if (messages.isEmpty()) {
         Box(modifier.fillMaxSize().padding(24.dp).testTag(AgencyTags.CHAT), contentAlignment = Alignment.Center) {
