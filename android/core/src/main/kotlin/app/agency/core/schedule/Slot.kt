@@ -52,7 +52,12 @@ sealed interface DayAdjust {
 
     /** 「早上很餓」: the 豆漿 moves to the morning, the chicken breast stays at 21:00 (L4). */
     @Serializable data object SoyMorning : DayAdjust
+
+    /** A way today runs that is no slot: reminders sound once while riding (L8), no 宵夜 after the on-run portion (L9). */
+    @Serializable data class Flag(val flag: DayFlag) : DayAdjust
 }
+
+enum class DayFlag { RIDING_ONE_SOUND, LATE_SNACK_OFF }
 
 /** Minutes on the coach day. */
 object DayClock {

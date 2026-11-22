@@ -34,7 +34,8 @@ data class Message(
     val legacy: Boolean = false,
 )
 
-enum class ProposalKind { PLAN_CHANGE, MEAL_ORDER, SAVE_PLACE, PROGRESSION, WAKE_EARLIER }
+/** [TODAY_CHANGE] and [RULES_SUGGESTION] come from the links (T11b): a today-only illness change, a hint to go to 設定. */
+enum class ProposalKind { PLAN_CHANGE, MEAL_ORDER, SAVE_PLACE, PROGRESSION, WAKE_EARLIER, TODAY_CHANGE, RULES_SUGGESTION }
 enum class ProposalStatus { PENDING, ACCEPTED, REJECTED, EXPIRED }
 
 /** A change the company suggests; code applies it only after his tap or exact 「好」. [diffJson] is the typed diff. */

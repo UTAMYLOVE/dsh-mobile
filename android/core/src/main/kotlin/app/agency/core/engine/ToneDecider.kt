@@ -26,6 +26,8 @@ data class ToneInputs(
     val openGapDue: Boolean = false,
     val completion: Completion? = null,
     val sweetToday: Int = 0,
+    /** He said today he is ill or low (the nerve's L3): gentle all day. */
+    val gentleToday: Boolean = false,
 )
 
 /**
@@ -51,7 +53,7 @@ object ToneDecider {
         if (allMealsReported && strengthDone) Completion.DAY_DONE else null
 
     fun decide(i: ToneInputs): Tone = when {
-        i.redFlag || i.intakeKind in GENTLE_KINDS || wantsGentle(i.ownerText) -> Tone.GENTLE
+        i.redFlag || i.gentleToday || i.intakeKind in GENTLE_KINDS || wantsGentle(i.ownerText) -> Tone.GENTLE
         i.completion != null && !i.breachToday && !i.openGapDue && i.sweetToday < MAX_SWEET_PER_DAY -> Tone.SWEET
         else -> Tone.COLD
     }

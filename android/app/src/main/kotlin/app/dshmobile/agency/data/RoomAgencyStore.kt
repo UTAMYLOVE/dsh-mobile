@@ -17,7 +17,10 @@ import app.agency.core.model.MemoryEvent
 import app.agency.core.model.MemoryItem
 import app.agency.core.model.Message
 import app.agency.core.model.MigrationLog
+import app.agency.core.model.EffectStatus
+import app.agency.core.model.NerveEffect
 import app.agency.core.model.Nudge
+import app.agency.core.model.StoredSignal
 import app.agency.core.model.OrderStatus
 import app.agency.core.model.PendingLabel
 import app.agency.core.model.PlanSection
@@ -42,6 +45,7 @@ import app.agency.core.store.MealRepo
 import app.agency.core.store.MediaRepo
 import app.agency.core.store.MemoryRepo
 import app.agency.core.store.MessageRepo
+import app.agency.core.store.NerveRepo
 import app.agency.core.store.NudgeRepo
 import app.agency.core.store.OrderRepo
 import app.agency.core.store.PlaceRepo
@@ -65,7 +69,9 @@ import app.dshmobile.agency.data.entities.MemoryEventEntity
 import app.dshmobile.agency.data.entities.MemoryItemEntity
 import app.dshmobile.agency.data.entities.MessageEntity
 import app.dshmobile.agency.data.entities.MigrationLogEntity
+import app.dshmobile.agency.data.entities.NerveEffectEntity
 import app.dshmobile.agency.data.entities.NudgeEntity
+import app.dshmobile.agency.data.entities.SignalEntity
 import app.dshmobile.agency.data.entities.PendingLabelEntity
 import app.dshmobile.agency.data.entities.PlanSectionColumns
 import app.dshmobile.agency.data.entities.PlanSectionEntity
@@ -258,5 +264,17 @@ class RoomAgencyStore(private val db: AgencyDatabase) : AgencyStore {
         override suspend fun migrations(): List<MigrationLog> = dao.migrations().map { it.toModel() }
         override suspend fun audit(log: AuditLog) = dao.audit(AuditLogEntity.of(log))
         override suspend fun audits(): List<AuditLog> = dao.audits().map { it.toModel() }
+    }
+
+    override val nerve = object : NerveRepo {
+        private val dao = db.nerve()
+        override suspend fun insertSignal(signal: StoredSignal): Boolean = dao.insertSignal(SignalEntity.of(signal)) != -1L
+        override suspend fun signal(id: String): StoredSignal? = dao.signal(id)?.toModel()
+        override suspend fun signals(fromDay: String, toDay: String): List<StoredSignal> = dao.signals(fromDay, toDay).map { it.toModel() }
+        override suspend fun insertEffect(effect: NerveEffect): Boolean = dao.insertEffect(NerveEffectEntity.of(effect)) != -1L
+        override suspend fun effect(id: String): NerveEffect? = dao.effect(id)?.toModel()
+        override suspend fun effects(day: String): List<NerveEffect> = dao.effects(day).map { it.toModel() }
+        override suspend fun effectsWith(status: EffectStatus): List<NerveEffect> = dao.effectsWith(status).map { it.toModel() }
+        override suspend fun setStatus(id: String, status: EffectStatus, decidedAt: Long?): Boolean = dao.setStatus(id, status, decidedAt) > 0
     }
 }

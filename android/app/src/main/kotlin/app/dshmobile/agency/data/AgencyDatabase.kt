@@ -6,6 +6,8 @@ import android.database.sqlite.SQLiteException
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import app.dshmobile.agency.data.dao.BaselineDao
 import app.dshmobile.agency.data.dao.ConditionDao
@@ -16,6 +18,7 @@ import app.dshmobile.agency.data.dao.MealDao
 import app.dshmobile.agency.data.dao.MediaDao
 import app.dshmobile.agency.data.dao.MemoryDao
 import app.dshmobile.agency.data.dao.MessageDao
+import app.dshmobile.agency.data.dao.NerveDao
 import app.dshmobile.agency.data.dao.NudgeDao
 import app.dshmobile.agency.data.dao.OrderDao
 import app.dshmobile.agency.data.dao.PlaceDao
@@ -42,6 +45,7 @@ import app.dshmobile.agency.data.entities.MemoryEventEntity
 import app.dshmobile.agency.data.entities.MemoryItemEntity
 import app.dshmobile.agency.data.entities.MessageEntity
 import app.dshmobile.agency.data.entities.MigrationLogEntity
+import app.dshmobile.agency.data.entities.NerveEffectEntity
 import app.dshmobile.agency.data.entities.NudgeEntity
 import app.dshmobile.agency.data.entities.PendingLabelEntity
 import app.dshmobile.agency.data.entities.PlanSectionEntity
@@ -50,6 +54,7 @@ import app.dshmobile.agency.data.entities.ProfileEntity
 import app.dshmobile.agency.data.entities.ProposalEntity
 import app.dshmobile.agency.data.entities.SearchResultEntity
 import app.dshmobile.agency.data.entities.SignLogEntity
+import app.dshmobile.agency.data.entities.SignalEntity
 import app.dshmobile.agency.data.entities.TrainingLogEntity
 import app.dshmobile.agency.data.entities.WaterLogEntity
 import app.dshmobile.agency.data.entities.WeightLogEntity
@@ -59,9 +64,12 @@ import java.io.File
 import net.zetetic.database.sqlcipher.SQLiteNotADatabaseException
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
-/** The agency's records (arch 1.2): Room over SQLCipher, file `noBackupFilesDir/agency/agency.db`. Schema v1 is in `schemas/`. */
+/**
+ * The agency's records (arch 1.2): Room over SQLCipher, file `noBackupFilesDir/agency/agency.db`. Schemas are in `schemas/`:
+ * v1 (T02), v2 adds the nerve's `signal` and `nerve_effect` (T11b, [MIGRATION_1_2]).
+ */
 @Database(
-    version = 1,
+    version = 2,
     exportSchema = true,
     entities = [
         ProfileEntity::class, CompanyRulesEntity::class, CompanyRulesHistoryEntity::class, PlanSectionEntity::class,
@@ -69,7 +77,8 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         PendingLabelEntity::class, MealOrderEntity::class, FavoritePlaceEntity::class, SearchResultEntity::class,
         WaterLogEntity::class, TrainingLogEntity::class, ConditionLogEntity::class, SignLogEntity::class, WeightLogEntity::class,
         BaselineEntity::class, MediaEntity::class, MessageEntity::class, ProposalEntity::class, MemoryItemEntity::class,
-        MemoryEventEntity::class, NudgeEntity::class, MigrationLogEntity::class, AuditLogEntity::class,
+        MemoryEventEntity::class, NudgeEntity::class, MigrationLogEntity::class, AuditLogEntity::class, SignalEntity::class,
+        NerveEffectEntity::class,
     ],
 )
 abstract class AgencyDatabase : RoomDatabase() {
@@ -92,8 +101,27 @@ abstract class AgencyDatabase : RoomDatabase() {
     abstract fun memory(): MemoryDao
     abstract fun nudges(): NudgeDao
     abstract fun journal(): JournalDao
+    abstract fun nerve(): NerveDao
 
     companion object {
+        /** v1 → v2 (T11b): the nerve's two tables; nothing else changes, every v1 row stays. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                MIGRATION_1_2_SQL.forEach(db::execSQL)
+            }
+        }
+
+        /** Copied from `schemas/…/2.json` (Room checks the result against it on open). */
+        val MIGRATION_1_2_SQL = listOf(
+            "CREATE TABLE IF NOT EXISTS `signal` (`id` TEXT NOT NULL, `day` TEXT NOT NULL, `at` INTEGER NOT NULL, `type` TEXT NOT NULL, `json` TEXT NOT NULL, `depth` INTEGER NOT NULL, `cause_id` TEXT, PRIMARY KEY(`id`))",
+            "CREATE INDEX IF NOT EXISTS `index_signal_day` ON `signal` (`day`)",
+            "CREATE TABLE IF NOT EXISTS `nerve_effect` (`id` TEXT NOT NULL, `day` TEXT NOT NULL, `at` INTEGER NOT NULL, `link` TEXT NOT NULL, `signal_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `json` TEXT NOT NULL, `because` TEXT NOT NULL, `status` TEXT NOT NULL, `proposal_id` TEXT, `due_at` INTEGER, `decided_at` INTEGER, PRIMARY KEY(`id`))",
+            "CREATE INDEX IF NOT EXISTS `index_nerve_effect_day` ON `nerve_effect` (`day`)",
+            "CREATE INDEX IF NOT EXISTS `index_nerve_effect_status` ON `nerve_effect` (`status`)",
+        )
+
+        val MIGRATIONS = arrayOf(MIGRATION_1_2)
+
         fun file(context: Context) = File(context.noBackupFilesDir, "agency/agency.db")
 
         /**
@@ -154,7 +182,7 @@ abstract class AgencyDatabase : RoomDatabase() {
             } else {
                 Room.databaseBuilder(context.applicationContext, AgencyDatabase::class.java, name)
             }
-            return builder.openHelperFactory(factory).build()
+            return builder.openHelperFactory(factory).addMigrations(*MIGRATIONS).build()
         }
     }
 }

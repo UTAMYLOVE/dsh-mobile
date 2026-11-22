@@ -22,7 +22,11 @@ import app.agency.core.model.MessageMode
 import app.agency.core.model.MessageRefs
 import app.agency.core.model.MigrationLog
 import app.agency.core.model.MigrationSource
+import app.agency.core.model.EffectKind
+import app.agency.core.model.EffectStatus
+import app.agency.core.model.NerveEffect
 import app.agency.core.model.Nudge
+import app.agency.core.model.StoredSignal
 import app.agency.core.model.OrderStatus
 import app.agency.core.model.PendingLabel
 import app.agency.core.model.PlanSection
@@ -304,6 +308,27 @@ abstract class AgencyStoreContract {
         assertFalse(nudges.markAnswered("n-9", 1_500))
         assertEquals(listOf(n.copy(answeredAt = 1_500)), nudges.between(1_000, 1_001))
         assertTrue(nudges.between(0, 1_000).isEmpty())
+    }
+
+    @Test fun theNerveKeepsSignalsOnceAndItsEffects() = test {
+        val s1 = StoredSignal("sig-1", "2026-11-23", 10, "woke_up", "{}")
+        assertTrue(nerve.insertSignal(s1))
+        assertFalse(nerve.insertSignal(s1.copy(json = "{\"x\":1}"))) // the id de-dups
+        nerve.insertSignal(StoredSignal("sig-0", "2026-11-23", 5, "day_started", "{}", depth = 0))
+        nerve.insertSignal(StoredSignal("sig-2", "2026-11-24", 20, "floor_check", "{}", depth = 1, causeId = "sig-1"))
+        assertEquals(listOf("sig-0", "sig-1"), nerve.signals("2026-11-23", "2026-11-23").map { it.id })
+        assertEquals(s1, nerve.signal("sig-1"))
+        assertEquals("sig-1", nerve.signal("sig-2")!!.causeId)
+        val e = NerveEffect("e-1", "2026-11-23", 11, "L1", "sig-1", EffectKind.ADJUST, "{}", "因為…所以…", EffectStatus.ACTIVE)
+        assertTrue(nerve.insertEffect(e))
+        assertFalse(nerve.insertEffect(e))
+        nerve.insertEffect(e.copy(id = "e-2", kind = EffectKind.NOTIFY, status = EffectStatus.PENDING, dueAt = 99))
+        assertEquals(listOf("e-1", "e-2"), nerve.effects("2026-11-23").map { it.id })
+        assertTrue(nerve.setStatus("e-1", EffectStatus.CANCELLED, 50))
+        assertFalse(nerve.setStatus("e-9", EffectStatus.CANCELLED, 50))
+        assertEquals(e.copy(status = EffectStatus.CANCELLED, decidedAt = 50), nerve.effect("e-1"))
+        assertEquals(listOf("e-2"), nerve.effectsWith(EffectStatus.PENDING).map { it.id })
+        assertEquals(99L, nerve.effect("e-2")!!.dueAt)
     }
 
     @Test fun theJournalKeepsMigrationsAndAudits() = test {

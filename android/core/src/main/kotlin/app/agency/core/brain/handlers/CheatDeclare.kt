@@ -20,24 +20,34 @@ import java.time.temporal.TemporalAdjusters
  * cap. Closed until [RulesBook.CHEAT_CLOSED_THROUGH] (owner, 2026-11-22), open again from the day after by itself.
  */
 class CheatDeclare(private val store: AgencyStore, private val plans: PlanStore, private val zone: ZoneId) {
-    suspend fun declare(text: String, today: LocalDate, now: Instant, rules: CompanyRules): String {
-        val target = day(text, today) ?: return FORMAT
-        if (!RulesBook.cheatOpen(target)) return RulesBook.CHEAT_CLOSED
-        if (rules.cheatMealsPerWeek < 1) return "公司規章現在沒有休假餐。"
+    /** The reply, and the day and meal when it was written. */
+    data class Result(val line: String, val day: LocalDate? = null, val slot: SlotKey? = null)
+
+    suspend fun declare(text: String, today: LocalDate, now: Instant, rules: CompanyRules): Result {
+        return write(text, today, now, rules)
+    }
+
+    private suspend fun write(text: String, today: LocalDate, now: Instant, rules: CompanyRules): Result {
+        val target = day(text, today) ?: return Result(FORMAT)
+        if (!RulesBook.cheatOpen(target)) return Result(RulesBook.CHEAT_CLOSED)
+        if (rules.cheatMealsPerWeek < 1) return Result("公司規章現在沒有休假餐。")
         val plan = plans.plan(target)
-        val key = meal(text, plan.firstMeal) ?: return FORMAT
-        val slot = plan.slot(key) ?: return FORMAT
-        if (!now.isBefore(RuleEngineTime.at(target, slot.minute, zone))) return "休假餐要事先說，這一餐的時間已經過了。"
+        val key = meal(text, plan.firstMeal) ?: return Result(FORMAT)
+        val slot = plan.slot(key) ?: return Result(FORMAT)
+        if (!now.isBefore(RuleEngineTime.at(target, slot.minute, zone))) return Result("休假餐要事先說，這一餐的時間已經過了。")
         val monday = target.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val week = store.days.between(monday.toString(), monday.plusDays(6).toString()).filter { it.cheatSlot != null && it.day != target.toString() }
         if (week.size >= rules.cheatMealsPerWeek) {
             val d = LocalDate.parse(week.first().day)
-            return "這週的休假餐已經訂在星期${CoachRules.weekdayZh(d.dayOfWeek)}了，一週只有一餐。"
+            return Result("這週的休假餐已經訂在星期${CoachRules.weekdayZh(d.dayOfWeek)}了，一週只有一餐。")
         }
         val o = store.days.get(target.toString())
         store.days.put((o ?: DayOverride(target.toString(), declaredAt = now.toEpochMilli())).copy(cheatSlot = key.name, declaredAt = now.toEpochMilli()))
-        return "記下：休假餐是星期${CoachRules.weekdayZh(target.dayOfWeek)}的${key.zh}（${slot.time}）。那一餐零食、炸的、甜的都可以，" +
-            "熱量照樣算進 ${rules.quotaKcal}，單餐上限 ${rules.mealCapKcal} 照算。"
+        return Result(
+            "記下：休假餐是星期${CoachRules.weekdayZh(target.dayOfWeek)}的${key.zh}（${slot.time}）。那一餐零食、炸的、甜的都可以，" +
+                "熱量照樣算進 ${rules.quotaKcal}，單餐上限 ${rules.mealCapKcal} 照算。",
+            target, key,
+        )
     }
 
     companion object {

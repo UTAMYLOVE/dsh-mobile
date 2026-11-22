@@ -39,6 +39,9 @@ import app.dshmobile.ui.kit.SakuraTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import app.dshmobile.ui.settings.SettingsScreen
+import app.dshmobile.ui.warroom.TodayLinksCard
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 /** Test tags of the company's screens. */
 object AgencyTags {
@@ -130,7 +133,7 @@ private fun Tabs(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActi
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (tab) {
                 AgencyTab.COMPANY -> HomeScreen(agency, ready, actions)
-                AgencyTab.WAR_ROOM -> WarRoomPlaceholder()
+                AgencyTab.WAR_ROOM -> WarRoomPlaceholder(ready)
                 AgencyTab.SETTINGS -> SettingsScreen(agency, ready)
             }
         }
@@ -143,12 +146,16 @@ private fun Dot(on: Boolean) {
     Box(Modifier.padding(4.dp).background(if (on) LocalAccent.current.fill else Sakura.MilkTea, shape).padding(5.dp))
 }
 
-/** 指揮室 is rebuilt in T19; until then one panel. */
+/** 指揮室 is rebuilt in T20; until then one panel and 「今天的連動」 (T11b). */
 @Composable
-fun WarRoomPlaceholder() {
-    Box(Modifier.fillMaxSize().padding(16.dp).testTag(AgencyTags.WAR_ROOM)) {
+fun WarRoomPlaceholder(ready: StartState.Ready) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag(AgencyTags.WAR_ROOM),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         Panel(title = stringResource(R.string.ag_warroom_title)) {
             Text(stringResource(R.string.ag_warroom_closed), color = Sakura.Text, fontSize = 15.sp)
         }
+        TodayLinksCard(ready)
     }
 }

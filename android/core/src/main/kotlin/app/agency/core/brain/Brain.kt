@@ -1,14 +1,20 @@
 package app.agency.core.brain
 
+import app.agency.core.brain.handlers.BodyWords
 import app.agency.core.brain.handlers.CheatDeclare
 import app.agency.core.brain.handlers.HungryMorning
 import app.agency.core.brain.handlers.IdolProfile
 import app.agency.core.brain.handlers.RestDay
+import app.agency.core.brain.handlers.Sign
 import app.agency.core.brain.handlers.Onboarding
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.agency.core.brain.handlers.OnboardingStep
 import app.agency.core.engine.IdolCard
+import app.agency.core.engine.GroomingItem
 import app.agency.core.engine.IdolCardFacts
+import app.agency.core.engine.Nerve
+import app.agency.core.engine.NerveResult
+import app.agency.core.engine.Signal
 import app.agency.core.engine.Stickers
 import app.agency.core.engine.ToneDecider
 import app.agency.core.engine.ToneInputs
@@ -22,6 +28,7 @@ import app.agency.core.llm.Purpose
 import app.agency.core.memory.MemoryBlocks
 import app.agency.core.model.Media
 import app.agency.core.model.Message
+import app.agency.core.model.NerveEffect
 import app.agency.core.model.MessageMode
 import app.agency.core.model.RoleKey
 import app.agency.core.model.Who
@@ -70,7 +77,10 @@ class Brain(
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
     private val mutex = Mutex()
-    private val snapshot = SnapshotReader(store, clock)
+
+    /** 連動中樞 (T11b): features emit signals, links answer them. */
+    val nerve = Nerve(store, clock, newId)
+    private val snapshot = SnapshotReader(store, clock) { nerve.changes(it) }
     private val structured = StructuredCaller(intakeLlm, provider)
     private val loop = ChatLoop(llm, provider, judge = SecondPassJudge(intakeLlm, provider))
     private val tools = ToolRegistry(readTools(store, snapshot))
@@ -79,6 +89,7 @@ class Brain(
     private val restDay = RestDay(store, snapshot.plans)
     private val hungry = HungryMorning(store)
     private val cheat = CheatDeclare(store, snapshot.plans, clock.zone)
+    private val sign = Sign(store, clock.zone, newId)
 
     private val _busy = MutableStateFlow(false)
     /** True while a message is being answered. */
@@ -102,10 +113,41 @@ class Brain(
             val owner = Message(newId(), clock.millis(), Who.OWNER, text = clean)
             store.messages.insert(owner)
             bump()
-            listOf(owner, answer(owner, history)).also { bump() }
+            val started = ensureDay()
+            (listOf(owner) + started + answer(owner, history)).sortedWith(compareBy({ it.at }, { if (it.id == owner.id) 0 else 1 })).also { bump() }
         } finally {
             _busy.value = false
         }
+    }
+
+    /**
+     * One signal from outside a message (the alarm's gaps, a button, a later feature): the day's start first, then the signal;
+     * what the links did. A signal id already handled does nothing.
+     */
+    suspend fun signal(s: Signal): NerveResult = mutex.withLock {
+        val r = dayStarted() + nerve.emit(s)
+        bump()
+        r
+    }
+
+    /** The first event of a coach day starts it (once: the id is the day). Returns the lines its links said. */
+    private suspend fun ensureDay(): List<Message> = dayStarted().messages
+
+    private suspend fun dayStarted(): NerveResult {
+        val profile = snapshot.profile()
+        val day = snapshot.today(profile)
+        return nerve.emit(Signal.DayStarted("day:$day", clock.millis(), day.toString()))
+    }
+
+    /** 「今天的連動」 (the war room's card): today's effects, oldest first. */
+    suspend fun links(): List<NerveEffect> = nerve.today(snapshot.today(snapshot.profile()))
+
+    /** He cancels a 今天微調 of today from the card. */
+    suspend fun cancelLink(effectId: String): Boolean = mutex.withLock { nerve.cancel(effectId).also { if (it) bump() } }
+
+    /** His tap on a link proposal: the answer is written as the manager's line. */
+    suspend fun decideLink(effectId: String, accept: Boolean): Message? = mutex.withLock {
+        nerve.decide(effectId, accept)?.let { reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, Nerve.KIND) }.also { bump() }
     }
 
     /** 入社建檔 on the first open (arch T07): the manager's welcome and first question, once; null when not due. */
@@ -148,15 +190,41 @@ class Brain(
     private suspend fun baselineLine(text: String): Message =
         reply(RoleKey.MANAGER, text, WordedBy.TEMPLATE, BASELINE_KIND).also { bump() }
 
-    private suspend fun answer(owner: Message, history: List<Message>): Message {
+    private suspend fun answer(owner: Message, history: List<Message>): List<Message> {
         // An open 入社建檔 question reads his message as its answer first (code, no model); anything else goes on as usual.
-        onboarding.answer(owner.text)?.let { return reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, BASELINE_KIND) }
-        idol.answer(owner.text)?.let { return reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, PROFILE_KIND) }
-        when (val route = Router.route(owner.text)) {
-            is Route.Command -> return command(route, owner)
-            Route.RulesLocked -> return reply(RoleKey.MANAGER, RulesBook.LOCKED, WordedBy.TEMPLATE, RULES_KIND)
-            Route.Model -> Unit
+        onboarding.answer(owner.text)?.let { return listOf(reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, BASELINE_KIND)) }
+        idol.answer(owner.text)?.let { return listOf(reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, PROFILE_KIND)) }
+        body(owner)?.let { return it }
+        return when (val route = Router.route(owner.text)) {
+            is Route.Command -> command(route, owner)
+            Route.RulesLocked -> listOf(reply(RoleKey.MANAGER, RulesBook.LOCKED, WordedBy.TEMPLATE, RULES_KIND))
+            Route.Model -> listOf(model(owner, history))
         }
+    }
+
+    /**
+     * His yes/no to the one waiting link proposal, then his body (agency-links §3b, code only): ill or hurt goes to L2 (a
+     * question or a today-only proposal), asking to do less without that gets 「今天照表」; low mood marks a gentle day and goes
+     * on to the manager. Null: not about these.
+     */
+    private suspend fun body(owner: Message): List<Message>? {
+        val t = Router.clean(owner.text)
+        if (t in Router.YES || t in Router.NO) {
+            val waiting = nerve.pending().filter { it.day == snapshot.today(snapshot.profile()).toString() || it.link == "L23" }
+            if (waiting.size == 1) {
+                nerve.decide(waiting[0].id, accept = t in Router.YES)?.let { return listOf(reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, Nerve.KIND)) }
+            }
+        }
+        BodyWords.illness(owner.text)?.let { (kind, word) ->
+            val said = nerve.emit(Signal.Unwell(newId(), owner.at, kind, word)).messages
+            return said.ifEmpty { listOf(reply(RoleKey.MANAGER, "知道了，先照顧身體。今天的調整已經提過了，在指揮室的今天的連動按好或不要。", WordedBy.TEMPLATE, Nerve.KIND)) }
+        }
+        if (BodyWords.asksLess(owner.text)) return nerve.emit(Signal.ReduceAsked(newId(), owner.at)).messages.ifEmpty { null }
+        if (BodyWords.moodLow(owner.text)) nerve.emit(Signal.MoodLow(newId(), owner.at))
+        return null
+    }
+
+    private suspend fun model(owner: Message, history: List<Message>): Message {
         val input = snapshot.facts(history)
         val facts = FactsBuilder.build(input)
         val intake = structured.call(
@@ -165,7 +233,8 @@ class Brain(
         )
         val parsed = (intake as? Structured.Model)?.value
         val kind = parsed?.kind ?: CHAT
-        val tone = ToneDecider.decide(ToneInputs(ownerText = owner.text, intakeKind = kind, breachToday = input.today.breachToday))
+        val gentleToday = nerve.state(snapshot.today(input.profile)).gentle
+        val tone = ToneDecider.decide(ToneInputs(ownerText = owner.text, intakeKind = kind, breachToday = input.today.breachToday, gentleToday = gentleToday))
         if (intake is Structured.Template && intake.fail != null) {
             _lastFail.value = intake.fail
             return reply(RoleKey.MANAGER, Roles.template(RoleKey.MANAGER, tone) + failLine(intake.fail), WordedBy.TEMPLATE, kind)
@@ -200,17 +269,38 @@ class Brain(
         return reply(RoleKey.MANAGER, text, if (result.fromModel) WordedBy.MODEL else WordedBy.TEMPLATE, kind)
     }
 
-    /** A command word (code only, no model). */
-    private suspend fun command(route: Route.Command, owner: Message): Message {
+    /** A command word (code only, no model): its line, then what the links said about its signal. */
+    private suspend fun command(route: Route.Command, owner: Message): List<Message> {
         val profile = snapshot.profile()
         val today = snapshot.today(profile)
-        val text = when (route.kind) {
-            "rest_day" -> restDay.declare(today, owner.at)
-            "hungry_morning" -> hungry.declare(today, owner.at).first
-            "cheat_declare" -> cheat.declare(owner.text, today, clock.now(), snapshot.rules())
+        val plan = nerve.plan(today)
+        val at = owner.at
+        var signal: Signal? = null
+        val text = when {
+            route.kind == "rest_day" -> restDay.declare(today, at).also {
+                if (store.days.get(today.toString())?.restDay == true) signal = Signal.RestDay("rest:$today", at)
+            }
+            route.kind == "hungry_morning" -> hungry.declare(today, at).let { (line, changed) ->
+                if (changed) signal = Signal.HungryMorning(newId(), at)
+                line
+            }
+            route.kind == "cheat_declare" -> cheat.declare(owner.text, today, clock.now(), snapshot.rules()).let { r ->
+                if (r.day != null && r.slot != null) signal = Signal.CheatDeclared(newId(), at, r.day.toString(), r.slot)
+                r.line
+            }
+            route.kind == "sign_in" -> sign.signIn(plan, at).also { signal = it.signal }.line
+            route.kind == "sign_out" -> sign.signOut(plan, at).also { signal = it.signal }.line
+            route.kind == "ride_start" -> sign.rideStart(plan, at).also { signal = it.signal }.line
+            route.kind == "ride_end" -> sign.rideEnd(plan, at).also { signal = it.signal }.line
+            route.kind.startsWith(Router.GROOMING) -> GroomingItem.valueOf(route.kind.removePrefix(Router.GROOMING)).let { item ->
+                signal = Signal.GroomingDone(newId(), at, item)
+                "記下：${item.zh}。"
+            }
             else -> Router.NOT_YET
         }
-        return reply(route.role, text, WordedBy.TEMPLATE, route.kind)
+        val line = reply(route.role, text, WordedBy.TEMPLATE, route.kind)
+        val said = signal?.let { nerve.emit(it).messages }.orEmpty()
+        return listOf(line) + said
     }
 
     /**

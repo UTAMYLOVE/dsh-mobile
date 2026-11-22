@@ -6,6 +6,9 @@ import app.agency.core.model.CompanyRules
 import app.agency.core.model.ConditionLog
 import app.agency.core.model.DayOverride
 import app.agency.core.model.DayRecord
+import app.agency.core.model.EffectStatus
+import app.agency.core.model.NerveEffect
+import app.agency.core.model.StoredSignal
 import app.agency.core.model.FavoritePlace
 import app.agency.core.model.FoodEntry
 import app.agency.core.model.Meal
@@ -60,6 +63,8 @@ class InMemoryAgencyStore : AgencyStore {
         val nudges: MutableMap<String, Nudge> = mutableMapOf(),
         val migrations: MutableList<MigrationLog> = mutableListOf(),
         val audits: MutableList<AuditLog> = mutableListOf(),
+        val signals: MutableMap<String, StoredSignal> = mutableMapOf(),
+        val effects: MutableMap<String, NerveEffect> = mutableMapOf(),
     ) {
         /** The records are immutable, so copying the containers is a full snapshot. */
         fun snapshot() = Tables(
@@ -68,7 +73,7 @@ class InMemoryAgencyStore : AgencyStore {
             water.toMutableMap(), training.toMutableMap(), signs.toMutableMap(), weights.toMutableMap(), conditions.toMutableMap(),
             baselines.toMutableMap(), media.toMutableMap(), messages.toMutableMap(), proposals.toMutableMap(),
             memoryItems.toMutableMap(), memoryEvents.toMutableMap(), nudges.toMutableMap(), migrations.toMutableList(),
-            audits.toMutableList(),
+            audits.toMutableList(), signals.toMutableMap(), effects.toMutableMap(),
         )
     }
 
@@ -256,5 +261,30 @@ class InMemoryAgencyStore : AgencyStore {
         override suspend fun migrations(): List<MigrationLog> = locked { migrations.sortedWith(compareBy({ it.at }, { it.id })) }
         override suspend fun audit(log: AuditLog) = locked { audits.removeAll { it.id == log.id }; audits += log }
         override suspend fun audits(): List<AuditLog> = locked { audits.sortedWith(compareBy({ it.at }, { it.id })) }
+    }
+
+    override val nerve = object : NerveRepo {
+        override suspend fun insertSignal(signal: StoredSignal): Boolean = locked {
+            if (signals.containsKey(signal.id)) false else { signals[signal.id] = signal; true }
+        }
+        override suspend fun signal(id: String): StoredSignal? = locked { signals[id] }
+        override suspend fun signals(fromDay: String, toDay: String): List<StoredSignal> = locked {
+            signals.values.filter { it.day in fromDay..toDay }.sortedWith(compareBy({ it.at }, { it.id }))
+        }
+        override suspend fun insertEffect(effect: NerveEffect): Boolean = locked {
+            if (effects.containsKey(effect.id)) false else { effects[effect.id] = effect; true }
+        }
+        override suspend fun effect(id: String): NerveEffect? = locked { effects[id] }
+        override suspend fun effects(day: String): List<NerveEffect> = locked {
+            effects.values.filter { it.day == day }.sortedWith(compareBy({ it.at }, { it.id }))
+        }
+        override suspend fun effectsWith(status: EffectStatus): List<NerveEffect> = locked {
+            effects.values.filter { it.status == status }.sortedWith(compareBy({ it.at }, { it.id }))
+        }
+        override suspend fun setStatus(id: String, status: EffectStatus, decidedAt: Long?): Boolean = locked {
+            val e = effects[id] ?: return@locked false
+            effects[id] = e.copy(status = status, decidedAt = decidedAt)
+            true
+        }
     }
 }

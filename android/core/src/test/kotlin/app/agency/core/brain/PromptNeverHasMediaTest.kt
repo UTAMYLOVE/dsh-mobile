@@ -36,7 +36,7 @@ class PromptNeverHasMediaTest {
             ScriptedLlm.ok("""{"text":"收到，去休息。","ask":null,"options":[],"recommended":null,"memory":[]}"""),
             ScriptedLlm.ok("""{"violation":false,"class":"none","reason":""}"""),
         )
-        val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-${++n}" }
+        val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%05d".format(++n) }
         val ids = listOf("photo-front-7f3a", "photo-side-91bc", "photo-back-02de", "voice-55aa")
         runBlocking {
             store.profile.put(Profile(heightCm = 168.0, startWeightKg = 80.0))

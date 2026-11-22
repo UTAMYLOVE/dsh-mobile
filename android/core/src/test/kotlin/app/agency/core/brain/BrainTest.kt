@@ -100,7 +100,8 @@ class BrainTest {
     @Test fun noAnswerFromTheProviderIsTheTemplateAndSaysWhy() {
         val llm = ScriptedLlm(ScriptedLlm.failed(Fail.KEY_REJECTED))
         val b = brain(llm)
-        val out = runBlocking { b.onText("我今天頭暈") }
+        // Low mood (not illness: that is answered by code, agency-links §3b) is the manager's, in the gentle voice.
+        val out = runBlocking { b.onText("我今天心情很差") }
         assertEquals(1, llm.requests.size)
         assertEquals(Roles.template(RoleKey.MANAGER, Tone.GENTLE) + Brain.KEY_REJECTED, out[1].text)
         assertEquals(WordedBy.TEMPLATE, out[1].wordedBy)

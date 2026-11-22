@@ -86,6 +86,19 @@
     <!-- War room -->
     <string name="ag_warroom_title">指揮室</string>
     <string name="ag_warroom_closed">指揮室整修中</string>
+    <!-- 今天的連動 (T11b) -->
+    <string name="ag_links_title">今天的連動</string>
+    <string name="ag_links_empty">今天還沒有因為什麼事改了安排。</string>
+    <string name="ag_links_cancel">今天取消</string>
+    <string name="ag_links_yes">好</string>
+    <string name="ag_links_no">不要</string>
+    <string name="ag_links_active">已調整</string>
+    <string name="ag_links_cancelled">已取消</string>
+    <string name="ag_links_proposed">等你說好</string>
+    <string name="ag_links_accepted">你說好了</string>
+    <string name="ag_links_rejected">你說不要</string>
+    <string name="ag_links_expired">沒回答，照原本的表</string>
+    <string name="ag_links_said">經紀人說了</string>
 
     <!-- Settings -->
     <string name="ag_back">返回</string>

@@ -6,6 +6,9 @@ import app.agency.core.model.CompanyRules
 import app.agency.core.model.ConditionLog
 import app.agency.core.model.DayOverride
 import app.agency.core.model.DayRecord
+import app.agency.core.model.EffectStatus
+import app.agency.core.model.NerveEffect
+import app.agency.core.model.StoredSignal
 import app.agency.core.model.FavoritePlace
 import app.agency.core.model.FoodEntry
 import app.agency.core.model.Meal
@@ -57,6 +60,7 @@ interface AgencyStore {
     val memory: MemoryRepo
     val nudges: NudgeRepo
     val journal: JournalRepo
+    val nerve: NerveRepo
 
     /** Runs [block] atomically: if it throws, nothing it wrote stays. Calls may nest (the outermost one commits). */
     suspend fun <T> transaction(block: suspend () -> T): T
@@ -204,6 +208,25 @@ interface NudgeRepo {
     /** Nudges with `fromAt <= at < toAt`, oldest first. */
     suspend fun between(fromAt: Long, toAt: Long): List<Nudge>
     suspend fun markAnswered(id: String, at: Long): Boolean
+}
+
+/** The nerve's signals and the effects its links produced (agency-links §4). */
+interface NerveRepo {
+    /** INSERT OR IGNORE on the id: false when the signal was already handled (de-dup). */
+    suspend fun insertSignal(signal: StoredSignal): Boolean
+    suspend fun signal(id: String): StoredSignal?
+
+    /** Signals of the coach days [fromDay]..[toDay], by `at`, then id. */
+    suspend fun signals(fromDay: String, toDay: String): List<StoredSignal>
+    suspend fun insertEffect(effect: NerveEffect): Boolean
+    suspend fun effect(id: String): NerveEffect?
+
+    /** Effects of [day], by `at`, then id. */
+    suspend fun effects(day: String): List<NerveEffect>
+
+    /** Effects with [status] (any day), by `at`, then id. */
+    suspend fun effectsWith(status: EffectStatus): List<NerveEffect>
+    suspend fun setStatus(id: String, status: EffectStatus, decidedAt: Long?): Boolean
 }
 
 /** The import log and the audit log. */

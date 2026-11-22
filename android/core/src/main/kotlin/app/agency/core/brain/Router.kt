@@ -23,6 +23,15 @@ sealed interface Route {
 object Router {
     const val NOT_YET = "這個功能下一版開"
 
+    /** The kind prefix of a grooming report (「刮好了」 → `grooming:SHAVE`). */
+    const val GROOMING = "grooming:"
+
+    /** His exact yes / no to the one waiting proposal. */
+    val YES = setOf("好", "好啊", "好的", "好喔", "可以", "確認", "就這樣", "嗯好")
+    val NO = setOf("不要", "不用", "不好", "不要改")
+
+    fun clean(text: String): String = TRIM.replace(text, "")
+
     /** The kinds of arch 1.4's Intake that are records (or record commands); the rest is conversation. */
     val RECORD_KINDS = setOf(
         "meal", "craving", "weight", "label", "training", "water", "sign_in", "sign_out", "condition", "rest_day",
@@ -42,6 +51,10 @@ object Router {
         listOf("出門了", "出門跑單", "出門").forEach { put(it, "ride_start") }
         listOf("收工", "收工了", "跑完了").forEach { put(it, "ride_end") }
         listOf("核心開始", "核心完成", "伸展完成").forEach { put(it, "training") }
+        listOf("刮好了", "鬍子刮好了", "刮鬍子了", "刮好鬍子了").forEach { put(it, GROOMING + "SHAVE") }
+        listOf("指甲剪好了", "剪指甲了", "指甲剪了").forEach { put(it, GROOMING + "NAILS") }
+        listOf("眉毛修好了", "修眉了", "修好眉毛了").forEach { put(it, GROOMING + "BROWS") }
+        listOf("頭髮剪好了", "剪頭髮了", "剪好頭髮了").forEach { put(it, GROOMING + "HAIR") }
     }
 
     /** A 休假餐 declaration starts with one of these (「休假餐 星期四晚餐」, 「這週休假餐是明天晚餐」). */
