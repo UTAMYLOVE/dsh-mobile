@@ -89,8 +89,8 @@ data class ImportNote(
     /** 入社建檔 files the state names that are not in `coach/baseline/` (the step reads as not handed in). */
     val missingMedia: List<String> = emptyList(),
     /**
-     * Files in `coach/baseline/` too big to move: larger than [LegacyMapper.MAX_IMPORT_MEDIA_BYTES], or the phone ran out of
-     * memory sealing one. Not imported (a step that names one reads as not handed in); the original stays in the legacy folder.
+     * Files in `coach/baseline/` too big to move: larger than [LegacyInput.maxMediaBytes] ([LegacyMapper.MAX_IMPORT_MEDIA_BYTES],
+     * less on a small heap), or the phone ran out of memory sealing one. Not imported (a step that names one reads as not handed in); the original stays in the legacy folder.
      */
     val mediaTooLarge: List<String> = emptyList(),
     /** Meals that carried an evidence text (no version ever wrote one; the agency has no field for it). */
@@ -209,10 +209,18 @@ data class ImportPlan(
     }
 }
 
-/** The keys of prefs `agency_prefs` the importer writes. */
+/** The keys of prefs `agency_prefs` the importer writes, and of its own prefs file [IMPORT_NAME]. */
 object AgencyPrefKeys {
     const val NAME = "agency_prefs"
-    /** 0 (or absent): not imported yet; [MIGRATED_DONE]; [MIGRATED_PARTIAL]. */
+
+    /**
+     * The importer's own prefs file: [LEGACY_STAMP] and [LEGACY_CARRIED], only while the import is partial. Kept out of
+     * `agency_prefs`, which is loaded at every start and rewritten by every setting change, because the carried keys can
+     * come to a few hundred KB. Read only while [MIGRATED] is [MIGRATED_PARTIAL]; emptied when the import is done.
+     */
+    const val IMPORT_NAME = "agency_import"
+
+    /** In `agency_prefs`: 0 (or absent): not imported yet; [MIGRATED_DONE]; [MIGRATED_PARTIAL]. */
     const val MIGRATED = "migrated"
     const val MIGRATED_DONE = 1
 
@@ -223,10 +231,10 @@ object AgencyPrefKeys {
      */
     const val MIGRATED_PARTIAL = 2
 
-    /** A fingerprint of the legacy files a partial import read (a hash, nothing of their content). */
+    /** In [IMPORT_NAME]: a fingerprint of the legacy files a partial import read (a hash, nothing of their content). */
     const val LEGACY_STAMP = "legacy_stamp"
 
-    /** The [ImportPlan.recordKeys] partial imports committed, comma-separated. */
+    /** In [IMPORT_NAME]: the [ImportPlan.recordKeys] partial imports committed, comma-separated. */
     const val LEGACY_CARRIED = "legacy_carried"
     const val PROVIDER = "provider"
     const val MODEL_DEEPSEEK = "model_deepseek"

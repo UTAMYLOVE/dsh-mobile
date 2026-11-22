@@ -9,6 +9,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /** Review M4: the format's version byte is authenticated with the associated data, not only checked. */
@@ -47,7 +48,17 @@ class GcmTest {
     @Test fun sealingAllocatesOnlyOneSealedCopy() {
         val big = ByteArray(8 * 1024 * 1024) { (it % 251).toByte() }
         Gcm.seal(key, ByteArray(1024 * 1024), aad) // warm up the cipher classes
-        val threads = ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
+        // HotSpot's per-thread allocation counter; another JVM may lack it (or the class), and then the test is skipped.
+        val counter = try {
+            ManagementFactory.getThreadMXBean() as? com.sun.management.ThreadMXBean
+        } catch (_: LinkageError) {
+            null
+        }
+        assumeTrue(
+            "no per-thread allocation counter on this JVM",
+            counter != null && counter.isThreadAllocatedMemorySupported && counter.isThreadAllocatedMemoryEnabled,
+        )
+        val threads = counter!!
         val me = Thread.currentThread().id
         val before = threads.getThreadAllocatedBytes(me)
         val blob = Gcm.seal(key, big, aad)

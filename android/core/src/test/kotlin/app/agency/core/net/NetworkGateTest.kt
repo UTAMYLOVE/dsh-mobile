@@ -107,7 +107,7 @@ class NetworkGateTest {
         val c = HttpFactory.create(production)
         assertFalse(c.followRedirects)
         assertFalse(c.followSslRedirects)
-        assertEquals(listOf<Any>(production), c.interceptors)
+        assertEquals(listOf<Any>(HttpFactory.RuntimeToIo, production), c.interceptors)
         assertEquals(listOf<Any>(production), c.networkInterceptors)
         assertEquals(15_000, c.connectTimeoutMillis)
         assertEquals(60_000, c.readTimeoutMillis)

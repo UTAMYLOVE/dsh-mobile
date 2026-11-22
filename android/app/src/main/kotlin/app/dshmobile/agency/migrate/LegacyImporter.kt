@@ -72,7 +72,7 @@ class ImportMismatchException(val expected: Map<ImportKind, Int>, val found: Map
  * 1. Reads `filesDir/coach` (state.json, else the temp file of a cut save, else the complete records of the cut file that holds
  *    the most; every
  *    `state.json.bad-*` file the coach set aside; every line of messages.jsonl; every file in `baseline/` up to
- *    [LegacyMapper.MAX_IMPORT_MEDIA_BYTES]) and prefs `dshm_coach`, read-only. Nothing legacy is written or deleted while
+ *    [LegacyMapper.mediaCap] of the heap) and prefs `dshm_coach`, read-only. Nothing legacy is written or deleted while
  *    importing.
  * 2. [LegacyMapper] builds the plan.
  * 3. Seals the baseline files into the [vault], then inserts everything in one store transaction, INSERT OR IGNORE on the
@@ -83,9 +83,11 @@ class ImportMismatchException(val expected: Map<ImportKind, Int>, val found: Map
  *    brought up to date by each failed run), and leaves the legacy files as they were, for the next start to try again. On
  *    success it logs the import and sets `agency_prefs.migrated = 1`.
  *    When no state file could be read whole, the import is partial: what could be read is committed and logged, and
- *    `migrated = 2` is saved with a fingerprint of the legacy files and the keys of the records it brought. Later starts do
- *    nothing while the files match the fingerprint; a changed file or [retry] runs the import again, leaving out the records
- *    a partial run already brought (one he deleted stays deleted, one he edited keeps his edit).
+ *    `migrated = 2` is saved, with a fingerprint of the legacy files and the keys of the records it brought in the importer's
+ *    own prefs file ([AgencyPrefKeys.IMPORT_NAME], written first). Later starts do nothing while the files match the
+ *    fingerprint; a changed file or [retry] runs the import again, leaving out the records a partial run already brought
+ *    (one he deleted stays deleted, one he edited keeps his edit), the labels of a carried meal he deleted, and the settings
+ *    (the first partial run wrote them; one he removed since stays removed).
  * 5. Then renames `filesDir/coach` to `filesDir/coach.migrated-<ts>` (kept until he deletes it in 設定 › 舊資料); a rename
  *    that failed is tried again at the next start. A partial import renames nothing.
  *
@@ -97,8 +99,12 @@ class LegacyImporter(
     private val filesDir: File,
     private val legacyPrefs: SharedPreferences,
     private val agencyPrefs: SharedPreferences,
+    /** Prefs [AgencyPrefKeys.IMPORT_NAME]: the fingerprint and carried keys of a partial import. */
+    private val importPrefs: SharedPreferences,
     private val store: AgencyStore,
     private val vault: MediaVault,
+    /** `Runtime.maxMemory()`; on a small heap the media cap is lower ([LegacyMapper.mediaCap]). */
+    private val maxHeapBytes: () -> Long = { Runtime.getRuntime().maxMemory() },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val dir get() = File(filesDir, LEGACY_DIR)
@@ -115,7 +121,8 @@ class LegacyImporter(
     private suspend fun runLocked(force: Boolean): ImportReport {
         val migrated = agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0)
         if (migrated == AgencyPrefKeys.MIGRATED_DONE) {
-            // Done before; a rename that failed then is tried again.
+            // Done before; a rename that failed then is tried again. A partial run's keys left by a crash are dropped.
+            if (importPrefs.all.isNotEmpty()) importPrefs.edit().clear().commit()
             if (!dir.isDirectory) return ImportReport(emptyMap(), ok = true, skipped = true)
             val kept = keepAside(clock())
             return ImportReport(emptyMap(), ok = true, skipped = true, keptAt = kept, renameFailed = kept == null)
@@ -153,6 +160,7 @@ class LegacyImporter(
         val firstPlan = plan
         var committed = false
         try {
+            plan = withoutLabelsOfDeletedMeals(plan, carried)
             var sealed: List<Media>? = null
             while (sealed == null) {
                 try {
@@ -163,7 +171,7 @@ class LegacyImporter(
                     unseal(plan.media.filter { it.file == e.file })
                     input = input.copy(baselineFiles = input.baselineFiles.map { if (it.name == e.file) it.copy(size = Long.MAX_VALUE) else it })
                     full = LegacyMapper.map(input, now)
-                    plan = full.except(carried)
+                    plan = withoutLabelsOfDeletedMeals(full.except(carried), carried)
                 }
             }
             val media: List<Media> = sealed
@@ -185,23 +193,29 @@ class LegacyImporter(
             }
             committed = true
             val edit = agencyPrefs.edit()
-            plan.prefs.forEach { (k, v) ->
-                if (!agencyPrefs.contains(k)) when (v) {
-                    is PrefValue.Str -> edit.putString(k, v.value)
-                    is PrefValue.Num -> edit.putInt(k, v.value)
+            // The first partial run wrote every setting; a later run must not put back one he removed since.
+            if (!partialBefore) {
+                plan.prefs.forEach { (k, v) ->
+                    if (!agencyPrefs.contains(k)) when (v) {
+                        is PrefValue.Str -> edit.putString(k, v.value)
+                        is PrefValue.Num -> edit.putInt(k, v.value)
+                    }
                 }
             }
             if (!plan.stateRead) {
                 // What could be read is in; the state is not. No rename: the folder stays. Final until the files change.
+                // The keys first: without the flag they are never read, so a crash between the two commits is harmless.
                 val keys = (carried + plan.recordKeys()).sorted().joinToString(",")
+                check(
+                    importPrefs.edit().putString(AgencyPrefKeys.LEGACY_STAMP, stamp).putString(AgencyPrefKeys.LEGACY_CARRIED, keys).commit(),
+                ) { "import prefs not saved" }
                 edit.putInt(AgencyPrefKeys.MIGRATED, AgencyPrefKeys.MIGRATED_PARTIAL)
-                    .putString(AgencyPrefKeys.LEGACY_STAMP, stamp)
-                    .putString(AgencyPrefKeys.LEGACY_CARRIED, keys)
                 check(edit.commit()) { "agency prefs not saved" }
                 return ImportReport(full.expected, ok = false, inserted = inserted, note = note, partial = true)
             }
-            edit.putInt(AgencyPrefKeys.MIGRATED, AgencyPrefKeys.MIGRATED_DONE).remove(AgencyPrefKeys.LEGACY_STAMP).remove(AgencyPrefKeys.LEGACY_CARRIED)
+            edit.putInt(AgencyPrefKeys.MIGRATED, AgencyPrefKeys.MIGRATED_DONE)
             check(edit.commit()) { "agency prefs not saved" }
+            importPrefs.edit().clear().commit() // best effort: with the flag done they are never read, and the next start retries
             val hadDir = dir.isDirectory
             val kept = keepAside(now)
             return ImportReport(full.expected, ok = true, inserted = inserted, note = note, keptAt = kept, renameFailed = hadDir && kept == null)
@@ -225,16 +239,29 @@ class LegacyImporter(
         }
     }
 
+    /**
+     * [plan] without the label prompts of a meal a partial run carried and he deleted since: a cut inside `pending` brought
+     * the meal with only some of its labels, and `pending_label` has no foreign key to stop the rest. [ImportPlan.expected]
+     * follows the plan, so the count check stays consistent.
+     */
+    private suspend fun withoutLabelsOfDeletedMeals(plan: ImportPlan, carried: Set<String>): ImportPlan {
+        if (carried.isEmpty()) return plan
+        val gone = plan.pending.map { it.mealId }.distinct().filter { id ->
+            ImportPlan.recordKey(ImportKind.MEALS, id) in carried && store.meals.get(id) == null
+        }.toSet()
+        return if (gone.isEmpty()) plan else plan.copy(pending = plan.pending.filterNot { it.mealId in gone })
+    }
+
     /** The legacy files still match the fingerprint the partial import saved (an unreadable file counts as changed). */
     private fun sameStamp(): Boolean = try {
-        stamp() == agencyPrefs.getString(AgencyPrefKeys.LEGACY_STAMP, null)
+        stamp() == importPrefs.getString(AgencyPrefKeys.LEGACY_STAMP, null)
     } catch (_: IOException) {
         false
     }
 
     /** What partial runs committed ([ImportPlan.recordKeys]). */
     private fun carried(): Set<String> =
-        agencyPrefs.getString(AgencyPrefKeys.LEGACY_CARRIED, null).orEmpty().split(',').filter { it.isNotEmpty() }.toSet()
+        importPrefs.getString(AgencyPrefKeys.LEGACY_CARRIED, null).orEmpty().split(',').filter { it.isNotEmpty() }.toSet()
 
     /**
      * A fingerprint of what the import reads in `filesDir/coach`: the bytes of every state file (state.json, its temp file,
@@ -273,6 +300,7 @@ class LegacyImporter(
         return LegacyInput(
             state.state, state.origin, messages, bad, files, LegacyPrefs(prefValues),
             setAside = setAside, salvagedFrom = state.salvagedFrom, tmpIgnored = state.tmpIgnored, setAsideSalvaged = salvaged,
+            maxMediaBytes = LegacyMapper.mediaCap(maxHeapBytes()),
         )
     }
 

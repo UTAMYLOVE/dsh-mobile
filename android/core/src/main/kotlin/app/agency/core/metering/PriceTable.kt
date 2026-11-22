@@ -86,6 +86,11 @@ class PriceTable {
             "claude-opus-5-5" to AnthropicRates(4.0, 20.0, 0.20, 5.0),
             // Cache reads are 0.10 on `claude-sonnet-5-5`; 0.20 was an older price the table once carried by mistake.
             "claude-sonnet-5-5" to AnthropicRates(2.0, 10.0, 0.10, 2.50),
+            // Server-side fallback targets (`fallbacks: "default"` on `claude-sonnet-5-5` / `claude-opus-5-5`), so the attempts
+            // they serve are not priced at the conservative rate. Live pricing page, 2026-11-22 (5-minute cache writes).
+            "claude-sonnet-5" to AnthropicRates(2.0, 10.0, 0.20, 2.50),
+            "claude-opus-5" to AnthropicRates(5.0, 25.0, 0.50, 6.25),
+            "claude-opus-4-8" to AnthropicRates(5.0, 25.0, 0.50, 6.25),
             HAIKU_5_5 to AnthropicRates(0.10, 0.50, 0.01, 0.125),
             "claude-haiku-4-5" to AnthropicRates(1.0, 5.0, 0.10, 1.25),
         )

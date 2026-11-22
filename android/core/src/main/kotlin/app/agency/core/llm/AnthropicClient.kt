@@ -29,9 +29,14 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
  * - in a tool loop the whole assistant `content` (thinking and fallback blocks included) goes back unchanged.
  * Usage is priced on the model that ran each attempt. With server-side fallback the top-level `usage` covers only the attempt
  * that produced the returned message, and `usage.iterations` is the per-attempt record (a refused attempt can be billed, a
- * mid-output refusal always is). So when `iterations` is present each entry is booked on its own: a `fallback_message`
- * entry on its `model`, any other entry (the declined first attempt) on the requested model. Without `iterations` the
- * top-level `usage` is booked on the top-level `model` (the one that answered).
+ * mid-output refusal always is). So when `iterations` is present each entry is booked on its own `model` (every entry names
+ * one in the live sample); when an entry has none, a `fallback_message` falls back to the top-level `model` and any other
+ * entry to the requested model. Without `iterations` the top-level `usage` is booked on the top-level `model` (the one that
+ * answered).
+ *
+ * Unbilled pre-output declines are booked too (conservative): a decline before any output is billed only in some refusal
+ * categories, which change over time, but its tokens are reported on its entry either way. Booking them over-meters, which
+ * is the safe direction for the spend cap.
  */
 class AnthropicClient(
     private val transport: Transport,
@@ -73,7 +78,7 @@ class AnthropicClient(
         return list.mapNotNull { e ->
             val entry = e as? JsonObject ?: return@mapNotNull null
             val iu = UsageParser.ofUsageObject(entry)
-            val model = if (entry.str("type") == "fallback_message") entry.str("model") ?: served else requested
+            val model = entry.str("model") ?: if (entry.str("type") == "fallback_message") served else requested
             model to iu
         }
     }

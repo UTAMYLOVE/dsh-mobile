@@ -77,7 +77,9 @@ data class CompatEndpoint(
  *   earlier turns is ignored by DeepSeek, so it does not matter there.
  * - A blank reply without tool calls (JSON mode can return only spaces) is BAD_RESPONSE, so the caller retries or falls back.
  * - The byte-for-byte echo is a DeepSeek requirement only: a generic service gets its assistant messages back as role,
- *   content and tool_calls, because several compatible servers reject unknown message fields (`refusal`, `reasoning`…).
+ *   content, tool_calls and `reasoning_content` when the service returned one, because several compatible servers reject
+ *   unknown message fields (`refusal`, `annotations`, `reasoning`…), while services that think by default require
+ *   `reasoning_content` back on an assistant tool-call message (DeepSeek's convention) and answer 400 without it.
  *
  * [takeQuota] is the generic service's daily request cap (ruling Q8; it has no price, so nothing is metered for it). It
  * consumes one request of the day when it returns true, so it is called last, right before the request goes out.
@@ -149,7 +151,11 @@ class OpenAiCompatClient(
             when (t) {
                 is Turn.User -> add(buildJsonObject { put("role", "user"); put("content", t.text) })
                 is Turn.AssistantText -> add(buildJsonObject { put("role", "assistant"); put("content", t.text) })
-                is Turn.Assistant -> add(if (ep.deepseek && t.wire == Wire.OPENAI && t.raw is JsonObject) t.raw else rebuilt(t))
+                is Turn.Assistant -> add(when {
+                    t.wire != Wire.OPENAI || t.raw !is JsonObject -> rebuilt(t)
+                    ep.deepseek -> t.raw
+                    else -> rebuilt(t, reasoning = t.raw.str("reasoning_content"))
+                })
                 is Turn.ToolResult -> add(buildJsonObject {
                     put("role", "tool")
                     put("tool_call_id", t.callId)
@@ -160,12 +166,14 @@ class OpenAiCompatClient(
     }
 
     /**
-     * An assistant turn in plain chat-completion form: role, content and tool_calls only. Used for a turn another provider
-     * made (its reasoning stays with that provider) and for every turn sent to a generic service.
+     * An assistant turn in plain chat-completion form: role, content, tool_calls, and `reasoning_content` when [reasoning] is
+     * given (the string a generic service returned). Used for a turn another provider made (its reasoning stays with that
+     * provider) and for every turn sent to a generic service.
      */
-    private fun rebuilt(t: Turn.Assistant): JsonObject = buildJsonObject {
+    private fun rebuilt(t: Turn.Assistant, reasoning: String? = null): JsonObject = buildJsonObject {
         put("role", "assistant")
         put("content", t.text.orEmpty())
+        if (reasoning != null) put("reasoning_content", reasoning)
         if (t.toolCalls.isNotEmpty()) put("tool_calls", toolCallsJson(t.toolCalls))
     }
 

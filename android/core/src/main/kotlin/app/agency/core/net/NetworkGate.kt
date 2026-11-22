@@ -34,7 +34,8 @@ class NetworkGate(
     /** Requests refused since start. */
     val blockedCount: Int get() = blocked.get()
 
-    fun permits(url: HttpUrl): Boolean = allowed().any { it.matches(url) }
+    /** Fails closed: an [allowed] that throws (settings not readable) permits nothing, instead of crashing OkHttp's thread. */
+    fun permits(url: HttpUrl): Boolean = runCatching { allowed() }.getOrDefault(emptySet()).any { it.matches(url) }
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val url = chain.request().url

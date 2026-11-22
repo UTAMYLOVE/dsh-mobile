@@ -53,5 +53,44 @@ class TransportTest {
         assertTrue(call.isCancelled)
         assertEquals(1, kit.server.requestCount)
         assertEquals(emptyList<Long>(), kit.sleeps)
+        // The OkHttp call itself ended, not only the coroutine: without call.cancel() it stays blocked on the silent socket.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (kit.http.dispatcher.runningCallsCount() > 0 && System.nanoTime() < deadline) Thread.sleep(20)
+        assertEquals(0, kit.http.dispatcher.runningCallsCount())
+    }
+
+    /** Runs [block] on [http]'s dispatcher and returns every exception that reached a thread's uncaught handler. */
+    private fun uncaught(http: okhttp3.OkHttpClient, block: suspend () -> Unit): List<Throwable> {
+        val died = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
+        val before = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> died += e }
+        try {
+            runBlocking { block() }
+            http.dispatcher.executorService.shutdown()
+            http.dispatcher.executorService.awaitTermination(2, TimeUnit.SECONDS)
+            Thread.sleep(500) // the pool reports termination before a dying worker reaches its uncaught handler
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(before)
+        }
+        return died
+    }
+
+    @Test fun anAllowlistThatThrowsFailsClosedAndKillsNoThread() {
+        val http = HttpFactory.create(NetworkGate({ throw IllegalStateException("settings not ready") }))
+        val died = uncaught(http) {
+            assertTrue(Transport(http) { }.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}") is HttpOutcome.Blocked)
+        }
+        assertEquals(emptyList<Throwable>(), died)
+        assertEquals(0, kit.server.requestCount)
+    }
+
+    @Test fun aRuntimeExceptionInTheCallChainIsOfflineAndKillsNoThread() {
+        // A platform RuntimeException on the way to the socket (as a SecurityException from DNS or TLS would be).
+        val http = HttpFactory.create(kit.gate).newBuilder()
+            .addNetworkInterceptor { throw SecurityException("network access denied") }.build()
+        val died = uncaught(http) {
+            assertEquals(HttpOutcome.Offline, Transport(http) { }.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}"))
+        }
+        assertEquals(emptyList<Throwable>(), died)
     }
 }

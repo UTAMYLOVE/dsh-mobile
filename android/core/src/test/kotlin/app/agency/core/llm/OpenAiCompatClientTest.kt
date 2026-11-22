@@ -237,6 +237,24 @@ class OpenAiCompatClientTest {
         assertEquals("""[{"id":"c1","type":"function","function":{"name":"get_today","arguments":"{}"}}]""", sent["tool_calls"].toString())
     }
 
+    // A compatible service that thinks by default answers 400 to a tool-call message without its reasoning_content.
+    @Test fun aGenericServiceGetsItsReasoningContentBackAndNothingElseExtra() = runBlocking {
+        val ep = CompatEndpoint.generic(kit.base.toString(), "my-model", jsonMode = false, tools = true, allowHttp = true)!!
+        val raw = Json.parseToJsonElement("""{"role":"assistant","content":"我查一下","refusal":null,"annotations":[],
+            "reasoning":"另一種欄位","reasoning_content":"想一下",
+            "tool_calls":[{"id":"c1","type":"function","function":{"name":"get_today","arguments":"{}"},"index":0}]}""")
+        val turn = Turn.Assistant(Wire.OPENAI, raw, "我查一下", listOf(ToolCall("c1", "get_today", "{}")))
+        kit.enqueue(200, completion("""{"role":"assistant","content":"好"}"""))
+        kit.deepseek(ep).chat(ChatRequest("s", listOf(Turn.User("今天"), turn, Turn.ToolResult("c1", "{}")), Purpose.CHAT, 100,
+            tools = listOf(getToday)))
+        val body = json(kit.take())
+        val sent = body["messages"]!!.jsonArray[2].jsonObject
+        assertEquals(setOf("role", "content", "reasoning_content", "tool_calls"), sent.keys)
+        assertEquals("想一下", sent["reasoning_content"]!!.jsonPrimitive.content)
+        assertFalse("refusal" in sent || "annotations" in sent || "reasoning" in sent)
+        assertFalse("thinking" in body) // a generic service never gets DeepSeek's fields
+    }
+
     @Test fun genericServiceNeedsHttpsAndAModel() {
         assertNull(CompatEndpoint.generic("http://example.com/v1", "m", jsonMode = true, tools = true))
         assertNull(CompatEndpoint.generic("https://example.com/v1", " ", jsonMode = true, tools = true))

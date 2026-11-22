@@ -40,6 +40,8 @@ data class LegacyInput(
     val salvagedFrom: String? = null,
     val tmpIgnored: Boolean = false,
     val setAsideSalvaged: Set<String> = emptySet(),
+    /** The largest baseline file to bring ([LegacyMapper.mediaCap] of this phone's heap); a larger one is noted, not read. */
+    val maxMediaBytes: Long = LegacyMapper.MAX_IMPORT_MEDIA_BYTES,
 )
 
 /**
@@ -73,6 +75,14 @@ object LegacyMapper {
      * listed in [ImportNote.mediaTooLarge] and stays in the legacy folder.
      */
     const val MAX_IMPORT_MEDIA_BYTES: Long = 32L * 1024 * 1024
+
+    /**
+     * The cap for a heap of [maxHeapBytes] (`Runtime.maxMemory()`): [MAX_IMPORT_MEDIA_BYTES], or a sixth of the heap when that
+     * is less. Sealing one file peaks at about three copies of it (with the cipher's own), and an out-of-memory error on
+     * another thread (the UI drawing 「正在搬資料」) is not caught, so it would crash every start. Heaps of 192 MiB and more keep
+     * the full 32 MiB, so no file that fits there is left out.
+     */
+    fun mediaCap(maxHeapBytes: Long): Long = minOf(MAX_IMPORT_MEDIA_BYTES, maxHeapBytes / 6)
 
     /** The two foods plan v3 adds to his table. */
     fun newSeeds(now: Long): List<FoodEntry> = listOf(
@@ -133,7 +143,7 @@ object LegacyMapper {
         val added = if (!tableKnown) emptyList() else newSeeds(now).filter { s -> food.none { it.name == s.name } && (listOf(s.name) + s.aliases).all { FoodTable.lookup(food, it) == null } }
         food += added
 
-        val (tooLarge, files) = input.baselineFiles.sortedBy { it.name }.partition { it.size > MAX_IMPORT_MEDIA_BYTES }
+        val (tooLarge, files) = input.baselineFiles.sortedBy { it.name }.partition { it.size > input.maxMediaBytes }
         val present = files.map { it.name }.toSet()
         val skippedLarge = tooLarge.map { it.name }.toSet()
         val missing = mutableListOf<String>()

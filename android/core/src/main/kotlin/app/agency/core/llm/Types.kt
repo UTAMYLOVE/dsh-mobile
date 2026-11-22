@@ -40,7 +40,8 @@ sealed interface Turn {
 
     /**
      * An assistant turn exactly as the provider returned it ([raw]: the whole chat-completion `message` object, or the Messages
-     * `content` array, reasoning and thinking included). It is sent back unchanged to the provider that made it; another
+     * `content` array, reasoning and thinking included). It is sent back unchanged to DeepSeek and to Claude; a generic
+     * compatible service gets it rebuilt as role, content, tool_calls and its `reasoning_content` (no other field); another
      * provider gets [text] and [toolCalls] rebuilt in its own format.
      *
      * Valid only inside the ChatLoop round that produced it (one owner message and the tool steps that answer it). Stored

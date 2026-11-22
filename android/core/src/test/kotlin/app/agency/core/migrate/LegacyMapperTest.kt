@@ -462,6 +462,18 @@ class LegacyMapperTest {
         assertEquals(1, plan(files = listOf(LegacyFile("recording-1.wav", 1, LegacyMapper.MAX_IMPORT_MEDIA_BYTES))).media.size)
     }
 
+    @Test fun onASmallHeapTheCapIsASixthOfIt() {
+        // Review FIX-WAVE2 N3: 128 MiB heap → about 21 MiB; 192 MiB and up keep the full cap.
+        val mib = 1024L * 1024
+        assertEquals(128 * mib / 6, LegacyMapper.mediaCap(128 * mib))
+        assertEquals(LegacyMapper.MAX_IMPORT_MEDIA_BYTES, LegacyMapper.mediaCap(192 * mib))
+        assertEquals(LegacyMapper.MAX_IMPORT_MEDIA_BYTES, LegacyMapper.mediaCap(512 * mib))
+        val files = listOf(LegacyFile("photo-1.jpg", 1, 2_000), LegacyFile("recording-1.wav", 2, 2_001))
+        val p = LegacyMapper.map(LegacyInput(LegacyState(seeded = true), StateOrigin.STATE, emptyList(), 0, files, maxMediaBytes = 2_000), now)
+        assertEquals(listOf("photo-1.jpg"), p.media.map { it.file })
+        assertEquals(listOf("recording-1.wav"), p.note.mediaTooLarge)
+    }
+
     @Test fun droppedRecordsOfEveryReadFileAreInTheNote() {
         val p = plan(
             LegacyState(seeded = true, dropped = mapOf("MEALS" to 1, "FOOD" to 2)),

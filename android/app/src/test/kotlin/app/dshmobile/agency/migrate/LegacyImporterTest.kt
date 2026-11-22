@@ -72,6 +72,7 @@ class LegacyImporterTest {
     private val mediaDir by lazy { tmp.newFolder("media") }
     private val vault by lazy { MediaVault(mediaDir) { key } }
     private val agencyPrefs = prefs("agency")
+    private val importPrefs = prefs("import")
 
     @After fun close() = db.close()
 
@@ -106,7 +107,8 @@ class LegacyImporterTest {
         agency: SharedPreferences = agencyPrefs,
         media: MediaVault = vault,
         now: Long = NOW,
-    ) = LegacyImporter(filesDir, legacy, agency, into, media) { now }
+        maxHeap: Long = Runtime.getRuntime().maxMemory(),
+    ) = LegacyImporter(filesDir, legacy, agency, importPrefs, into, media, { maxHeap }) { now }
 
     private val kept get() = File(filesDir, "coach.migrated-$NOW")
 
@@ -372,6 +374,9 @@ class LegacyImporterTest {
         assertEquals(4, store.meals.count())
         assertEquals(1, store.meals.pending().size)
         val before = snapshot(coach)
+        // He clears his provider choice (review FIX-WAVE2 N1: a later run must not put it back).
+        assertEquals("DEEPSEEK", agencyPrefs.getString(AgencyPrefKeys.PROVIDER, null))
+        assertTrue(agencyPrefs.edit().remove(AgencyPrefKeys.PROVIDER).commit())
 
         // He answers the label, deletes one meal, edits another (one item fewer) and deletes a food.
         val label = store.meals.pending().single()
@@ -386,6 +391,7 @@ class LegacyImporterTest {
             assertEquals(1, store.meals.get(TWO_ITEM_MEAL)!!.items.size)
             assertNull(store.food.get("牛肉麵"))
             assertEquals(1, store.journal.migrations().size)
+            assertFalse(agencyPrefs.contains(AgencyPrefKeys.PROVIDER))
         }
 
         // The next start: nothing comes back.
@@ -412,11 +418,64 @@ class LegacyImporterTest {
         assertAsHeLeftIt()
         assertTrue(store.journal.migrations().single().ok)
         assertEquals(AgencyPrefKeys.MIGRATED_DONE, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
-        assertNull(agencyPrefs.getString(AgencyPrefKeys.LEGACY_CARRIED, null))
+        assertTrue(importPrefs.all.isEmpty())
         assertFalse(coach.exists())
         assertTrue(File(filesDir, "coach.migrated-${NOW + 5}").isDirectory)
         // After a finished import 再試一次 does nothing.
         assertTrue(importer(legacy).retry().skipped)
+    }
+
+    /** Review FIX-WAVE2 N2: a cut inside `pending` carries a meal with only some of its labels. */
+    @Test fun aMealHeDeletedAfterAPartialImportGetsNoNewLabelQuestion() = runBlocking {
+        seedV083()
+        val second = """,{"mealId":"$TWO_ITEM_MEAL","itemIndex":1,"name":"滷蛋","counted":83,"askedAt":1794832560000}"""
+        val original = fixture("v083-state.json").decodeToString().trimEnd()
+        assertTrue(original.endsWith("]}"))
+        val whole = original.dropLast(2) + second + "]}"
+        File(coach, "state.json").writeText(whole.substring(0, whole.indexOf(second) + 20)) // cut inside the second label
+        val legacy = prefs("legacy", "v083-prefs.xml")
+        assertTrue(importer(legacy).run().partial)
+        assertEquals(listOf(TWO_ITEM_MEAL to 0), store.meals.pending().map { it.mealId to it.itemIdx })
+        assertTrue(store.meals.delete(TWO_ITEM_MEAL)) // its label goes with it
+
+        // The file is repaired and now holds both labels: the import finishes without asking about a meal that is gone.
+        File(coach, "state.json").writeText(whole)
+        val done = importer(legacy, now = NOW + 5).run()
+        assertTrue(done.ok)
+        assertTrue(store.meals.pending().isEmpty())
+        assertNull(store.meals.get(TWO_ITEM_MEAL))
+    }
+
+    /** Review FIX-WAVE2 N4: the fingerprint and carried keys live in their own prefs file, never in agency_prefs. */
+    @Test fun thePartialImportKeysStayOutOfTheSettingsFile() = runBlocking {
+        seedV083()
+        val whole = fixture("v083-state.json").decodeToString().trimEnd()
+        File(coach, "state.json").writeText(whole.dropLast(1))
+        val legacy = prefs("legacy", "v083-prefs.xml")
+        assertTrue(importer(legacy).run().partial)
+        assertEquals(AgencyPrefKeys.MIGRATED_PARTIAL, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        assertFalse(agencyPrefs.contains(AgencyPrefKeys.LEGACY_STAMP))
+        assertFalse(agencyPrefs.contains(AgencyPrefKeys.LEGACY_CARRIED))
+        assertNotNull(importPrefs.getString(AgencyPrefKeys.LEGACY_STAMP, null))
+        assertTrue(importPrefs.getString(AgencyPrefKeys.LEGACY_CARRIED, null)!!.split(',').size > 20)
+        // Unchanged files: still skipped, so the stamp is read from there.
+        assertTrue(importer(legacy).run().skipped)
+        File(coach, "state.json").writeText(whole)
+        assertTrue(importer(legacy, now = NOW + 5).run().ok)
+        assertTrue(importPrefs.all.isEmpty())
+    }
+
+    /** Review FIX-WAVE2 N3: on a small heap a file under 32 MiB but over a sixth of the heap is noted and kept. */
+    @Test fun onASmallHeapALargeBaselineFileIsNotedNotImported() = runBlocking {
+        seedV2()
+        val sizes = baselineFiles.associateWith { File(coach, "baseline/$it").length() }
+        val largest = sizes.maxBy { it.value }
+        assertTrue(sizes.values.count { it == largest.value } == 1)
+        val r = importer(prefs("legacy", "agency-v2-prefs.xml"), maxHeap = (largest.value - 1) * 6).run()
+        assertTrue(r.ok)
+        assertEquals(listOf(largest.key), r.note!!.mediaTooLarge)
+        assertFalse(vault.has(LegacyMapper.mediaId(largest.key)))
+        assertTrue(File(kept, "baseline/${largest.key}").isFile)
     }
 
     @Test fun ofTwoCutStateFilesTheOneHoldingMoreIsSalvaged() = runBlocking {

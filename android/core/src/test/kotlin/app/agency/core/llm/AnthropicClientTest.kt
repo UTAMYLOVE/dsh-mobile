@@ -119,10 +119,14 @@ class AnthropicClientTest {
 
     @Test fun aServerSideFallbackBooksEveryAttemptOnItsOwnModel() = runBlocking {
         // usage.iterations is the per-attempt record; top-level usage covers only the attempt that answered.
+        // The shape of the live docs' sample, with invented numbers.
         kit.enqueue(200, """{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5",
-            "content":[{"type":"fallback","from":{"model":"claude-sonnet-5-5"},"to":{"model":"claude-sonnet-5"}},{"type":"text","text":"好"}],
-            "stop_reason":"end_turn","usage":{"input_tokens":50,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,
-            "iterations":[{"type":"message","input_tokens":48,"output_tokens":7,"cache_read_input_tokens":3,"cache_creation_input_tokens":0},
+            "content":[{"type":"fallback","from":{"model":"claude-sonnet-5-5"},"to":{"model":"claude-sonnet-5"},
+            "trigger":{"type":"refusal","category":null}},{"type":"text","text":"好"}],
+            "stop_reason":"end_turn","stop_details":null,"usage":{"input_tokens":50,"output_tokens":10,"cache_read_input_tokens":0,
+            "cache_creation_input_tokens":0,
+            "iterations":[{"type":"message","model":"claude-sonnet-5-5","input_tokens":48,"output_tokens":7,"cache_read_input_tokens":3,
+            "cache_creation_input_tokens":0},
             {"type":"fallback_message","model":"claude-sonnet-5","input_tokens":50,"output_tokens":10,"cache_read_input_tokens":0,
             "cache_creation_input_tokens":0}]}}""")
         val r = kit.claude("claude-sonnet-5-5").chat(user) as ChatResult.Ok
@@ -131,6 +135,31 @@ class AnthropicClientTest {
             listOf(
                 Triple(Provider.ANTHROPIC, "claude-sonnet-5-5", Usage(inputTokens = 48, outputTokens = 7, cacheReadTokens = 3)),
                 Triple(Provider.ANTHROPIC, "claude-sonnet-5", Usage(inputTokens = 50, outputTokens = 10)),
+            ),
+            kit.recorded,
+        )
+    }
+
+    @Test fun aLaterHopThatDeclinesIsBookedOnTheModelItNames() = runBlocking {
+        // Two models decline in turn and a third answers: each `message` entry names its own model.
+        kit.enqueue(200, """{"id":"msg_2","type":"message","role":"assistant","model":"claude-opus-4-8",
+            "content":[{"type":"fallback","from":{"model":"claude-opus-5-5"},"to":{"model":"claude-opus-5"},
+            "trigger":{"type":"refusal","category":"cyber"}},{"type":"fallback","from":{"model":"claude-opus-5"},
+            "to":{"model":"claude-opus-4-8"},"trigger":{"type":"refusal","category":"cyber"}},{"type":"text","text":"好"}],
+            "stop_reason":"end_turn","stop_details":null,"usage":{"input_tokens":30,"output_tokens":9,"cache_read_input_tokens":0,
+            "cache_creation_input_tokens":0,
+            "iterations":[{"type":"message","model":"claude-opus-5-5","input_tokens":31,"output_tokens":0,"cache_read_input_tokens":0,
+            "cache_creation_input_tokens":0},
+            {"type":"message","model":"claude-opus-5","input_tokens":32,"output_tokens":0,"cache_read_input_tokens":0,
+            "cache_creation_input_tokens":0},
+            {"type":"fallback_message","model":"claude-opus-4-8","input_tokens":30,"output_tokens":9,"cache_read_input_tokens":0,
+            "cache_creation_input_tokens":0}]}}""")
+        assertTrue(kit.claude("claude-opus-5-5").chat(user) is ChatResult.Ok)
+        assertEquals(
+            listOf(
+                Triple(Provider.ANTHROPIC, "claude-opus-5-5", Usage(inputTokens = 31, outputTokens = 0)),
+                Triple(Provider.ANTHROPIC, "claude-opus-5", Usage(inputTokens = 32, outputTokens = 0)),
+                Triple(Provider.ANTHROPIC, "claude-opus-4-8", Usage(inputTokens = 30, outputTokens = 9)),
             ),
             kit.recorded,
         )

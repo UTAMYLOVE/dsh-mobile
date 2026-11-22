@@ -57,6 +57,14 @@ class PriceTableTest {
         assertEquals(1.0 + 5 + 0.10 + 1.25, prices.costUsd(Provider.ANTHROPIC, "claude-haiku-4-5", u, at), 1e-9)
     }
 
+    @Test fun serverSideFallbackModelsHaveTheirOwnPrices() {
+        val u = Usage(inputTokens = 1_000_000, outputTokens = 1_000_000, cacheReadTokens = 1_000_000, cacheWriteTokens = 1_000_000)
+        val at = Instant.parse("2026-11-02T02:00:00Z")
+        assertEquals(2.0 + 10 + 0.20 + 2.50, prices.costUsd(Provider.ANTHROPIC, "claude-sonnet-5", u, at), 1e-9)
+        assertEquals(5.0 + 25 + 0.50 + 6.25, prices.costUsd(Provider.ANTHROPIC, "claude-opus-5", u, at), 1e-9)
+        assertEquals(5.0 + 25 + 0.50 + 6.25, prices.costUsd(Provider.ANTHROPIC, "claude-opus-4-8", u, at), 1e-9)
+    }
+
     @Test fun anthropicIgnoresDeepseekPeakHours() {
         val u = Usage(inputTokens = 1_000_000, outputTokens = 0)
         val peak = prices.costUsd(Provider.ANTHROPIC, "claude-sonnet-5-5", u, Instant.parse("2026-11-02T02:00:00Z"))
