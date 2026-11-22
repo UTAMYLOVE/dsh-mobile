@@ -1,7 +1,7 @@
 package app.dshmobile.update
 
 import app.dshmobile.gateway.InMemorySharedPreferences
-import app.dshmobile.gateway.MutableClock
+import app.agency.core.metering.MutableClock
 import app.dshmobile.log.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking

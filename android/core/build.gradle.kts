@@ -4,7 +4,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
-    // The AgencyStore contract tests live in testFixtures so :app runs the same class against RoomAgencyStore.
+    // The AgencyStore contract tests and MutableClock live in testFixtures so :app shares them.
     `java-test-fixtures`
 }
 
@@ -20,7 +20,8 @@ kotlin {
 }
 
 dependencies {
-    // Usage bodies are read as JSON trees; the type is part of :core's API (UsageParser).
+    // JSON trees are part of :core's public API: LegacyCoachJson.decode/decodeMessage take a JsonElement (UsageParser's
+    // JsonObject functions are internal).
     api(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)

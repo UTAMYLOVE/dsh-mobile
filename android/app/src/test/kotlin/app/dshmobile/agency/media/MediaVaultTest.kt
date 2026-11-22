@@ -1,6 +1,7 @@
 package app.dshmobile.agency.media
 
 import java.io.File
+import java.io.SyncFailedException
 import java.security.MessageDigest
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -98,5 +99,27 @@ class MediaVaultTest {
         assertEquals(listOf("pending.jpg"), camera.list()!!.toList())
         assertEquals(1, MediaVault.sweepCameraCache(camera))
         assertEquals(0, MediaVault.sweepCameraCache(File(tmp.root, "missing")))
+    }
+
+    @Test fun theSealedFileIsSyncedWholeBeforeItIsRenamed() {
+        val seen = mutableListOf<String>()
+        val synced = MediaVault(dir, { key }) { fd ->
+            fd.sync()
+            val tmpFile = File(dir, "p-1.bin.tmp")
+            seen += "tmp=${tmpFile.length()} target=${File(dir, "p-1.bin").exists()}"
+        }
+        synced.put("p-1", photo)
+        assertEquals(listOf("tmp=${1 + 12 + photo.size + 16} target=false"), seen)
+        assertArrayEquals(photo, synced.get("p-1"))
+    }
+
+    @Test fun aFailedSyncStoresNothing() {
+        val failing = MediaVault(dir, { key }) { throw SyncFailedException("invented") }
+        try {
+            failing.put("p-1", photo)
+            fail("a failed sync must fail the put")
+        } catch (_: SyncFailedException) {
+        }
+        assertEquals(emptyList<String>(), dir.list()!!.toList())
     }
 }

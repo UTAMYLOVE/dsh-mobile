@@ -1,7 +1,7 @@
 package app.dshmobile.overview
 
 import app.dshmobile.gateway.InMemorySharedPreferences
-import app.dshmobile.gateway.MutableClock
+import app.agency.core.metering.MutableClock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

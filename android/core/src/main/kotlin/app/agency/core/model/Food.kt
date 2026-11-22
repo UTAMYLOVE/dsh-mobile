@@ -16,7 +16,7 @@ data class MealItem(
     val tableEstimated: Boolean = false,
     /** The model's high end before the margin (estimates only). */
     val estimateHigh: Int? = null,
-    /** A zero-calorie drink (公司規章: only a few a week). */
+    /** A zero-calorie drink (公司規章: at most `AgencyRules.ZERO_CAL_PER_WEEK` a week, counted in the app). */
     val zeroCal: Boolean = false,
     /** Processed food (a banned category key applies; see 公司規章). */
     val processed: Boolean = false,

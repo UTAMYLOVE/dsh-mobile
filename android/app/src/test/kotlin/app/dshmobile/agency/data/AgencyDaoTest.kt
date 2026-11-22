@@ -186,25 +186,89 @@ class AgencyDaoTest {
         assertEquals(listOf("新"), dao.audits().map { it.detail })
     }
 
-    @Test fun theExportedSchemaV1HasEveryTableOfTheDataModel() {
+    @Test fun theExportedSchemaV1HasEveryTableAndColumnOfTheDataModel() {
         val schema = Json.parseToJsonElement(File("schemas/app.dshmobile.agency.data.AgencyDatabase/1.json").readText()).jsonObject
         val database = schema["database"]!!.jsonObject
         assertEquals(1, database["version"]!!.jsonPrimitive.content.toInt())
-        val tables = database["entities"]!!.jsonArray.map { it.jsonObject["tableName"]!!.jsonPrimitive.content }.toSet()
-        assertEquals(TABLES, tables)
-        val live = db.openHelper.readableDatabase.query("SELECT name FROM sqlite_master WHERE type = 'table'").use { c ->
+        val exported = database["entities"]!!.jsonArray.associate { e ->
+            val o = e.jsonObject
+            o["tableName"]!!.jsonPrimitive.content to Table(
+                columns = o["fields"]!!.jsonArray.map { it.jsonObject["columnName"]!!.jsonPrimitive.content }.toSet(),
+                key = o["primaryKey"]!!.jsonObject["columnNames"]!!.jsonArray.map { it.jsonPrimitive.content },
+            )
+        }
+        assertEquals(TABLES.keys, exported.keys)
+        for ((name, table) in TABLES) assertEquals("exported $name", table, exported[name])
+
+        val sql = db.openHelper.readableDatabase
+        val live = sql.query("SELECT name FROM sqlite_master WHERE type = 'table'").use { c ->
             buildSet { while (c.moveToNext()) add(c.getString(0)) }
         }
-        assertTrue("live tables: $live", live.containsAll(TABLES))
+        assertTrue("live tables: $live", live.containsAll(TABLES.keys))
+        for ((name, table) in TABLES) {
+            val info = sql.query("PRAGMA table_info(`$name`)").use { c ->
+                val nameAt = c.getColumnIndexOrThrow("name")
+                val pkAt = c.getColumnIndexOrThrow("pk")
+                buildList { while (c.moveToNext()) add(c.getString(nameAt) to c.getInt(pkAt)) }
+            }
+            val liveTable = Table(info.map { it.first }.toSet(), info.filter { it.second > 0 }.sortedBy { it.second }.map { it.first })
+            assertEquals("live $name", table, liveTable)
+        }
     }
 
+    private data class Table(val columns: Set<String>, val key: List<String>)
+
     private companion object {
-        /** Arch 1.2, every table. */
-        val TABLES = setOf(
-            "profile", "company_rules", "company_rules_history", "plan_section", "plan_section_history", "day_override", "meal",
-            "meal_item", "food", "pending_label", "meal_order", "favorite_place", "search_result", "water_log", "training_log",
-            "condition_log", "sign_log", "weight_log", "baseline", "media", "message", "proposal", "memory_item", "memory_event",
-            "nudge", "migration_log", "audit_log",
+        private fun t(key: String, columns: String) = t(listOf(key), columns)
+        private fun t(key: List<String>, columns: String) = Table(columns.split(",").map { it.trim() }.toSet(), key)
+
+        /** Arch 1.2, every table with its columns and primary key (plus `id` on the one-row tables). */
+        val TABLES = mapOf(
+            "profile" to t(
+                "id",
+                "id, height_cm, start_weight_kg, stage_name, member_color, company_name, trainee_no, join_date, level, area_text, " +
+                    "idol_names, day_start_hour, onboarding_done",
+            ),
+            "company_rules" to t("id", "id, $RULES"),
+            "company_rules_history" to t("version", RULES),
+            "plan_section" to t("section", "section, json, version, updated_at, changed_by"),
+            "plan_section_history" to t(listOf("section", "version"), "section, json, version, updated_at, changed_by"),
+            "day_override" to t("day", "day, rest_day, cheat_slot, soy_morning, declared_at"),
+            "meal" to t("id", "id, day, slot_key, at, text, cheat, breaches, verified, photo_media_id, order_id, legacy"),
+            "meal_item" to t(
+                listOf("meal_id", "idx"),
+                "meal_id, idx, name, portion, kcal, protein_g, fat_g, carbs_g, fried, processed, zero_cal, source, table_estimated, " +
+                    "estimate_high",
+            ),
+            "food" to t(
+                "name",
+                "name, aliases, kcal, protein_g, fat_g, carbs_g, fried, processed, estimated, seeded, added_at, updated_at",
+            ),
+            "pending_label" to t(listOf("meal_id", "item_idx"), "meal_id, item_idx, name, counted_kcal, asked_at"),
+            "meal_order" to t("id", "id, day, slot_key, items, kcal, protein_g, place_result_id, status, created_at"),
+            "favorite_place" to t("id", "id, title, url, area, note, saved_at, source_result_id"),
+            "search_result" to t("id", "id, kind, query, url, title, summary, date, authority, rerank, fetched_at"),
+            "water_log" to t("id", "id, day, at, half_bottles, photo_media_id"),
+            "training_log" to t("id", "id, day, at, kind, rounds, detail, reduced, verified, legacy"),
+            "condition_log" to t("day", "day, at, score, sleep, energy, ill, note"),
+            "sign_log" to t("id", "id, day, kind, at, on_time, review_good, review_fix"),
+            "weight_log" to t("id", "id, day, at, kg, waist_cm"),
+            "baseline" to t(
+                "id",
+                "id, height_cm, weight_kg, photo_front, photo_side, photo_back, recording, pushups_max, plank_max_sec, skipped, step, " +
+                    "completed_at",
+            ),
+            "media" to t("id", "id, kind, purpose, mime, bytes, sha256, created_at"),
+            "message" to t("id", "id, at, who, role, kind, mode, text, refs, worded_by, legacy"),
+            "proposal" to t("id", "id, created_at, role, kind, target, diff, reason, status, decided_at, applied_version"),
+            "memory_item" to t("id", "id, block, text, created_at, updated_at, source_message_id, deleted"),
+            "memory_event" to t("id", "id, at, op, block, item_id, before, after, source_message_id, undone"),
+            "nudge" to t("id", "id, at, gap_keys, channel, notification_id, text, worded_by, answered_at"),
+            "migration_log" to t("id", "id, at, source, counts, ok, note"),
+            "audit_log" to t("id", "id, at, what, detail"),
         )
+
+        private const val RULES = "quota_kcal, protein_g, fat_g, carbs_g, floor_kcal, meal_cap_kcal, cheat_meals_per_week, " +
+            "zero_cal_per_week, margin_pct, banned, goals_kg, version, updated_at"
     }
 }

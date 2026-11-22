@@ -209,7 +209,8 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.work.testing)
     testImplementation(libs.okhttp.mockwebserver)
-    // The AgencyStore contract (android/core/src/testFixtures), run here against RoomAgencyStore.
+    // :core's test fixtures (android/core/src/testFixtures): the AgencyStore contract, run here against RoomAgencyStore, and
+    // the shared MutableClock.
     testImplementation(testFixtures(project(":core")))
 
     // Instrumentation tests (src/androidTest) need a real dsh: they run on an emulator in CI, locally they only have to compile.

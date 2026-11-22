@@ -34,6 +34,10 @@ class DbKey(secrets: SecretsFile, wrap: KeyWrap) {
 
         fun secretsFile(context: Context) = SecretsFile(File(context.noBackupFilesDir, SecretsFile.NAME))
 
+        /**
+         * The app's passphrase source. Safe to call more than once and from several threads: every instance shares the
+         * process-wide lock of [SecretsFile], so concurrent first runs agree on one passphrase.
+         */
         fun forApp(context: Context) = DbKey(secretsFile(context), KeystoreWrap(KeystoreWrap.DB_ALIAS))
     }
 }

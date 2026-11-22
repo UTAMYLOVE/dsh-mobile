@@ -1,6 +1,7 @@
 package app.dshmobile.agency.data
 
 import android.content.Context
+import android.database.sqlite.SQLiteException
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -95,21 +96,41 @@ abstract class AgencyDatabase : RoomDatabase() {
 
         /**
          * Opens (creating on first use) the encrypted database at [file] with the passphrase from [key]. Blocking: call it off
-         * the main thread. Throws [DataLockedException] when the passphrase is gone or no longer opens the file; nothing is
-         * ever deleted in that case (the app shows 「資料鎖打不開」).
+         * the main thread. For an existing file, [DataLockedException] is the only exception it throws: the passphrase is gone,
+         * no longer opens the file, or the file cannot be opened at all (damaged pages, disk or I/O errors). Nothing is ever
+         * deleted in any of these cases (the app shows 「資料鎖打不開」).
          */
         fun open(context: Context, key: DbKey = DbKey.forApp(context), file: File = file(context)): AgencyDatabase {
             System.loadLibrary("sqlcipher")
             file.parentFile?.mkdirs()
-            val factory = SupportOpenHelperFactory(key.sqlcipherKey(dbExists = file.exists()))
+            val existed = file.exists()
+            return openChecked(context, file, existed, SupportOpenHelperFactory(key.sqlcipherKey(dbExists = existed)))
+        }
+
+        /**
+         * [open] after the key: opens through [factory] now, not at the first query, and maps every open failure on an
+         * existing file ([existed]) to [DataLockedException], keeping the file. Separate so JVM tests can inject failures.
+         */
+        internal fun openChecked(context: Context, file: File, existed: Boolean, factory: SupportSQLiteOpenHelper.Factory): AgencyDatabase {
             val db = build(context, file.absolutePath, factory)
             try {
-                db.openHelper.writableDatabase // fail here, not at the first query, when the key does not fit
+                db.openHelper.writableDatabase
             } catch (e: SQLiteNotADatabaseException) {
-                db.close()
+                db.closeQuietly()
                 throw DataLockedException("the database key does not open the file", e)
+            } catch (e: SQLiteException) {
+                db.closeQuietly()
+                if (!existed) throw e
+                throw DataLockedException("the database file cannot be opened", e)
             }
             return db
+        }
+
+        private fun AgencyDatabase.closeQuietly() {
+            try {
+                close()
+            } catch (_: Exception) {
+            }
         }
 
         /** The schema on any open helper: [name] null is in memory. Tests inject the framework (plain SQLite) factory. */

@@ -5,9 +5,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The brain must run on a computer too: nothing under core/src/main may import Android (or AndroidX). */
+/**
+ * The brain must run on a computer too: nothing under core/src/main may import Android (or AndroidX), and core's build file
+ * may declare no Android or AndroidX dependency (a pure-JVM `androidx.*` artifact would compile, so only this catches it).
+ */
 class CoreHasNoAndroidImportsTest {
     private val forbidden = Regex("""^\s*import\s+(android|androidx|com\.android|dalvik)\.""")
+    private val androidDependency = Regex("""libs\.(android|androidx)\b|["'](androidx?\.|com\.android)""")
 
     @Test fun noSourceUnderCoreMainImportsAndroid() {
         val sources = mainSources()
@@ -22,6 +26,20 @@ class CoreHasNoAndroidImportsTest {
         assertTrue(forbidden.containsMatchIn("import android.content.Context"))
         assertTrue(forbidden.containsMatchIn("import androidx.room.Entity"))
         assertTrue(!forbidden.containsMatchIn("import app.agency.core.rules.CoachRules"))
+    }
+
+    @Test fun theCoreBuildDeclaresNoAndroidDependency() {
+        val build = listOf(File("build.gradle.kts"), File("core/build.gradle.kts"), File("android/core/build.gradle.kts")).first { it.isFile }
+        assertTrue("not core's build file: $build", build.readText().contains("java-test-fixtures"))
+        assertEquals(emptyList<String>(), build.readLines().filter { androidDependency.containsMatchIn(it) })
+    }
+
+    @Test fun theBuildScanCatchesAnAndroidDependency() {
+        assertTrue(androidDependency.containsMatchIn("    implementation(libs.androidx.annotation)"))
+        assertTrue(androidDependency.containsMatchIn("    implementation(libs.android.tools.common)"))
+        assertTrue(androidDependency.containsMatchIn("""    implementation("androidx.annotation:annotation:1.9.1")"""))
+        assertTrue(androidDependency.containsMatchIn("""    compileOnly("com.android.tools:common:31.0.0")"""))
+        assertTrue(!androidDependency.containsMatchIn("    api(libs.kotlinx.serialization.json)"))
     }
 
     companion object {

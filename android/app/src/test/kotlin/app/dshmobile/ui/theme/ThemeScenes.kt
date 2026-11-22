@@ -77,7 +77,7 @@ import app.dshmobile.chat.sum
 import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
-import app.dshmobile.gateway.MutableClock
+import app.agency.core.metering.MutableClock
 import app.agency.core.metering.PriceTable
 import app.agency.core.metering.Provider
 import app.dshmobile.library.LibraryStore

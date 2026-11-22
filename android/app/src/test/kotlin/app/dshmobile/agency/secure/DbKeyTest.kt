@@ -6,10 +6,13 @@ import app.dshmobile.agency.data.AgencyDatabase
 import app.dshmobile.agency.data.DbKey
 import app.dshmobile.agency.media.MediaVault
 import java.io.File
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
 import javax.crypto.KeyGenerator
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -66,5 +69,55 @@ class DbKeyTest {
         secretsFile.writeText("{not json")
         assertLocked { DbKey(DbKey.secretsFile(context), wrap).passphrase(dbExists = false) }
         assertEquals("{not json", secretsFile.readText())
+    }
+
+    /** Widens the read → generate → write window, as a slow Keystore would. */
+    private class SlowWrap(private val inner: KeyWrap) : KeyWrap {
+        override fun wrap(plain: ByteArray, aad: ByteArray): ByteArray = inner.wrap(plain, aad).also { Thread.sleep(2) }
+        override fun unwrap(blob: ByteArray, aad: ByteArray): ByteArray = inner.unwrap(blob, aad)
+    }
+
+    /** Runs [body] on [threads] threads released at once, each with its own [SecretsFile] (as `DbKey.forApp` and
+     *  `MediaVault.forApp` do); returns each thread's result in order, failing on any thread's exception. */
+    private fun <T> race(threads: Int, body: (index: Int, file: SecretsFile) -> T): List<T> {
+        val start = CountDownLatch(1)
+        val results = arrayOfNulls<Any?>(threads)
+        val errors = ConcurrentLinkedQueue<Throwable>()
+        val workers = (0 until threads).map { i ->
+            Thread {
+                try {
+                    start.await()
+                    results[i] = body(i, DbKey.secretsFile(context))
+                } catch (t: Throwable) {
+                    errors += t
+                }
+            }.apply { start() }
+        }
+        start.countDown()
+        workers.forEach { it.join() }
+        assertTrue("thread errors: ${errors.toList()}", errors.isEmpty())
+        @Suppress("UNCHECKED_CAST")
+        return results.toList() as List<T>
+    }
+
+    @Test fun firstRunsOfDifferentSecretsAtOnceLoseNone() {
+        val slow = SlowWrap(wrap)
+        repeat(50) { round ->
+            secretsFile.delete()
+            val got = race(8) { i, file -> WrappedSecret(file, "n$i", slow).get(dataExists = false) }
+            got.forEachIndexed { i, secret ->
+                assertArrayEquals("round $round, n$i", secret, WrappedSecret(DbKey.secretsFile(context), "n$i", wrap).get(dataExists = true))
+            }
+        }
+    }
+
+    @Test fun firstRunsOfTheSameSecretAtOnceAgreeOnOne() {
+        val slow = SlowWrap(wrap)
+        repeat(50) { round ->
+            secretsFile.delete()
+            val got = race(8) { _, file -> DbKey(file, slow).passphrase(dbExists = false) }
+            val kept = DbKey(DbKey.secretsFile(context), wrap).passphrase(dbExists = true)
+            got.forEachIndexed { i, secret -> assertArrayEquals("round $round, thread $i", kept, secret) }
+        }
     }
 }

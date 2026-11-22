@@ -14,10 +14,10 @@ class PriceTable {
     private class AnthropicRates(val input: Double, val output: Double, val cacheRead: Double, val cacheWrite: Double)
 
     /**
-     * The cost of [u] on [model]. [u] may be one request (the gateway's meter) or many summed (a turn, a whole session): Haiku
-     * 5.5's long-context rates apply per request, so a sum must say how big its prompts were. [maxPromptTokens] is the largest
-     * single prompt in the sum when known; otherwise the average over [requests] decides. Without either, a five-step turn of
-     * 25K-token prompts (125K summed) was priced at the >100K rates, five times too much.
+     * The cost of [u] on [model]. [u] may be one request (the gateway's meter) or many summed (a turn, a whole session):
+     * `claude-haiku-5-5`'s long-context rates apply per request, so a sum must say how big its prompts were.
+     * [maxPromptTokens] is the largest single prompt in the sum when known; otherwise the average over [requests] decides.
+     * Without either, a five-step turn of 25K-token prompts (125K summed) was priced at the >100K rates, five times too much.
      */
     fun costUsd(p: Provider, model: String, u: Usage, at: Instant, maxPromptTokens: Long? = null, requests: Long = 1): Double = when (p) {
         Provider.DEEPSEEK -> deepseekCost(model, u, at)
@@ -84,7 +84,7 @@ class PriceTable {
             "claude-fable-5-2" to AnthropicRates(8.0, 40.0, 0.20, 10.0),
             "claude-fable-5-1" to AnthropicRates(10.0, 50.0, 0.25, 12.50),
             "claude-opus-5-5" to AnthropicRates(4.0, 20.0, 0.20, 5.0),
-            // Cache reads are 0.10 on Sonnet 5.5; 0.20 is Sonnet 5's price, which the table once carried by mistake.
+            // Cache reads are 0.10 on `claude-sonnet-5-5`; 0.20 was an older price the table once carried by mistake.
             "claude-sonnet-5-5" to AnthropicRates(2.0, 10.0, 0.10, 2.50),
             HAIKU_5_5 to AnthropicRates(0.10, 0.50, 0.01, 0.125),
             "claude-haiku-4-5" to AnthropicRates(1.0, 5.0, 0.10, 1.25),

@@ -74,7 +74,7 @@ class PriceTableTest {
         assertEquals((60_000 * 0.50 + 20_000 * 0.05 + 20_001 * 0.625 + 1_000_000 * 2.50) / 1e6, high, 1e-9)
     }
 
-    /** H4: Haiku 5.5's long-context tier is per request; a sum of requests says how big its prompts were. */
+    /** H4: `claude-haiku-5-5`'s long-context tier is per request; a sum of requests says how big its prompts were. */
     @Test fun haiku55TierFollowsTheRequestsNotTheirSum() {
         val at = Instant.EPOCH
         // Five requests of 25K prompts each, summed: 125K of prompt.
