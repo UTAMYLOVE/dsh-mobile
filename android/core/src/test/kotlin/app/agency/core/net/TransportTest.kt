@@ -3,12 +3,17 @@ package app.agency.core.net
 import app.agency.core.llm.ChatResult
 import app.agency.core.llm.Fail
 import app.agency.core.llm.LlmTestKit
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import okhttp3.Dispatcher
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
@@ -59,25 +64,30 @@ class TransportTest {
         assertEquals(0, kit.http.dispatcher.runningCallsCount())
     }
 
-    /** Runs [block] on [http]'s dispatcher and returns every exception that reached a thread's uncaught handler. */
-    private fun uncaught(http: okhttp3.OkHttpClient, block: suspend () -> Unit): List<Throwable> {
-        val died = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
-        val before = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { _, e -> died += e }
+    /**
+     * Runs [block] with [base] on a dispatcher whose pool records every throwable a call lets escape on its worker thread
+     * (OkHttp rethrows it there, which would end the process), and returns them. ThreadPoolExecutor runs afterExecute on the
+     * worker before the worker exits, so once the pool has terminated every escape is recorded: no wait, no global handler.
+     */
+    private fun escaped(base: OkHttpClient, block: suspend (OkHttpClient) -> Unit): List<Throwable> {
+        val died = CopyOnWriteArrayList<Throwable>()
+        val pool = object : ThreadPoolExecutor(0, Int.MAX_VALUE, 60, TimeUnit.SECONDS, SynchronousQueue()) {
+            override fun afterExecute(r: Runnable?, t: Throwable?) {
+                if (t != null) died += t
+            }
+        }
+        val http = base.newBuilder().dispatcher(Dispatcher(pool)).build()
         try {
-            runBlocking { block() }
-            http.dispatcher.executorService.shutdown()
-            http.dispatcher.executorService.awaitTermination(2, TimeUnit.SECONDS)
-            Thread.sleep(500) // the pool reports termination before a dying worker reaches its uncaught handler
+            runBlocking { block(http) }
         } finally {
-            Thread.setDefaultUncaughtExceptionHandler(before)
+            pool.shutdown()
+            assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS))
         }
         return died
     }
 
     @Test fun anAllowlistThatThrowsFailsClosedAndKillsNoThread() {
-        val http = HttpFactory.create(NetworkGate({ throw IllegalStateException("settings not ready") }))
-        val died = uncaught(http) {
+        val died = escaped(HttpFactory.create(NetworkGate({ throw IllegalStateException("settings not ready") }))) { http ->
             assertTrue(Transport(http) { }.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}") is HttpOutcome.Blocked)
         }
         assertEquals(emptyList<Throwable>(), died)
@@ -86,11 +96,35 @@ class TransportTest {
 
     @Test fun aRuntimeExceptionInTheCallChainIsOfflineAndKillsNoThread() {
         // A platform RuntimeException on the way to the socket (as a SecurityException from DNS or TLS would be).
-        val http = HttpFactory.create(kit.gate).newBuilder()
+        val base = HttpFactory.create(kit.gate).newBuilder()
             .addNetworkInterceptor { throw SecurityException("network access denied") }.build()
-        val died = uncaught(http) {
+        val died = escaped(base) { http ->
             assertEquals(HttpOutcome.Offline, Transport(http) { }.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}"))
         }
         assertEquals(emptyList<Throwable>(), died)
+    }
+
+    /** Review FIX-WAVE3 W4: a provider class that fails to load is Offline too, not a dead thread and a crash loop. */
+    @Test fun aLinkageErrorInTheCallChainIsOfflineAndKillsNoThread() {
+        val base = HttpFactory.create(kit.gate).newBuilder()
+            .addNetworkInterceptor { throw NoClassDefFoundError("a TLS provider class") }.build()
+        val died = escaped(base) { http ->
+            assertEquals(HttpOutcome.Offline, Transport(http) { }.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}"))
+        }
+        assertEquals(emptyList<Throwable>(), died)
+    }
+
+    /**
+     * Review FIX-WAVE3 W3: the capture sees an escape at once (so the empty lists above mean none happened), and an Error that
+     * is not a LinkageError is left to end the process, as an out-of-memory one should.
+     */
+    @Test fun anOutOfMemoryErrorStillEscapesAndTheCaptureSeesIt() {
+        val base = HttpFactory.create(kit.gate).newBuilder()
+            .addNetworkInterceptor { throw OutOfMemoryError("invented") }.build()
+        val died = escaped(base) { http ->
+            // OkHttp reports the call failed before it rethrows, so the caller is not left waiting.
+            assertEquals(HttpOutcome.Offline, Transport(http) { }.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}"))
+        }
+        assertEquals(listOf(OutOfMemoryError::class), died.map { it::class })
     }
 }

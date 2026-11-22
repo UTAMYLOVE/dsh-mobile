@@ -86,8 +86,8 @@ class ImportMismatchException(val expected: Map<ImportKind, Int>, val found: Map
  *    `migrated = 2` is saved, with a fingerprint of the legacy files and the keys of the records it brought in the importer's
  *    own prefs file ([AgencyPrefKeys.IMPORT_NAME], written first). Later starts do nothing while the files match the
  *    fingerprint; a changed file or [retry] runs the import again, leaving out the records a partial run already brought
- *    (one he deleted stays deleted, one he edited keeps his edit), the labels of a carried meal he deleted, and the settings
- *    (the first partial run wrote them; one he removed since stays removed).
+ *    (one he deleted stays deleted, one he edited keeps his edit), the labels of a carried meal he deleted or of an item he
+ *    removed from it, and the settings (the first partial run wrote them; one he removed since stays removed).
  * 5. Then renames `filesDir/coach` to `filesDir/coach.migrated-<ts>` (kept until he deletes it in 設定 › 舊資料); a rename
  *    that failed is tried again at the next start. A partial import renames nothing.
  *
@@ -160,7 +160,7 @@ class LegacyImporter(
         val firstPlan = plan
         var committed = false
         try {
-            plan = withoutLabelsOfDeletedMeals(plan, carried)
+            plan = withoutLabelsHeMadeMoot(plan, carried)
             var sealed: List<Media>? = null
             while (sealed == null) {
                 try {
@@ -171,7 +171,7 @@ class LegacyImporter(
                     unseal(plan.media.filter { it.file == e.file })
                     input = input.copy(baselineFiles = input.baselineFiles.map { if (it.name == e.file) it.copy(size = Long.MAX_VALUE) else it })
                     full = LegacyMapper.map(input, now)
-                    plan = withoutLabelsOfDeletedMeals(full.except(carried), carried)
+                    plan = withoutLabelsHeMadeMoot(full.except(carried), carried)
                 }
             }
             val media: List<Media> = sealed
@@ -240,16 +240,20 @@ class LegacyImporter(
     }
 
     /**
-     * [plan] without the label prompts of a meal a partial run carried and he deleted since: a cut inside `pending` brought
-     * the meal with only some of its labels, and `pending_label` has no foreign key to stop the rest. [ImportPlan.expected]
-     * follows the plan, so the count check stays consistent.
+     * [plan] without the label prompts he made moot since a partial run carried their meal: a cut inside `pending` brought the
+     * meal with only some of its labels, and `pending_label` has no foreign key to stop the rest. A prompt stays only while
+     * the stored meal still has, at its index, the item it asks about (same name): not for a meal he deleted, nor for an item
+     * he removed or replaced by editing it (the index would then point past the list, or at another item). Prompts of meals
+     * this run brings are kept as they are. [ImportPlan.expected] follows the plan, so the count check stays consistent.
      */
-    private suspend fun withoutLabelsOfDeletedMeals(plan: ImportPlan, carried: Set<String>): ImportPlan {
+    private suspend fun withoutLabelsHeMadeMoot(plan: ImportPlan, carried: Set<String>): ImportPlan {
         if (carried.isEmpty()) return plan
-        val gone = plan.pending.map { it.mealId }.distinct().filter { id ->
-            ImportPlan.recordKey(ImportKind.MEALS, id) in carried && store.meals.get(id) == null
-        }.toSet()
-        return if (gone.isEmpty()) plan else plan.copy(pending = plan.pending.filterNot { it.mealId in gone })
+        val stored = plan.pending.map { it.mealId }.distinct()
+            .filter { ImportPlan.recordKey(ImportKind.MEALS, it) in carried }
+            .associateWith { store.meals.get(it) }
+        return plan.copy(pending = plan.pending.filter { p ->
+            p.mealId !in stored || stored[p.mealId]?.items?.getOrNull(p.itemIdx)?.name == p.name
+        })
     }
 
     /** The legacy files still match the fingerprint the partial import saved (an unreadable file counts as changed). */

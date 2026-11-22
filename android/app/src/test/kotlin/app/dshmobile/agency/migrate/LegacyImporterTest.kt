@@ -446,6 +446,50 @@ class LegacyImporterTest {
         assertNull(store.meals.get(TWO_ITEM_MEAL))
     }
 
+    /**
+     * A cut inside the second label of [TWO_ITEM_MEAL] carries the meal with label 0 only; he then changes the stored meal with
+     * [edit], and the repaired file (both labels) runs. Returns the labels in the store afterwards, as (meal, index, name).
+     */
+    private suspend fun labelsAfterARepairedCut(edit: suspend () -> Unit): List<Triple<String, Int, String>> {
+        seedV083()
+        val second = """,{"mealId":"$TWO_ITEM_MEAL","itemIndex":1,"name":"滷蛋","counted":83,"askedAt":1794832560000}"""
+        val whole = fixture("v083-state.json").decodeToString().trimEnd().dropLast(2) + second + "]}"
+        File(coach, "state.json").writeText(whole.substring(0, whole.indexOf(second) + 20))
+        val legacy = prefs("legacy", "v083-prefs.xml")
+        assertTrue(importer(legacy).run().partial)
+        assertEquals(listOf(TWO_ITEM_MEAL to 0), store.meals.pending().map { it.mealId to it.itemIdx })
+        edit()
+        File(coach, "state.json").writeText(whole)
+        assertTrue(importer(legacy, now = NOW + 5).run().ok) // the count follows the plan
+        return store.meals.pending().map { Triple(it.mealId, it.itemIdx, it.name) }.sortedBy { it.second }
+    }
+
+    /** Review FIX-WAVE3 W1: an item he removed from a carried meal gets no label question. */
+    @Test fun anItemHeRemovedFromACarriedMealGetsNoLabelQuestion() = runBlocking {
+        val labels = labelsAfterARepairedCut {
+            val meal = store.meals.get(TWO_ITEM_MEAL)!!
+            store.meals.upsert(meal.copy(items = meal.items.take(1)))
+        }
+        assertEquals(listOf(Triple(TWO_ITEM_MEAL, 0, "紅燒牛肉麵")), labels)
+        assertEquals(1, store.meals.get(TWO_ITEM_MEAL)!!.items.size)
+    }
+
+    /** Review FIX-WAVE3 W1: once he put another item at that index, the question about the old one is moot too. */
+    @Test fun anItemHeReplacedInACarriedMealGetsNoLabelQuestion() = runBlocking {
+        val labels = labelsAfterARepairedCut {
+            val meal = store.meals.get(TWO_ITEM_MEAL)!!
+            store.meals.upsert(meal.copy(items = listOf(meal.items[0], meal.items[1].copy(name = "茶葉蛋"))))
+        }
+        assertEquals(listOf(Triple(TWO_ITEM_MEAL, 0, "紅燒牛肉麵")), labels)
+        assertEquals("茶葉蛋", store.meals.get(TWO_ITEM_MEAL)!!.items[1].name)
+    }
+
+    /** Review FIX-WAVE3 W1: a carried meal he left as it was still gets the label question the cut lost. */
+    @Test fun aCarriedMealHeLeftAloneGetsItsMissingLabelQuestion() = runBlocking {
+        val labels = labelsAfterARepairedCut { }
+        assertEquals(listOf(Triple(TWO_ITEM_MEAL, 0, "紅燒牛肉麵"), Triple(TWO_ITEM_MEAL, 1, "滷蛋")), labels)
+    }
+
     /** Review FIX-WAVE2 N4: the fingerprint and carried keys live in their own prefs file, never in agency_prefs. */
     @Test fun thePartialImportKeysStayOutOfTheSettingsFile() = runBlocking {
         seedV083()
