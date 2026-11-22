@@ -1,5 +1,6 @@
 package app.dshmobile.gateway
 
+import app.dshmobile.agency.metering.CostMeter
 import app.agency.core.metering.MutableClock
 import app.agency.core.metering.PriceTable
 import app.agency.core.metering.Provider

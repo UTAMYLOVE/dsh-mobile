@@ -1,5 +1,6 @@
 package app.dshmobile.gateway
 
+import app.dshmobile.agency.metering.CostMeter
 import app.agency.core.metering.Provider
 import app.agency.core.metering.RateGuard
 import app.agency.core.metering.Usage

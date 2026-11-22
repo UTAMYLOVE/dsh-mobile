@@ -12,7 +12,7 @@ import app.dshmobile.config.AppSkills
 import app.dshmobile.config.AgentPatchProvider
 import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.runtime.DshClient
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.agency.core.metering.PriceTable
 import app.agency.core.metering.Provider
 import app.dshmobile.heartbeat.HeartbeatDeps

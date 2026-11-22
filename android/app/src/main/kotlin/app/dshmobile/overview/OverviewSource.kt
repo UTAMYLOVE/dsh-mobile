@@ -1,7 +1,7 @@
 package app.dshmobile.overview
 
 import app.dshmobile.chat.SessionRow
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.agency.core.metering.Provider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -30,7 +30,7 @@ data class OverviewState(
     /** The running dsh's version when this app version has not verified it; null when verified or unknown. */
     val unverifiedDsh: String?,
     /** Today's spend per model (gateway's own count). */
-    val models: List<app.dshmobile.gateway.ModelSpend> = emptyList(),
+    val models: List<app.dshmobile.agency.metering.ModelSpend> = emptyList(),
     /** Live totals of every session dsh has open: average speed, first-token time, steps (dsh's `sessionStats`). */
     val live: app.dshmobile.chat.SessionUsage = app.dshmobile.chat.SessionUsage(),
 ) {

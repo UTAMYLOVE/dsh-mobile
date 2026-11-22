@@ -17,7 +17,7 @@ import app.dshmobile.coach.CoachModel
 import app.dshmobile.coach.ModelReply
 import app.dshmobile.coach.Turn
 import app.dshmobile.config.DshPatch
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.agency.core.metering.MutableClock
 import app.agency.core.metering.PriceTable

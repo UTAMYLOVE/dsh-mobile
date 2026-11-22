@@ -1,8 +1,10 @@
-package app.dshmobile.gateway
+package app.dshmobile.agency.metering
 
 import app.agency.core.metering.PriceTable
 import app.agency.core.metering.Provider
+import app.agency.core.metering.SpendGuard
 import app.agency.core.metering.Usage
+import app.agency.core.metering.UsageSink
 import android.content.SharedPreferences
 import java.time.Clock
 import java.time.ZoneId
@@ -11,15 +13,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Today's estimated spend (day boundary in [zone]) plus the user's alert threshold and hard cap, all kept in [store].
- * Every method is synchronized, so concurrent streams cannot lose a record.
+ * Today's estimated spend (day boundary in [zone]) plus the user's alert threshold and hard cap, all kept in [store] (prefs
+ * `dshm_cost`, unchanged since v0.8.3). Every method is synchronized, so concurrent streams cannot lose a record. It is the
+ * provider layer's [UsageSink] (every paid response) and [SpendGuard] (the hard cap, checked before every call and search).
  */
 class CostMeter(
     private val store: SharedPreferences,
     private val prices: PriceTable,
     private val zone: ZoneId = ZoneId.of("Asia/Taipei"),
     private val clock: Clock,
-) {
+) : SpendGuard, UsageSink {
     private val _revision = MutableStateFlow(0L)
 
     /** Goes up by one on every [record] and every change of [alertUsd] or [hardCapUsd]: the overview recomputes on it. */
@@ -40,7 +43,7 @@ class CostMeter(
             bump()
         }
 
-    fun record(p: Provider, model: String, u: Usage) {
+    override fun record(p: Provider, model: String, u: Usage) {
         val cost = prices.costUsd(p, model, u, clock.instant())
         synchronized(this) {
             val today = today()
@@ -100,7 +103,7 @@ class CostMeter(
         true
     }
 
-    fun isBlocked(): Boolean = synchronized(this) {
+    override fun isBlocked(): Boolean = synchronized(this) {
         val cap = hardCapUsd
         cap != null && todayUsd() >= cap
     }

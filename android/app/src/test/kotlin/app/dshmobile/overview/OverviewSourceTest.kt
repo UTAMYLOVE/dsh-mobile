@@ -1,7 +1,7 @@
 package app.dshmobile.overview
 
 import app.dshmobile.chat.SessionRow
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.agency.core.metering.MutableClock
 import app.agency.core.metering.PriceTable

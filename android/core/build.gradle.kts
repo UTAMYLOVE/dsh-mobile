@@ -23,8 +23,12 @@ dependencies {
     // JSON trees are part of :core's public API: LegacyCoachJson.decode/decodeMessage take a JsonElement (UsageParser's
     // JsonObject functions are internal).
     api(libs.kotlinx.serialization.json)
+    // The provider layer: OkHttp types (HttpUrl, OkHttpClient) appear in core/net and core/llm signatures.
+    api(libs.okhttp)
+    implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
     testFixturesApi(libs.junit)
     // runBlocking for the suspend AgencyStore API.
     testFixturesApi(libs.kotlinx.coroutines.core)

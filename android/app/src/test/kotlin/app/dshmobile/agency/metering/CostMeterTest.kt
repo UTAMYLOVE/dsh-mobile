@@ -1,6 +1,7 @@
-package app.dshmobile.gateway
+package app.dshmobile.agency.metering
 
 import app.agency.core.metering.MutableClock
+import app.dshmobile.gateway.InMemorySharedPreferences
 import app.agency.core.metering.PriceTable
 import app.agency.core.metering.Provider
 import app.agency.core.metering.Usage
@@ -178,5 +179,17 @@ class CostMeterTest {
         org.junit.Assert.assertTrue(m.todayByModel().isEmpty())
         m.record(Provider.DEEPSEEK, "deepseek-v4-flash", Usage(inputTokens = 5, outputTokens = 5))
         org.junit.Assert.assertEquals(1L, m.todayByModel().single().requests)
+    }
+
+    @Test fun itIsTheProviderLayersSpendGuardAndUsageSink() {
+        val m = meter(MutableClock(at("2026-11-02T12:00:00")))
+        val guard: app.agency.core.metering.SpendGuard = m
+        val sink: app.agency.core.metering.UsageSink = m
+        m.hardCapUsd = 1.0
+        assertFalse(guard.isBlocked())
+        sink.record(Provider.DEEPSEEK, app.agency.core.llm.DeepSeekSearchClient.METER_MODEL, Usage(0, 0, webSearchRequests = 1))
+        assertEquals(0.00075, m.todayUsd(Provider.DEEPSEEK), 1e-12)
+        sink.record(Provider.ANTHROPIC, "claude-sonnet-5-5", twoDollars)
+        assertTrue(guard.isBlocked())
     }
 }

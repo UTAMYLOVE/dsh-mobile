@@ -1,0 +1,29 @@
+package app.agency.core.llm
+
+import app.agency.core.net.HttpOutcome
+
+/** Why a model call or a search gave no answer. The caller answers with a template; nothing here is shown verbatim. */
+enum class Fail {
+    NO_KEY, NO_SETUP, CAP, OFFLINE, KEY_REJECTED, RATE, SERVER, REFUSED, BAD_RESPONSE, BLOCKED_HOST;
+
+    companion object {
+        /**
+         * A non-2xx status. 402 (DeepSeek: no balance left) counts as KEY_REJECTED: the key cannot be used until he acts on the
+         * provider's site, the same as a revoked key. 3xx lands in BAD_RESPONSE because redirects are never followed.
+         */
+        fun ofStatus(code: Int): Fail = when {
+            code == 401 || code == 402 || code == 403 -> KEY_REJECTED
+            code == 429 -> RATE
+            code >= 500 -> SERVER
+            else -> BAD_RESPONSE
+        }
+
+        /** The failure of a transport outcome, or null for a 2xx response (whose body the caller then reads). */
+        fun of(outcome: HttpOutcome): Fail? = when (outcome) {
+            is HttpOutcome.Blocked -> BLOCKED_HOST
+            HttpOutcome.Offline -> OFFLINE
+            HttpOutcome.TooLarge -> BAD_RESPONSE
+            is HttpOutcome.Response -> if (outcome.code in 200..299) null else ofStatus(outcome.code)
+        }
+    }
+}

@@ -1,6 +1,6 @@
 package app.dshmobile.coach
 
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.agency.core.metering.Provider
 import app.agency.core.metering.UsageParser
 import app.dshmobile.log.ErrorLog

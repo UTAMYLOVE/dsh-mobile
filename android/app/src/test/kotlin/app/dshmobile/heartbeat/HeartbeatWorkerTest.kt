@@ -6,7 +6,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.agency.core.metering.MutableClock
 import app.dshmobile.gateway.NotifyRequest

@@ -1,6 +1,6 @@
 package app.dshmobile.service
 
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.dshmobile.gateway.LocalGateway
 import app.agency.core.metering.RateGuard
 import app.dshmobile.gateway.NotifyRequest

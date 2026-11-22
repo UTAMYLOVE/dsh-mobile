@@ -54,7 +54,7 @@ class UsageAccumulator {
     }
 }
 
-/** Reads usage from Anthropic Messages bodies; DeepSeek's Anthropic endpoint uses the same format. */
+/** Reads usage from Anthropic Messages bodies (DeepSeek's Anthropic endpoint uses the same format) and from chat completions. */
 object UsageParser {
     private val json = Json
 
@@ -63,6 +63,23 @@ object UsageParser {
     fun fromJson(p: Provider, body: String): Usage? {
         val usage = parseObject(body)?.get("usage") as? JsonObject ?: return null
         return UsageAccumulator().apply { add(toUpdate(usage)) }.current()
+    }
+
+    /**
+     * Usage of an OpenAI-style chat completion (top-level `usage`), or null when absent or not JSON. DeepSeek reports
+     * `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` (verified against api-docs.deepseek.com, 2026-11-22): the misses
+     * become [Usage.inputTokens] and the hits [Usage.cacheReadTokens], which is how [PriceTable] prices DeepSeek. A service
+     * without those fields reports `prompt_tokens` and maybe `prompt_tokens_details.cached_tokens`; the cached part is split out.
+     */
+    fun fromOpenAiJson(body: String): Usage? {
+        val usage = parseObject(body)?.get("usage") as? JsonObject ?: return null
+        val output = usage.long("completion_tokens") ?: 0
+        val hit = usage.long("prompt_cache_hit_tokens")
+        val miss = usage.long("prompt_cache_miss_tokens")
+        if (hit != null || miss != null) return Usage(inputTokens = miss ?: 0, outputTokens = output, cacheReadTokens = hit ?: 0)
+        val prompt = usage.long("prompt_tokens") ?: 0
+        val cached = ((usage["prompt_tokens_details"] as? JsonObject)?.long("cached_tokens") ?: 0).coerceIn(0, prompt)
+        return Usage(inputTokens = prompt - cached, outputTokens = output, cacheReadTokens = cached)
     }
 
     /** Usage fields of a `message_start` (inside `message`) or `message_delta` event; null for any other event or bad JSON. */

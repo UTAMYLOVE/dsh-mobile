@@ -8,7 +8,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.config.DshPatch
 import app.dshmobile.DshMobileApp
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.agency.core.metering.MutableClock
 import app.agency.core.metering.PriceTable

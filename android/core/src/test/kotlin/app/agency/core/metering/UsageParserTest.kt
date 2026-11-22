@@ -122,3 +122,19 @@ class UsageParserTest {
         assertEquals(4L, scanner.usage()?.outputTokens)
     }
 }
+
+class OpenAiUsageParserTest {
+    @Test fun deepseekCacheFieldsSplitTheInput() {
+        val body = """{"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,
+            "prompt_tokens_details":{"cached_tokens":30},"prompt_cache_hit_tokens":30,"prompt_cache_miss_tokens":70,
+            "completion_tokens_details":{"reasoning_tokens":12}}}"""
+        assertEquals(Usage(inputTokens = 70, outputTokens = 20, cacheReadTokens = 30), UsageParser.fromOpenAiJson(body))
+    }
+
+    @Test fun genericServiceFallsBackToPromptTokensAndCachedTokens() {
+        assertEquals(Usage(80, 5, 20), UsageParser.fromOpenAiJson("""{"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":20}}}"""))
+        assertEquals(Usage(9, 1), UsageParser.fromOpenAiJson("""{"usage":{"prompt_tokens":9,"completion_tokens":1}}"""))
+        org.junit.Assert.assertNull(UsageParser.fromOpenAiJson("""{"choices":[]}"""))
+        org.junit.Assert.assertNull(UsageParser.fromOpenAiJson("nope"))
+    }
+}

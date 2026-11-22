@@ -53,7 +53,7 @@ import app.dshmobile.config.AgentModels
 import app.dshmobile.config.AgentSettings
 import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.config.displayName
-import app.dshmobile.gateway.CostMeter
+import app.dshmobile.agency.metering.CostMeter
 import app.agency.core.metering.Provider
 import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.runtime.UpdateOutcome
