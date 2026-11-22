@@ -214,6 +214,7 @@ class InMemoryAgencyStore : AgencyStore {
     private fun Collection<Message>.byTime() = sortedWith(compareBy({ it.at }, { it.id }))
 
     override val messages = object : MessageRepo {
+        override suspend fun upsert(message: Message) = locked { messages[message.id] = message }
         override suspend fun insert(message: Message): Boolean = locked { messages.putIfAbsent(message.id, message) == null }
         override suspend fun get(id: String): Message? = locked { messages[id] }
         override suspend fun recent(limit: Int): List<Message> = locked { messages.values.byTime().takeLast(limit.coerceAtLeast(0)) }
@@ -245,6 +246,7 @@ class InMemoryAgencyStore : AgencyStore {
     }
 
     override val nudges = object : NudgeRepo {
+        override suspend fun upsert(nudge: Nudge) = locked { nudges[nudge.id] = nudge }
         override suspend fun insert(nudge: Nudge): Boolean = locked { nudges.putIfAbsent(nudge.id, nudge) == null }
         override suspend fun get(id: String): Nudge? = locked { nudges[id] }
         override suspend fun between(fromAt: Long, toAt: Long): List<Nudge> =

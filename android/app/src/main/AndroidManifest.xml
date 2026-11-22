@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 清唱錄音 (入社建檔, T07): asked at that step only. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Slot reminders and the 30-minute chase on time (T13, arch 1.6): granted at install for an alarm-type app. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <!-- WorkManager's library manifest asks for it (its foreground service); nothing of ours runs in the foreground (arch 1.13). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
@@ -43,6 +45,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The one armed alarm (T13): only our own PendingIntent reaches it. -->
+        <receiver
+            android:name=".agency.schedule.AlarmReceiver"
+            android:exported="false" />
+
+        <!-- Re-arms after a reboot, a clock or time-zone change and an update (system broadcasts only). -->
+        <receiver
+            android:name=".agency.schedule.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Shares go out as content:// URIs under cache/export/, and the system camera writes into cache/camera/
              (res/xml/file_paths.xml); no storage permission is needed. -->

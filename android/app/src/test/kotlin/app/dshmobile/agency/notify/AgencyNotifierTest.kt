@@ -5,7 +5,13 @@ import android.app.Application
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import android.app.Notification
+import app.agency.core.engine.Nudger
+import app.agency.core.engine.Post
+import app.agency.core.engine.PostChannel
+import app.agency.core.schedule.SlotKey
 import app.dshmobile.ui.agency.AgencyActivity
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -47,6 +53,50 @@ class AgencyNotifierTest {
         listOf(AgencyNotifier.RATE_TITLE, AgencyNotifier.RATE_TEXT, AgencyNotifier.costText(2.0)).forEach {
             assertTrue(it, it.none { c -> c in 'A'..'Z' || c in 'a'..'z' })
         }
+    }
+
+    @Test fun theFourChannelsAndTheirImportance() {
+        notifier.channels()
+        val byId = nm.notificationChannels.associateBy { it.id }
+        assertEquals(setOf(AgencyNotifier.CHANNEL_SCHEDULE, AgencyNotifier.CHANNEL_RIDING, AgencyNotifier.CHANNEL_MESSAGES, AgencyNotifier.CHANNEL_ALERTS), byId.keys)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, byId.getValue(AgencyNotifier.CHANNEL_SCHEDULE).importance)
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, byId.getValue(AgencyNotifier.CHANNEL_RIDING).importance)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, byId.getValue(AgencyNotifier.CHANNEL_ALERTS).importance)
+        assertEquals("行程提醒", byId.getValue(AgencyNotifier.CHANNEL_SCHEDULE).name.toString())
+        assertEquals("騎車中", byId.getValue(AgencyNotifier.CHANNEL_RIDING).name.toString())
+        assertEquals("花費與錯誤", byId.getValue(AgencyNotifier.CHANNEL_ALERTS).name.toString())
+    }
+
+    @Test fun aGapPushIsProminentStaysAndLeadsToItsSlot() {
+        notifier.post(Post(Nudger.GAP_KEY, "n1", "午餐時間到了，做完回報。", PostChannel.SCHEDULE, alert = true, gapKeys = listOf(SlotKey.LUNCH), slot = SlotKey.LUNCH))
+        val n = shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS)
+        assertEquals(AgencyNotifier.CHANNEL_SCHEDULE, n.channelId)
+        assertEquals(Notification.CATEGORY_REMINDER, n.category)
+        assertTrue(n.flags and Notification.FLAG_ONGOING_EVENT != 0)
+        assertTrue(n.flags and Notification.FLAG_AUTO_CANCEL == 0)
+        assertTrue(n.flags and Notification.FLAG_ONLY_ALERT_ONCE == 0)
+        assertEquals("LUNCH", shadowOf(n.contentIntent).savedIntent.getStringExtra(AgencyNotifier.EXTRA_SLOT))
+        // The model's words replace it on the same id, silently; once the gap is filled it goes, and a late update stays away.
+        notifier.update(Post(Nudger.GAP_KEY, "n1", "午餐，現在吃。", PostChannel.SCHEDULE, alert = true))
+        val worded = shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS)
+        assertEquals("午餐，現在吃。", shadowOf(worded).contentText.toString())
+        assertTrue(worded.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+        notifier.cancelGaps()
+        assertNull(shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS))
+        notifier.update(Post(Nudger.GAP_KEY, "n1", "晚到的字", PostChannel.SCHEDULE, alert = false))
+        assertNull(shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS))
+    }
+
+    @Test fun whileRidingTheSecondPushIsSilent() {
+        notifier.post(Post(Nudger.GAP_KEY, "n1", "跑單途中的雞胸時間到了，做完回報。", PostChannel.RIDING, alert = true))
+        val first = shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS)
+        assertEquals(AgencyNotifier.CHANNEL_RIDING, first.channelId)
+        assertTrue(first.flags and Notification.FLAG_ONGOING_EVENT == 0)
+        notifier.post(Post(Nudger.GAP_KEY, "n2", "還缺：跑單途中的雞胸。", PostChannel.RIDING, alert = false))
+        val second = shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS)
+        assertTrue(second.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+        assertEquals(AgencyNotifier.idOf(Nudger.GAP_KEY), AgencyNotifier.ID_GAPS)
+        assertTrue(AgencyNotifier.idOf("preride") in 7300..7389)
     }
 
     @Test fun withoutThePermissionNothingIsPostedAndNothingThrows() {

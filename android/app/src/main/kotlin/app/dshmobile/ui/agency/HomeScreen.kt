@@ -36,6 +36,7 @@ import app.agency.core.brain.handlers.OnboardingStatus
 import app.dshmobile.ui.agency.onboarding.BaselineBadges
 import app.dshmobile.ui.agency.onboarding.OnboardingFlow
 import app.dshmobile.ui.kit.Sakura
+import app.dshmobile.ui.kit.SoftButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -71,6 +72,8 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
     val card by produceState<IdolCardFacts?>(null, revision, cardRevision, settingsRevision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.card() }.getOrNull() } }
     }
+    // The reminders start once 入社建檔 is walked through: that is when he is asked for notifications (once).
+    LaunchedEffect(onboarding?.completed) { if (onboarding?.completed == true) actions.askNotifications() }
     Column(Modifier.fillMaxSize().imePadding().testTag(AgencyTags.HOME)) {
         card?.let { IdolCardView(agency, it, onboarding, onSaved = { cardRevision++ }) }
         onboarding?.let { status ->
@@ -79,11 +82,24 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         notice?.let { NoticeBar(it, agency::dismissNotice) }
         ChatList(messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f))
         onboarding?.let { OnboardingFlow(agency, it, actions) }
+        // The ride buttons come with the reminders, after 入社建檔 (the 入社建檔 panel has the room until then).
+        if (onboarding?.completed == true) RideButtons(busy) { agency.send(it) }
         Composer(busy = busy, onSend = agency::send)
     }
 }
 
 private const val PAGE = 500
+
+/** 出門跑單 / 收工 (arch T13): the same words he may type; riding makes reminders sound once. */
+@Composable
+private fun RideButtons(busy: Boolean, onSay: (String) -> Unit) {
+    val start = stringResource(R.string.ag_ride_start)
+    val end = stringResource(R.string.ag_ride_end)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
+        SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
+    }
+}
 
 @Composable
 private fun NoticeBar(n: ImportNotice, onDismiss: () -> Unit) {

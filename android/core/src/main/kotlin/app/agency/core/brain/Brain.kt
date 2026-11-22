@@ -10,7 +10,16 @@ import app.agency.core.brain.handlers.Onboarding
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.agency.core.brain.handlers.OnboardingStep
 import app.agency.core.engine.IdolCard
+import app.agency.core.engine.Effect
+import app.agency.core.engine.Fire
+import app.agency.core.engine.Gaps
 import app.agency.core.engine.GroomingItem
+import app.agency.core.engine.Links
+import app.agency.core.engine.NextFire
+import app.agency.core.engine.Nudger
+import app.agency.core.engine.Post
+import app.agency.core.engine.PostChannel
+import app.agency.core.engine.Tick
 import app.agency.core.engine.IdolCardFacts
 import app.agency.core.engine.Nerve
 import app.agency.core.engine.NerveResult
@@ -27,6 +36,7 @@ import app.agency.core.llm.ProviderChoice
 import app.agency.core.llm.Purpose
 import app.agency.core.memory.MemoryBlocks
 import app.agency.core.model.Media
+import app.agency.core.model.EffectStatus
 import app.agency.core.model.Message
 import app.agency.core.model.NerveEffect
 import app.agency.core.model.MessageMode
@@ -35,6 +45,9 @@ import app.agency.core.model.Who
 import app.agency.core.model.WordedBy
 import app.agency.core.persona.PromptBuilder
 import app.agency.core.persona.PromptInput
+import app.agency.core.persona.ReplyKind
+import app.agency.core.schedule.SlotKey
+import app.agency.core.structured.NudgeLine
 import app.agency.core.persona.Roles
 import app.agency.core.rules.FoodTable
 import app.agency.core.rules.RulesBook
@@ -137,6 +150,130 @@ class Brain(
         val profile = snapshot.profile()
         val day = snapshot.today(profile)
         return nerve.emit(Signal.DayStarted("day:$day", clock.millis(), day.toString()))
+    }
+
+    /**
+     * An alarm fire (arch 1.6): the day starts if it has not, the gaps due now become one push (or a 30-minute chase), and the
+     * link reminders due now go out; each post is a nudge row and, when it says something new, a company line. Also run after
+     * his own events, so a filled gap clears and a reminder held back during the ride goes out at 收工.
+     */
+    suspend fun tick(): Tick = mutex.withLock {
+        val r = tickLocked()
+        bump()
+        r
+    }
+
+    private suspend fun tickLocked(): Tick {
+        dayStarted()
+        val profile = snapshot.profile()
+        // Reminders start once 入社建檔 is walked through (it is step 0: the welcome is not buried under reminders).
+        if (!profile.onboardingDone) return Tick(emptyList(), gapsCleared = true, next = null)
+        val now = clock.now()
+        nerve.emit(Signal.RemindersOn(Signal.REMINDERS_ON, now.toEpochMilli()))
+        val since = remindersSince() ?: now
+        val day = snapshot.today(profile)
+        val states = snapshot.slots(day, snapshot.records(day), profile)
+        val state = nerve.state(day)
+        val today = store.nudges.between(dayStart(day, profile), now.toEpochMilli() + 1)
+        val lastGap = today.filter { it.gapKeys.isNotEmpty() }.maxByOrNull { it.at }
+        val quiet = state.signedOutAt != null
+        val gaps = if (quiet) emptyList() else Gaps.of(states, now).filter { !it.dueAt.isBefore(since) }
+        val posts = mutableListOf<Post>()
+        val sent = mutableListOf<String>()
+        var at = now.toEpochMilli()
+        if (Nudger.gapPushDue(gaps, lastGap, now)) {
+            val index = today.count { it.gapKeys.isNotEmpty() }
+            val keys = gaps.map { it.key }
+            val fresh = lastGap == null || keys.any { it.name !in lastGap.gapKeys }
+            nerve.emit(Signal.GapDue("gap:$day:${now.toEpochMilli() / 60_000}", now.toEpochMilli(), keys, index)).notifies
+                .filter { it.link == Links.L12Chase.id }.forEach { e ->
+                    val channel = if (state.riding) PostChannel.RIDING else PostChannel.SCHEDULE
+                    val alert = if (state.riding) Nudger.ridingAlert(today, state.rideStartAt) else true
+                    val p = Post(Nudger.GAP_KEY, newId(), e.because, channel, alert, keys, keys.first(), word = index % 2 == 0)
+                    posts += p
+                    sent += e.id
+                    val (n, m) = Nudger.record(p, at++, Nudger.roleOf(keys), newMessage = fresh)
+                    store.nudges.insert(n)
+                    m?.let { store.messages.insert(it) }
+                }
+        }
+        val due = nerve.dueNotifies(now.toEpochMilli())
+        // An older chase that was never posted, anything left from an earlier day, and a reminder that was due before the
+        // reminders started, is not posted any more.
+        val stale = due.filter { it.link == Links.L12Chase.id || it.day != day.toString() || (it.dueAt ?: it.at) < since.toEpochMilli() }
+        stale.forEach { store.nerve.setStatus(it.id, EffectStatus.EXPIRED, now.toEpochMilli()) }
+        if (!quiet) {
+            (due - stale.toSet()).filter { Nudger.postable(it, state.riding) }.forEach { e ->
+                val notify = Nerve.decodeEffect(e.json) as Effect.Notify
+                val p = Post(notify.key, newId(), notify.text, if (state.riding) PostChannel.RIDING else PostChannel.SCHEDULE, alert = true)
+                posts += p
+                sent += e.id
+                val (n, m) = Nudger.record(p, at++, RoleKey.MANAGER, newMessage = true)
+                store.nudges.insert(n)
+                m?.let { store.messages.insert(it) }
+            }
+        }
+        nerve.markSent(sent)
+        return Tick(posts, gapsCleared = gaps.isEmpty(), next = nextFireLocked())
+    }
+
+    /** When the next alarm should fire (arch 1.6 `NextFire`). */
+    suspend fun nextFire(): Fire? = mutex.withLock { nextFireLocked() }
+
+    private suspend fun nextFireLocked(): Fire? {
+        val profile = snapshot.profile()
+        if (!profile.onboardingDone) return null
+        val day = snapshot.today(profile)
+        val now = clock.now()
+        val since = remindersSince() ?: now
+        val states = snapshot.slots(day, snapshot.records(day), profile).filter { !it.dueAt.isBefore(since) || it.status != app.agency.core.engine.SlotStatus.OPEN }
+        val state = nerve.state(day)
+        val lastGap = store.nudges.between(dayStart(day, profile), now.toEpochMilli() + 1).filter { it.gapKeys.isNotEmpty() }.maxByOrNull { it.at }
+        val wake = nerve.plan(day.plusDays(1)).slot(SlotKey.WAKE)?.let { Nudger.at(day.plusDays(1), it.minute, clock.zone) }
+        val note = nerve.nextNotify(now.toEpochMilli())?.let { Instant.ofEpochMilli(it) }
+        return NextFire.next(now, states, state.signedOutAt != null, lastGap?.let { Instant.ofEpochMilli(it.at) }, note, wake)
+    }
+
+    private suspend fun remindersSince(): Instant? = store.nerve.signal(Signal.REMINDERS_ON)?.let { Instant.ofEpochMilli(it.at) }
+
+    private fun dayStart(day: java.time.LocalDate, profile: app.agency.core.model.Profile): Long =
+        day.atStartOfDay(clock.zone).plusHours(profile.dayStartHour.toLong()).toInstant().toEpochMilli()
+
+    /**
+     * The model's wording of a push (arch 1.6 WordingWorker): one guarded NudgeLine in the routed role's voice, at most
+     * [Nudger.DAILY_WORDING_CAP] a day. The nudge row and its company line take the words; null keeps the template (no key,
+     * offline, the cap, a reply the guard refused).
+     */
+    suspend fun wordNudge(nudgeId: String): String? = mutex.withLock {
+        val n = store.nudges.get(nudgeId) ?: return@withLock null
+        if (n.wordedBy == WordedBy.MODEL) return@withLock null
+        val profile = snapshot.profile()
+        val day = snapshot.today(profile)
+        val worded = store.nudges.between(dayStart(day, profile), clock.millis() + 1).count { it.wordedBy == WordedBy.MODEL }
+        if (worded >= Nudger.DAILY_WORDING_CAP) return@withLock null
+        val keys = n.gapKeys.mapNotNull { SlotKey.parse(it) }
+        val role = Nudger.roleOf(keys)
+        val input = snapshot.facts(store.messages.recent(FactsBuilder.MAX_MESSAGES))
+        val facts = FactsBuilder.build(input, hasCurrentMessage = false)
+        val tone = ToneDecider.decide(ToneInputs(breachToday = input.today.breachToday, gentleToday = nerve.state(day).gentle))
+        val system = PromptBuilder.system(
+            PromptInput(
+                role = Roles.of(role), mode = MessageMode.NORMAL, tone = tone, rules = input.rules,
+                memory = MemoryBlocks.render(store.memory.items(), day) { at -> snapshot.dayOf(Instant.ofEpochMilli(at), profile) },
+                facts = facts, reply = ReplyKind.NUDGE, companyName = profile.companyName ?: PromptInput.DEFAULT_COMPANY,
+                latinNames = (OutputGuard.LATIN_WHITELIST + profile.idolNames).distinct(), memoryWrites = false,
+            ),
+        )
+        val evidence = Evidence(listOf(facts.json.toString(), n.text), emptyList(), profile.idolNames, breachToday = input.today.breachToday)
+        val out = structured.call(
+            NudgeLine.SPEC, system, PromptBuilder.turns(facts, null, n.text), Purpose.NUDGE, NUDGE_TOKENS,
+            check = NudgeLine.checker(evidence, tone), fallback = { null },
+        )
+        val text = (out as? Structured.Model)?.value?.text ?: return@withLock null
+        store.nudges.upsert(n.copy(text = text, wordedBy = WordedBy.MODEL))
+        store.messages.get(Nudger.messageId(n.id))?.let { store.messages.upsert(it.copy(text = text, wordedBy = WordedBy.MODEL)) }
+        bump()
+        text
     }
 
     /** 「今天的連動」 (the war room's card): today's effects, oldest first. */
@@ -327,6 +464,7 @@ class Brain(
     companion object {
         const val MAX_OWNER_CHARS = 2000
         const val INTAKE_TOKENS = 600
+        const val NUDGE_TOKENS = 200
         private const val CHAT = "chat"
 
         /** The kind of the manager's 入社建檔 lines. */

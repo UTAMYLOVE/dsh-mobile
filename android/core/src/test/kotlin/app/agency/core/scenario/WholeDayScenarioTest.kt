@@ -2,6 +2,11 @@ package app.agency.core.scenario
 
 import app.agency.core.brain.Brain
 import app.agency.core.engine.DayState
+import app.agency.core.engine.Fire
+import app.agency.core.engine.FireKind
+import app.agency.core.engine.Nudger
+import app.agency.core.engine.PostChannel
+import app.agency.core.engine.Tick
 import app.agency.core.engine.IllKind
 import app.agency.core.engine.Signal
 import app.agency.core.llm.ProviderChoice
@@ -30,8 +35,8 @@ import org.junit.Test
 
 /**
  * 整天情境 (agency-links §4): one invented Monday (a class day) played through the brain in order: he wakes late, shaves, has
- * a fever and says yes to the today-only change, misses lunch (the reminders), rides, eats the on-run portion, gets home under
- * the floor and signs out. At the end: the day state, the plan, the proposal, the reminders and the lines. Later batches add
+ * a fever and says yes to the today-only change, misses lunch (the alarm's push and the 30-minute chase), rides (one sound),
+ * eats the on-run portion, gets home under the floor (the held reminder goes out) and signs out (quiet until tomorrow). At the end: the day state, the plan, the proposal, the reminders and the lines. Later batches add
  * meals with photos, water, training and the bedtime review to this same day, and the emulator plays it last.
  */
 class WholeDayScenarioTest {
@@ -41,6 +46,11 @@ class WholeDayScenarioTest {
     private var n = 0
     private val brain = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%05d".format(++n) }
     private val monday = LocalDate.parse("2026-12-07")
+
+    init {
+        // 入社建檔 is done (reminders start after it).
+        runBlocking { store.profile.put(app.agency.core.model.Profile(onboardingDone = true)) }
+    }
 
     private fun t(hhmm: String): Long = monday.atStartOfDay(AgencyClock.TAIPEI).plusMinutes(DayClock.minute(hhmm).toLong()).toInstant().toEpochMilli()
     private fun at(hhmm: String) { clock.now = Instant.ofEpochMilli(t(hhmm)) }
@@ -55,8 +65,11 @@ class WholeDayScenarioTest {
     private fun state(): DayState = runBlocking { brain.nerve.state(monday) }
     private fun plan(): DayPlan = runBlocking { brain.nerve.plan(monday) }
     private fun effects() = runBlocking { store.nerve.effects(monday.toString()) }
+    private fun tick(hhmm: String): Tick = runBlocking { at(hhmm); brain.tick() }
 
     @Test fun aClassDayWithALateWakeAFeverARideAndAnEarlyNight() {
+        // 07:00 the morning alarm: the reminders are running (nothing is due yet).
+        assertTrue(tick("07:00").posts.isEmpty())
         // 10:00, 90 minutes late: lunch follows (13:40), sleep stays; shaving is due at sign-in; the day starts (17:40 water).
         val wake = say("10:00", "簽到")
         assertEquals("簽到了，比表定晚 90 分鐘。", wake.first())
@@ -76,30 +89,52 @@ class WholeDayScenarioTest {
         // Asking to skip the stretch as well: the stretch is the minimum of a sick day.
         assertEquals(listOf("今天已經調整過了：伸展照做，這是最少的。"), say("12:00", "伸展也可以不要做嗎"))
 
-        // Lunch is not reported: the push at 13:40, then the chase every 30 minutes.
-        val push = signal("13:40") { Signal.GapDue("gap:LUNCH:0", it, listOf(SlotKey.LUNCH), 0) }
-        assertEquals("午餐時間到了，做完回報。", push.notifies.single().because)
-        signal("14:10") { Signal.GapDue("gap:LUNCH:1", it, listOf(SlotKey.LUNCH), 1) }
-        signal("14:10") { Signal.GapDue("gap:LUNCH:1", it, listOf(SlotKey.LUNCH), 1) } // the alarm fired twice: counted once
+        // The alarm fires (T13): what was due goes out (the shave reminder), lunch is pushed at 13:40 and chased every
+        // 30 minutes; a fire in between posts nothing; the same minute twice counts once.
+        val shave = tick("10:06")
+        assertEquals(listOf("刮鬍子（每兩天一次），刮好說「刮好了」。"), shave.posts.map { it.text })
+        assertEquals(Fire(Instant.ofEpochMilli(t("13:40")), FireKind.SLOT), shave.next)
+        val push = tick("13:40").posts.single { it.key == Nudger.GAP_KEY }
+        assertEquals("午餐時間到了，做完回報。", push.text)
+        assertEquals(PostChannel.SCHEDULE, push.channel)
+        assertTrue(push.alert)
+        assertTrue(tick("13:55").posts.isEmpty())
+        assertEquals("還缺：午餐。", tick("14:10").posts.single().text)
+        assertTrue(tick("14:10").posts.isEmpty())
+
+        // 17:40 the water reminder before the ride; dinner (17:15) is missing too by then.
+        val pre = tick("17:40")
+        assertEquals(setOf("preride", Nudger.GAP_KEY), pre.posts.map { it.key }.toSet())
+        assertEquals("還缺：午餐、晚餐。", pre.posts.single { it.key == Nudger.GAP_KEY }.text)
 
         // 18:05 out on the run: reminders sound once; awake 8 hours after a night we do not know: no tired-riding warning.
         val out = say("18:05", "出門跑單")
         assertEquals(listOf("出門了。騎車小心，提醒只響一聲。21:00 記得吃雞胸。"), out)
         assertTrue(state().riding)
         assertTrue(DayFlag.RIDING_ONE_SOUND in state().flags)
-        val ridingChase = signal("21:00") { Signal.GapDue("gap:RIDE_MEAL:0", it, listOf(SlotKey.RIDE_MEAL), 0) }
-        assertTrue(app.agency.core.engine.Nerve.decodeEffect(ridingChase.notifies.single().json).let { (it as app.agency.core.engine.Effect.Notify).soundOnce })
-
-        // 21:05 the on-run portion (the meal feature emits this from T14 on).
+        val ride = tick("21:00").posts.single { it.key == Nudger.GAP_KEY }
+        assertEquals(PostChannel.RIDING, ride.channel)
+        assertTrue(ride.alert)
+        // 21:05 the on-run portion (the meal feature writes the record and emits the signal from T14 on).
+        runBlocking { store.meals.insert(app.agency.core.model.Meal("meal-run", monday.toString(), t("21:05"), slotKey = "RIDE_MEAL", text = "雞胸")) }
         signal("21:05") { Signal.MealLogged("meal-run", it, SlotKey.RIDE_MEAL, 310, 40.0) }
+        val silent = tick("21:35").posts.single { it.key == Nudger.GAP_KEY }
+        assertEquals("還缺：午餐、晚餐。", silent.text)
+        assertFalse(silent.alert) // the second push while riding is silent
 
         // 23:30 home: no 宵夜 tonight (L9), then the floor check (L6): 310 is under 1200.
         assertEquals(listOf("收工了。"), say("23:30", "收工"))
         assertTrue(DayFlag.LATE_SNACK_OFF in state().flags)
         assertFalse(state().riding)
 
-        // 01:00 to bed early (fine): signed out.
+        // Home: the floor reminder goes out now (it was held during the ride).
+        assertTrue(tick("23:31").posts.any { it.key == "floor" && it.text == "今天才吃 310 大卡，不到 1200。要吃夠，不准少吃；吃了拍照回報。" })
+
+        // 01:00 to bed early (fine): signed out; nothing more until tomorrow's wake slot.
         assertEquals(listOf("簽退了。晚安，明天見。"), say("01:00", "我要睡了"))
+        val night = tick("01:30")
+        assertTrue(night.posts.isEmpty())
+        assertEquals(Fire(LocalDate.parse("2026-12-08").atStartOfDay(AgencyClock.TAIPEI).plusHours(8).plusMinutes(30).toInstant(), FireKind.SLOT), night.next)
 
         // The end of the day.
         val st = state()
@@ -110,17 +145,16 @@ class WholeDayScenarioTest {
         assertEquals(310, st.kcal)
         val byLink = effects().groupBy { it.link }
         assertEquals(setOf("L1", "L2", "L3", "L3b", "L8", "L9", "L6", "L12", "L17"), byLink.keys)
-        val pending = effects().filter { it.kind == EffectKind.NOTIFY && it.status == EffectStatus.PENDING }.map { it.link to it.because }
+        assertTrue(effects().none { it.kind == EffectKind.NOTIFY && it.status == EffectStatus.PENDING })
+        val nudges = runBlocking { store.nudges.between(0, Long.MAX_VALUE) }.map { it.text }
         assertEquals(
             listOf(
-                "L8" to "快出門了：出門前先喝水，路上只能小口喝。",
-                "L17" to "刮鬍子（每兩天一次），刮好說「刮好了」。",
-                "L12" to "午餐時間到了，做完回報。",
-                "L12" to "還缺：午餐。",
-                "L12" to "跑單途中的雞胸時間到了，做完回報。",
-                "L6" to "今天才吃 310 大卡，不到 1200。要吃夠，不准少吃；吃了拍照回報。",
+                "刮鬍子（每兩天一次），刮好說「刮好了」。", "午餐時間到了，做完回報。", "還缺：午餐。", "還缺：午餐、晚餐。",
+                "快出門了：出門前先喝水，路上只能小口喝。", "還缺：午餐、晚餐、跑單途中的雞胸。", "還缺：午餐、晚餐。",
+                "還缺：午餐、晚餐。", // 23:31: still chased (home now, so it sounds again)
+                "今天才吃 310 大卡，不到 1200。要吃夠，不准少吃；吃了拍照回報。",
             ),
-            pending,
+            nudges,
         )
         assertEquals(1, runBlocking { store.proposals.withStatus(ProposalStatus.ACCEPTED) }.size)
         assertTrue(runBlocking { store.proposals.withStatus(ProposalStatus.PENDING) }.isEmpty())

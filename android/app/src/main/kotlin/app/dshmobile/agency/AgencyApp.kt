@@ -43,6 +43,8 @@ import app.dshmobile.agency.migrate.LegacyCleanup
 import app.dshmobile.agency.migrate.LegacyExport
 import app.dshmobile.agency.migrate.LegacyImporter
 import app.dshmobile.agency.notify.AgencyNotifier
+import app.dshmobile.agency.schedule.AlarmScheduler
+import app.dshmobile.agency.schedule.WordingWorker
 import app.dshmobile.agency.secure.TransientDataException
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.security.KeyVault
@@ -63,6 +65,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
@@ -146,6 +149,7 @@ class AgencyApp(
     private val legacyPrefs = context.getSharedPreferences(LegacyPrefs.NAME, Context.MODE_PRIVATE)
     val settings = AgencySettings(agencyPrefs)
     val notifier = AgencyNotifier(context)
+    val scheduler = AlarmScheduler(context)
     /** Anything thrown outside the start's own catches is logged and ends on a try-again screen, never a crash at start. */
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
@@ -223,7 +227,56 @@ class AgencyApp(
         refreshDayStart(store)
         val brain = brain(store)
         startOnboarding(brain, imp)
-        _start.value = StartState.Ready(store, brain)
+        val ready = StartState.Ready(store, brain)
+        _start.value = ready
+        remind(ready)
+    }
+
+    /**
+     * The alarm (or a reboot, a clock change, an app update) fired: the company opens if it is not open yet, and one tick posts
+     * what is due and re-arms. Called from the receivers, off the main thread.
+     */
+    suspend fun onAlarm() {
+        start()
+        val ready = withTimeoutOrNull(OPEN_WAIT_MS) { _start.first { it is StartState.Ready || it is StartState.Locked } } as? StartState.Ready ?: return
+        remind(ready)
+    }
+
+    /**
+     * One tick of the scheduler (arch 1.6): every post on screen at once with its code template, the gap notification gone
+     * when nothing is missing, the next alarm armed, and the model's wording asked for afterwards (within its caps). Also run
+     * after each of his messages, so a filled gap clears at once. A failure is logged, never thrown.
+     */
+    private suspend fun remind(ready: StartState.Ready) {
+        try {
+            val tick = ready.brain.tick()
+            tick.posts.forEach(notifier::post)
+            if (tick.gapsCleared) notifier.cancelGaps()
+            val mode = scheduler.arm(tick.next)
+            if (mode == AlarmScheduler.Mode.WINDOW) errorLog.append(TAG, "exact alarms not allowed: window")
+            tick.posts.filter { it.word }.forEach { p ->
+                runCatching { WordingWorker.enqueue(context, p) }.onFailure { errorLog.append(TAG, "wording not queued (${it.javaClass.simpleName})") }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "reminders failed (${e.javaClass.simpleName})")
+        }
+    }
+
+    /** The wording worker: the model's words for [post] (it stays the template when there are none). */
+    suspend fun word(post: app.agency.core.engine.Post) {
+        val ready = _start.value as? StartState.Ready ?: run {
+            start()
+            withTimeoutOrNull(OPEN_WAIT_MS) { _start.first { it is StartState.Ready } } as? StartState.Ready
+        } ?: return
+        try {
+            ready.brain.wordNudge(post.nudgeId)?.let { notifier.update(post.copy(text = it)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "wording failed (${e.javaClass.simpleName})")
+        }
     }
 
     /**
@@ -442,6 +495,7 @@ class AgencyApp(
             try {
                 ready.brain.onText(text)
                 refreshDayStart(ready.store)
+                remind(ready)
                 if (costMeter.consumeAlert()) notifier.costAlert(costMeter.todayUsd())
             } catch (e: CancellationException) {
                 throw e
@@ -588,6 +642,7 @@ class AgencyApp(
         private const val EXPORT_DIR = "export"
         private const val PROVIDER_SUFFIX = ".export"
         private const val DEFAULT_DAY_START = 5
+        private const val OPEN_WAIT_MS = 8_000L
 
         /** The cheapest Claude model, for the data clerk and the second-pass judge only. */
         const val CLAUDE_CLERK = "claude-haiku-5-5"

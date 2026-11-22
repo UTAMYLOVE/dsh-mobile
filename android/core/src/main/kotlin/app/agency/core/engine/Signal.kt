@@ -27,6 +27,13 @@ sealed interface Signal {
     @Serializable @SerialName("day_started")
     data class DayStarted(override val id: String, override val at: Long, val day: String, override val source: String = "clock") : Signal
 
+    /**
+     * The first alarm tick after 入社建檔 (id [REMINDERS_ON], so once ever): reminders run from here; a slot that was due before
+     * it (the hours before he finished 入社建檔, or before this version was installed) is never chased.
+     */
+    @Serializable @SerialName("reminders_on")
+    data class RemindersOn(override val id: String, override val at: Long, override val source: String = "scheduler") : Signal
+
     /** He signed in (sign-in command now; the score with T19). */
     @Serializable @SerialName("woke_up")
     data class WokeUp(override val id: String, override val at: Long, override val source: String = "sign") : Signal
@@ -105,6 +112,8 @@ sealed interface Signal {
     data class WeekEnded(override val id: String, override val at: Long, val monday: String, override val source: String = "clock") : Signal
 
     companion object {
+        const val REMINDERS_ON = "reminders:on"
+
         val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true; classDiscriminator = "type" }
 
         fun encode(s: Signal): String = JSON.encodeToString(serializer(), s)

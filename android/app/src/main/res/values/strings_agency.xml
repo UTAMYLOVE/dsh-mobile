@@ -83,6 +83,20 @@
     <string name="ag_card_next">下一項：%1$s %2$s</string>
     <string name="ag_card_gaps">還沒回報：%1$s</string>
 
+    <!-- 權限檢查 and the ride buttons (T13) -->
+    <string name="ag_set_permissions">權限檢查</string>
+    <string name="ag_perm_notify_ok">通知：開著。</string>
+    <string name="ag_perm_notify_bad">通知被關掉了：吃飯和行程的提醒都收不到。請打開。</string>
+    <string name="ag_perm_channel_ok">行程提醒：會響、會震動、會跳出來。</string>
+    <string name="ag_perm_channel_bad">行程提醒被調成安靜了：時間到了不會響。請把它調回「緊急」或「高」。</string>
+    <string name="ag_perm_exact_ok">準時鬧鐘：可以，提醒會準時。</string>
+    <string name="ag_perm_exact_bad">準時鬧鐘沒有允許：提醒可能晚到十分鐘。請允許「鬧鐘與提醒」。</string>
+    <string name="ag_perm_battery_ok">省電：不會被系統關掉。</string>
+    <string name="ag_perm_battery_bad">省電模式可能讓提醒變慢。可以把小雨娛樂設成「不最佳化」，讓提醒不被延後。</string>
+    <string name="ag_perm_open">去系統設定打開</string>
+    <string name="ag_ride_start">出門跑單</string>
+    <string name="ag_ride_end">收工</string>
+
     <!-- War room -->
     <string name="ag_warroom_title">指揮室</string>
     <string name="ag_warroom_closed">指揮室整修中</string>

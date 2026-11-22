@@ -170,6 +170,9 @@ interface MediaRepo {
 
 interface MessageRepo {
     suspend fun insert(message: Message): Boolean
+
+    /** Replaces a message (a nudge's template once the model has worded it). */
+    suspend fun upsert(message: Message)
     suspend fun get(id: String): Message?
 
     /** The newest [limit] messages, oldest first. */
@@ -203,6 +206,7 @@ interface MemoryRepo {
 
 interface NudgeRepo {
     suspend fun insert(nudge: Nudge): Boolean
+    suspend fun upsert(nudge: Nudge)
     suspend fun get(id: String): Nudge?
 
     /** Nudges with `fromAt <= at < toAt`, oldest first. */

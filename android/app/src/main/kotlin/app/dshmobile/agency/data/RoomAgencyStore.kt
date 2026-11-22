@@ -225,6 +225,7 @@ class RoomAgencyStore(private val db: AgencyDatabase) : AgencyStore {
     override val messages = object : MessageRepo {
         private val dao = db.messages()
         override suspend fun insert(message: Message): Boolean = dao.insert(MessageEntity.of(message)) != -1L
+        override suspend fun upsert(message: Message) = dao.upsert(MessageEntity.of(message))
         override suspend fun get(id: String): Message? = dao.get(id)?.toModel()
         override suspend fun recent(limit: Int): List<Message> = dao.recent(limit.coerceAtLeast(0)).map { it.toModel() }
         override suspend fun between(fromAt: Long, toAt: Long): List<Message> = dao.between(fromAt, toAt).map { it.toModel() }
@@ -253,6 +254,7 @@ class RoomAgencyStore(private val db: AgencyDatabase) : AgencyStore {
     override val nudges = object : NudgeRepo {
         private val dao = db.nudges()
         override suspend fun insert(nudge: Nudge): Boolean = dao.insert(NudgeEntity.of(nudge)) != -1L
+        override suspend fun upsert(nudge: Nudge) = dao.upsert(NudgeEntity.of(nudge))
         override suspend fun get(id: String): Nudge? = dao.get(id)?.toModel()
         override suspend fun between(fromAt: Long, toAt: Long): List<Nudge> = dao.between(fromAt, toAt).map { it.toModel() }
         override suspend fun markAnswered(id: String, at: Long): Boolean = dao.markAnswered(id, at) > 0
