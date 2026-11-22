@@ -91,10 +91,12 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         onMain {
             value = withContext(Dispatchers.IO) {
                 val ids = messages.flatMap { it.refs.records }.distinct()
+                val results = messages.flatMap { it.refs.results }.distinct()
                 MealView(
                     ids.mapNotNull { id -> runCatching { ready.store.meals.get(id) }.getOrNull() }.associateBy { it.id },
                     runCatching { ready.brain.pendingLabels() }.getOrDefault(emptyList()),
                     agency.mediaVault(),
+                    results.mapNotNull { id -> runCatching { ready.store.places.result(id) }.getOrNull() }.associateBy { it.id },
                 )
             }
         }
@@ -106,7 +108,10 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             onResend = agency::resend,
             onOption = agency::send,
             onUndo = { id -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.undoMemory(id) } } } },
-            meal = MealActions(onPhoto = actions.takeMealPhoto, onOpen = { viewing = it }, onLabel = { labelling = it }),
+            meal = MealActions(
+                onPhoto = actions.takeMealPhoto, onOpen = { viewing = it }, onLabel = { labelling = it }, onLink = actions.openLink,
+                onSavePlace = { id -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.proposeSavePlace(id) } } } },
+            ),
         )
     }
     val onboarding by produceState<OnboardingStatus?>(null, revision) {

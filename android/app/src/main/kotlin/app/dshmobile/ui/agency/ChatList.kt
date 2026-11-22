@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.sp
 import app.agency.core.model.Meal
 import app.agency.core.model.MemoryEvent
 import app.agency.core.model.PendingLabel
+import app.agency.core.model.SearchResult
+import app.dshmobile.ui.agency.meal.SearchResultCard
 import app.dshmobile.agency.media.MediaVault
 import app.dshmobile.ui.agency.meal.MealActions
 import app.dshmobile.ui.agency.meal.MealCard
@@ -60,6 +62,8 @@ data class MealView(
     val meals: Map<String, Meal> = emptyMap(),
     val pending: List<PendingLabel> = emptyList(),
     val vault: MediaVault? = null,
+    /** The nearby results the lines point at (T16), by id. */
+    val results: Map<String, SearchResult> = emptyMap(),
 )
 
 object ChatTags {
@@ -162,6 +166,7 @@ private fun Bubble(m: Message, chips: Boolean, memory: Map<String, MemoryEvent>,
             m.refs.records.mapNotNull { meals.meals[it] }.forEach { meal ->
                 MealCard(meal, meals.pending.filter { it.mealId == meal.id }, meals.vault, actions.meal, busy)
             }
+            m.refs.results.mapNotNull { meals.results[it] }.forEach { r -> SearchResultCard(r, actions.meal.onLink, actions.meal.onSavePlace, busy) }
         }
     }
 }

@@ -9,6 +9,7 @@ import app.agency.core.brain.handlers.OnboardingStep
 import app.agency.core.llm.AnthropicClient
 import app.agency.core.llm.CallChecks
 import app.agency.core.llm.CompatEndpoint
+import app.agency.core.llm.DeepSeekSearchClient
 import app.agency.core.llm.OpenAiCompatClient
 import app.agency.core.llm.ProviderRouter
 import app.agency.core.metering.CallBudget
@@ -663,10 +664,14 @@ class AgencyApp(
             { keyVault.get(Provider.DEEPSEEK) }, checks, costMeter,
         )
         val claudeClerk = AnthropicClient(transport, { CLAUDE_CLERK }, { keyVault.get(Provider.ANTHROPIC) }, checks, costMeter, base ?: AnthropicClient.BASE)
+        // Nearby food (T16): DeepSeek Search with his DeepSeek key, through the same gate, checks and meter (the spend cap
+        // stops it before any socket; a non-empty answer is billed). Only his coarse area and a dish name are sent.
+        val search = DeepSeekSearchClient(transport, { keyVault.get(Provider.DEEPSEEK) }, checks, costMeter, base ?: CompatEndpoint.DEEPSEEK_BASE)
         return Brain(
             store, ProviderRouter({ settings.provider }, deepseek, claude, compat), { settings.provider }, clock,
             intakeLlm = ProviderRouter({ settings.provider }, deepseekClerk, claudeClerk, compat),
             log = { line -> errorLog.append("brain", line) },
+            search = search,
         )
     }
 

@@ -23,11 +23,19 @@ import kotlinx.serialization.json.Json
 
 /** One item of a MEAL_ORDER proposal: what, how much, and its kcal from the food table (code). */
 @Serializable
-data class OrderItem(val name: String, val portion: Double, val kcal: Int, val proteinG: Double? = null)
+data class OrderItem(val name: String, val portion: Double, val kcal: Int, val proteinG: Double? = null, val estimated: Boolean = false)
 
 /** The diff of a MEAL_ORDER proposal. */
 @Serializable
-data class OrderDiff(val slot: String, val items: List<OrderItem>, val kcal: Int, val proteinG: Double?, val placeResultId: String? = null)
+data class OrderDiff(
+    val slot: String,
+    val items: List<OrderItem>,
+    val kcal: Int,
+    val proteinG: Double?,
+    val placeResultId: String? = null,
+    /** The search result's title (T16), for the card. */
+    val placeTitle: String? = null,
+)
 
 /** The diff of a SAVE_PLACE proposal. */
 @Serializable
@@ -139,7 +147,9 @@ class ProposalApplier(
                     val slot = SlotKey.parse(d.slot)?.zh ?: "這一餐"
                     ProposalView(
                         p.id, p.kind, "${slot}點這個",
-                        d.items.map { DiffLine(it.name, null, "${CoachRules.kg(it.portion)} 份，${it.kcal} 大卡") } + DiffLine("一共", null, "${d.kcal} 大卡"),
+                        listOfNotNull(d.placeTitle?.let { DiffLine("店家", null, it) }) +
+                            d.items.map { DiffLine(it.name, null, "${CoachRules.kg(it.portion)} 份，${it.kcal} 大卡" + if (it.estimated) "（估算）" else "") } +
+                            DiffLine("一共", null, "${d.kcal} 大卡" + if (d.items.any { it.estimated }) "（估算，拍菜單或標示才算數）" else ""),
                         p.reason,
                     )
                 }

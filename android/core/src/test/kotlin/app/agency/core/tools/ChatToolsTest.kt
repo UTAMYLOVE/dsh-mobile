@@ -41,7 +41,7 @@ class ChatToolsTest {
     private var n = 0
     private val owner = Message("o-1", clock.millis(), Who.OWNER, text = "我喜歡雞腿")
     private val ctx = RoundContext(owner, emptyMap(), LocalDate.parse("2026-11-23"))
-    private val registry = ToolRegistry(chatTools(store, snapshot, ac, { "p-${++n}" }, MemoryApplier(store, ac), ctx) { true })
+    private val registry = ToolRegistry(chatTools(store, snapshot, ac, { "p-${++n}" }, MemoryApplier(store, ac), ctx, riding = { true }))
 
     private fun call(name: String, args: String): Pair<Boolean, JsonObject> = runBlocking {
         val r = registry.execute(ToolCall("c", name, args))

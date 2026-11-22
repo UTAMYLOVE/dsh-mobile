@@ -40,7 +40,9 @@ class AgencyActivity : ComponentActivity() {
         val agency = agency
         agency.start()
         setContent {
-            SakuraTheme { AgencyRoot(agency, AgencyActions(takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto)) }
+            SakuraTheme {
+                AgencyRoot(agency, AgencyActions(takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto, openLink = ::openLink))
+            }
         }
         if (savedInstanceState == null) fromNotification(intent)
     }
@@ -55,6 +57,12 @@ class AgencyActivity : ComponentActivity() {
         val slot = SlotKey.parse(intent?.getStringExtra(AgencyNotifier.EXTRA_SLOT)) ?: return
         intent?.removeExtra(AgencyNotifier.EXTRA_SLOT)
         if (slot.kind == SlotKind.MEAL) takeMealPhoto()
+    }
+
+    /** Only an http(s) link from a search result, to whatever browser he has. */
+    private fun openLink(url: String) {
+        val uri = runCatching { android.net.Uri.parse(url) }.getOrNull()?.takeIf { it.scheme == HTTPS || it.scheme == HTTP } ?: return
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)) }
     }
 
     private fun takeMealPhoto() {
@@ -85,6 +93,8 @@ class AgencyActivity : ComponentActivity() {
 }
 
 private const val ASKED_NOTIFICATIONS = "asked_notifications"
+private const val HTTPS = "https"
+private const val HTTP = "http"
 
 /**
  * What the screens ask the activity to do (things that need an activity): the camera app (a 入社建檔 photo, a meal's), and
@@ -95,4 +105,6 @@ class AgencyActions(
     val askNotifications: () -> Unit = {},
     /** 拍這餐 (T15): the camera for the meal being reported. */
     val takeMealPhoto: () -> Unit = {},
+    /** 打開 on a nearby result (T16): its link in his browser (the app has no web view). */
+    val openLink: (String) -> Unit = {},
 )

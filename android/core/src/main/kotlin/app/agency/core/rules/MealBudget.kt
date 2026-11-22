@@ -52,4 +52,20 @@ object MealBudget {
         val protein = ceil(proteinLeft.toDouble() / later.size).toInt()
         return NextMealBudget(next.key, kcal, protein, usual)
     }
+
+    /**
+     * The room for one meal he asks about or orders for [slot]: a planned meal not eaten yet gets its budget (L5's when
+     * smaller, its usual size otherwise; a planned meal is eaten whatever the day), within the single-meal cap; an extra gets
+     * what is left today, or null when nothing is.
+     */
+    fun room(plan: DayPlan, rules: CompanyRules, slot: SlotKey?, eatenKcal: Int, eatenProteinG: Double, eatenSlots: Set<SlotKey>, minute: Int): Int? {
+        if (slot != null && slot !in eatenSlots && slot in SlotKey.MEALS) {
+            val b = plan.budgets[slot]
+                ?: next(plan, rules, eatenKcal, eatenProteinG, eatenSlots, (plan.slot(slot)?.minute ?: minute) - 1)?.takeIf { it.slot == slot }?.kcal
+                ?: usual(slot, plan)
+            return minOf(b, rules.mealCapKcal)
+        }
+        val left = rules.quotaKcal - eatenKcal
+        return if (left <= 0) null else minOf(left, rules.mealCapKcal)
+    }
 }

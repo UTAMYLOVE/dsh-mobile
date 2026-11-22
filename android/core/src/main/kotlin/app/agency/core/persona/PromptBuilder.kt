@@ -33,6 +33,8 @@ data class PromptInput(
     val latinNames: List<String> = OutputGuard.LATIN_WHITELIST,
     /** Whether this call's memory events are applied; false (T06, before the memory UI of T12) asks for none. */
     val memoryWrites: Boolean = true,
+    /** What this one reply has to do, written by code (T16: a meal with friends, a nearby search); null for none. */
+    val task: String? = null,
 ) {
     companion object {
         const val DEFAULT_COMPANY = "小雨娛樂"
@@ -54,9 +56,10 @@ object PromptBuilder {
         role(p.role),
         mode(p.mode, p.reply, p.memoryWrites),
         tone(p.role, p.tone),
+        p.task?.let { "【這一次要做的事】\n$it" },
         memory(p.memory),
         facts(p.facts),
-    ).joinToString("\n\n")
+    ).filterNotNull().joinToString("\n\n")
 
     fun base(company: String, latinNames: List<String>): String = """
 【公司】

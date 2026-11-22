@@ -1,5 +1,6 @@
 package app.dshmobile
 
+import app.dshmobile.ui.agency.meal.ResultTags
 import app.agency.core.model.Profile
 import app.dshmobile.ui.agency.meal.MealTags
 import android.content.Context
@@ -398,6 +399,30 @@ class AgencyE2eTest {
         assertEquals(1600, maxOf(bounds.outWidth, bounds.outHeight))
         assertTrue(MediaVault.cameraDir(context).list().orEmpty().isEmpty())
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(MealTags.THUMB + photo).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /**
+     * Arch T16 e2e: 「附近有什麼」 runs one search (through the gate, his area and a dish only); the fake search returns two
+     * results, the model's reply names an invented third place, and only the real ones reach him (the invented one is guarded
+     * out); the two results show as cards.
+     */
+    @Test fun e12_searchShowsOnlyRealResults() {
+        app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
+        fake.searchResults = org.json.JSONArray()
+            .put(org.json.JSONObject().put("url", "https://example.org/a").put("title", "健康雞胸便當大安店").put("summary", "雞胸便當").put("rerank_score", 2.0))
+            .put(org.json.JSONObject().put("url", "https://example.org/b").put("title", "好味道自助餐").put("summary", "自助餐").put("rerank_score", 1.5))
+        fake.toolCall = "search_places" to """{"dish":"雞胸便當"}"""
+        fake.reply = "附近有健康雞胸便當大安店。也可以去阿明牛肉麵店。"
+        open()
+        runBlocking { ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(areaText = "大安區")) }
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("附近有什麼")
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitUntil(60_000) { runBlocking { ready().store.messages.recent(10) }.any { it.refs.results.size == 2 } }
+        val m = runBlocking { ready().store.messages.recent(10) }.last { it.refs.results.isNotEmpty() }
+        assertEquals("附近有健康雞胸便當大安店。", m.text)
+        val search = fake.seen.single { it.path.endsWith("/v1/tools/search") }
+        assertTrue(search.body, search.body.contains("大安區 雞胸便當 推薦"))
+        m.refs.results.forEach { id -> rule.waitUntil(30_000) { rule.onAllNodesWithTag(ResultTags.CARD + id).fetchSemanticsNodes().isNotEmpty() } }
     }
 
     private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }

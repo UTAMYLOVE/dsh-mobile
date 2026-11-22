@@ -4,6 +4,9 @@ import app.agency.core.brain.handlers.BodyWords
 import app.agency.core.brain.handlers.CheatDeclare
 import app.agency.core.brain.handlers.CravingDesk
 import app.agency.core.brain.handlers.MealDesk
+import app.agency.core.brain.handlers.MealDiscussion
+import app.agency.core.brain.handlers.MealTask
+import app.agency.core.brain.handlers.AreaText
 import app.agency.core.brain.handlers.MealOutcome
 import app.agency.core.brain.handlers.MealWords
 import app.agency.core.brain.handlers.WeightDesk
@@ -111,6 +114,8 @@ class Brain(
     private val intakeLlm: LlmClient = llm,
     /** One line per event worth a diagnostic (the app's error log); never a key, a prompt, a reply or thinking. */
     private val log: (String) -> Unit = {},
+    /** Nearby food search (T16, DeepSeek Search through the network gate); null leaves `search_places` without results. */
+    private val search: app.agency.core.llm.SearchClient? = null,
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
     private val mutex = Mutex()
@@ -119,7 +124,8 @@ class Brain(
     val nerve = Nerve(store, clock, newId)
     private val snapshot = SnapshotReader(store, clock) { nerve.changes(it) }
     private val structured = StructuredCaller(intakeLlm, provider)
-    private val loop = ChatLoop(llm, provider, judge = SecondPassJudge(intakeLlm, provider))
+    private val judge = SecondPassJudge(intakeLlm, provider)
+    private val loop = ChatLoop(llm, provider, judge = judge)
     private val proposals = ProposalApplier(store, clock, newId)
     private val onboarding = Onboarding(store, clock, newId)
     private val idol = IdolProfile(store)
@@ -283,7 +289,51 @@ class Brain(
             }
         }
         nerve.markSent(sent)
+        if (!quiet && !state.riding) premeal(day, profile, states, at).let { posts += it }
         return Tick(posts, gapsCleared = gaps.isEmpty(), next = nextFireLocked())
+    }
+
+    /**
+     * The body teacher's pre-meal suggestion (T16): from [MealDiscussion.BEFORE_MIN] minutes before 第一餐 or 晚餐 until the slot,
+     * once a slot a day (the nudge id is the day and the slot), not when the meal is in already. Code's numbers and names; the
+     * model may word it later (guarded, and judged: it is about food).
+     */
+    private suspend fun premeal(day: java.time.LocalDate, profile: app.agency.core.model.Profile, states: List<app.agency.core.engine.SlotState>, at: Long): List<Post> {
+        val now = clock.millis()
+        val plan = snapshot.plan(day)
+        val minute = Links.minuteOf(day, now, clock.zone)
+        val out = mutableListOf<Post>()
+        for (slot in MealDiscussion.proposed(plan)) {
+            val due = MealDiscussion.dueMinute(plan, slot) ?: continue
+            val st = states.firstOrNull { it.key == slot } ?: continue
+            if (minute < due || st.status != SlotStatus.LATER) continue
+            val id = "${MealDiscussion.PREMEAL}$day:${slot.name}"
+            if (store.nudges.get(id) != null) continue
+            val todays = store.meals.onDay(day.toString())
+            val eaten = todays.sumOf { it.kcal }
+            val protein = todays.sumOf { m -> m.items.sumOf { it.proteinG ?: 0.0 } }
+            val eatenSlots = todays.mapNotNull { SlotKey.parse(it.slotKey) }.toSet()
+            val rules = snapshot.rules()
+            val room = MealDiscussion.room(plan, rules, slot, eaten, protein, eatenSlots, minute)
+            val left = plan.slots.count { it.key in SlotKey.MEALS && it.key !in eatenSlots && it.minute >= (plan.slot(slot)?.minute ?: 0) }
+            val text = MealDiscussion.suggestion(plan, slot, rules, room, MealDiscussion.usualProtein(rules, protein, left), meals.table(), store.places.favorites())
+            // No slot: tapping it opens the conversation, not the meal camera (nothing is eaten yet).
+            val p = Post(MealDiscussion.PREMEAL.trimEnd(':'), id, text, PostChannel.SCHEDULE, alert = true, slot = null, word = true)
+            val (n, m) = Nudger.record(p, at + out.size, RoleKey.BODY, newMessage = true)
+            store.nudges.insert(n)
+            m?.let { store.messages.insert(it.copy(kind = MealDiscussion.PLAN_KIND)) }
+            out += p
+        }
+        return out
+    }
+
+    /** The next pre-meal suggestion still to come today (an alarm wakes for it). */
+    private suspend fun nextPremeal(day: java.time.LocalDate, states: List<app.agency.core.engine.SlotState>): Instant? {
+        val plan = snapshot.plan(day)
+        return MealDiscussion.proposed(plan).filter { s -> states.firstOrNull { it.key == s }?.status == SlotStatus.LATER }
+            .filter { store.nudges.get("${MealDiscussion.PREMEAL}$day:${it.name}") == null }
+            .mapNotNull { MealDiscussion.dueMinute(plan, it)?.let { m -> Nudger.at(day, m, clock.zone) } }
+            .filter { it.isAfter(clock.now()) }.minOrNull()
     }
 
     /** When the next alarm should fire (arch 1.6 `NextFire`). */
@@ -299,7 +349,7 @@ class Brain(
         val state = nerve.state(day)
         val lastGap = store.nudges.between(dayStart(day, profile), now.toEpochMilli() + 1).filter { it.gapKeys.isNotEmpty() }.maxByOrNull { it.at }
         val wake = nerve.plan(day.plusDays(1)).slot(SlotKey.WAKE)?.let { Nudger.at(day.plusDays(1), it.minute, clock.zone) }
-        val note = nerve.nextNotify(now.toEpochMilli())?.let { Instant.ofEpochMilli(it) }
+        val note = listOfNotNull(nerve.nextNotify(now.toEpochMilli())?.let { Instant.ofEpochMilli(it) }, nextPremeal(day, states)).minOrNull()
         return NextFire.next(now, states, state.signedOutAt != null, lastGap?.let { Instant.ofEpochMilli(it.at) }, note, wake)
     }
 
@@ -321,7 +371,8 @@ class Brain(
         val worded = store.nudges.between(dayStart(day, profile), clock.millis() + 1).count { it.wordedBy == WordedBy.MODEL }
         if (worded >= Nudger.DAILY_WORDING_CAP) return@withLock null
         val keys = n.gapKeys.mapNotNull { SlotKey.parse(it) }
-        val role = Nudger.roleOf(keys)
+        val premeal = n.id.startsWith(MealDiscussion.PREMEAL)
+        val role = if (premeal) RoleKey.BODY else Nudger.roleOf(keys)
         val input = snapshot.facts(store.messages.recent(FactsBuilder.MAX_MESSAGES))
         val facts = FactsBuilder.build(input, hasCurrentMessage = false)
         val tone = ToneDecider.decide(ToneInputs(breachToday = input.today.breachToday, gentleToday = nerve.state(day).gentle))
@@ -333,12 +384,16 @@ class Brain(
                 latinNames = (OutputGuard.LATIN_WHITELIST + profile.idolNames).distinct(), memoryWrites = false,
             ),
         )
-        val evidence = Evidence(listOf(facts.json.toString(), n.text), emptyList(), profile.idolNames, breachToday = input.today.breachToday)
+        // A suggestion names foods and his places: those are names it may use (nothing else).
+        val names = if (premeal) (meals.table() + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct() + store.places.favorites().map { it.title } else emptyList()
+        val evidence = Evidence(listOf(facts.json.toString(), n.text), names, profile.idolNames, breachToday = input.today.breachToday)
         val out = structured.call(
             NudgeLine.SPEC, system, PromptBuilder.turns(facts, null, n.text), Purpose.NUDGE, NUDGE_TOKENS,
             check = NudgeLine.checker(evidence, tone), fallback = { null },
         )
         val text = (out as? Structured.Model)?.value?.text ?: return@withLock null
+        // About food: the second-pass judge reads it too (arch 1.9b scope); a breach keeps the template, no answer keeps the words.
+        if (premeal && judge.judge(text, SecondPassJudge.contextLine(0, input.today.breachToday, foodTalk = true)!!) is app.agency.core.guard.Verdict.Breach) return@withLock null
         store.nudges.upsert(n.copy(text = text, wordedBy = WordedBy.MODEL))
         store.messages.get(Nudger.messageId(n.id))?.let { store.messages.upsert(it.copy(text = text, wordedBy = WordedBy.MODEL)) }
         bump()
@@ -451,6 +506,8 @@ class Brain(
                 return listOf(reply(RoleKey.MANAGER, Discussion.END_LINE, WordedBy.TEMPLATE, Discussion.END_KIND))
             }
         }
+        // 「跟朋友吃 X」「附近有什麼」 (T16): the body teacher's turn, no clerk.
+        MealDiscussion.task(owner.text)?.let { return model(owner, history, task = it) }
         return when (val route = Router.route(owner.text)) {
             is Route.Command -> if (route.kind == Router.DISCUSS_OPEN) model(owner, history, forceDiscuss = true) else command(route, owner)
             Route.RulesLocked -> listOf(reply(RoleKey.MANAGER, RulesBook.LOCKED, WordedBy.TEMPLATE, RULES_KIND))
@@ -487,19 +544,19 @@ class Brain(
      * reply's memory events are applied by code; the proposals its tools made wait for his yes; her thinking is kept (乙).
      * No network at all: nothing is answered, his line is kept as 「沒送出」 for 重送 ([unsent]).
      */
-    private suspend fun model(owner: Message, history: List<Message>, forceDiscuss: Boolean = false): List<Message> {
+    private suspend fun model(owner: Message, history: List<Message>, forceDiscuss: Boolean = false, task: MealTask? = null): List<Message> {
         val input = snapshot.facts(history)
         val facts = FactsBuilder.build(input)
         val profile = input.profile
         val today = snapshot.today(profile)
         val dayOf = { at: Long -> snapshot.dayOf(Instant.ofEpochMilli(at), profile) }
-        val discussing = forceDiscuss || Discussion.active(history, today, dayOf)
-        val intake = if (forceDiscuss) null else structured.call(
+        val discussing = task == null && (forceDiscuss || Discussion.active(history, today, dayOf))
+        val intake = if (forceDiscuss || task != null) null else structured.call(
             Intake.spec(owner.text), PromptBuilder.intakeSystem(), PromptBuilder.intakeTurns(facts, owner.text), Purpose.INTAKE,
             INTAKE_TOKENS, fallback = { null },
         )
         val parsed = (intake as? Structured.Model)?.value
-        val kind = parsed?.kind?.let { MealWords.kindOf(it, owner.text) } ?: if (discussing) DISCUSS else CHAT
+        val kind = parsed?.kind?.let { MealWords.kindOf(it, owner.text) } ?: if (discussing) DISCUSS else if (task != null) MealDiscussion.TALK_KIND else CHAT
         val gentleToday = nerve.state(today).gentle
         val tone = ToneDecider.decide(ToneInputs(ownerText = owner.text, intakeKind = kind, breachToday = input.today.breachToday, gentleToday = gentleToday))
         if (intake is Structured.Template && intake.fail != null) {
@@ -510,25 +567,30 @@ class Brain(
         if (parsed != null) recorded(owner, parsed, kind)?.let { return it }
         if (Router.isRecordKind(kind)) return listOf(reply(Router.roleOf(kind), recordHint(kind), WordedBy.TEMPLATE, kind))
 
-        val mode = if (discussing || kind == DISCUSS) MessageMode.DISCUSS else MessageMode.NORMAL
+        // The body teacher answers a meal talk (T16): a task of his words, or more food talk right after her suggestion.
+        val mealTask: MealTask? = task ?: (MealTask.Talk as MealTask).takeIf { !discussing && kind == CHAT && MealDiscussion.talking(history, owner.at) && MealDiscussion.aboutFood(owner.text, ::mentionsFood) }
+        val role = if (mealTask != null) RoleKey.BODY else RoleKey.MANAGER
+        val replyKind = if (mealTask != null) MealDiscussion.TALK_KIND else kind
+        val mode = if (mealTask == null && (discussing || kind == DISCUSS)) MessageMode.DISCUSS else MessageMode.NORMAL
         val latin = profile.idolNames
         val rendered = MemoryBlocks.render(store.memory.items(), today, dayOf)
         val system = PromptBuilder.system(
             PromptInput(
-                role = Roles.MANAGER, mode = mode, tone = tone, rules = input.rules, memory = rendered, facts = facts,
+                role = Roles.of(role), mode = mode, tone = tone, rules = input.rules, memory = rendered, facts = facts,
                 companyName = profile.companyName ?: PromptInput.DEFAULT_COMPANY,
                 latinNames = (OutputGuard.LATIN_WHITELIST + latin).distinct(),
-                memoryWrites = true,
+                memoryWrites = true, task = mealTask?.text,
             ),
         )
         // The seed table too: on a fresh install the store has no food yet, and 給力盒子 or 全家 must not read as unknown chains.
-        val names = (FoodTable.current(0) + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct()
+        // His favourite places are names he may hear again; this round's search titles join them as they come (the evidence).
+        val names = (FoodTable.current(0) + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct() + store.places.favorites().map { it.title }
         val factsText = facts.json.toString()
         val foodItems = parsed?.items.orEmpty().isNotEmpty()
-        val judgeContext = { shown: String -> judgeContext(input, foodItems, owner.text, shown) }
-        val ctx = RoundContext(owner, rendered.refs, today)
+        val judgeContext = { shown: String -> judgeContext(input, foodItems || mealTask != null, owner.text, shown) }
+        val ctx = RoundContext(owner, rendered.refs, today, role)
         val memory = MemoryApplier(store, clock, profile.dayStartHour, newId)
-        val tools = ToolRegistry(chatTools(store, snapshot, clock, newId, memory, ctx) { nerve.state(today).riding })
+        val tools = ToolRegistry(chatTools(store, snapshot, clock, newId, memory, ctx, riding = { nerve.state(today).riding }, search = search))
         val replay = replay(facts.window)
         // 乙: she thinks on every reply. DeepSeek refuses a thinking request with tools when an older reply of hers in the
         // window has no reasoning to send back (imported, or written before thinking was kept): that round goes without.
@@ -538,8 +600,8 @@ class Brain(
         } else {
             Thinking.LOW
         }
-        val round = ChatRound(system, PromptBuilder.turns(facts, owner, replay = replay.replay), RoleKey.MANAGER, mode, tone, judgeContext, thinking) { outputs ->
-            Evidence(listOf(factsText) + outputs, names, latin, ownerText = owner.text, breachToday = input.today.breachToday)
+        val round = ChatRound(system, PromptBuilder.turns(facts, owner, replay = replay.replay), role, mode, tone, judgeContext, thinking) { outputs ->
+            Evidence(listOf(factsText) + outputs, names + ctx.searchTitles.values, latin, ownerText = owner.text, breachToday = input.today.breachToday)
         }
         val result = loop.run(round, tools)
         if (result.fail == Fail.OFFLINE && ctx.proposals.isEmpty() && ctx.memoryEvents.isEmpty()) return unsent(owner)
@@ -550,15 +612,17 @@ class Brain(
         }
         val text = u.text + (u.ask?.let { "\n$it" } ?: "") + (result.fail?.let(::failLine) ?: "")
         val refs = MessageRefs(
+            results = ctx.searchResults.toList(),
             proposal = ctx.proposals.lastOrNull(), options = u.options, recommended = u.recommended, memory = ctx.memoryEvents.toList(),
             proposals = ctx.proposals.toList(),
         )
         val m = Message(
-            newId(), clock.millis(), Who.COMPANY, role = RoleKey.MANAGER, kind = if (mode == MessageMode.DISCUSS) DISCUSS else kind,
+            newId(), clock.millis(), Who.COMPANY, role = role, kind = if (mode == MessageMode.DISCUSS) DISCUSS else replyKind,
             mode = mode, text = text, refs = refs, wordedBy = if (result.fromModel) WordedBy.MODEL else WordedBy.TEMPLATE,
         )
         store.messages.insert(m)
-        if (result.fromModel) keepThinking(m, result.assistant)
+        // 乙 is about her replies: the body teacher's meal talk keeps no thinking (it goes back as a labelled line).
+        if (result.fromModel && role == RoleKey.MANAGER) keepThinking(m, result.assistant)
         return listOf(m)
     }
 
@@ -650,6 +714,34 @@ class Brain(
     suspend fun label(mealId: String, itemIdx: Int, kcal: Int, proteinG: Double?): Message = mutex.withLock {
         val name = store.meals.get(mealId)?.items?.getOrNull(itemIdx)?.name
         said(meals.label(name, kcal, proteinG, mealId to itemIdx), "label").first().also { bump() }
+    }
+
+    /** 設定 › 附近搜尋: his coarse area (T16); the problem with it, or null when it was kept (blank clears it). */
+    suspend fun setArea(text: String): String? = mutex.withLock {
+        AreaText.problem(text)?.let { return@withLock it }
+        val p = snapshot.profile()
+        store.profile.put(p.copy(areaText = text.trim().ifEmpty { null }))
+        bump()
+        null
+    }
+
+    /** His saved places (設定 › 附近搜尋). */
+    suspend fun favorites(): List<app.agency.core.model.FavoritePlace> = store.places.favorites()
+
+    suspend fun deleteFavorite(id: String): Boolean = mutex.withLock { store.places.deleteFavorite(id).also { if (it) bump() } }
+
+    /** A search result's 「存成常去店家」 (T16): a SAVE_PLACE proposal, saved only on his 好. Null when the result is gone. */
+    suspend fun proposeSavePlace(resultId: String): String? = mutex.withLock {
+        val r = store.places.result(resultId) ?: return@withLock null
+        val id = newId()
+        store.proposals.insert(
+            Proposal(
+                id, clock.millis(), RoleKey.BODY, app.agency.core.model.ProposalKind.SAVE_PLACE, target = r.id,
+                diffJson = ProposalApplier.JSON.encodeToString(PlaceDiff.serializer(), PlaceDiff(r.id, r.title, "")), reason = "存成常去店家",
+            ),
+        )
+        bump()
+        id
     }
 
     /** Today's items waiting for their label (the card's 補標示). */

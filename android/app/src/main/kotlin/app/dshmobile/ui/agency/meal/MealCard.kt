@@ -61,11 +61,13 @@ object MealTags {
     const val FORM_ERROR = "ag-label-error"
 }
 
-/** What a meal card can do: take the photo (拍這餐), open the photo, fill a label. */
+/** What a meal card can do: take the photo (拍這餐), open the photo, fill a label; a search card: open its link, save it. */
 data class MealActions(
     val onPhoto: () -> Unit = {},
     val onOpen: (Meal) -> Unit = {},
     val onLabel: (PendingLabel) -> Unit = {},
+    val onLink: (String) -> Unit = {},
+    val onSavePlace: (String) -> Unit = {},
 )
 
 /**

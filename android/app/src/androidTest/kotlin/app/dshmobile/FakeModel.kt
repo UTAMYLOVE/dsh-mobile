@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *    `{"kind": [intakeKind]}`; a chat call first with one `get_today` tool call carrying `reasoning_content` when
  *    [toolFirst], then with an Utterance whose text is [reply];
  *  - `POST /v1/messages` (Claude shape) with the same Utterance;
- *  - `POST /v1/tools/search` with no results.
+ *  - `POST /v1/tools/search` with [searchResults] (none by default).
  * Every request body is kept in [seen] for assertions (never logged); [online] false cuts every request off with no answer
  * (offline test), counted in [cutOff].
  * No real key, no network.
@@ -35,6 +35,8 @@ class FakeModel {
     @Volatile var intakeKind = "chat"
     /** The clerk's whole answer instead of `{"kind": [intakeKind]}` (a meal with its items, e11). */
     @Volatile var intakeJson: String? = null
+    /** What `POST /v1/tools/search` answers (e12); empty by default. */
+    @Volatile var searchResults: JSONArray = JSONArray()
     @Volatile var reply = "收到。現在去喝水。"
     @Volatile var toolFirst = false
     /** A tool the chat call asks for first (name to arguments), once per message (e10). */
@@ -58,7 +60,7 @@ class FakeModel {
                 return when {
                     path.endsWith("/chat/completions") -> chatCompletion(JSONObject(body))
                     path.endsWith("/v1/messages") -> json(messages())
-                    path.endsWith("/v1/tools/search") -> json(JSONObject().put("results", JSONArray()))
+                    path.endsWith("/v1/tools/search") -> json(JSONObject().put("results", searchResults))
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -80,6 +82,7 @@ class FakeModel {
         online = true
         intakeKind = "chat"
         intakeJson = null
+        searchResults = JSONArray()
         reply = "收到。現在去喝水。"
         toolFirst = false
         toolCall = null

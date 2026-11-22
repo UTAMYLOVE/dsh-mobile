@@ -64,7 +64,7 @@ class CravingDesk(
         if (said.any { Breaches.isZeroCal(it.name, it.zeroCal) } && zeroWeek >= rules.zeroCalPerWeek) {
             return listOf("零卡飲料這週已經喝了 $zeroWeek 瓶，上限 ${rules.zeroCalPerWeek} 瓶，這週不能再喝。")
         }
-        val budget = budget(plan, rules, slot, eaten, protein, minute, today)
+        val budget = MealBudget.room(plan, rules, slot, eaten, protein, today.mapNotNull { SlotKey.parse(it.slotKey) }.toSet(), minute)?.let(::Budget)
         val banned = if (cheat) emptyList() else said.mapNotNull { s ->
             val fried = FoodTable.isFried(s.name, s.fried, FoodTable.lookup(table, s.name)) && ProcessedFood.ALLOWED.none { s.name.contains(it) }
             val cats = (ProcessedFood.categories(s.name) + if (fried) setOf(BannedCategory.FRIED) else emptySet()) intersect ProcessedFood.banned(rules)
@@ -95,20 +95,6 @@ class CravingDesk(
             return listOf(head + instead(table, rules, budget, slot, plan))
         }
         return listOf("可以。這份 $kcal 大卡$est，吃了今天剩 ${rules.quotaKcal - eaten - kcal} 大卡。吃完拍照回報。")
-    }
-
-    /** The room for the meal he asks about: a planned meal's budget (its usual size, L5's when smaller); an extra gets what is left. */
-    private fun budget(plan: DayPlan, rules: CompanyRules, slot: SlotKey?, eaten: Int, protein: Double, minute: Int, today: List<app.agency.core.model.Meal>): Budget? {
-        val eatenSlots = today.mapNotNull { SlotKey.parse(it.slotKey) }.toSet()
-        if (slot != null && slot !in eatenSlots && slot in SlotKey.MEALS) {
-            val usual = MealBudget.usual(slot, plan)
-            // A planned meal is eaten, whatever the day: never less than its own size when the day is over already.
-            val b = plan.budgets[slot] ?: MealBudget.next(plan, rules, eaten, protein, eatenSlots, (plan.slot(slot)?.minute ?: minute) - 1)
-                ?.takeIf { it.slot == slot }?.kcal ?: usual
-            return Budget(minOf(b, rules.mealCapKcal))
-        }
-        val left = rules.quotaKcal - eaten
-        return if (left <= 0) null else Budget(minOf(left, rules.mealCapKcal))
     }
 
     private data class Budget(val kcal: Int)

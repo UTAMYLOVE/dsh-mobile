@@ -293,4 +293,16 @@
     <string name="ag_media_not_saved">照片沒有存到，再拍一次。</string>
     <string name="ag_media_no_camera">這支手機找不到相機程式。</string>
     <string name="ag_media_locked">資料鎖打不開，照片沒有存。</string>
+    <!-- 附近美食搜尋 (T16) -->
+    <string name="ag_result_open">打開</string>
+    <string name="ag_result_save">存成常去店家</string>
+    <string name="ag_result_estimate">熱量都是估算，拍菜單或標示才算數。</string>
+    <string name="ag_set_area">附近搜尋</string>
+    <string name="ag_area_intro">附近搜尋只送你填的大概地區和菜名，不用手機定位，不送門牌。店家只會是真的搜尋結果。</string>
+    <string name="ag_area_field">大概的地區（例如大安區）</string>
+    <string name="ag_area_saved">存好了。</string>
+    <string name="ag_area_none">還沒填。沒填的話附近搜尋不會搜。</string>
+    <string name="ag_favorites">常去店家</string>
+    <string name="ag_favorites_none">還沒有。在搜尋結果按「存成常去店家」，你按好才會存。</string>
+    <string name="ag_favorite_delete">刪掉</string>
 </resources>
