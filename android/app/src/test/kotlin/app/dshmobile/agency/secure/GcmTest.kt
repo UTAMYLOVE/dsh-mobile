@@ -1,10 +1,13 @@
 package app.dshmobile.agency.secure
 
+import java.lang.management.ManagementFactory
 import java.security.GeneralSecurityException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.spec.GCMParameterSpec
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -38,6 +41,21 @@ class GcmTest {
 
     @Test fun aBlobWhoseVersionWasNotAuthenticatedIsRefused() {
         assertRefused(sealByHand(Gcm.VERSION, aad))
+    }
+
+    /** Review FIX-T03 F2: sealing encrypts into one output array, not a ciphertext that is then copied behind a header. */
+    @Test fun sealingAllocatesOnlyOneSealedCopy() {
+        val big = ByteArray(8 * 1024 * 1024) { (it % 251).toByte() }
+        Gcm.seal(key, ByteArray(1024 * 1024), aad) // warm up the cipher classes
+        val threads = ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
+        val me = Thread.currentThread().id
+        val before = threads.getThreadAllocatedBytes(me)
+        val blob = Gcm.seal(key, big, aad)
+        val allocated = threads.getThreadAllocatedBytes(me) - before
+        assertEquals(1 + 12 + big.size + 16, blob.size)
+        // One sealed copy is ~8 MiB; the old seal made two (the ciphertext, then header + IV + ciphertext): ~16 MiB.
+        assertTrue("allocated $allocated bytes", allocated < big.size * 3L / 2)
+        assertArrayEquals(big, Gcm.open(key, blob, aad))
     }
 
     @Test fun anotherVersionByteIsRefused() {

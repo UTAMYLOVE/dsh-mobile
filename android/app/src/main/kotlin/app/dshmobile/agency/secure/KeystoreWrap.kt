@@ -5,6 +5,9 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
 import java.io.File
+import java.io.FileDescriptor
+import java.io.FileOutputStream
+import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.KeyStoreException
@@ -13,6 +16,7 @@ import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
+import javax.crypto.ShortBufferException
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -39,15 +43,28 @@ object Gcm {
     private const val IV_BYTES = 12
     private const val TAG_BITS = 128
 
+    /**
+     * Allocates one output array, `version | IV | ciphertext + tag`, and encrypts straight into it, so sealing a large photo
+     * or recording holds only the plaintext and that one sealed copy (plus what the cipher itself buffers).
+     */
     fun seal(key: SecretKey, plain: ByteArray, aad: ByteArray): ByteArray {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
+        val iv = cipher.iv
+        check(iv != null && iv.size == IV_BYTES) { "unexpected IV size" }
         cipher.updateAAD(byteArrayOf(VERSION))
         cipher.updateAAD(aad)
-        val body = cipher.doFinal(plain)
-        val iv = cipher.iv
-        check(iv.size == IV_BYTES) { "unexpected IV size" }
-        return byteArrayOf(VERSION) + iv + body
+        val head = 1 + IV_BYTES
+        val out = ByteArray(head + cipher.getOutputSize(plain.size))
+        out[0] = VERSION
+        iv.copyInto(out, 1)
+        val n = try {
+            cipher.doFinal(plain, 0, plain.size, out, head)
+        } catch (_: ShortBufferException) {
+            // The cipher gave too small a size: the call may be repeated (the cipher is not reset) with its own buffer.
+            return byteArrayOf(VERSION) + iv + cipher.doFinal(plain)
+        }
+        return if (head + n == out.size) out else out.copyOf(head + n)
     }
 
     fun open(key: SecretKey, blob: ByteArray, aad: ByteArray): ByteArray {
@@ -116,32 +133,67 @@ private object AndroidKeystoreKeys : AliasKeys {
     }
 }
 
-/** The stored secrets exist but cannot be opened (the Keystore key is gone), or data exists whose secret is missing. */
-class DataLockedException(message: String, cause: Throwable? = null) : Exception(message, cause)
+/**
+ * The agency's data cannot be opened now; nothing was deleted or replaced. Two kinds, so the app can tell them apart:
+ * [DataLockedException] does not go away by trying again (「資料鎖打不開」); [TransientDataException] may (offer 「再試一次」).
+ */
+sealed class DataUnavailableException(message: String, cause: Throwable?) : Exception(message, cause)
+
+/**
+ * The key is lost: the stored secret cannot be opened (its Keystore key is gone), data exists whose secret is missing, the
+ * secrets file is damaged, or the database file does not open with its key (or is damaged). Trying again does not help.
+ */
+class DataLockedException(message: String, cause: Throwable? = null) : DataUnavailableException(message, cause)
+
+/** A passing failure (disk full, an I/O error, the file busy) reading or writing the data or its secret: try again later. */
+class TransientDataException(message: String, cause: Throwable? = null) : DataUnavailableException(message, cause)
 
 /**
  * `noBackupFilesDir/agency_secrets.json`: name → Base64 of a wrapped blob. Only wrapped bytes are ever written here.
- * Written through [AtomicFile], so a crash mid-write keeps the previous content. Every instance shares one process-wide
- * [LOCK] (callers each build their own instance over the same file), so two writers can never drop each other's entries.
+ * Every instance shares one process-wide [LOCK] (callers each build their own instance over the same file), so two writers
+ * can never drop each other's entries. Read through [AtomicFile] (which drops a stale `.new` file); written by [write]
+ * itself, because AtomicFile only logs a failed sync or rename. [sync], [rename] and [syncDir] are seams for tests.
  */
-class SecretsFile(file: File) {
+class SecretsFile internal constructor(
+    file: File,
+    private val sync: (FileDescriptor) -> Unit,
+    private val rename: (File, File) -> Boolean,
+    private val syncDir: (File) -> Unit,
+) {
+    constructor(file: File) : this(file, FileDescriptor::sync, File::renameTo, Durable::syncDir)
+
     private val atomic = AtomicFile(file)
 
     fun read(name: String): ByteArray? = synchronized(LOCK) {
         all()[name]?.let { Base64.decode(it, Base64.NO_WRAP) }
     }
 
+    /**
+     * Writes the whole file anew: `<file>.new`, synced to disk, renamed over the old file, then the folder synced. A failed
+     * write, sync or rename throws [IOException] and leaves the old file as it was, so no secret is handed out that may never
+     * reach the disk.
+     */
     fun write(name: String, wrapped: ByteArray): Unit = synchronized(LOCK) {
         val next = all() + (name to Base64.encodeToString(wrapped, Base64.NO_WRAP))
-        val json = JsonObject(next.mapValues { JsonPrimitive(it.value) }).toString()
-        val out = atomic.startWrite()
+        val bytes = JsonObject(next.mapValues { JsonPrimitive(it.value) }).toString().toByteArray(Charsets.UTF_8)
+        val base = atomic.baseFile
+        val folder = base.absoluteFile.parentFile
+        folder?.mkdirs()
+        val tmp = File(base.path + ".new")
         try {
-            out.write(json.toByteArray(Charsets.UTF_8))
-            atomic.finishWrite(out)
-        } catch (e: Exception) {
-            atomic.failWrite(out)
+            FileOutputStream(tmp).use { out ->
+                out.write(bytes)
+                sync(out.fd)
+            }
+        } catch (e: IOException) {
+            tmp.delete()
             throw e
         }
+        if (!rename(tmp, base)) {
+            tmp.delete()
+            throw IOException("could not store the secrets")
+        }
+        folder?.let(syncDir)
     }
 
     private fun all(): Map<String, String> {
@@ -172,24 +224,33 @@ class WrappedSecret(
 ) {
     private val aad = "agency-secret:$name".toByteArray(Charsets.UTF_8)
 
+    /**
+     * @throws DataLockedException when the secret is lost (see there).
+     * @throws TransientDataException when the secrets file or the Keystore could not be read or written (nothing is stored
+     *   then, and the next call tries again).
+     */
     fun get(dataExists: Boolean): ByteArray = synchronized(SecretsFile.LOCK) {
-        val stored = try {
-            file.read(name)
-        } catch (e: IllegalArgumentException) {
-            throw DataLockedException("the secrets file is unreadable", e) // corrupt Base64 or JSON
-        }
-        if (stored == null) {
-            if (dataExists) throw DataLockedException("the secret for existing data is missing")
-            val fresh = ByteArray(SIZE).also(random::nextBytes)
-            file.write(name, wrap.wrap(fresh, aad))
-            return@synchronized fresh
-        }
         try {
-            wrap.unwrap(stored, aad)
-        } catch (e: GeneralSecurityException) {
-            throw DataLockedException("the stored secret cannot be opened", e)
-        } catch (e: ProviderException) {
-            throw DataLockedException("the stored secret cannot be opened", e)
+            val stored = try {
+                file.read(name)
+            } catch (e: IllegalArgumentException) {
+                throw DataLockedException("the secrets file is unreadable", e) // corrupt Base64 or JSON
+            }
+            if (stored == null) {
+                if (dataExists) throw DataLockedException("the secret for existing data is missing")
+                val fresh = ByteArray(SIZE).also(random::nextBytes)
+                file.write(name, wrap.wrap(fresh, aad))
+                return@synchronized fresh
+            }
+            try {
+                wrap.unwrap(stored, aad)
+            } catch (e: GeneralSecurityException) {
+                throw DataLockedException("the stored secret cannot be opened", e)
+            } catch (e: ProviderException) {
+                throw DataLockedException("the stored secret cannot be opened", e)
+            }
+        } catch (e: IOException) {
+            throw TransientDataException("the secret could not be read or stored", e)
         }
     }
 

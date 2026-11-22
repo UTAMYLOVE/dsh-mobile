@@ -25,8 +25,8 @@ data class LegacyFile(val name: String, val lastModified: Long, val size: Long =
 
 /**
  * What the importer read from the legacy folder and prefs, untouched. [state] is null when no state file could be read.
- * [setAside] holds each `state.json.bad-*` file by name, with its records (null when nothing in it could be read).
- * [salvagedFrom] names the cut file a [StateOrigin.SALVAGED] state came from; [tmpIgnored] says a `state.json.tmp` was left
+ * [setAside] holds each `state.json.bad-*` file by name, with its records (null when nothing in it could be read);
+ * [setAsideSalvaged] names those of them that did not parse whole (only their complete records were read). [salvagedFrom] names the cut file a [StateOrigin.SALVAGED] state came from; [tmpIgnored] says a `state.json.tmp` was left
  * unread next to a readable `state.json`.
  */
 data class LegacyInput(
@@ -39,6 +39,7 @@ data class LegacyInput(
     val setAside: List<Pair<String, LegacyState?>> = emptyList(),
     val salvagedFrom: String? = null,
     val tmpIgnored: Boolean = false,
+    val setAsideSalvaged: Set<String> = emptySet(),
 )
 
 /**
@@ -66,9 +67,10 @@ object LegacyMapper {
     private const val OLD_EVIDENCE_MIN = 30
 
     /**
-     * The largest baseline file the importer brings into the vault. Sealing holds the file and its ciphertext in memory at
-     * once; the recording picker accepted any audio, so a long voice memo could otherwise run the app out of memory on every
-     * start. A larger file is listed in [ImportNote.mediaTooLarge] and stays in `coach.migrated-*`.
+     * The largest baseline file the importer brings into the vault. Sealing holds the plaintext and its sealed copy in memory
+     * during the put, and the sealed copy and its decryption during the check (the cipher may buffer one more copy); the
+     * recording picker accepted any audio, so a long voice memo could otherwise run the app out of memory. A larger file is
+     * listed in [ImportNote.mediaTooLarge] and stays in the legacy folder.
      */
     const val MAX_IMPORT_MEDIA_BYTES: Long = 32L * 1024 * 1024
 
@@ -177,6 +179,7 @@ object LegacyMapper {
             salvagedRecords = if (input.origin == StateOrigin.SALVAGED) main.records else 0,
             tmpIgnored = input.tmpIgnored,
             setAsideFiles = setAsideNote,
+            setAsideSalvaged = input.setAside.map { it.first }.filter { it in input.setAsideSalvaged }.sorted(),
             droppedRecords = (listOf(main) + input.setAside.mapNotNull { it.second }).fold(mapOf<String, Int>()) { acc, s ->
                 (acc.keys + s.dropped.keys).associateWith { (acc[it] ?: 0) + (s.dropped[it] ?: 0) }
             },
@@ -242,9 +245,10 @@ object LegacyMapper {
      * [main] (its food already the table he saw) with the records of each set-aside file it does not hold: meals, weights,
      * trainings and pending labels by id (or meal and item), food by normalised name, and the baseline when [main] has none.
      * One exception for food: his own entry (not a seed) replaces a name the main table holds only as an untouched seed, since
-     * a state the coach seeded afresh after setting his file aside holds nothing of his. Files are taken in name order, so an
-     * earlier one wins. Ids are random UUIDs, so this cannot join two different records. Also returns, per file, how many
-     * records it gave (-1 when unreadable).
+     * a state the coach seeded afresh after setting his file aside holds nothing of his. Files are taken newest first (the
+     * name ends in the time the coach set it aside), so a newer file wins over an older one, and [main] wins over all of them.
+     * Ids are random UUIDs, so this cannot join two different records. Also returns, per file in name order, how many records
+     * it gave (-1 when unreadable).
      */
     private fun withSetAside(main: LegacyState, setAside: List<Pair<String, LegacyState?>>): Pair<LegacyState, Map<String, Int>> {
         if (setAside.isEmpty()) return main to emptyMap()
@@ -260,7 +264,7 @@ object LegacyMapper {
         val pendingKeys = pending.mapTo(HashSet()) { it.mealId to it.itemIndex }
         fun key(f: FoodEntry) = FoodTable.normalize(f.name)
         val note = linkedMapOf<String, Int>()
-        for ((name, s) in setAside.sortedBy { it.first }) {
+        for ((name, s) in setAside.sortedByDescending { it.first }) {
             if (s == null) {
                 note[name] = -1
                 continue
@@ -282,7 +286,7 @@ object LegacyMapper {
             if (baseline == null && s.baseline != null) { baseline = s.baseline; n++ }
             note[name] = n
         }
-        return main.copy(meals = meals, weights = weights, trainings = trainings, pending = pending, food = food, baseline = baseline) to note
+        return main.copy(meals = meals, weights = weights, trainings = trainings, pending = pending, food = food, baseline = baseline) to note.toSortedMap()
     }
 
     const val PROFILE_HEIGHT = "profile.heightCm"

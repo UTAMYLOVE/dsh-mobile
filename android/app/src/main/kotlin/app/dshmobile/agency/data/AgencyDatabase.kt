@@ -1,6 +1,7 @@
 package app.dshmobile.agency.data
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabaseCorruptException
 import android.database.sqlite.SQLiteException
 import androidx.room.Database
 import androidx.room.Room
@@ -53,6 +54,7 @@ import app.dshmobile.agency.data.entities.TrainingLogEntity
 import app.dshmobile.agency.data.entities.WaterLogEntity
 import app.dshmobile.agency.data.entities.WeightLogEntity
 import app.dshmobile.agency.secure.DataLockedException
+import app.dshmobile.agency.secure.TransientDataException
 import java.io.File
 import net.zetetic.database.sqlcipher.SQLiteNotADatabaseException
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
@@ -96,9 +98,15 @@ abstract class AgencyDatabase : RoomDatabase() {
 
         /**
          * Opens (creating on first use) the encrypted database at [file] with the passphrase from [key]. Blocking: call it off
-         * the main thread. For an existing file, [DataLockedException] is the only exception it throws: the passphrase is gone,
-         * no longer opens the file, or the file cannot be opened at all (damaged pages, disk or I/O errors). Nothing is ever
-         * deleted in any of these cases (the app shows 「資料鎖打不開」).
+         * the main thread. Nothing is ever deleted when it fails. What it throws:
+         * - [DataLockedException]: the passphrase is gone or cannot be opened (its Keystore key is lost), or an existing file
+         *   does not open with it or is damaged. Trying again does not help (「資料鎖打不開」).
+         * - [TransientDataException]: the secrets file or the Keystore could not be read or written, or an existing file could
+         *   not be opened for a passing reason (disk full, an I/O error, busy, cannot open). Offer to try again.
+         * - For a new file, the raw [SQLiteException] of a failed create.
+         * - Not mapped, so the caller must catch them too and must not delete anything: Room's [IllegalStateException] (the
+         *   schema's identity hash differs, or a migration is missing after a downgrade), a [RuntimeException] the Keystore
+         *   throws that is not one of the above, and an [UnsatisfiedLinkError] when SQLCipher's library cannot load.
          */
         fun open(context: Context, key: DbKey = DbKey.forApp(context), file: File = file(context)): AgencyDatabase {
             System.loadLibrary("sqlcipher")
@@ -108,8 +116,9 @@ abstract class AgencyDatabase : RoomDatabase() {
         }
 
         /**
-         * [open] after the key: opens through [factory] now, not at the first query, and maps every open failure on an
-         * existing file ([existed]) to [DataLockedException], keeping the file. Separate so JVM tests can inject failures.
+         * [open] after the key: opens through [factory] now, not at the first query, and maps every SQLite open failure on an
+         * existing file ([existed]) to [DataLockedException] (does not open with the key, or damaged) or
+         * [TransientDataException] (every other one), keeping the file. Separate so JVM tests can inject failures.
          */
         internal fun openChecked(context: Context, file: File, existed: Boolean, factory: SupportSQLiteOpenHelper.Factory): AgencyDatabase {
             val db = build(context, file.absolutePath, factory)
@@ -118,10 +127,14 @@ abstract class AgencyDatabase : RoomDatabase() {
             } catch (e: SQLiteNotADatabaseException) {
                 db.closeQuietly()
                 throw DataLockedException("the database key does not open the file", e)
+            } catch (e: SQLiteDatabaseCorruptException) {
+                db.closeQuietly()
+                if (!existed) throw e
+                throw DataLockedException("the database file is damaged", e)
             } catch (e: SQLiteException) {
                 db.closeQuietly()
                 if (!existed) throw e
-                throw DataLockedException("the database file cannot be opened", e)
+                throw TransientDataException("the database file cannot be opened now", e)
             }
             return db
         }

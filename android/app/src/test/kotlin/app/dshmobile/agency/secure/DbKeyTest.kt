@@ -6,6 +6,7 @@ import app.dshmobile.agency.data.AgencyDatabase
 import app.dshmobile.agency.data.DbKey
 import app.dshmobile.agency.media.MediaVault
 import java.io.File
+import java.io.SyncFailedException
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import javax.crypto.KeyGenerator
@@ -69,6 +70,48 @@ class DbKeyTest {
         secretsFile.writeText("{not json")
         assertLocked { DbKey(DbKey.secretsFile(context), wrap).passphrase(dbExists = false) }
         assertEquals("{not json", secretsFile.readText())
+    }
+
+    private fun secrets(
+        sync: (java.io.FileDescriptor) -> Unit = { it.sync() },
+        rename: (File, File) -> Boolean = { a, b -> a.renameTo(b) },
+        syncDir: (File) -> Unit = {},
+    ) = SecretsFile(secretsFile, sync, rename, syncDir)
+
+    /** Review FIX-T01-T02 m1: a sync that fails is not swallowed (AtomicFile only logs it), so no secret is handed out. */
+    @Test fun aFailedSyncOfTheSecretsFileHandsOutNoSecret() {
+        try {
+            DbKey(secrets(sync = { throw SyncFailedException("invented") }), wrap).passphrase(dbExists = false)
+            fail("expected TransientDataException")
+        } catch (e: TransientDataException) {
+            assertTrue(e.cause is SyncFailedException)
+        }
+        assertFalse(secretsFile.exists())
+        assertEquals(emptyList<String>(), secretsFile.parentFile!!.list()!!.filter { it.startsWith(SecretsFile.NAME) })
+        // The next start makes the secret afresh, and it is the one stored.
+        val made = DbKey(DbKey.secretsFile(context), wrap).passphrase(dbExists = false)
+        assertArrayEquals(made, DbKey(DbKey.secretsFile(context), wrap).passphrase(dbExists = true))
+    }
+
+    @Test fun aFailedRenameOfTheSecretsFileHandsOutNoSecretAndKeepsTheOldFile() {
+        val media = WrappedSecret(DbKey.secretsFile(context), MediaVault.KEY_NAME, wrap).get(dataExists = false)
+        val before = secretsFile.readBytes()
+        try {
+            DbKey(secrets(rename = { _, _ -> false }), wrap).passphrase(dbExists = false)
+            fail("expected TransientDataException")
+        } catch (_: TransientDataException) {
+        }
+        assertArrayEquals(before, secretsFile.readBytes())
+        assertFalse(File(secretsFile.path + ".new").exists())
+        assertArrayEquals(media, WrappedSecret(DbKey.secretsFile(context), MediaVault.KEY_NAME, wrap).get(dataExists = true))
+    }
+
+    /** Review FIX-T01-T02 m2: the folder is synced after the rename, so the new name is on disk before the secret is used. */
+    @Test fun theFolderIsSyncedAfterTheSecretsFileIsRenamed() {
+        val seen = mutableListOf<String>()
+        DbKey(secrets(syncDir = { d -> seen += "dir=${d == secretsFile.parentFile} file=${secretsFile.exists()} new=${File(secretsFile.path + ".new").exists()}" }), wrap)
+            .passphrase(dbExists = false)
+        assertEquals(listOf("dir=true file=true new=false"), seen)
     }
 
     /** Widens the read → generate → write window, as a slow Keystore would. */

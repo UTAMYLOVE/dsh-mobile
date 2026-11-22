@@ -10,14 +10,24 @@ class ProjectRulesTest {
     /** A model family named in prose; API model ids (`claude-haiku-5-5`) are lowercase and allowed. */
     private val modelName = Regex("""\b(Haiku|Sonnet|Opus|Fable)\b""")
 
+    /** A `[versions]` key of the Kotlin compiler (`kotlin`, `kotlinComposeCompiler`), not of a kotlinx library. */
+    private val kotlinVersionKey = Regex("""^\s*kotlin(?!x)\w*\s*=""")
+
     @Test fun everyKotlinPluginUsesTheOneKotlinVersion() {
         val catalog = listOf(File("../gradle/libs.versions.toml"), File("gradle/libs.versions.toml"), File("android/gradle/libs.versions.toml"))
             .first { it.isFile }.readLines()
         val kotlinPlugins = catalog.filter { it.contains("id = \"org.jetbrains.kotlin.") }
         assertEquals(3, kotlinPlugins.size) // compose, jvm, serialization
         assertEquals(emptyList<String>(), kotlinPlugins.filterNot { it.contains("version.ref = \"kotlin\"") })
-        val versionKeys = catalog.takeWhile { it.trim() != "[libraries]" }.filter { Regex("""^\s*kotlin\w*\s*=""").containsMatchIn(it) }
+        val versionKeys = catalog.takeWhile { it.trim() != "[libraries]" }.filter { kotlinVersionKey.containsMatchIn(it) }
         assertEquals(listOf("kotlin"), versionKeys.map { it.substringBefore("=").trim() })
+    }
+
+    @Test fun theVersionKeyCheckSkipsKotlinxLibraries() {
+        assertTrue(kotlinVersionKey.containsMatchIn("kotlin = \"2.2.10\""))
+        assertTrue(kotlinVersionKey.containsMatchIn("kotlinComposeCompiler = \"2.2.10\""))
+        assertTrue(!kotlinVersionKey.containsMatchIn("kotlinxCoroutines = \"1.10.2\""))
+        assertTrue(!kotlinVersionKey.containsMatchIn("kotlinxDatetime = \"0.7.1\""))
     }
 
     @Test fun noCoreSourceNamesAModel() {

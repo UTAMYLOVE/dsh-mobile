@@ -3,9 +3,11 @@ package app.dshmobile.agency.media
 import android.content.Context
 import app.dshmobile.agency.data.DbKey
 import app.dshmobile.agency.secure.DataLockedException
+import app.dshmobile.agency.secure.Durable
 import app.dshmobile.agency.secure.Gcm
 import app.dshmobile.agency.secure.KeyWrap
 import app.dshmobile.agency.secure.KeystoreWrap
+import app.dshmobile.agency.secure.TransientDataException
 import app.dshmobile.agency.secure.WrappedSecret
 import java.io.File
 import java.io.FileDescriptor
@@ -26,24 +28,27 @@ class MediaVaultException(message: String, cause: Throwable? = null) : IOExcepti
  * camera cache ([sweepCameraCache]).
  *
  * Errors: [MediaVaultException] for one file (missing, changed, sealed under another key); [DataLockedException] when the
- * data key itself cannot be had (its secret is missing while sealed files exist, or its Keystore key is gone). T06 must show a
- * locked vault apart from a locked database: meals and records still work, only photos and recordings are unavailable.
- * [sync] is the fsync before the rename (tests observe it).
+ * data key itself is lost (its secret is missing while sealed files exist, or its Keystore key is gone);
+ * [TransientDataException] when the key's secret could not be read or stored right now. T06 must show a locked vault apart
+ * from a locked database: meals and records still work, only photos and recordings are unavailable.
+ * [sync] is the fsync before the rename, [syncDir] the folder's fsync after it (tests observe both).
  */
 class MediaVault internal constructor(
     private val dir: File,
     private val dataKey: () -> SecretKey,
     private val sync: (FileDescriptor) -> Unit,
+    private val syncDir: (File) -> Unit,
 ) {
-    constructor(dir: File, dataKey: () -> SecretKey) : this(dir, dataKey, FileDescriptor::sync)
+    constructor(dir: File, dataKey: () -> SecretKey) : this(dir, dataKey, FileDescriptor::sync, Durable::syncDir)
 
     /** What was sealed: size and SHA-256 (hex) of the plaintext, for the `media` row. */
     data class Sealed(val bytes: Long, val sha256: String)
 
     /**
-     * Seals [plain] as `<id>.bin`: written to a temp file, synced to disk, then renamed, so a power loss leaves the old file or
-     * the whole new one, never a cut one.
-     * @throws DataLockedException when the data key cannot be had.
+     * Seals [plain] as `<id>.bin`: written to a temp file, synced to disk, renamed, then the folder synced, so a power loss
+     * leaves the old file or the whole new one, never a cut one, and once this returns the new one is on disk (best effort
+     * where the filesystem refuses a folder sync).
+     * @throws DataLockedException when the data key is lost.
      */
     fun put(id: String, plain: ByteArray): Sealed {
         val target = fileOf(id)
@@ -63,6 +68,7 @@ class MediaVault internal constructor(
             tmp.delete()
             throw IOException("could not store media $id")
         }
+        syncDir(dir)
         return Sealed(plain.size.toLong(), sha256(plain))
     }
 

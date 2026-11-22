@@ -103,18 +103,19 @@ class MediaVaultTest {
 
     @Test fun theSealedFileIsSyncedWholeBeforeItIsRenamed() {
         val seen = mutableListOf<String>()
-        val synced = MediaVault(dir, { key }) { fd ->
+        val synced = MediaVault(dir, { key }, sync = { fd ->
             fd.sync()
             val tmpFile = File(dir, "p-1.bin.tmp")
             seen += "tmp=${tmpFile.length()} target=${File(dir, "p-1.bin").exists()}"
-        }
+        }, syncDir = { d -> seen += "dir=${d == dir} target=${File(dir, "p-1.bin").exists()} tmp=${File(dir, "p-1.bin.tmp").exists()}" })
         synced.put("p-1", photo)
-        assertEquals(listOf("tmp=${1 + 12 + photo.size + 16} target=false"), seen)
+        // Review FIX-T01-T02 m2: after the rename the folder is synced too, so the new name is on disk when put returns.
+        assertEquals(listOf("tmp=${1 + 12 + photo.size + 16} target=false", "dir=true target=true tmp=false"), seen)
         assertArrayEquals(photo, synced.get("p-1"))
     }
 
     @Test fun aFailedSyncStoresNothing() {
-        val failing = MediaVault(dir, { key }) { throw SyncFailedException("invented") }
+        val failing = MediaVault(dir, { key }, sync = { throw SyncFailedException("invented") }, syncDir = { fail("nothing was renamed") })
         try {
             failing.put("p-1", photo)
             fail("a failed sync must fail the put")

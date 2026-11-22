@@ -17,6 +17,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import java.security.MessageDigest
 
 /** The kinds the importer counts; the store must hold exactly the planned number of each after the import. */
 enum class ImportKind { PROFILE, RULES, MEALS, MEAL_ITEMS, PENDING, WEIGHTS, TRAININGS, FOOD, AUDIT, BASELINES, MEDIA, MESSAGES }
@@ -24,8 +25,9 @@ enum class ImportKind { PROFILE, RULES, MEALS, MEAL_ITEMS, PENDING, WEIGHTS, TRA
 /**
  * Which state file the records came from, in the coach's own order (state.json, then the temp file of a cut save).
  * [SALVAGED]: neither file parses, but the complete records before the cut of one of them were recovered
- * ([LegacyCoachJson.salvageState]). [UNREADABLE]: a state file exists and nothing in it could be read. Both make the import
- * fail (the folder stays where it is and the next start tries again); what could be read is still committed.
+ * ([LegacyCoachJson.salvageState]; of two cut files, the one that still holds more records). [UNREADABLE]: a state file
+ * exists and nothing in it could be read. Both make the import partial: what could be read is committed, the folder stays
+ * where it is, and the import runs again only when the legacy files change or he asks for it (設定 › 舊資料 「再試一次」).
  */
 enum class StateOrigin { STATE, TMP, NONE, SALVAGED, UNREADABLE }
 
@@ -63,6 +65,8 @@ data class ImportNote(
      * imported from it (0 when it held nothing new), or -1 when nothing in it could be read.
      */
     val setAsideFiles: Map<String, Int> = emptyMap(),
+    /** The [setAsideFiles] that did not parse whole, so only their complete records before the cut were read. */
+    val setAsideSalvaged: List<String> = emptyList(),
     /** Records the decoders left out because a required field was missing (no id, day, kg, name or kcal), per kind. */
     val droppedRecords: Map<String, Int> = emptyMap(),
     /**
@@ -85,8 +89,8 @@ data class ImportNote(
     /** 入社建檔 files the state names that are not in `coach/baseline/` (the step reads as not handed in). */
     val missingMedia: List<String> = emptyList(),
     /**
-     * Files in `coach/baseline/` larger than [LegacyMapper.MAX_IMPORT_MEDIA_BYTES]: not imported (a step that names one reads as
-     * not handed in); the original stays in `coach.migrated-*`.
+     * Files in `coach/baseline/` too big to move: larger than [LegacyMapper.MAX_IMPORT_MEDIA_BYTES], or the phone ran out of
+     * memory sealing one. Not imported (a step that names one reads as not handed in); the original stays in the legacy folder.
      */
     val mediaTooLarge: List<String> = emptyList(),
     /** Meals that carried an evidence text (no version ever wrote one; the agency has no field for it). */
@@ -98,6 +102,8 @@ data class ImportNote(
      * (`profile.heightCm` → 「172.0」), so 設定 › 舊資料 can show them.
      */
     val notApplied: Map<String, String> = emptyMap(),
+    /** Records an earlier, partial import already brought and this run left alone ([ImportPlan.except]). */
+    val carriedBefore: Int = 0,
 ) {
     fun toJson(): String = json.encodeToString(ImportNote.serializer(), this)
 
@@ -130,7 +136,7 @@ data class ImportPlan(
     /** The [profile] and [rules] fields whose value he saved in the coach (`profile.heightCm`, `rules.fatG`, …). */
     val fromPrefs: Set<String> = emptySet(),
 ) {
-    /** False when the state file could not be read whole: the import then fails after committing what it could read. */
+    /** False when the state file could not be read whole: the import is then partial after committing what it could read. */
     val stateRead: Boolean get() = StateOrigin.valueOf(note.stateOrigin) !in setOf(StateOrigin.SALVAGED, StateOrigin.UNREADABLE)
 
     val expected: Map<ImportKind, Int>
@@ -149,17 +155,79 @@ data class ImportPlan(
             ImportKind.MESSAGES to messages.size,
         )
 
+    /**
+     * One short key per record of the plan: its kind and the first 16 hex digits of a hash of its id (a meal and item index for
+     * a pending label, the name for a food). Nothing of the record itself. Kept after a partial import, so a later run can
+     * leave those records alone ([except]).
+     */
+    fun recordKeys(): Set<String> = buildSet {
+        meals.forEach { add(recordKey(ImportKind.MEALS, it.id)) }
+        pending.forEach { add(recordKey(ImportKind.PENDING, pendingId(it))) }
+        weights.forEach { add(recordKey(ImportKind.WEIGHTS, it.id)) }
+        trainings.forEach { add(recordKey(ImportKind.TRAININGS, it.id)) }
+        food.forEach { add(recordKey(ImportKind.FOOD, it.name)) }
+        audits.forEach { add(recordKey(ImportKind.AUDIT, it.id)) }
+        baseline?.let { add(recordKey(ImportKind.BASELINES, it.id)) }
+        media.forEach { add(recordKey(ImportKind.MEDIA, it.id)) }
+        messages.forEach { add(recordKey(ImportKind.MESSAGES, it.id)) }
+    }
+
+    /**
+     * This plan without the records whose [recordKeys] are in [carried]: an earlier, partial import brought them, so he may
+     * have deleted or edited them since, and a later run must neither bring them back nor count them. The profile and rules
+     * are written only when missing anyway. The note says how many were left out ([ImportNote.carriedBefore]).
+     */
+    fun except(carried: Set<String>): ImportPlan {
+        if (carried.isEmpty()) return this
+        fun gone(kind: ImportKind, id: String) = recordKey(kind, id) in carried
+        return copy(
+            meals = meals.filterNot { gone(ImportKind.MEALS, it.id) },
+            pending = pending.filterNot { gone(ImportKind.PENDING, pendingId(it)) },
+            weights = weights.filterNot { gone(ImportKind.WEIGHTS, it.id) },
+            trainings = trainings.filterNot { gone(ImportKind.TRAININGS, it.id) },
+            food = food.filterNot { gone(ImportKind.FOOD, it.name) },
+            audits = audits.filterNot { gone(ImportKind.AUDIT, it.id) },
+            baseline = baseline?.takeUnless { gone(ImportKind.BASELINES, it.id) },
+            media = media.filterNot { gone(ImportKind.MEDIA, it.id) },
+            messages = messages.filterNot { gone(ImportKind.MESSAGES, it.id) },
+            note = note.copy(carriedBefore = recordKeys().count { it in carried }),
+        )
+    }
+
     companion object {
         /** Counts as stored in `migration_log.counts`: kind names to numbers, nothing else. */
         fun countsJson(counts: Map<ImportKind, Int>): String =
             Json.encodeToString(MapSerializer(String.serializer(), Int.serializer()), counts.mapKeys { it.key.name })
+
+        /** See [recordKeys]. */
+        fun recordKey(kind: ImportKind, id: String): String {
+            val hash = MessageDigest.getInstance("SHA-256").digest("${kind.name}\n$id".toByteArray(Charsets.UTF_8))
+            return kind.name + ":" + hash.take(8).joinToString("") { "%02x".format(it) }
+        }
+
+        private fun pendingId(p: PendingLabel) = "${p.mealId}#${p.itemIdx}"
     }
 }
 
 /** The keys of prefs `agency_prefs` the importer writes. */
 object AgencyPrefKeys {
     const val NAME = "agency_prefs"
+    /** 0 (or absent): not imported yet; [MIGRATED_DONE]; [MIGRATED_PARTIAL]. */
     const val MIGRATED = "migrated"
+    const val MIGRATED_DONE = 1
+
+    /**
+     * What could be read is in, the state file could not be read whole. The import runs again only when the legacy files no
+     * longer match [LEGACY_STAMP], or when he asks (`LegacyImporter.retry`); records listed in [LEGACY_CARRIED] are never
+     * brought again.
+     */
+    const val MIGRATED_PARTIAL = 2
+
+    /** A fingerprint of the legacy files a partial import read (a hash, nothing of their content). */
+    const val LEGACY_STAMP = "legacy_stamp"
+
+    /** The [ImportPlan.recordKeys] partial imports committed, comma-separated. */
+    const val LEGACY_CARRIED = "legacy_carried"
     const val PROVIDER = "provider"
     const val MODEL_DEEPSEEK = "model_deepseek"
     const val MODEL_CLAUDE = "model_claude"

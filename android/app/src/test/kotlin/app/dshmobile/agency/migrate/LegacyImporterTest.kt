@@ -302,9 +302,11 @@ class LegacyImporterTest {
         val legacy = prefs("legacy", "v083-prefs.xml")
         val r = importer(legacy).run()
         assertFalse(r.ok)
+        assertTrue(r.partial)
+        assertTrue(r.partialNotice)
         assertEquals(StateOrigin.UNREADABLE.name, r.note!!.stateOrigin)
-        // Not marked done, not renamed: the next start tries again, the folder stays for a later recovery.
-        assertEquals(0, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        // Partial, not renamed: the folder stays for a later recovery.
+        assertEquals(AgencyPrefKeys.MIGRATED_PARTIAL, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
         assertTrue(coach.isDirectory)
         assertEquals(before, snapshot(coach))
         assertTrue(filesDir.list()!!.none { it.startsWith("coach.migrated-") })
@@ -316,14 +318,27 @@ class LegacyImporterTest {
         assertEquals("DEEPSEEK", agencyPrefs.getString(AgencyPrefKeys.PROVIDER, null))
         val log = store.journal.migrations().single()
         assertFalse(log.ok)
-        assertEquals("STATE UNREADABLE", log.note)
-        // The next start: nothing new, still one log row, still not done.
-        val again = importer(legacy).run()
+        // The whole note, for 設定 › 舊資料 (review FIX-T03 M-b).
+        assertEquals(r.note, ImportNote.fromJson(log.note!!))
+        // The next start: the files did not change, so nothing is read, written or shown again (review FIX-T03 F1).
+        var opened = 0
+        val counting = MediaVault(mediaDir) { opened++; key }
+        val again = importer(legacy, media = counting).run()
         assertFalse(again.ok)
-        assertEquals(ImportKind.entries.associateWith { 0 }, again.inserted)
-        assertEquals(1, store.journal.migrations().size)
-        assertEquals(0, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
-        assertTrue(coach.isDirectory)
+        assertTrue(again.skipped)
+        assertTrue(again.partial)
+        assertFalse(again.partialNotice)
+        assertEquals(0, opened)
+        assertEquals(log, store.journal.migrations().single())
+        assertEquals(AgencyPrefKeys.MIGRATED_PARTIAL, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        assertEquals(before, snapshot(coach))
+        // One byte of the state file changes: the next start runs the import again, still one log row.
+        File(coach, "state.json").writeText(cut.dropLast(1) + "x")
+        val changed = importer(legacy, now = NOW + 1).run()
+        assertFalse(changed.skipped)
+        assertTrue(changed.partialNotice)
+        assertEquals(ImportKind.entries.associateWith { 0 }, changed.inserted)
+        assertEquals(NOW + 1, store.journal.migrations().single().at)
     }
 
     @Test fun theCompleteRecordsOfACutStateAreSalvagedButTheImportStillFails() = runBlocking {
@@ -340,9 +355,102 @@ class LegacyImporterTest {
         assertEquals(listOf("全家 紐奧良風味烤雞鮮蔬三明治", "給力盒子 南加州烤雞腿"), store.food.all().map { it.name }.sorted())
         assertEquals(714, store.food.get("給力盒子 南加州烤雞腿")!!.kcal)
         assertEquals(11, store.messages.count())
-        assertEquals(0, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        assertEquals(AgencyPrefKeys.MIGRATED_PARTIAL, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
         assertTrue(coach.isDirectory)
-        assertEquals("STATE UNREADABLE, SALVAGED 6", store.journal.migrations().single().note)
+        assertEquals(note, ImportNote.fromJson(store.journal.migrations().single().note!!))
+    }
+
+    /** Review FIX-T03 F1: a partial import is final; deleted or edited records never come back, no log row repeats. */
+    @Test fun aPartialImportStaysAsHeLeftItUntilTheFilesChangeOrHeAsks() = runBlocking {
+        seedV083()
+        // Cut after the last complete value: every record survives, but the file does not parse.
+        val whole = fixture("v083-state.json").decodeToString().trimEnd()
+        File(coach, "state.json").writeText(whole.dropLast(1))
+        val legacy = prefs("legacy", "v083-prefs.xml")
+        val first = importer(legacy).run()
+        assertTrue(first.partialNotice)
+        assertEquals(4, store.meals.count())
+        assertEquals(1, store.meals.pending().size)
+        val before = snapshot(coach)
+
+        // He answers the label, deletes one meal, edits another (one item fewer) and deletes a food.
+        val label = store.meals.pending().single()
+        assertTrue(store.meals.deletePending(label.mealId, label.itemIdx))
+        assertTrue(store.meals.delete(FRIED_MEAL))
+        val twoItems = store.meals.get(TWO_ITEM_MEAL)!!
+        store.meals.upsert(twoItems.copy(items = twoItems.items.take(1)))
+        assertTrue(store.food.delete("牛肉麵"))
+        fun assertAsHeLeftIt() = runBlocking {
+            assertTrue(store.meals.pending().isEmpty())
+            assertNull(store.meals.get(FRIED_MEAL))
+            assertEquals(1, store.meals.get(TWO_ITEM_MEAL)!!.items.size)
+            assertNull(store.food.get("牛肉麵"))
+            assertEquals(1, store.journal.migrations().size)
+        }
+
+        // The next start: nothing comes back.
+        val next = importer(legacy).run()
+        assertTrue(next.skipped)
+        assertFalse(next.partialNotice)
+        assertAsHeLeftIt()
+        assertEquals(before, snapshot(coach))
+
+        // 再試一次 with the same files: runs, still partial, and leaves what the first run brought alone.
+        val retry = importer(legacy).retry()
+        assertFalse(retry.skipped)
+        assertTrue(retry.partial)
+        assertEquals(ImportKind.entries.associateWith { 0 }, retry.inserted)
+        assertEquals(4 + 2 + 1 + 6 + 1 + 11, retry.note!!.carriedBefore) // meals, weights, pending, food, audit, messages
+        assertAsHeLeftIt()
+        assertFalse(store.journal.migrations().single().ok)
+
+        // The state file is repaired: the import finishes, still without what he deleted, in the same log row.
+        File(coach, "state.json").writeText(whole)
+        val done = importer(legacy, now = NOW + 5).run()
+        assertTrue(done.ok)
+        assertFalse(done.partial)
+        assertAsHeLeftIt()
+        assertTrue(store.journal.migrations().single().ok)
+        assertEquals(AgencyPrefKeys.MIGRATED_DONE, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        assertNull(agencyPrefs.getString(AgencyPrefKeys.LEGACY_CARRIED, null))
+        assertFalse(coach.exists())
+        assertTrue(File(filesDir, "coach.migrated-${NOW + 5}").isDirectory)
+        // After a finished import 再試一次 does nothing.
+        assertTrue(importer(legacy).retry().skipped)
+    }
+
+    @Test fun ofTwoCutStateFilesTheOneHoldingMoreIsSalvaged() = runBlocking {
+        // Review FIX-T03 M-e: the temp file is the newer save and here still holds more complete records.
+        coach.mkdirs()
+        val longer = fixture("damaged-state.json").decodeToString()
+        val shorter = longer.substring(0, longer.indexOf("{\"id\":\"e3cf2ba7") + 20)
+        File(coach, "state.json").writeText(shorter)
+        File(coach, "state.json.tmp").writeText(longer)
+        val r = importer(prefs("legacy")).run()
+        assertTrue(r.partial)
+        assertEquals("state.json.tmp", r.note!!.salvagedFrom)
+        assertEquals(6, r.note!!.salvagedRecords)
+        assertEquals(3, store.meals.count())
+    }
+
+    @Test fun aSetAsideFileReadOnlyUpToItsCutIsNamed() = runBlocking {
+        // Review FIX-T03 M-c.
+        seedV2()
+        File(coach, "state.json.bad-1795300000000").writeBytes(fixture("damaged-state.json"))
+        File(coach, "state.json.bad-1795300000500").writeBytes(fixture("agency-v2-state.json"))
+        val r = importer(prefs("legacy")).run()
+        assertTrue(r.ok)
+        assertEquals(listOf("state.json.bad-1795300000000"), r.note!!.setAsideSalvaged)
+        assertEquals(setOf("state.json.bad-1795300000000", "state.json.bad-1795300000500"), r.note!!.setAsideFiles.keys)
+    }
+
+    @Test fun aPrefsOnlyImportHasNoFolderToRenameAndSaysNoRenameFailed() = runBlocking {
+        // Review FIX-T03 M-d.
+        val r = importer(prefs("legacy", "v083-prefs.xml")).run()
+        assertTrue(r.ok)
+        assertFalse(r.renameFailed)
+        assertNull(r.keptAt)
+        assertEquals(172.0, store.profile.get()!!.heightCm!!, 0.0)
     }
 
     @Test fun theRecordsTheCoachSetAsideAreImportedAndListed() = runBlocking {
@@ -415,16 +523,41 @@ class LegacyImporterTest {
         assertEquals(LegacyMapper.MAX_IMPORT_MEDIA_BYTES + 1, File(kept, "baseline/recording-1795225300000.wav").length())
     }
 
-    @Test fun runningOutOfMemoryWhileSealingIsAnOrdinaryFailure() = runBlocking {
+    @Test fun runningOutOfMemoryOnEveryFileStillBringsEverythingElse() = runBlocking {
         seedV2()
         val before = snapshot(coach)
         val r = importer(prefs("legacy", "agency-v2-prefs.xml"), media = MediaVault(mediaDir) { throw OutOfMemoryError("invented") }).run()
-        assertFalse(r.ok)
-        assertEquals(0, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
-        assertEquals(before, snapshot(coach))
-        val log = store.journal.migrations().single()
-        assertFalse(log.ok)
-        assertEquals("IOException", log.note)
+        assertTrue(r.ok)
+        assertEquals(baselineFiles, r.note!!.mediaTooLarge)
+        assertEquals(0, store.media.count())
+        assertEquals(3, store.meals.count())
+        assertEquals(9, store.messages.count())
+        assertEquals(before, snapshot(kept))
+        assertTrue(mediaDir.listFiles().orEmpty().isEmpty())
+    }
+
+    /** Review FIX-T03 F2: one file the phone cannot seal is left out and noted; every other file and record arrives. */
+    @Test fun runningOutOfMemoryOnOneFileSkipsOnlyThatFile() = runBlocking {
+        seedV2()
+        val before = snapshot(coach)
+        var calls = 0
+        // Key uses: 1 seals the first file, 2 checks it, 3 seals the second file.
+        val tight = MediaVault(mediaDir) { if (++calls == 3) throw OutOfMemoryError("invented") else key }
+        val r = importer(prefs("legacy", "agency-v2-prefs.xml"), media = tight).run()
+        assertTrue(r.ok)
+        assertEquals(listOf(baselineFiles[1]), r.note!!.mediaTooLarge)
+        assertEquals(listOf(baselineFiles[1]), ImportNote.fromJson(store.journal.migrations().single().note!!).mediaTooLarge)
+        for (name in listOf(baselineFiles[0], baselineFiles[2])) {
+            assertArrayEquals(name, fixture("agency-v2-baseline/$name"), vault.get(LegacyMapper.mediaId(name)))
+        }
+        assertFalse(vault.has(LegacyMapper.mediaId(baselineFiles[1])))
+        assertEquals(2, store.media.count())
+        assertNull(store.baselines.get(Baseline.JOIN)!!.photoFront) // that photo reads as not handed in
+        assertEquals(3, store.meals.count())
+        assertEquals(2, store.training.count())
+        assertEquals(9, store.messages.count())
+        assertEquals(r.counts, dbCounts())
+        assertEquals(before, snapshot(kept)) // the original stays in the kept folder
     }
 
     @Test fun eachBaselineFileIsDecryptedOnceToCheckIt() = runBlocking {
@@ -565,6 +698,9 @@ class LegacyImporterTest {
         assertFalse(log.ok)
         assertTrue(log.note!!, log.note!!.contains("MESSAGES 8/9"))
         assertFalse(log.note!!.contains("排骨"))
+        // A second failing start brings that row up to date instead of adding one.
+        assertFalse(importer(legacy, into = DropsOneMessage(store), now = NOW + 1).run().ok)
+        assertEquals(NOW + 1, store.journal.migrations().single().at)
         // The next start tries again and succeeds.
         val retry = importer(legacy).run()
         assertTrue(retry.ok)
@@ -634,5 +770,7 @@ class LegacyImporterTest {
 
     companion object {
         private const val NOW = 1_795_400_000_000L
+        private const val FRIED_MEAL = "0b6f3c2e-1a4d-4c55-9a51-3f7d2e8a9c01"
+        private const val TWO_ITEM_MEAL = "9a3c7e21-4f6b-4d08-b2a5-1e9f8c3d6a23"
     }
 }

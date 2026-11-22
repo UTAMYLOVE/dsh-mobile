@@ -351,14 +351,15 @@ class LegacyMapperTest {
         val p = plan(fresh, origin = StateOrigin.STATE, setAside = listOf(
             "state.json.bad-1795300000001-copy" to again, "state.json.bad-1795300000000" to old, "state.json.bad-1795300000002" to null,
         ))
-        assertEquals(listOf("new") + old.meals.map { it.id } + "other", p.meals.map { it.id })
+        // Newest file first: the copy of 1795300000001 gives its two meals, the older file the rest of its own.
+        assertEquals(listOf("new", old.meals[0].id, "other") + old.meals.drop(1).map { it.id }, p.meals.map { it.id })
         assertEquals(old.weights.map { it.id }, p.weights.map { it.id })
         assertEquals(old.pending.map { it.mealId }, p.pending.map { it.mealId })
         // His own foods come in; the seeds of the old file are already in the fresh table.
         assertEquals(FoodTable.seed(9).map { it.name } + listOf("牛肉麵", "無糖綠茶 一瓶", "即食雞胸", "統一高纖豆漿"), p.food.map { it.name })
-        // In name order: the first file gives 4 meals, 2 weights, 1 pending, 2 foods; the second only its new meal.
+        // Newest first: the copy gives 2 meals, 2 weights, 1 pending, 2 foods; the older file only its 3 other meals.
         assertEquals(
-            mapOf("state.json.bad-1795300000000" to 9, "state.json.bad-1795300000001-copy" to 1, "state.json.bad-1795300000002" to -1),
+            mapOf("state.json.bad-1795300000000" to 3, "state.json.bad-1795300000001-copy" to 7, "state.json.bad-1795300000002" to -1),
             p.note.setAsideFiles,
         )
         assertEquals(listOf("state.json.bad-1795300000000", "state.json.bad-1795300000001-copy", "state.json.bad-1795300000002"), p.note.setAsideFiles.keys.toList())
@@ -380,6 +381,48 @@ class LegacyMapperTest {
         assertEquals(700, p.food.single { it.name == "牛肉麵" }.kcal)
         assertEquals(12, p.baseline!!.pushupsMax)
         assertEquals(mapOf("state.json.bad-1" to 2), p.note.setAsideFiles)
+    }
+
+    @Test fun ofTwoSetAsideFilesTheNewerLabelValueWins() {
+        // Set aside at t1 with his entry, then he relabelled it in the fresh state, which was set aside again at t2.
+        val fresh = LegacyState(seeded = true, food = FoodTable.seed(9))
+        val t1 = LegacyState(seeded = true, food = listOf(food("巷口滷肉飯", 520, 14.0, seeded = false)))
+        val t2 = LegacyState(seeded = true, food = FoodTable.seed(9) + food("巷口滷肉飯", 610, 16.0, seeded = false))
+        val p = plan(fresh, setAside = listOf("state.json.bad-1795300000000" to t1, "state.json.bad-1795300009000" to t2))
+        assertEquals(610, p.food.single { it.name == "巷口滷肉飯" }.kcal)
+        assertEquals(mapOf("state.json.bad-1795300000000" to 0, "state.json.bad-1795300009000" to 1), p.note.setAsideFiles)
+    }
+
+    @Test fun aSetAsideFileReadOnlyUpToItsCutIsNamedInTheNote() {
+        val input = LegacyInput(
+            LegacyState(seeded = true), StateOrigin.STATE, emptyList(),
+            setAside = listOf("state.json.bad-2" to LegacyState(seeded = true), "state.json.bad-1" to LegacyState(seeded = true), "state.json.bad-3" to null),
+            setAsideSalvaged = setOf("state.json.bad-2", "state.json.bad-1"),
+        )
+        assertEquals(listOf("state.json.bad-1", "state.json.bad-2"), LegacyMapper.map(input, now).note.setAsideSalvaged)
+        assertTrue(plan().note.setAsideSalvaged.isEmpty())
+    }
+
+    @Test fun aLaterRunLeavesOutTheRecordsAnEarlierPartialImportBrought() {
+        val full = LegacyMapper.map(LegacyInput(fixtureState("v083-state.json"), StateOrigin.STATE, emptyList()), now)
+        val earlier = full.copy(meals = full.meals.take(2), pending = full.pending, food = full.food.take(3), messages = emptyList(), audits = emptyList())
+        val keys = earlier.recordKeys()
+        assertEquals(2 + full.pending.size + 3 + full.weights.size, keys.size)
+        assertEquals(2, full.weights.size)
+        // Kind and a hash only: no id or name in the clear.
+        assertTrue(keys.all { Regex("^[A-Z_]+:[0-9a-f]{16}$").matches(it) })
+        assertTrue(keys.none { k -> full.meals.any { k.contains(it.id) } })
+        val later = full.except(keys)
+        assertEquals(full.meals.drop(2), later.meals)
+        assertTrue(later.pending.isEmpty())
+        assertEquals(full.food.drop(3), later.food)
+        assertTrue(later.weights.isEmpty())
+        assertEquals(full.audits, later.audits)
+        assertEquals(keys.size, later.note.carriedBefore)
+        assertEquals(full.expected[ImportKind.MEALS]!! - 2, later.expected[ImportKind.MEALS])
+        assertEquals(full.profile, later.profile)
+        assertTrue(full.except(emptySet()) === full)
+        assertEquals(0, full.note.carriedBefore)
     }
 
     @Test fun anUnreadableOrSalvagedStateGetsNoSeeds() {
