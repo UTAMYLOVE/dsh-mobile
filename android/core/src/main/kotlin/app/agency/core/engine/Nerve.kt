@@ -16,6 +16,7 @@ import app.agency.core.model.WordedBy
 import app.agency.core.rules.CoachRules
 import app.agency.core.schedule.DayAdjust
 import app.agency.core.schedule.DayPlan
+import app.agency.core.schedule.PlanSpecs
 import app.agency.core.schedule.PlanStore
 import app.agency.core.schedule.Reduction
 import app.agency.core.store.AgencyStore
@@ -66,7 +67,8 @@ class Nerve(
     suspend fun state(day: LocalDate): DayState {
         val effects = store.nerve.effects(day.toString())
         val signals = store.nerve.signals(day.minusDays(DayStateBuilder.LOOKBACK_DAYS).toString(), day.toString())
-        return DayStateBuilder.build(day, plan(day), signals, effects)
+        val progression = store.nerve.effectsWith(EffectStatus.PROPOSED).any { it.link == Links.L15Progression.id }
+        return DayStateBuilder.build(day, plan(day), signals, effects).copy(pendingProgression = progression)
     }
 
     /** Takes one signal (a repeat of a handled id does nothing). */
@@ -98,12 +100,14 @@ class Nerve(
                     }
                     is Effect.Proposal -> {
                         val pid = newId()
-                        store.proposals.insert(
-                            Proposal(
-                                pid, clock.millis(), Links.SPEAKER, if (e.todayOnly) ProposalKind.TODAY_CHANGE else ProposalKind.RULES_SUGGESTION,
-                                target = link.id, diffJson = encodeEffect(e), reason = e.because,
-                            ),
-                        )
+                        val kind = when {
+                            e.progression != null -> ProposalKind.PROGRESSION
+                            e.fixTomorrow != null -> ProposalKind.TOMORROW_FIX
+                            e.todayOnly -> ProposalKind.TODAY_CHANGE
+                            else -> ProposalKind.RULES_SUGGESTION
+                        }
+                        val role = if (kind == ProposalKind.PROGRESSION) app.agency.core.model.RoleKey.BODY else Links.SPEAKER
+                        store.proposals.insert(Proposal(pid, clock.millis(), role, kind, target = link.id, diffJson = encodeEffect(e), reason = e.because))
                         result += write(row(EffectKind.PROPOSAL, EffectStatus.PROPOSED, e.because, pid, null))
                     }
                     is Effect.Notify -> result += write(row(EffectKind.NOTIFY, EffectStatus.PENDING, e.text, null, e.at ?: signal.at))
@@ -160,7 +164,8 @@ class Nerve(
         val today = dayOf(clock.millis(), dayStartHour()).toString()
         store.nerve.effectsWith(EffectStatus.PROPOSED).filter { it.day < today }.forEach { e ->
             val p = (decodeEffect(e.json) as? Effect.Proposal) ?: return@forEach
-            if (!p.todayOnly) return@forEach
+            // Tomorrow's fix (L19) is answered the night it is made: by the next day it has nothing left to set up.
+            if (!p.todayOnly && p.fixTomorrow == null) return@forEach
             store.nerve.setStatus(e.id, EffectStatus.EXPIRED, clock.millis())
             e.proposalId?.let { id -> store.proposals.get(id)?.let { store.proposals.upsert(it.copy(status = ProposalStatus.EXPIRED, decidedAt = clock.millis())) } }
         }
@@ -191,8 +196,30 @@ class Nerve(
             mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
             return "好，只改今天：${p.change}不用明天補做，好好休息。"
         }
+        p.progression?.let { next -> return progress(e, next, now) }
         mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
         return p.suggestQuota?.let { "好。公司規章要你自己改：到設定的公司規章，把每天的熱量改成 $it，確認兩次。" } ?: "好。"
+    }
+
+    /**
+     * His yes to the next strength step (L15): checked again against the training plan as it is now (another change since
+     * makes it lapse), then the next version of the training section, changed by this proposal.
+     */
+    private suspend fun progress(e: NerveEffect, next: Int, now: Long): String {
+        val specs = plans.specs()
+        if (specs.training.progressionStep != next - 1) {
+            mark(e, EffectStatus.EXPIRED, ProposalStatus.EXPIRED, now)
+            return "訓練在這之後改過了，這個升級對不上，沒有改。"
+        }
+        val t = specs.training.copy(progressionStep = next)
+        val written = store.rules.putSection(
+            app.agency.core.model.PlanSectionKey.TRAINING, PlanSpecs.JSON.encodeToString(app.agency.core.schedule.TrainingSpec.serializer(), t),
+            e.proposalId ?: e.id, now,
+        )
+        mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
+        e.proposalId?.let { id -> store.proposals.get(id)?.let { store.proposals.upsert(it.copy(appliedVersion = written.version)) } }
+        val rules = store.rules.current() ?: CompanyRules()
+        return "好，下一次肌力開始：${Progression.note(t)}。加量的日子蛋白質一定要吃夠 ${rules.proteinG} 克。"
     }
 
     private suspend fun mark(e: NerveEffect, status: EffectStatus, ps: ProposalStatus, at: Long) {

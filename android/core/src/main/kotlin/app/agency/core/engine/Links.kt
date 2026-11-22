@@ -1,6 +1,7 @@
 package app.agency.core.engine
 
 import app.agency.core.model.RoleKey
+import app.agency.core.model.TrainingKind
 import app.agency.core.schedule.DayAdjust
 import app.agency.core.schedule.DayClock
 import app.agency.core.schedule.DayFlag
@@ -22,7 +23,8 @@ import kotlin.math.ceil
 object Links {
     fun all(): List<Link> = listOf(
         L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd, L10Water,
-        L12Chase, L13Violation, L14Discuss, L16Spend, L17Grooming, L18NoClassDay, L21WeightStop, L22TiredRiding, L23WeightTrend,
+        L11Completion, L12Chase, L13Violation, L14Discuss, L15Progression, L16Spend, L17Grooming, L18NoClassDay, L21WeightStop,
+        L22TiredRiding, L23WeightTrend,
     ) + Pending.all
 
     /** Minutes of [at] from 00:00 of the coach day's date (after midnight is past 24 × 60, like a slot's minute). */
@@ -73,9 +75,15 @@ object Links {
             if (signal !is Signal.Unwell) return emptyList()
             if (signal.kind == IllKind.UNKNOWN) return if (state.ill == null) listOf(Effect.Say(ASK)) else emptyList()
             val out = mutableListOf<Effect>()
-            if (!state.reductionProposed && state.plan.slots.any { it.key == SlotKey.STRENGTH || it.key == SlotKey.CORE }) {
+            // What is still owed today (T18: the training records): a core or rounds already done need no change.
+            val owed = listOfNotNull(
+                "核心".takeIf { state.plan.slot(SlotKey.CORE) != null && TrainingKind.CORE7 !in state.training },
+                "肌力".takeIf { state.plan.slot(SlotKey.STRENGTH) != null && TrainingKind.STRENGTH !in state.training },
+            )
+            if (!state.reductionProposed && owed.isNotEmpty()) {
                 val reduction = if (signal.kind == IllKind.INJURY) Reduction.INJURY else Reduction.SICK
-                val change = if (reduction == Reduction.INJURY) "今天核心和肌力先停，伸展照做，避開受傷的地方。" else "今天核心和肌力先停，伸展照做十分鐘。"
+                val what = owed.joinToString("和")
+                val change = if (reduction == Reduction.INJURY) "今天${what}先停，伸展照做，避開受傷的地方。" else "今天${what}先停，伸展照做十分鐘。"
                 out += Effect.Say("先照顧身體。${signal.word}的話，今天的訓練我提一個調整：${change}你說「好」才改；不回就照原本的表。")
                 out += Effect.Proposal(todayOnly = true, change = change, because = "因為你說${signal.word}，所以只改今天：$change", reduction = reduction)
             }
@@ -270,6 +278,42 @@ object Links {
         }
     }
 
+    /**
+     * L11: the first big completion of the day (the core 7 minutes or the strength rounds) → one photocard on the wall (拍立得照片牆)
+     * and, on a day without a breach, the one 撒嬌 of the day (a code line of the manager; never a second one: the daily cap and
+     * [DayState.sweetToday]). Only records: nothing changes in the plan.
+     */
+    object L11Completion : Link {
+        override val id = "L11"
+        override val zh = "核心或肌力當天第一次完成：撒嬌一次、照片牆加一張"
+        override val dailyCap = 1
+        const val SWEET = "sweet"
+        const val PHOTOCARD = "photocard"
+        val BIG = setOf(TrainingKind.CORE7, TrainingKind.STRENGTH)
+
+        fun sweetLine(kind: TrainingKind, rounds: Int?): String = when (kind) {
+            TrainingKind.CORE7 -> "核心七分鐘做完了，好棒，姐姐都看到了喔。今天的拍立得貼上照片牆了。"
+            else -> "${zhNumber(rounds ?: 3)}輪全部做完了，好厲害，姐姐都看到了喔。今天的拍立得貼上照片牆了。去伸展，做完跟我說。"
+        }
+
+        const val PLAIN = "今天的拍立得貼上照片牆了。"
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.TrainingDone || signal.kind !in BIG || state.photocardsToday > 0) return emptyList()
+            val out = mutableListOf<Effect>(Effect.Record(PHOTOCARD, signal.kind.name))
+            if (state.breaches == 0 && state.sweetToday < ToneDecider.MAX_SWEET_PER_DAY) {
+                out += Effect.Record(SWEET, signal.kind.name)
+                out += Effect.Say(sweetLine(signal.kind, signal.rounds))
+            } else {
+                out += Effect.Say(PLAIN)
+            }
+            return out
+        }
+    }
+
+    /** 3 → 三 (the rounds, at most a few). */
+    fun zhNumber(n: Int): String = listOf("零", "一", "兩", "三", "四", "五", "六", "七", "八", "九", "十").getOrElse(n) { n.toString() }
+
     /** L12: something due is not reported → a reminder every 30 minutes until he reports or goes to bed; once while riding. */
     object L12Chase : Link {
         override val id = "L12"
@@ -330,6 +374,40 @@ object Links {
             if (signal !is Signal.DayMissed || signal.day != state.day.minusDays(1).toString()) return emptyList()
             val key = signal.keys.sortedBy { it.ordinal }.firstOrNull { (state.missedInRow[it] ?: 0) >= DAYS } ?: return emptyList()
             return listOf(Effect.Say(question(key), discuss = true, options = OPTIONS), Effect.Record("discuss", key.name))
+        }
+    }
+
+    /**
+     * L15: the strength rounds were easy for a whole week (every session of the current step, 2 or more reps left on the last
+     * round; [Progression.weekEasy]) and protein reached the target the day before → the body teacher proposes the next step,
+     * one at a time, in order (背包划船 → 臀橋 → 第四輪). Never while one waits, never past the last step; his yes applies it.
+     */
+    object L15Progression : Link {
+        override val id = "L15"
+        override val zh = "肌力一週都輕鬆：提案升級（一次一項）"
+        override val dailyCap = 1
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.TrainingDone || signal.kind != TrainingKind.STRENGTH || !signal.easy) return emptyList()
+            val step = ctx.specs.training.progressionStep
+            val next = Progression.next(step) ?: return emptyList()
+            if (signal.step != step || state.pendingProgression) return emptyList()
+            if (!Progression.weekEasy(state.day, step, state.strengthSessions, state.restDays + state.illDays)) return emptyList()
+            val protein = state.proteinByDay[state.day.minusDays(1)] ?: 0.0
+            if (protein < ctx.rules.proteinG) return emptyList()
+            val change = Progression.change(next)
+            return listOf(
+                Effect.Say(
+                    "這一週的肌力，每次最後一輪都還能多做 ${Progression.EASY_EXTRA} 下以上，可以加量了。我提一個：$change" +
+                        "你說「好」才加；加量的日子蛋白質一定要吃夠 ${ctx.rules.proteinG} 克。",
+                    role = RoleKey.BODY,
+                ),
+                Effect.Proposal(
+                    todayOnly = false, change = change,
+                    because = "因為這一週的肌力每次最後一輪都還能多做 ${Progression.EASY_EXTRA} 下以上，昨天蛋白質也吃到 ${ctx.rules.proteinG} 克，所以提案加一樣（一次只加一樣）：$change",
+                    progression = next,
+                ),
+            )
         }
     }
 
@@ -497,8 +575,6 @@ object Links {
 
         companion object {
             val all = listOf(
-                Pending("L11", "核心或肌力第一次完成：撒嬌一次、照片牆加一張", "第 5 批（T18）、第 6 批（T20）"),
-                Pending("L15", "肌力一週都輕鬆：提案升級", "第 5 批（T18）"),
                 Pending("L19", "睡前簽退：檢討卡、明天的提案", "第 5 批（T19）"),
                 Pending("L20", "一週結束：評鑑、等級、照片牆", "第二階段"),
             )

@@ -17,7 +17,7 @@ enum class NotifyKind { GAP, REMINDER, WARNING }
  * What a link may do (agency-links §1.3). There is deliberately no effect that carries company rules: no link can change them.
  * - [AdjustToday]: changes today's arrangement only (a slot's time, the 豆漿 swap, a flag), within [AdjustBounds], with the
  *   「因為…所以…」 line, and he can cancel it for the day.
- * - [Proposal]: needs his yes (a today-only illness change, or a hint for 設定).
+ * - [Proposal]: needs his yes (a today-only illness change, a hint for 設定, the next strength step, tomorrow's fix).
  * - [Notify], [Say], [Record]: remind, say a line in the conversation, write down.
  * - [Chain]: one more signal (depth at most [Nerve.MAX_DEPTH]).
  */
@@ -36,6 +36,10 @@ sealed interface Effect {
         val reduction: Reduction? = null,
         /** L23: a daily kcal to set in 設定 › 公司規章 (accepting changes nothing by itself). */
         val suggestQuota: Int? = null,
+        /** L15: the progression step his yes moves the strength rounds to (one more than the current one). */
+        val progression: Int? = null,
+        /** L19: what he said to fix tomorrow; his yes has the manager remind him of it at tomorrow's sign-in. */
+        val fixTomorrow: String? = null,
     ) : Effect
 
     @Serializable @SerialName("notify")

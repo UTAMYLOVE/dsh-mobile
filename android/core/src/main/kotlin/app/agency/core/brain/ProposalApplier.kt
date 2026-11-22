@@ -126,7 +126,7 @@ class ProposalApplier(
 
     companion object {
         /** The kinds the nerve owns (their answer goes through [Nerve.decide]). */
-        val NERVE_KINDS = setOf(ProposalKind.TODAY_CHANGE, ProposalKind.RULES_SUGGESTION)
+        val NERVE_KINDS = setOf(ProposalKind.TODAY_CHANGE, ProposalKind.RULES_SUGGESTION, ProposalKind.PROGRESSION, ProposalKind.TOMORROW_FIX)
 
         val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -156,6 +156,14 @@ class ProposalApplier(
                 ProposalKind.SAVE_PLACE -> {
                     val d = JSON.decodeFromString(PlaceDiff.serializer(), p.diffJson)
                     ProposalView(p.id, p.kind, "存成常去店家", listOf(DiffLine(d.title, null, d.note.ifBlank { "常去店家" })), p.reason)
+                }
+                ProposalKind.PROGRESSION -> {
+                    val e = Nerve.decodeEffect(p.diffJson) as Effect.Proposal
+                    ProposalView(p.id, p.kind, "肌力升級（一次加一樣）", listOf(DiffLine("肌力", "照現在的", e.change)), e.because)
+                }
+                ProposalKind.TOMORROW_FIX -> {
+                    val e = Nerve.decodeEffect(p.diffJson) as Effect.Proposal
+                    ProposalView(p.id, p.kind, "明天要改", listOf(DiffLine("明天起床簽到時提醒你", null, e.fixTomorrow ?: e.change)), e.because)
                 }
                 ProposalKind.TODAY_CHANGE, ProposalKind.RULES_SUGGESTION -> {
                     val e = Nerve.decodeEffect(p.diffJson) as Effect.Proposal

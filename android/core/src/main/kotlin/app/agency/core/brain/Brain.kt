@@ -138,6 +138,7 @@ class Brain(
     private val cravings = CravingDesk(store, snapshot, clock, meals)
     private val weights = WeightDesk(store, snapshot, clock, newId)
     private val water = WaterDesk(store, snapshot, clock, newId)
+    private val training = app.agency.core.brain.handlers.TrainingDesk(store, snapshot, clock, newId)
 
     private val _busy = MutableStateFlow(false)
     /** True while a message is being answered. */
@@ -427,7 +428,9 @@ class Brain(
     private suspend fun pendingLocked(): List<Proposal> {
         proposals.expire()
         val today = snapshot.today(snapshot.profile()).toString()
-        val links = nerve.pending().filter { it.day == today || it.link == Links.L23WeightTrend.id }.mapNotNull { it.proposalId }.toSet()
+        // L23's and L15's wait until he answers (they change no day); the others are today's.
+        val lasting = setOf(Links.L23WeightTrend.id, Links.L15Progression.id)
+        val links = nerve.pending().filter { it.day == today || it.link in lasting }.mapNotNull { it.proposalId }.toSet()
         return store.proposals.withStatus(ProposalStatus.PENDING).filter { it.kind !in ProposalApplier.NERVE_KINDS || it.id in links }
     }
 
@@ -493,7 +496,7 @@ class Brain(
         return IdolCard.build(
             profile, snapshot.rules(), records, day, snapshot.currentWeightKg(day, profile), missing,
             status.baseline?.photoFront, Stickers.fromSlots(slots, records), slots, water.target(day, profile.joinDate),
-        )
+        ).copy(photocards = photocards().size)
     }
 
     private suspend fun baselineLine(text: String): Message =
@@ -561,8 +564,11 @@ class Brain(
         )
         val parsed = (intake as? Structured.Model)?.value
         val kind = parsed?.kind?.let { MealWords.kindOf(it, owner.text) } ?: if (discussing) DISCUSS else if (task != null) MealDiscussion.TALK_KIND else CHAT
-        val gentleToday = nerve.state(today).gentle
-        val tone = ToneDecider.decide(ToneInputs(ownerText = owner.text, intakeKind = kind, breachToday = input.today.breachToday, gentleToday = gentleToday))
+        val dayState = nerve.state(today)
+        // L11's one 撒嬌 of the day counts: once it is given, no reply is SWEET again today.
+        val tone = ToneDecider.decide(
+            ToneInputs(ownerText = owner.text, intakeKind = kind, breachToday = input.today.breachToday, gentleToday = dayState.gentle, sweetToday = dayState.sweetToday),
+        )
         if (intake is Structured.Template && intake.fail != null) {
             if (intake.fail == Fail.OFFLINE) return unsent(owner)
             _lastFail.value = intake.fail
@@ -688,6 +694,7 @@ class Brain(
             "label" -> meals.label(parsed.label?.name ?: parsed.items.firstOrNull()?.name, parsed.label?.kcal, parsed.label?.proteinG)
             "weight" -> parsed.weightKg?.let { weights.record(it, parsed.waistCm) } ?: MealOutcome(null, listOf("沒聽到體重。說「今天體重 79.5」。"))
             "water" -> water.record(WaterDesk.halvesIn(owner.text) ?: parsed.waterHalf ?: 0, nerve.state(snapshot.today(snapshot.profile())).riding)
+            "training" -> training.typed(owner.text, parsed.training)
             else -> return null
         }
         return said(outcome, kind)
@@ -706,6 +713,47 @@ class Brain(
         store.messages.insert(m)
         return listOf(m) + r.messages
     }
+
+    /**
+     * A guided timer finished (T18): the core 7 minutes or the stretch ([seconds] it ran), or the strength rounds with their
+     * report. The body teacher's line, then what the links said (L11's photocard and 撒嬌, L15's proposal).
+     */
+    suspend fun coreDone(seconds: Int): List<Message> = trainingLocked { training.core(fromTimer = true, seconds = seconds) }
+
+    suspend fun strengthDone(report: app.agency.core.brain.handlers.StrengthReport): List<Message> = trainingLocked { training.strength(report.copy(fromTimer = true)) }
+
+    suspend fun stretchDone(seconds: Int): List<Message> = trainingLocked { training.stretch(fromTimer = true, seconds = seconds) }
+
+    /** 快走完成 (a tap on a no-class day). */
+    suspend fun walkDone(): List<Message> = trainingLocked { training.walk() }
+
+    private suspend fun trainingLocked(record: suspend () -> MealOutcome): List<Message> = mutex.withLock {
+        val started = ensureDay()
+        (started + said(record(), "training")).also { bump() }
+    }
+
+    /** Today's guided routine of [kind] (the plan's progression step and rounds), or null when it is not in today's plan. */
+    suspend fun routine(kind: app.agency.core.model.TrainingKind): List<app.agency.core.engine.RoutineStep>? {
+        val plan = snapshot.plan(snapshot.today(snapshot.profile()))
+        return when (kind) {
+            app.agency.core.model.TrainingKind.CORE7 -> app.agency.core.engine.Routine.CORE.takeIf { plan.slot(SlotKey.CORE) != null }
+            app.agency.core.model.TrainingKind.STRENGTH -> plan.slot(SlotKey.STRENGTH)?.let { app.agency.core.engine.Routine.strength(plan.progressionStep, plan.strengthRounds) }
+            app.agency.core.model.TrainingKind.STRETCH -> app.agency.core.engine.Routine.stretch(plan.stretchMin)
+            app.agency.core.model.TrainingKind.WALK -> null
+        }
+    }
+
+    /** The strength moves of today's step (the report form asks the last round of each). */
+    suspend fun strengthMoves(): List<app.agency.core.engine.StrengthMove> =
+        app.agency.core.engine.Routine.moves(snapshot.plan(snapshot.today(snapshot.profile())).progressionStep)
+
+    /**
+     * 拍立得照片牆 (L11): one photocard per day of the first big completion, newest first, with what earned it.
+     */
+    suspend fun photocards(): List<Photocard> = store.nerve.effectsWith(EffectStatus.DONE)
+        .filter { it.link == Links.L11Completion.id && it.kind == app.agency.core.model.EffectKind.RECORD && it.because == Links.L11Completion.PHOTOCARD }
+        .mapNotNull { e -> (Nerve.decodeEffect(e.json) as? Effect.Record)?.let { r -> Photocard(e.day, app.agency.core.model.TrainingKind.valueOf(r.detail), e.at) } }
+        .sortedByDescending { it.at }
 
     /** 拍這餐 (T15): the sealed photo of a meal ([media] is written here with its link); the body teacher's line. */
     suspend fun attachMealPhoto(media: Media): Message = mutex.withLock {
@@ -779,6 +827,8 @@ class Brain(
             val riding = nerve.state(snapshot.today(snapshot.profile())).riding
             return said(water.record(WaterDesk.halvesIn(owner.text) ?: 0, riding), "water")
         }
+        // 「核心完成」「伸展完成」 (T18): typed, so 「未證實」; 「核心開始」 points at the timer.
+        if (route.kind == "training") return said(training.typed(owner.text, null), "training")
         val profile = snapshot.profile()
         val today = snapshot.today(profile)
         val plan = nerve.plan(today)
@@ -906,4 +956,9 @@ class Brain(
         /** KEY_REJECTED covers DeepSeek's 402 (no balance), so he does not delete a good key (FIX-T04 M2). */
         const val KEY_REJECTED = "金鑰被拒或帳戶餘額不足，請到服務商網站確認。"
     }
+}
+
+/** One polaroid of the photocard wall (L11): the coach [day] and what earned it. */
+data class Photocard(val day: String, val kind: app.agency.core.model.TrainingKind, val at: Long) {
+    val zh: String get() = if (kind == app.agency.core.model.TrainingKind.CORE7) "核心七分鐘" else "肌力"
 }

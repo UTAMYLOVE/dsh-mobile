@@ -86,9 +86,20 @@ sealed interface Signal {
     @Serializable @SerialName("water_logged")
     data class WaterLogged(override val id: String, override val at: Long, val halves: Int, override val source: String = "water") : Signal
 
-    /** A training report (T18); [easy] is his 「還能多做幾下」 ≥ 2 on the last round. */
+    /**
+     * A training report (T18); [easy] is his 「還能多做幾下」 ≥ 2 on the last round of the strength rounds, [step] the progression
+     * step they were done at (L15 counts only sessions of the current step), [rounds] the rounds done.
+     */
     @Serializable @SerialName("training_done")
-    data class TrainingDone(override val id: String, override val at: Long, val kind: TrainingKind, val easy: Boolean = false, override val source: String = "training") : Signal
+    data class TrainingDone(
+        override val id: String,
+        override val at: Long,
+        val kind: TrainingKind,
+        val easy: Boolean = false,
+        val step: Int = 0,
+        val rounds: Int? = null,
+        override val source: String = "training",
+    ) : Signal
 
     @Serializable @SerialName("grooming_done")
     data class GroomingDone(override val id: String, override val at: Long, val item: GroomingItem, override val source: String = "command") : Signal

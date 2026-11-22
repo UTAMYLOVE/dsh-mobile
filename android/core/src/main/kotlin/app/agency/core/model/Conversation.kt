@@ -62,8 +62,12 @@ data class StoredThinking(
     val payload: String,
 )
 
-/** [TODAY_CHANGE] and [RULES_SUGGESTION] come from the links (T11b): a today-only illness change, a hint to go to 設定. */
-enum class ProposalKind { PLAN_CHANGE, MEAL_ORDER, SAVE_PLACE, PROGRESSION, WAKE_EARLIER, TODAY_CHANGE, RULES_SUGGESTION }
+/**
+ * [TODAY_CHANGE], [RULES_SUGGESTION], [PROGRESSION] and [TOMORROW_FIX] come from the links (T11b, T18, T19): a today-only
+ * illness change, a hint to go to 設定, the next strength step, the bedtime review's 「明天要改」 as tomorrow's reminder.
+ * [WAKE_EARLIER] is the sign policy's 「提早 10 分鐘起床」 (a schedule change like [PLAN_CHANGE]).
+ */
+enum class ProposalKind { PLAN_CHANGE, MEAL_ORDER, SAVE_PLACE, PROGRESSION, WAKE_EARLIER, TODAY_CHANGE, RULES_SUGGESTION, TOMORROW_FIX }
 enum class ProposalStatus { PENDING, ACCEPTED, REJECTED, EXPIRED }
 
 /** A change the company suggests; code applies it only after his tap or exact 「好」. [diffJson] is the typed diff. */

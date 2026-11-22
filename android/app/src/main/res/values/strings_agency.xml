@@ -313,4 +313,32 @@
     <string name="ag_water_start_note">用你的一公升水壺：前兩週一天一壺，之後每兩週加半壺，最多一天兩壺。只有白開水算，跑單前喝完，路上只小口喝。沒填開始日就從入社那天算。</string>
     <string name="ag_water_start_field">從哪天開始算（例如 2026-11-21）</string>
     <string name="ag_water_start_now">今天的目標：%1$s</string>
+    <!-- 訓練 (T18) -->
+    <string name="ag_train_core_button">核心</string>
+    <string name="ag_train_strength_button">肌力</string>
+    <string name="ag_train_stretch_button">伸展</string>
+    <string name="ag_train_walk_button">快走完成</string>
+    <string name="ag_train_core">核心七分鐘</string>
+    <string name="ag_train_strength">肌力</string>
+    <string name="ag_train_stretch">伸展</string>
+    <string name="ag_train_intro">一共 %1$d 個動作，照著畫面做；換動作的時候會響一聲、震一下。</string>
+    <string name="ag_train_start">開始</string>
+    <string name="ag_train_quit">返回</string>
+    <string name="ag_train_quit_unfinished">離開（還沒做完不會記錄）</string>
+    <string name="ag_train_progress">第 %1$d 步，共 %2$d 步</string>
+    <string name="ag_train_round">第 %1$d 輪</string>
+    <string name="ag_train_seconds_left">%1$d 秒</string>
+    <string name="ag_train_up_next">下一個：%1$s</string>
+    <string name="ag_train_last">這是最後一個</string>
+    <string name="ag_train_next">下一個</string>
+    <string name="ag_train_done_reps">做完了</string>
+    <string name="ag_train_pause">暫停</string>
+    <string name="ag_train_resume">繼續</string>
+    <string name="ag_train_report_title">%1$d 輪做完了。最後一輪每個動作做了幾下？</string>
+    <string name="ag_train_unit_reps">下</string>
+    <string name="ag_train_unit_seconds">秒</string>
+    <string name="ag_train_extra">最後一輪還能多做幾下？</string>
+    <string name="ag_train_send">回報</string>
+    <string name="ag_wall_title">拍立得照片牆（%1$d 張）</string>
+    <string name="ag_wall_empty">還沒有。每天第一次做完核心或肌力，就貼一張。</string>
 </resources>

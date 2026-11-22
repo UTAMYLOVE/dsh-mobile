@@ -533,6 +533,15 @@ class AgencyApp(
     /** Sends his message to the brain, off the main thread; a failure is logged, never thrown at the screen. */
     fun send(text: String) = talk { it.onText(text) }
 
+    /** A guided timer finished (T18): the core, the rounds with their report, the stretch; 快走完成. */
+    fun coreDone(seconds: Int) = talk { it.coreDone(seconds) }
+
+    fun strengthDone(report: app.agency.core.brain.handlers.StrengthReport) = talk { it.strengthDone(report) }
+
+    fun stretchDone(seconds: Int) = talk { it.stretchDone(seconds) }
+
+    fun walkDone() = talk { it.walkDone() }
+
     /** 重送 on a line of his marked 「沒送出」 (T12): the same row is answered again; nothing is copied. */
     fun resend(messageId: String) = talk { it.resend(messageId) }
 

@@ -54,13 +54,13 @@ class BrainTest {
         assertEquals(WordedBy.TEMPLATE, out[1].wordedBy)
     }
 
-    @Test fun aRecordKindTheClerkFindsGetsTheNotYetLineFromItsRole() {
-        // Training reports come with T18; meals have their handler since T14.
+    @Test fun aTrainingTheClerkFindsIsRecordedByTheBodyTeacher() {
+        // Training reports have their handler since T18 (typed: 未證實); meals since T14.
         val llm = ScriptedLlm(intake("training"))
         val out = runBlocking { brain(llm).onText("今天的肌力三輪做完了") }
         assertEquals(1, llm.requests.size)
         assertEquals(Purpose.INTAKE, llm.requests[0].purpose)
-        assertEquals(Router.NOT_YET, out[1].text)
+        assertTrue(out[1].text, out[1].text.startsWith("記下：肌力 3 輪（打字回報，沒有次數，未證實）。"))
         assertEquals(RoleKey.BODY, out[1].role)
         assertEquals("training", out[1].kind)
     }

@@ -53,6 +53,13 @@ import app.dshmobile.ui.agency.meal.MealTags
 import app.dshmobile.ui.agency.meal.PhotoViewer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import app.agency.core.engine.RoutineStep
+import app.agency.core.engine.SlotStatus
+import app.agency.core.engine.StrengthMove
+import app.agency.core.model.TrainingKind
+import app.agency.core.schedule.SlotKey
+import app.dshmobile.ui.agency.training.TrainingScreen
+import app.dshmobile.ui.agency.training.TrainingTags
 
 /**
  * 公司: the 練習生證 (arch T10), the import notice once, the one conversation (imported lines with their role labels) and the
@@ -124,6 +131,23 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
     }
     // The reminders start once 入社建檔 is walked through: that is when he is asked for notifications (once).
     LaunchedEffect(onboarding?.completed) { if (onboarding?.completed == true) actions.askNotifications() }
+    // A guided timer (T18) takes the whole screen while it runs.
+    var training by remember { mutableStateOf<TrainingOpen?>(null) }
+    training?.let { open ->
+        TrainingScreen(
+            open.kind, open.steps, open.moves,
+            onFinished = { seconds, report ->
+                training = null
+                when (open.kind) {
+                    TrainingKind.CORE7 -> agency.coreDone(seconds)
+                    TrainingKind.STRENGTH -> report?.let(agency::strengthDone)
+                    else -> agency.stretchDone(seconds)
+                }
+            },
+            onClose = { training = null },
+        )
+        return
+    }
     Column(Modifier.fillMaxSize().imePadding().testTag(AgencyTags.HOME)) {
         card?.let { IdolCardView(agency, it, onboarding, onSaved = { cardRevision++ }) }
         onboarding?.let { status ->
@@ -143,6 +167,14 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         if (onboarding?.completed == true) {
             MediaLine(agency)
             QuickButtons(busy, onPhoto = actions.takeMealPhoto) { agency.send(it) }
+            TrainingButtons(card, busy, onWalk = agency::walkDone) { kind ->
+                scope.launch {
+                    val open = withContext(Dispatchers.IO) {
+                        runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, ready.brain.strengthMoves()) } }.getOrNull()
+                    }
+                    training = open
+                }
+            }
         }
         Composer(busy = busy, onSend = agency::send)
     }
@@ -196,6 +228,32 @@ private fun QuickButtons(busy: Boolean, onPhoto: () -> Unit, onSay: (String) -> 
         SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
         SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
         SoftButton(stringResource(R.string.ag_discuss), onClick = { onSay(Discussion.OPEN_WORD) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.DISCUSS))
+    }
+}
+
+/** A guided timer to show: its routine and, for the rounds, the moves the report asks about. */
+private data class TrainingOpen(val kind: TrainingKind, val steps: List<RoutineStep>, val moves: List<StrengthMove>)
+
+/**
+ * The training buttons (T18), only for what today's plan still owes: 核心 (the 7 minutes), 肌力 (the rounds), 伸展 (any day, a
+ * rest day's too) and 快走完成 on a no-class day. Each timer reports by itself when it is done.
+ */
+@Composable
+private fun TrainingButtons(card: IdolCardFacts?, busy: Boolean, onWalk: () -> Unit, onOpen: (TrainingKind) -> Unit) {
+    val slots = card?.slots.orEmpty()
+    fun open(key: SlotKey) = slots.firstOrNull { it.key == key }?.let { it.status != SlotStatus.DONE } == true
+    val items = buildList {
+        if (open(SlotKey.CORE)) add(Triple(R.string.ag_train_core_button, TrainingTags.CORE) { onOpen(TrainingKind.CORE7) })
+        if (open(SlotKey.STRENGTH)) add(Triple(R.string.ag_train_strength_button, TrainingTags.STRENGTH) { onOpen(TrainingKind.STRENGTH) })
+        if (open(SlotKey.STRETCH)) add(Triple(R.string.ag_train_stretch_button, TrainingTags.STRETCH) { onOpen(TrainingKind.STRETCH) })
+        if (open(SlotKey.WALK)) add(Triple(R.string.ag_train_walk_button, TrainingTags.WALK, onWalk))
+    }
+    if (items.isEmpty()) return
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items.forEach { (label, tag, onClick) -> SoftButton(stringResource(label), onClick = onClick, enabled = !busy, modifier = Modifier.testTag(tag)) }
     }
 }
 

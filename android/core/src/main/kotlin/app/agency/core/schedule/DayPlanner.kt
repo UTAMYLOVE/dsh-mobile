@@ -22,6 +22,11 @@ data class DayPlan(
     val reduction: Reduction? = null,
     /** Today's smaller meals (L5): slot → at most this many kcal. */
     val budgets: Map<SlotKey, Int> = emptyMap(),
+    /** The strength progression step (T18) and the rounds it means. */
+    val progressionStep: Int = 0,
+    val strengthRounds: Int = 3,
+    val stretchMin: Int = 10,
+    val walkMin: Int = 30,
 ) {
     fun slot(key: SlotKey): Slot? = slots.firstOrNull { it.key == key }
 
@@ -70,7 +75,7 @@ object DayPlanner {
             if (!rest) add(Slot(SlotKey.RIDE_OUT, DayClock.minute(s.rideOut), untilMinute = DayClock.minute(s.rideOutUntil)))
             add(Slot(SlotKey.RIDE_MEAL, DayClock.minute(m.rideMeal), note = if (soy) "雞胸（豆漿早上喝過了）" else "雞胸加豆漿，一定要吃"))
             if (!rest && reduction == null) {
-                add(Slot(SlotKey.STRENGTH, strengthLatest, afterRide = true, note = "${t.strengthRounds} 輪：伏地挺身 15 下、慢速深蹲 12 下、棒式 45 秒"))
+                add(Slot(SlotKey.STRENGTH, strengthLatest, afterRide = true, note = app.agency.core.engine.Progression.note(t)))
             }
             val stretchNote = if (reduction == Reduction.INJURY) "${t.stretchMin} 分鐘，避開受傷的地方" else "${t.stretchMin} 分鐘"
             // Rest day: stretch is allowed, not owed. Otherwise it follows the rounds (or, on a reduced day, stays as the minimum).
@@ -87,6 +92,10 @@ object DayPlanner {
             soyMorning = soy,
             reduction = reduction,
             budgets = adjust.filterIsInstance<DayAdjust.MealBudget>().associate { it.key to it.kcal },
+            progressionStep = t.progressionStep,
+            strengthRounds = app.agency.core.engine.Progression.rounds(t),
+            stretchMin = t.stretchMin,
+            walkMin = t.walkMin,
         )
     }
 }

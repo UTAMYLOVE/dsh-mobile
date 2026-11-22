@@ -115,7 +115,7 @@ class NerveTest {
     @Test fun everyLinkOfTheTableIsRegistered() {
         val ids = Links.all().map { it.id }
         assertEquals((1..23).map { "L$it" }.toSet(), ids.filter { it.matches(Regex("L\\d+")) }.toSet())
-        assertEquals(listOf("L11", "L15", "L19", "L20"), Links.Pending.all.map { it.id })
+        assertEquals(listOf("L19", "L20"), Links.Pending.all.map { it.id })
         Links.Pending.all.forEach { assertTrue(it.id, it.batch.isNotBlank()) }
     }
 

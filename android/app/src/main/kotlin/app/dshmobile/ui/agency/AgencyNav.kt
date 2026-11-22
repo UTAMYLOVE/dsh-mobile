@@ -163,5 +163,6 @@ fun WarRoomPlaceholder(ready: StartState.Ready) {
             Text(stringResource(R.string.ag_warroom_closed), color = Sakura.Text, fontSize = 15.sp)
         }
         TodayLinksCard(ready)
+        app.dshmobile.ui.warroom.PhotoWallCard(ready)
     }
 }

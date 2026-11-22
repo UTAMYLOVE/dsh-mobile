@@ -35,6 +35,8 @@ data class IdolCardFacts(
     /** Today's water and its target, in half bottles of his 1 L bottle (T17). */
     val waterHalves: Int = 0,
     val waterTargetHalves: Int = 0,
+    /** Polaroids on the photocard wall (L11, one a day for the first core or strength done). */
+    val photocards: Int = 0,
 ) {
     /** What comes next: the first slot still open or later, in time order. */
     val next: SlotState? get() = slots.firstOrNull { it.status == SlotStatus.OPEN || it.status == SlotStatus.LATER }
