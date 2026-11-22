@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import app.agency.core.brain.Brain
 import app.agency.core.metering.Provider
 import app.agency.core.model.Who
 import app.dshmobile.DshMobileApp
@@ -78,7 +79,9 @@ class AgencyActivityTest {
         launch()
         rule.waitForTag(AgencyTags.HOME)
         rule.onNodeWithTag(AgencyTags.TRAINEE).assertIsDisplayed()
-        rule.onNodeWithText("還沒有對話。有事就跟經紀人說。").assertIsDisplayed()
+        // 入社建檔 starts on the first open (T07): the manager's welcome and first question, written by code.
+        rule.waitForText("入社第一件事：建檔")
+        rule.onNodeWithText("【經紀人】").assertIsDisplayed()
 
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.WAR_ROOM.name).performClick()
         rule.onNodeWithText("指揮室整修中").assertIsDisplayed()
@@ -117,7 +120,9 @@ class AgencyActivityTest {
         rule.onNodeWithText("【經紀人】").assertIsDisplayed()
         assertTrue(rule.onAllNodesWithTextCount("1234") == 0)
         val stored = runBlocking { (app.agency.start.value as StartState.Ready).store.messages.recent(10) }
-        assertEquals(listOf(Who.OWNER, Who.COMPANY), stored.map { it.who })
+        // The welcome of 入社建檔 first; 「姐姐在嗎」 is no answer to its question, so it goes to the manager's loop.
+        assertEquals(listOf(Who.COMPANY, Who.OWNER, Who.COMPANY), stored.map { it.who })
+        assertEquals(Brain.BASELINE_KIND, stored[0].kind)
         assertEquals(2, bodies.size)
         assertTrue(bodies.none { it.contains("sk-test") })
     }

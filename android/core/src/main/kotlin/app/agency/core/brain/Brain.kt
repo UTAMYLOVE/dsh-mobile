@@ -1,5 +1,8 @@
 package app.agency.core.brain
 
+import app.agency.core.brain.handlers.Onboarding
+import app.agency.core.brain.handlers.OnboardingStatus
+import app.agency.core.brain.handlers.OnboardingStep
 import app.agency.core.engine.ToneDecider
 import app.agency.core.engine.ToneInputs
 import app.agency.core.guard.Evidence
@@ -10,6 +13,7 @@ import app.agency.core.llm.LlmClient
 import app.agency.core.llm.ProviderChoice
 import app.agency.core.llm.Purpose
 import app.agency.core.memory.MemoryBlocks
+import app.agency.core.model.Media
 import app.agency.core.model.Message
 import app.agency.core.model.MessageMode
 import app.agency.core.model.RoleKey
@@ -62,6 +66,7 @@ class Brain(
     private val structured = StructuredCaller(intakeLlm, provider)
     private val loop = ChatLoop(llm, provider, judge = SecondPassJudge(intakeLlm, provider))
     private val tools = ToolRegistry(readTools(store, snapshot))
+    private val onboarding = Onboarding(store, clock, newId)
 
     private val _busy = MutableStateFlow(false)
     /** True while a message is being answered. */
@@ -91,7 +96,30 @@ class Brain(
         }
     }
 
+    /** 入社建檔 on the first open (arch T07): the manager's welcome and first question, once; null when not due. */
+    suspend fun startOnboardingIfDue(): Message? = mutex.withLock {
+        onboarding.startIfDue()?.let { baselineLine(it) }
+    }
+
+    /** 補交 from the card: the first missing item is asked again; null when nothing is missing. */
+    suspend fun reopenOnboarding(): Message? = mutex.withLock {
+        onboarding.reopen()?.let { baselineLine(it) }
+    }
+
+    /** A 入社建檔 photo or the recording, already sealed in the vault; [media] is written with its link. */
+    suspend fun handInBaseline(step: OnboardingStep, media: Media): Message = mutex.withLock {
+        baselineLine(onboarding.handIn(step, media))
+    }
+
+    /** What 入社建檔 shows on the card (the open question, what is missing). */
+    suspend fun onboardingStatus(): OnboardingStatus = onboarding.status()
+
+    private suspend fun baselineLine(text: String): Message =
+        reply(RoleKey.MANAGER, text, WordedBy.TEMPLATE, BASELINE_KIND).also { bump() }
+
     private suspend fun answer(owner: Message, history: List<Message>): Message {
+        // An open 入社建檔 question reads his message as its answer first (code, no model); anything else goes on as usual.
+        onboarding.answer(owner.text)?.let { return reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, BASELINE_KIND) }
         when (val route = Router.route(owner.text)) {
             is Route.NotYet -> return reply(route.role, Router.NOT_YET, WordedBy.TEMPLATE, route.kind)
             Route.Model -> Unit
@@ -153,6 +181,9 @@ class Brain(
         const val MAX_OWNER_CHARS = 2000
         const val INTAKE_TOKENS = 600
         private const val CHAT = "chat"
+
+        /** The kind of the manager's 入社建檔 lines. */
+        const val BASELINE_KIND = "baseline"
 
         /** The fixed line after the template when the provider gave no answer (code-written; no model). */
         fun failLine(fail: Fail): String = when (fail) {

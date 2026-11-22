@@ -35,6 +35,9 @@ import app.dshmobile.R
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.ImportNotice
 import app.dshmobile.agency.StartState
+import app.agency.core.brain.handlers.OnboardingStatus
+import app.dshmobile.ui.agency.onboarding.BaselineBadges
+import app.dshmobile.ui.agency.onboarding.OnboardingFlow
 import app.dshmobile.ui.kit.Pill
 import app.dshmobile.ui.kit.Sakura
 import java.time.LocalDate
@@ -47,7 +50,7 @@ import kotlinx.coroutines.withContext
  * with their role labels) and the composer.
  */
 @Composable
-fun HomeScreen(agency: AgencyApp, ready: StartState.Ready) {
+fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions = AgencyActions()) {
     // collectOnMain / onMain below are defensive: on the phone these already run on the main thread; under the Compose test
     // rule they would not. Keep them (AgencyMainThreadTest fails without each).
     val revision by ready.brain.revision.collectOnMain()
@@ -69,10 +72,17 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready) {
     val profile by produceState<Profile?>(null, revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.store.profile.get() }.getOrNull() } }
     }
+    val onboarding by produceState<OnboardingStatus?>(null, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.onboardingStatus() }.getOrNull() } }
+    }
     Column(Modifier.fillMaxSize().imePadding().testTag(AgencyTags.HOME)) {
         TraineeHeader(profile ?: Profile())
+        onboarding?.let { status ->
+            Row(Modifier.fillMaxWidth().background(Sakura.White).padding(horizontal = 16.dp).padding(bottom = 8.dp)) { BaselineBadges(agency, status) }
+        }
         notice?.let { NoticeBar(it, agency::dismissNotice) }
         ChatList(messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f))
+        onboarding?.let { OnboardingFlow(agency, it, actions) }
         Composer(busy = busy, onSend = agency::send)
     }
 }

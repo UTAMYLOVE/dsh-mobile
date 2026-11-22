@@ -28,6 +28,11 @@ import org.json.JSONObject
  * survives a reopen), a vault on a JVM key, keys in memory, and optionally a fake DeepSeek on 127.0.0.1.
  */
 class AgencyTestKit(private val dir: File) {
+    init {
+        // FileProvider caches its path strategy statically; every Robolectric test has a fresh cache dir (the camera's files).
+        (androidx.core.content.FileProvider::class.java.getDeclaredField("sCache").apply { isAccessible = true }.get(null) as MutableMap<*, *>).clear()
+    }
+
     private val key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
     var opens = 0
         private set

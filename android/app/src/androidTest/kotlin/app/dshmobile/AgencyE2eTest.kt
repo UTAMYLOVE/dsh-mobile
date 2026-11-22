@@ -32,6 +32,8 @@ import app.dshmobile.agency.data.AgencyDatabase
 import app.dshmobile.agency.migrate.LegacyImporter
 import app.dshmobile.ui.agency.AgencyActivity
 import app.dshmobile.ui.agency.AgencyTags
+import app.dshmobile.ui.agency.onboarding.OnboardingTags
+import app.agency.core.brain.handlers.OnboardingStep
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -120,7 +122,13 @@ class AgencyE2eTest {
         rule.onNodeWithTag(AgencyTags.TRAINEE).assertExists()
         assertTrue(states.toString(), states.none { it == StartState.Importing })
         assertEquals(AgencyPrefKeys.MIGRATED_DONE, prefs(AgencyPrefKeys.NAME).getInt(AgencyPrefKeys.MIGRATED, 0))
-        runBlocking { assertEquals(0, ready().store.messages.count()) }
+        // 入社建檔 starts on the first open (T07): the manager's welcome and first question, written by code.
+        runBlocking {
+            val all = ready().store.messages.recent(10)
+            assertEquals(1, all.size)
+            assertEquals(Brain.BASELINE_KIND, all.single().kind)
+        }
+        rule.onNodeWithTag(OnboardingTags.STEP + OnboardingStep.BODY.name).assertExists()
         assertTrue(fake.seen.isEmpty())
     }
 
@@ -130,14 +138,16 @@ class AgencyE2eTest {
         open()
         runBlocking {
             val store = ready().store
-            assertEquals(11, store.messages.count())
+            assertEquals(12, store.messages.count()) // 11 of his, then the welcome of 入社建檔 (v0.8.3 had none)
             assertEquals(4, store.meals.count())
             assertEquals(5, store.meals.countItems())
             assertEquals(1, store.meals.pending().size)
             assertEquals(2, store.weights.count())
             assertEquals(8, store.food.count())
             assertTrue(store.journal.migrations().single { it.id == LegacyImporter.LOG_ID }.ok)
-            assertTrue(store.messages.recent(20).all { it.legacy })
+            val all = store.messages.recent(20)
+            assertTrue(all.dropLast(1).all { it.legacy })
+            assertEquals(Brain.BASELINE_KIND, all.last().kind)
         }
         assertEquals(AgencyPrefKeys.MIGRATED_DONE, prefs(AgencyPrefKeys.NAME).getInt(AgencyPrefKeys.MIGRATED, 0))
         assertEquals("DEEPSEEK", prefs(AgencyPrefKeys.NAME).getString(AgencyPrefKeys.PROVIDER, null))
@@ -261,7 +271,7 @@ class AgencyE2eTest {
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
         val offline = Brain.failLine(Fail.OFFLINE)
         rule.waitUntil(60_000) { rule.onAllNodes(hasText(offline, substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        val stored = runBlocking { ready().store.messages.recent(5) }
+        val stored = runBlocking { ready().store.messages.recent(5) }.filter { it.kind != Brain.BASELINE_KIND }
         assertEquals(listOf(Who.OWNER, Who.COMPANY), stored.map { it.who })
         assertEquals("姐姐在嗎", stored[0].text)
         assertEquals(WordedBy.TEMPLATE, stored[1].wordedBy)
@@ -279,11 +289,57 @@ class AgencyE2eTest {
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(AgencyTags.SEND).assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
         rule.waitUntil(60_000) { rule.onAllNodes(hasText("現在去喝水。", substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        val after = runBlocking { ready().store.messages.recent(5) }
+        val after = runBlocking { ready().store.messages.recent(5) }.filter { it.kind != Brain.BASELINE_KIND }
         assertEquals(listOf(Who.OWNER, Who.COMPANY, Who.OWNER, Who.COMPANY), after.map { it.who })
         assertEquals(stored[0].id, after[0].id)
         assertEquals(WordedBy.MODEL, after[3].wordedBy)
         assertEquals(null, ready().brain.lastFail.value)
+    }
+
+    /**
+     * Arch T07: the three photos (test camera, real downsizing) and a recording (test microphone, real streaming vault) are
+     * handed in through the 入社建檔 panel, sealed with the phone's Keystore key, and can be opened again from 入社資料.
+     */
+    @Test fun e06_baselinePhotosAndRecordingWithTheCameraSeam() {
+        open()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + OnboardingStep.BODY.name).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("身高 170 體重 78")
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        for (step in OnboardingStep.PHOTOS) {
+            rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + step.name).fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithTag(OnboardingTags.TAKE_PHOTO).performClick()
+        }
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.REC_START).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(OnboardingTags.REC_START).performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.REC_STOP).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(OnboardingTags.REC_STOP).performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.REC_HAND_IN).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(OnboardingTags.REC_HAND_IN).performClick()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + OnboardingStep.PUSHUPS.name).fetchSemanticsNodes().isNotEmpty() }
+        val vault = MediaVault.forApp(context)
+        val b = runBlocking { ready().store.baselines.get(Baseline.JOIN)!! }
+        val photos = listOf(b.photoFront!!, b.photoSide!!, b.photoBack!!)
+        photos.forEach { id ->
+            val plain = vault.get(id)
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(plain, 0, plain.size, bounds)
+            assertEquals(1600, maxOf(bounds.outWidth, bounds.outHeight))
+        }
+        assertEquals(sha(asset("agency-v2-baseline/recording-1795225200000.m4a")), sha(vault.get(b.recording!!)))
+        // Sealed on disk in the segmented format; no plaintext left in the camera or recorder cache.
+        MediaVault.mediaDir(context).listFiles { f -> f.name.endsWith(".bin") }!!.forEach { f ->
+            val bytes = f.readBytes()
+            assertEquals(f.name, 2, bytes[0].toInt())
+            assertFalse(f.name, contains(bytes, byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())))
+            assertFalse(f.name, contains(bytes, "ftyp".toByteArray()))
+        }
+        assertTrue(MediaVault.cameraDir(context).list().orEmpty().isEmpty())
+        assertTrue(File(context.cacheDir, "record").list().orEmpty().isEmpty())
+        // 入社資料 shows the three photos again (decrypted into memory).
+        rule.onNodeWithTag(OnboardingTags.FILE).performClick()
+        photos.forEach { id -> rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.THUMB + id).fetchSemanticsNodes().isNotEmpty() } }
+        rule.onNodeWithTag(OnboardingTags.FILE_PLAY).assertExists()
+        assertTrue(fake.seen.isEmpty())
     }
 
     private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }

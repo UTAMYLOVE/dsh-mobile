@@ -1,8 +1,11 @@
 package app.dshmobile.agency
 
 import android.content.Context
+import android.content.Intent
 import androidx.annotation.VisibleForTesting
+import androidx.core.content.FileProvider
 import app.agency.core.brain.Brain
+import app.agency.core.brain.handlers.OnboardingStep
 import app.agency.core.llm.AnthropicClient
 import app.agency.core.llm.CallChecks
 import app.agency.core.llm.CompatEndpoint
@@ -14,6 +17,9 @@ import app.agency.core.migrate.AgencyPrefKeys
 import app.agency.core.migrate.ImportKind
 import app.agency.core.migrate.ImportNote
 import app.agency.core.migrate.LegacyPrefs
+import app.agency.core.model.Media
+import app.agency.core.model.MediaKind
+import app.agency.core.model.MediaPurpose
 import app.agency.core.net.HttpFactory
 import app.agency.core.net.NetworkGate
 import app.agency.core.net.Origin
@@ -23,7 +29,13 @@ import app.agency.core.store.AgencyStore
 import app.agency.core.time.AgencyClock
 import app.dshmobile.agency.data.AgencyDatabase
 import app.dshmobile.agency.data.RoomAgencyStore
+import app.dshmobile.agency.media.AudioRecorder
+import app.dshmobile.agency.media.CameraCapture
+import app.dshmobile.agency.media.MediaPlayerEngine
+import app.dshmobile.agency.media.MediaRecorderEngine
 import app.dshmobile.agency.media.MediaVault
+import app.dshmobile.agency.media.PlayerEngine
+import app.dshmobile.agency.media.RecorderEngine
 import app.dshmobile.agency.metering.CostMeter
 import app.dshmobile.agency.migrate.ImportReport
 import app.dshmobile.agency.migrate.LegacyImporter
@@ -31,8 +43,10 @@ import app.dshmobile.agency.notify.AgencyNotifier
 import app.dshmobile.agency.secure.TransientDataException
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.security.KeyVault
+import okhttp3.HttpUrl
 import java.io.File
 import java.time.Clock
+import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -44,12 +58,12 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.HttpUrl
 
 /**
  * Seams the instrumentation runner and Robolectric tests set before the company first opens (always null in production).
@@ -61,7 +75,16 @@ class TestOverrides(
     val mediaVault: ((Context) -> MediaVault)? = null,
     /** Wraps the store the importer and the brain use (a test makes it fail on purpose). */
     val store: ((AgencyStore) -> AgencyStore)? = null,
+    /** Stands in for the camera app: writes a picture into the file and says whether it did (RESULT_OK). */
+    val camera: ((File) -> Boolean)? = null,
+    /** Stands in for the microphone. */
+    val recorder: (() -> RecorderEngine)? = null,
+    /** Stands in for the speaker. */
+    val player: (() -> PlayerEngine)? = null,
 )
+
+/** A line about a photo or the recording that could not be kept (shown on the 入社建檔 panel until the next try). */
+enum class MediaNotice { NO_CAMERA, LOCKED, NOT_SAVED }
 
 /** Where the company stands at start. [Ready] carries what the screens use. */
 sealed interface StartState {
@@ -137,7 +160,16 @@ class AgencyApp(
     private val _notice = MutableStateFlow<ImportNotice?>(null)
     val notice: StateFlow<ImportNotice?> = _notice.asStateFlow()
 
+    private val _mediaNotice = MutableStateFlow<MediaNotice?>(null)
+    val mediaNotice: StateFlow<MediaNotice?> = _mediaNotice.asStateFlow()
+
+    /** The 入社建檔 camera (arch T07): its pending capture survives the process in `agency_prefs`. */
+    val camera = CameraCapture(MediaVault.cameraDir(context), agencyPrefs, { f ->
+        FileProvider.getUriForFile(context, context.packageName + PROVIDER_SUFFIX, f)
+    })
+
     @Volatile private var job: Job? = null
+    @Volatile private var vault: MediaVault? = null
     @Volatile private var db: AgencyDatabase? = null
     @Volatile private var importer: LegacyImporter? = null
 
@@ -155,7 +187,9 @@ class AgencyApp(
 
     private suspend fun open() {
         _start.value = StartState.Opening
-        runCatching { MediaVault.sweepCameraCache(MediaVault.cameraDir(context)) }
+        // A shot the camera may still answer for (the process died while it was open) is kept; everything else goes.
+        runCatching { MediaVault.sweepCameraCache(MediaVault.cameraDir(context), keep = setOfNotNull(camera.pendingName())) }
+        runCatching { MediaVault.sweepCameraCache(AudioRecorder.recordDir(context)) }
         // Copies he shared from 設定 › 舊資料 are plaintext: they live only until the next start.
         runCatching { File(context.cacheDir, EXPORT_DIR).listFiles()?.forEach { it.deleteRecursively() } }
         storedNotice()?.let { _notice.value = it }
@@ -177,12 +211,138 @@ class AgencyApp(
         db = opened
         val store = RoomAgencyStore(opened).let { overrides?.store?.invoke(it) ?: it }
         val vault = overrides?.mediaVault?.invoke(context) ?: MediaVault.forApp(context)
+        this.vault = vault
         val imp = LegacyImporter(context.filesDir, legacyPrefs, agencyPrefs, importPrefs, store, vault)
         importer = imp
         if (agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0) == 0 && legacyPresent()) _start.value = StartState.Importing
         importAndSeal(imp)
         refreshDayStart(store)
-        _start.value = StartState.Ready(store, brain(store))
+        val brain = brain(store)
+        startOnboarding(brain, imp)
+        _start.value = StartState.Ready(store, brain)
+    }
+
+    /**
+     * 入社建檔 on the first open (arch T07), once the import is done: never while a partial or failed import may still bring
+     * his old 入社建檔, nor while its photos wait to be sealed (they are linked when they are; he is not asked for them again).
+     */
+    private suspend fun startOnboarding(brain: Brain, imp: LegacyImporter) {
+        try {
+            if (agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0) != AgencyPrefKeys.MIGRATED_DONE) return
+            if (imp.pendingMedia().isNotEmpty()) return
+            brain.startOnboardingIfDue()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "onboarding not started (${e.javaClass.simpleName})")
+        }
+    }
+
+    /** The media vault, once the company is open (thumbnails and playback decrypt from it into memory only). */
+    fun mediaVault(): MediaVault? = vault
+
+    /** Tests stand in for the microphone (no permission is asked then). */
+    fun hasRecorderSeam(): Boolean = overrides?.recorder != null
+
+    fun recorderEngine(): RecorderEngine = overrides?.recorder?.invoke() ?: MediaRecorderEngine(context)
+
+    fun playerEngine(): PlayerEngine = overrides?.player?.invoke() ?: MediaPlayerEngine()
+
+    /**
+     * 拍照 for a 入社建檔 photo: the camera intent to launch, or null when the test camera already answered (then the result is
+     * on its way, as from the camera app).
+     */
+    fun photoIntent(step: OnboardingStep): Intent? {
+        _mediaNotice.value = null
+        val intent = try {
+            camera.begin(step)
+        } catch (e: Exception) {
+            errorLog.append(TAG, "camera not prepared (${e.javaClass.simpleName})")
+            _mediaNotice.value = MediaNotice.NOT_SAVED
+            return null
+        }
+        val seam = overrides?.camera ?: return intent
+        val ok = camera.pending()?.file?.let(seam) ?: false
+        onCameraResult(ok)
+        return null
+    }
+
+    /** There is no camera app to take the picture. */
+    fun cameraMissing() {
+        camera.cancel()
+        _mediaNotice.value = MediaNotice.NO_CAMERA
+    }
+
+    /**
+     * The camera's answer (also after the process died: the activity registers for it at once and this waits until the company
+     * is open). The shot is sealed and handed in for its step; cancelled leaves the step open.
+     */
+    fun onCameraResult(ok: Boolean) {
+        scope.launch {
+            val ready = _start.first { it is StartState.Ready } as StartState.Ready
+            val v = vault ?: return@launch
+            val captured = try {
+                camera.finish(ok, v)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                errorLog.append(TAG, "photo not sealed (${e.javaClass.simpleName})")
+                _mediaNotice.value = if (e is app.dshmobile.agency.secure.DataUnavailableException) MediaNotice.LOCKED else MediaNotice.NOT_SAVED
+                null
+            } ?: return@launch
+            handIn(ready, v, captured.step, captured.media)
+        }
+    }
+
+    /**
+     * 交出 for the 清唱錄音: [file] (the recorder's plaintext) is sealed as a stream, deleted, and handed in. False when it
+     * could not be kept (the line says why); the plaintext is gone either way.
+     */
+    suspend fun handInRecording(file: File, durationMs: Long): Boolean {
+        val ready = _start.value as? StartState.Ready ?: return false.also { file.delete() }
+        val v = vault ?: return false.also { file.delete() }
+        return scope.async {
+            val id = UUID.randomUUID().toString()
+            val sealed = try {
+                v.putFile(id, file)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                errorLog.append(TAG, "recording not sealed (${e.javaClass.simpleName})")
+                _mediaNotice.value = if (e is app.dshmobile.agency.secure.DataUnavailableException) MediaNotice.LOCKED else MediaNotice.NOT_SAVED
+                return@async false
+            }
+            errorLog.append(TAG, "recording sealed ms=$durationMs")
+            handIn(ready, v, OnboardingStep.RECORDING, Media(id, MediaKind.AUDIO, MediaPurpose.BASELINE, AudioRecorder.MIME, sealed.bytes, sealed.sha256, clock.millis()))
+        }.await()
+    }
+
+    /** Writes the media row and the link; a failure removes the sealed file again (no row points at it). */
+    private suspend fun handIn(ready: StartState.Ready, v: MediaVault, step: OnboardingStep, media: Media): Boolean = try {
+        ready.brain.handInBaseline(step, media)
+        _mediaNotice.value = null
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        errorLog.append(TAG, "baseline media not saved (${e.javaClass.simpleName})")
+        runCatching { if (ready.store.media.get(media.id) == null) v.delete(media.id) }
+        _mediaNotice.value = MediaNotice.NOT_SAVED
+        false
+    }
+
+    /** 補交 on the trainee card: the first missing 入社建檔 item is asked again. */
+    fun reopenOnboarding() {
+        val ready = _start.value as? StartState.Ready ?: return
+        scope.launch {
+            try {
+                ready.brain.reopenOnboarding()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                errorLog.append(TAG, "onboarding not reopened (${e.javaClass.simpleName})")
+            }
+        }
     }
 
     /** The import (first run, a changed partial, or the retry of a failed one), then any pending media; sets the notice. */
@@ -253,7 +413,10 @@ class AgencyApp(
      */
     suspend fun retryFirstImport() {
         val imp = importer ?: return
-        scope.async { importAndSeal(imp) }.await()
+        scope.async {
+            importAndSeal(imp)
+            (_start.value as? StartState.Ready)?.let { startOnboarding(it.brain, imp) }
+        }.await()
     }
 
     /** Sends his message to the brain, off the main thread; a failure is logged, never thrown at the screen. */
@@ -356,7 +519,9 @@ class AgencyApp(
         job?.cancelAndJoin()
         db?.close()
         db = null
+        vault = null
         importer = null
+        _mediaNotice.value = null
         _notice.value = null
         _start.value = StartState.Opening
     }
@@ -365,6 +530,7 @@ class AgencyApp(
         private const val TAG = "agency"
         private const val NOTICE_KEY = "notice_pending"
         private const val EXPORT_DIR = "export"
+        private const val PROVIDER_SUFFIX = ".export"
         private const val DEFAULT_DAY_START = 5
 
         /** The cheapest Claude model, for the data clerk and the second-pass judge only. */

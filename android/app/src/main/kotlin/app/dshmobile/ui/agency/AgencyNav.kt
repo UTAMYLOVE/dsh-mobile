@@ -58,7 +58,7 @@ enum class AgencyTab(val label: Int) { COMPANY(R.string.ag_tab_company), WAR_ROO
 
 /** The start screens until the company is open, then the three tabs. */
 @Composable
-fun AgencyRoot(agency: AgencyApp) {
+fun AgencyRoot(agency: AgencyApp, actions: AgencyActions = AgencyActions()) {
     // Defensive (main on the phone already; not under the Compose test rule). Keep it: AgencyMainThreadTest fails without it.
     val start by agency.start.collectOnMain()
     Box(Modifier.fillMaxSize().background(Sakura.Background)) {
@@ -72,7 +72,7 @@ fun AgencyRoot(agency: AgencyApp) {
             StartState.Unavailable -> Plate(AgencyTags.UNAVAILABLE, stringResource(R.string.ag_unavailable), stringResource(R.string.ag_unavailable_hint)) {
                 PinkButton(stringResource(R.string.ag_try_again), onClick = agency::start, modifier = Modifier.testTag(AgencyTags.RETRY))
             }
-            is StartState.Ready -> AgencyNav(agency, s)
+            is StartState.Ready -> AgencyNav(agency, s, actions)
         }
     }
 }
@@ -90,7 +90,7 @@ private fun Plate(tag: String, title: String, hint: String?, busy: Boolean = fal
 }
 
 @Composable
-fun AgencyNav(agency: AgencyApp, ready: StartState.Ready) {
+fun AgencyNav(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions = AgencyActions()) {
     var tab by rememberSaveable { mutableStateOf(AgencyTab.COMPANY) }
     Scaffold(
         containerColor = Sakura.Background,
@@ -113,7 +113,7 @@ fun AgencyNav(agency: AgencyApp, ready: StartState.Ready) {
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (tab) {
-                AgencyTab.COMPANY -> HomeScreen(agency, ready)
+                AgencyTab.COMPANY -> HomeScreen(agency, ready, actions)
                 AgencyTab.WAR_ROOM -> WarRoomPlaceholder()
                 AgencyTab.SETTINGS -> SettingsScreen(agency, ready)
             }

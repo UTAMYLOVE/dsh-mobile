@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 清唱錄音 (入社建檔, T07): asked at that step only. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- androidx.core adds this app-private permission; unused at minSdk 34 (needed only < API 33). -->
     <permission

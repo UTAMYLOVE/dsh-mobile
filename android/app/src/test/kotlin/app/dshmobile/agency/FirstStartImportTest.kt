@@ -81,7 +81,9 @@ class FirstStartImportTest {
         rule.waitForText("要看包裝上的標示，拍給我。")
         assertTrue(rule.onAllNodesWithText("【", substring = true).fetchSemanticsNodes().isNotEmpty())
         runBlocking {
-            assertEquals(11, ready().store.messages.count())
+            // His 11 lines, then 入社建檔's welcome (v0.8.3 had no 入社建檔; T07 asks it on the first open).
+            assertEquals(12, ready().store.messages.count())
+            assertEquals(11, ready().store.messages.recent(20).count { it.legacy })
             assertTrue(ready().store.meals.count() > 0)
         }
         assertEquals(AgencyPrefKeys.MIGRATED_DONE, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
@@ -99,10 +101,10 @@ class FirstStartImportTest {
         rule.onNodeWithTag(LegacyTags.COUNT + ImportKind.MESSAGES.name).assertIsDisplayed()
         rule.onNodeWithText("對話 11 筆").assertIsDisplayed()
 
-        // The next start imports nothing again.
+        // The next start imports nothing again, and does not welcome him twice.
         restart()
         rule.waitForTag(AgencyTags.HOME)
-        runBlocking { assertEquals(11, ready().store.messages.count()) }
+        runBlocking { assertEquals(12, ready().store.messages.count()) }
     }
 
     @Test fun aPartialImportIsSaidOnceNeverBlocksAndKeepsTheFolder() {

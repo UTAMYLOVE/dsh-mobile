@@ -31,6 +31,7 @@ class ManifestPermissionsTest {
             "android.permission.RECEIVE_BOOT_COMPLETED",
             "android.permission.REQUEST_INSTALL_PACKAGES",
             "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.RECORD_AUDIO",
         )
     }
 }
