@@ -4,6 +4,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    // The AgencyStore contract tests live in testFixtures so :app runs the same class against RoomAgencyStore.
+    `java-test-fixtures`
 }
 
 java {
@@ -22,4 +24,7 @@ dependencies {
     api(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
+    testFixturesApi(libs.junit)
+    // runBlocking for the suspend AgencyStore API.
+    testFixturesApi(libs.kotlinx.coroutines.core)
 }

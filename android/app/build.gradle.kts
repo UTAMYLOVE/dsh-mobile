@@ -6,6 +6,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
 }
 
 abstract class StageRootfsAsset : DefaultTask() {
@@ -165,6 +167,13 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+    // The agency store: Room over SQLCipher (main/agency/data). The native library cannot load on the JVM, so Robolectric
+    // tests open the same schema through the framework helper.
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+    implementation(libs.sqlcipher.android)
+    implementation(libs.androidx.sqlite)
     // Ktor logs through SLF4J; the no-op binding keeps request URLs (which carry the session token) out of any log.
     implementation(libs.slf4j.nop)
 
@@ -195,6 +204,8 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.work.testing)
     testImplementation(libs.okhttp.mockwebserver)
+    // The AgencyStore contract (android/core/src/testFixtures), run here against RoomAgencyStore.
+    testImplementation(testFixtures(project(":core")))
 
     // Instrumentation tests (src/androidTest) need a real dsh: they run on an emulator in CI, locally they only have to compile.
     androidTestImplementation(libs.androidx.test.runner)
@@ -233,6 +244,11 @@ providers.gradleProperty("dshm.nativeDir").orNull?.let { dir ->
         jniLibs.srcDir(File(native, "jniLibs"))
         assets.srcDir(File(native, "assets"))
     }
+}
+
+// Room writes schemas/<db>/<version>.json at compile time; the files are checked in (arch 1.2).
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 apply(from = "proot.gradle.kts")

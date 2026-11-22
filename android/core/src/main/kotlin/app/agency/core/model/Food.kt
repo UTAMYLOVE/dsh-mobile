@@ -18,6 +18,8 @@ data class MealItem(
     val estimateHigh: Int? = null,
     /** A zero-calorie drink (公司規章: only a few a week). */
     val zeroCal: Boolean = false,
+    /** Processed food (a banned category key applies; see 公司規章). */
+    val processed: Boolean = false,
 )
 
 data class FoodEntry(
@@ -31,4 +33,6 @@ data class FoodEntry(
     val estimated: Boolean,
     val seeded: Boolean,
     val addedAt: Long,
+    val processed: Boolean = false,
+    val updatedAt: Long = addedAt,
 )
