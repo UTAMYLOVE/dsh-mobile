@@ -1,7 +1,7 @@
 package app.dshmobile.coach
 
 import app.agency.core.guard.CoachNumbers
-import app.agency.core.guard.NumberGuard
+import app.agency.core.guard.OutputGuard
 import app.agency.core.model.FoodEntry
 import app.agency.core.model.KcalSource
 import app.agency.core.model.MealItem
@@ -439,7 +439,7 @@ class CoachEngine(
         )
         val turns = CoachPrompt.history(history) + CoachPrompt.finalTurn(facts, text)
         var reply = when (val r = model.complete(CoachPrompt.system(role, settings.companyName), turns)) {
-            is ModelReply.Ok -> NumberGuard.filter(r.text, facts, text).ifBlank { CoachReplies.CHAT_FALLBACK }
+            is ModelReply.Ok -> OutputGuard.legacyFilter(r.text, facts, text).ifBlank { CoachReplies.CHAT_FALLBACK }
             is ModelReply.Failed -> CoachReplies.CHAT_DOWN
         }
         if ((illness || lowIntake) && !reply.contains("看醫生")) reply += "\n" + CoachReplies.DOCTOR

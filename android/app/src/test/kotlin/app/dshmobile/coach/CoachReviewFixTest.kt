@@ -1,7 +1,7 @@
 package app.dshmobile.coach
 
 import app.agency.core.guard.CoachNumbers
-import app.agency.core.guard.NumberGuard
+import app.agency.core.guard.OutputGuard
 import app.agency.core.model.FoodEntry
 import app.agency.core.rules.FoodTable
 import app.dshmobile.coach.CoachRig.Companion.item
@@ -129,11 +129,11 @@ class CoachReviewFixTest {
 
     // I7
     @Test fun theGuardDropsChineseAmountsAndLatinLetters() {
-        assertEquals("現在去練。", NumberGuard.filter("再吃兩百大卡。現在去練。", "剩 1071 大卡", ""))
-        assertEquals("現在去練。", NumberGuard.filter("今天只吃八百卡。現在去練。", "剩 1071 大卡", ""))
-        assertEquals("現在去練。", NumberGuard.filter("OK。現在去練。", "", ""))
-        assertEquals("十分鐘內傳錄音。", NumberGuard.filter("十分鐘內傳錄音。", "", ""))
-        assertEquals("身體質量指數偏高。", NumberGuard.filter("BMI偏高。", "", ""))
+        assertEquals("現在去練。", OutputGuard.legacyFilter("再吃兩百大卡。現在去練。", "剩 1071 大卡", ""))
+        assertEquals("現在去練。", OutputGuard.legacyFilter("今天只吃八百卡。現在去練。", "剩 1071 大卡", ""))
+        assertEquals("現在去練。", OutputGuard.legacyFilter("OK。現在去練。", "", ""))
+        assertEquals("十分鐘內傳錄音。", OutputGuard.legacyFilter("十分鐘內傳錄音。", "", ""))
+        assertEquals("身體質量指數偏高。", OutputGuard.legacyFilter("BMI偏高。", "", ""))
     }
 
     @Test fun aReplyTheGuardEmptiesFallsBackToTheCodesLine() {
@@ -254,18 +254,18 @@ class CoachReviewFixTest {
 
     // N6: full-width Latin letters are Latin letters too.
     @Test fun fullWidthLatinIsDropped() {
-        assertEquals("現在去練。", NumberGuard.filter("ＯＫ。現在去練。", "", ""))
+        assertEquals("現在去練。", OutputGuard.legacyFilter("ＯＫ。現在去練。", "", ""))
     }
 
     // N7: everyday words are not invented amounts.
     @Test fun everydayCountWordsAreKept() {
-        assertEquals("今天正常吃三餐。", NumberGuard.filter("今天正常吃三餐。", "", ""))
-        assertEquals("一天一份就好。", NumberGuard.filter("一天一份就好。", "", ""))
-        assertEquals("", NumberGuard.filter("再吃兩百大卡。", "", ""))
+        assertEquals("今天正常吃三餐。", OutputGuard.legacyFilter("今天正常吃三餐。", "", ""))
+        assertEquals("一天一份就好。", OutputGuard.legacyFilter("一天一份就好。", "", ""))
+        assertEquals("", OutputGuard.legacyFilter("再吃兩百大卡。", "", ""))
         // I7 (review 3): an everyday word at the end of a longer numeral is still an amount.
-        assertEquals("", NumberGuard.filter("延後二十一天。", "", ""))
-        assertEquals("", NumberGuard.filter("再吃十一份。", "", ""))
-        assertEquals("", NumberGuard.filter("十三餐。", "", ""))
+        assertEquals("", OutputGuard.legacyFilter("延後二十一天。", "", ""))
+        assertEquals("", OutputGuard.legacyFilter("再吃十一份。", "", ""))
+        assertEquals("", OutputGuard.legacyFilter("十三餐。", "", ""))
     }
 
     // N8: 兩百五 is 250 and 一千二 is 1200; a table food's own numeral is not a count offline.

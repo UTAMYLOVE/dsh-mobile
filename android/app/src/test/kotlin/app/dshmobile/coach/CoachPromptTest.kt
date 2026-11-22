@@ -1,6 +1,6 @@
 package app.dshmobile.coach
 
-import app.agency.core.guard.NumberGuard
+import app.agency.core.guard.OutputGuard
 import app.dshmobile.coach.CoachRig.Companion.item
 import app.dshmobile.coach.CoachRig.Companion.parsed
 import java.io.File
@@ -49,8 +49,8 @@ class CoachPromptTest {
 
     @Test fun theGuardDropsInventedNumbersButKeepsDeadlines() {
         val facts = "剩 1071 大卡"
-        assertEquals("30 分鐘內傳截圖。", NumberGuard.filter("30 分鐘內傳截圖。", facts, ""))
-        assertEquals("現在去練。", NumberGuard.filter("再吃 300 大卡。現在去練。", facts, ""))
-        assertEquals("你還有 1071 大卡。", NumberGuard.filter("你還有 1071 大卡。", facts, ""))
+        assertEquals("30 分鐘內傳截圖。", OutputGuard.legacyFilter("30 分鐘內傳截圖。", facts, ""))
+        assertEquals("現在去練。", OutputGuard.legacyFilter("再吃 300 大卡。現在去練。", facts, ""))
+        assertEquals("你還有 1071 大卡。", OutputGuard.legacyFilter("你還有 1071 大卡。", facts, ""))
     }
 }
