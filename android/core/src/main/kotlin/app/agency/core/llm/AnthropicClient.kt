@@ -27,7 +27,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
  * - `stop_reason: refusal` is REFUSED; `claude-sonnet-5-5` and `claude-opus-5-5` also send `fallbacks: "default"` with the
  *   server-side fallback beta header (`claude-haiku-5-5` has no server-side fallback, so it never sends one);
  * - in a tool loop the whole assistant `content` (thinking and fallback blocks included) goes back unchanged.
- * Usage is priced on the model that answered (a fallback may answer under another id).
+ * Usage is priced on the model that ran each attempt. With server-side fallback the top-level `usage` covers only the attempt
+ * that produced the returned message, and `usage.iterations` is the per-attempt record (a refused attempt can be billed, a
+ * mid-output refusal always is). So when `iterations` is present each entry is booked on its own: a `fallback_message`
+ * entry on its `model`, any other entry (the declined first attempt) on the requested model. Without `iterations` the
+ * top-level `usage` is booked on the top-level `model` (the one that answered).
  */
 class AnthropicClient(
     private val transport: Transport,
@@ -54,9 +58,27 @@ class AnthropicClient(
         val o = UsageParser.parseObject(text) ?: return ChatResult.Failed(Fail.BAD_RESPONSE)
         val u = UsageParser.fromJson(Provider.ANTHROPIC, text)
         val served = (o["model"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: m
-        if (u != null) runCatching { usage.record(Provider.ANTHROPIC, served, u) }
+        val attempts = iterations(o, requested = m, served = served)
+        if (attempts.isNotEmpty()) {
+            attempts.forEach { (model, iu) -> runCatching { usage.record(Provider.ANTHROPIC, model, iu) } }
+        } else if (u != null) {
+            runCatching { usage.record(Provider.ANTHROPIC, served, u) }
+        }
         return parse(o, u)
     }
+
+    /** `usage.iterations` as (model, usage) per attempt; empty when the response has none. */
+    private fun iterations(o: JsonObject, requested: String, served: String): List<Pair<String, Usage>> {
+        val list = ((o["usage"] as? JsonObject)?.get("iterations") as? JsonArray) ?: return emptyList()
+        return list.mapNotNull { e ->
+            val entry = e as? JsonObject ?: return@mapNotNull null
+            val iu = UsageParser.ofUsageObject(entry)
+            val model = if (entry.str("type") == "fallback_message") entry.str("model") ?: served else requested
+            model to iu
+        }
+    }
+
+    private fun JsonObject.str(k: String): String? = (get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     internal fun body(model: String, request: ChatRequest): JsonObject = buildJsonObject {
         put("model", model)

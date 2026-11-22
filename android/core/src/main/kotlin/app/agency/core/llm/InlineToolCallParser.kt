@@ -19,15 +19,16 @@ object InlineToolCallParser {
     private val fence = Regex("""^\s*([^\n`]+?)\s*\n\s*```(?:json)?\s*(.*?)\s*```\s*$""", RegexOption.DOT_MATCHES_ALL)
 
     /**
-     * The calls found in [content] (ids `inline_1`, `inline_2`…) and the text with all call markup removed (also when no call in
-     * it was usable, so raw markup never reaches the owner); null when [content] has no call markup at all.
+     * The calls found in [content] (ids `<idPrefix>_1`, `<idPrefix>_2`…) and the text with all call markup removed (also when no
+     * call in it was usable, so raw markup never reaches the owner); null when [content] has no call markup at all. The caller
+     * passes an [idPrefix] unique to the response, so ids never repeat across the steps of one loop.
      */
-    fun parse(content: String, offered: Set<String>): Parsed? {
+    fun parse(content: String, offered: Set<String>, idPrefix: String = "inline"): Parsed? {
         if (!content.contains("<tool_call>") && !content.contains("<｜tool▁call▁begin｜>")) return null
         val calls = ArrayList<ToolCall>()
         fun add(name: String, args: String) {
             val obj = runCatching { Json.parseToJsonElement(args) as? JsonObject }.getOrNull() ?: return
-            if (name in offered) calls += ToolCall("inline_${calls.size + 1}", name, obj.toString())
+            if (name in offered) calls += ToolCall("${idPrefix}_${calls.size + 1}", name, obj.toString())
         }
         tagged.findAll(content).forEach { m ->
             val o = runCatching { Json.parseToJsonElement(m.groupValues[1]) as? JsonObject }.getOrNull() ?: return@forEach

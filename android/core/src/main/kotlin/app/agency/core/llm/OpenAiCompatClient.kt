@@ -53,7 +53,8 @@ data class CompatEndpoint(
             if (!allowHttp && (!raw.startsWith("https://", ignoreCase = true) || !parsed.isHttps)) return null
             val segments = parsed.pathSegments.filter { it.isNotEmpty() }.toMutableList()
             if (segments.takeLast(2) == listOf("chat", "completions")) repeat(2) { segments.removeAt(segments.lastIndex) }
-            val base = parsed.newBuilder().query(null).fragment(null).encodedPath("/")
+            // No user info: a `user:pass@` he pasted is a credential and must not sit in a data class that prints itself.
+            val base = parsed.newBuilder().username("").password("").query(null).fragment(null).encodedPath("/")
                 .apply { segments.forEach { addPathSegment(it) } }.addPathSegment("").build()
             return CompatEndpoint(base, model.trim(), deepseek = false, jsonMode = jsonMode, tools = tools)
         }
@@ -69,9 +70,17 @@ data class CompatEndpoint(
  * - CHAT with tools and thinking LOW: strict functions on the beta base, `thinking: enabled`, `reasoning_effort: low`, no
  *   temperature (ignored in thinking mode). Every assistant message of the turn goes back exactly as it came
  *   ([Turn.Assistant.raw]: content, `reasoning_content`, `tool_calls`), otherwise DeepSeek answers 400.
+ * - DeepSeek answers 400 to a thinking request with tools when any earlier assistant message lacks its `reasoning_content`
+ *   (thinking_mode.md, "Tool Calls"): a [Turn.AssistantText] history line, a turn another provider made, or one made with
+ *   thinking off. Such a request goes out with `thinking: disabled` (and the temperature) instead. It stays consistent for the
+ *   rest of the turn, because replies to a non-thinking request carry no reasoning either. Without tools the reasoning of
+ *   earlier turns is ignored by DeepSeek, so it does not matter there.
  * - A blank reply without tool calls (JSON mode can return only spaces) is BAD_RESPONSE, so the caller retries or falls back.
+ * - The byte-for-byte echo is a DeepSeek requirement only: a generic service gets its assistant messages back as role,
+ *   content and tool_calls, because several compatible servers reject unknown message fields (`refusal`, `reasoning`…).
  *
- * [quota] is the generic service's daily request cap (ruling Q8; it has no price, so nothing is metered for it).
+ * [takeQuota] is the generic service's daily request cap (ruling Q8; it has no price, so nothing is metered for it). It
+ * consumes one request of the day when it returns true, so it is called last, right before the request goes out.
  */
 class OpenAiCompatClient(
     private val transport: Transport,
@@ -79,14 +88,14 @@ class OpenAiCompatClient(
     private val key: () -> String?,
     private val checks: CallChecks,
     private val usage: UsageSink,
-    private val quota: () -> Boolean = { true },
+    private val takeQuota: () -> Boolean = { true },
 ) : LlmClient {
     override suspend fun chat(request: ChatRequest): ChatResult {
         val k = key()
         checks.blocked(k)?.let { return ChatResult.Failed(it) }
         val ep = endpoint() ?: return ChatResult.Failed(Fail.NO_SETUP)
-        if (!ep.deepseek && !quota()) return ChatResult.Failed(Fail.CAP)
         checks.takeBudget()?.let { return ChatResult.Failed(it) }
+        if (!ep.deepseek && !takeQuota()) return ChatResult.Failed(Fail.CAP)
         val withTools = request.tools.isNotEmpty() && ep.tools
         val base = if (withTools) ep.strictToolsBase ?: ep.base else ep.base
         val url = base.newBuilder().addPathSegment("chat").addPathSegment("completions").build()
@@ -100,10 +109,11 @@ class OpenAiCompatClient(
     }
 
     internal fun body(ep: CompatEndpoint, request: ChatRequest, withTools: Boolean): JsonObject = buildJsonObject {
+        val msgs = messages(ep, request)
+        val thinking = ep.deepseek && request.thinking == Thinking.LOW && (!withTools || reasoningComplete(msgs))
         put("model", ep.model)
         put("max_tokens", request.maxTokens)
-        put("messages", messages(request))
-        val thinking = ep.deepseek && request.thinking == Thinking.LOW
+        put("messages", msgs)
         if (ep.deepseek) {
             put("thinking", buildJsonObject { put("type", if (thinking) "enabled" else "disabled") })
             if (thinking) put("reasoning_effort", "low")
@@ -127,13 +137,19 @@ class OpenAiCompatClient(
         }
     }
 
-    private fun messages(request: ChatRequest): JsonArray = buildJsonArray {
+    /** True when every assistant message carries its `reasoning_content` (a string; `null` counts as missing). */
+    private fun reasoningComplete(msgs: JsonArray): Boolean = msgs.all { m ->
+        val o = m as? JsonObject ?: return@all true
+        o.str("role") != "assistant" || o.str("reasoning_content") != null
+    }
+
+    private fun messages(ep: CompatEndpoint, request: ChatRequest): JsonArray = buildJsonArray {
         add(buildJsonObject { put("role", "system"); put("content", request.system) })
         ToolPairing.repair(request.turns).forEach { t ->
             when (t) {
                 is Turn.User -> add(buildJsonObject { put("role", "user"); put("content", t.text) })
                 is Turn.AssistantText -> add(buildJsonObject { put("role", "assistant"); put("content", t.text) })
-                is Turn.Assistant -> add(if (t.wire == Wire.OPENAI && t.raw is JsonObject) t.raw else rebuilt(t))
+                is Turn.Assistant -> add(if (ep.deepseek && t.wire == Wire.OPENAI && t.raw is JsonObject) t.raw else rebuilt(t))
                 is Turn.ToolResult -> add(buildJsonObject {
                     put("role", "tool")
                     put("tool_call_id", t.callId)
@@ -143,7 +159,10 @@ class OpenAiCompatClient(
         }
     }
 
-    /** An assistant turn another provider made, in this format (its reasoning stays with that provider). */
+    /**
+     * An assistant turn in plain chat-completion form: role, content and tool_calls only. Used for a turn another provider
+     * made (its reasoning stays with that provider) and for every turn sent to a generic service.
+     */
     private fun rebuilt(t: Turn.Assistant): JsonObject = buildJsonObject {
         put("role", "assistant")
         put("content", t.text.orEmpty())
@@ -178,7 +197,7 @@ class OpenAiCompatClient(
             ToolCall(id, name, fn.str("arguments") ?: "{}")
         }
         if (calls.isEmpty() && offered.isNotEmpty() && text != null) {
-            InlineToolCallParser.parse(text, offered)?.let { p ->
+            InlineToolCallParser.parse(text, offered, inlineIdPrefix(o))?.let { p ->
                 // The calls were written into the text: the message goes back with real tool_calls (so the tool results that
                 // follow pair with them) and the markup removed; reasoning_content and every other field stay as they came.
                 text = p.text
@@ -192,6 +211,17 @@ class OpenAiCompatClient(
         return ChatResult.Ok(visible, calls, Turn.Assistant(Wire.OPENAI, raw, visible, calls), u)
     }
 
+    /**
+     * Ids for calls written into the text: `inline_<n>_<response id>_` then the parser's counter. Each response numbers its calls
+     * from 1, so without this a loop of several steps would hold the same `inline_1` more than once (Claude needs unique
+     * `tool_use` ids once such a turn is rebuilt for it). [n] is unique in the process; the response id is kept to
+     * `[A-Za-z0-9_-]` and 32 characters.
+     */
+    private fun inlineIdPrefix(response: JsonObject): String {
+        val id = response.str("id")?.filter { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '_' || it == '-' }?.take(32)
+        return "inline_${inlineSeq.incrementAndGet()}" + (id?.takeIf { it.isNotEmpty() }?.let { "_$it" } ?: "")
+    }
+
     private fun contentText(e: JsonElement?): String? = when (e) {
         null, JsonNull -> null
         is JsonPrimitive -> if (e.isString) e.content else null
@@ -200,4 +230,8 @@ class OpenAiCompatClient(
     }
 
     private fun JsonObject.str(k: String): String? = (get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+    private companion object {
+        val inlineSeq = java.util.concurrent.atomic.AtomicLong()
+    }
 }

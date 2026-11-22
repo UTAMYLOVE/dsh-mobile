@@ -42,6 +42,21 @@ class DeepSeekSearchClientTest {
         assertEquals("麵".repeat(20), q.split(' ')[1])
     }
 
+    @Test fun aFullWidthSpaceSeparatesWordsSoAnExclusionCannotForm() {
+        assertEquals("大安區 雞排 炸物 推薦", DeepSeekSearchClient.placesQuery("大安區", "雞排\u3000-炸物"))
+        assertEquals("大安區 雞排 推薦", DeepSeekSearchClient.placesQuery("大安區\u3000", "\u3000雞排"))
+    }
+
+    @Test fun capsNeverSplitASurrogatePair() = runBlocking {
+        val dish = "麵".repeat(19) + "\uD83C\uDF5C" + "湯" // the bowl emoji sits on the 20th code point
+        assertEquals("麵".repeat(19) + "\uD83C\uDF5C", DeepSeekSearchClient.placesQuery("", dish)!!.removeSuffix(" 推薦"))
+        val title = "店".repeat(79) + "\uD83C\uDF5C" + "尾"
+        kit.enqueue(200, """{"results":[${hit("https://a.example/1", title, 2.0, "好".repeat(119) + "\uD83C\uDF5C" + "尾")}]}""")
+        val h = (kit.search().searchPlaces("大安區", "麵") as SearchResult.Ok).hits.single()
+        assertEquals("店".repeat(79) + "\uD83C\uDF5C", h.title)
+        assertEquals("好".repeat(119) + "\uD83C\uDF5C", h.summary)
+    }
+
     @Test fun resultsAreFilteredDedupedAndCapped() = runBlocking {
         val long = "很".repeat(300)
         val results = listOf(

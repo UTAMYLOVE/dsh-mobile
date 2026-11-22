@@ -65,6 +65,9 @@ object UsageParser {
         return UsageAccumulator().apply { add(toUpdate(usage)) }.current()
     }
 
+    /** Usage of one Messages `usage` object (or one entry of its `iterations`); absent fields count 0. */
+    internal fun ofUsageObject(usage: JsonObject): Usage = UsageAccumulator().apply { add(toUpdate(usage)) }.current()!!
+
     /**
      * Usage of an OpenAI-style chat completion (top-level `usage`), or null when absent or not JSON. DeepSeek reports
      * `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` (verified against api-docs.deepseek.com, 2026-11-22): the misses

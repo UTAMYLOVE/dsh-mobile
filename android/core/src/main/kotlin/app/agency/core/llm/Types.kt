@@ -32,13 +32,22 @@ enum class Wire { OPENAI, ANTHROPIC }
 sealed interface Turn {
     data class User(val text: String) : Turn
 
-    /** An assistant line from history (the stored conversation), with no provider payload. */
+    /**
+     * An assistant line from history (the stored conversation), with no provider payload. On DeepSeek a tools request that
+     * contains one is sent with thinking off (it has no `reasoning_content`; see [OpenAiCompatClient]).
+     */
     data class AssistantText(val text: String) : Turn
 
     /**
      * An assistant turn exactly as the provider returned it ([raw]: the whole chat-completion `message` object, or the Messages
      * `content` array, reasoning and thinking included). It is sent back unchanged to the provider that made it; another
      * provider gets [text] and [toolCalls] rebuilt in its own format.
+     *
+     * Valid only inside the ChatLoop round that produced it (one owner message and the tool steps that answer it). Stored
+     * history crosses rounds as [AssistantText], or as context in the system prompt; never keep this turn for a later round.
+     * On DeepSeek a tools request whose assistant messages are not all of this kind (with their reasoning) goes out with
+     * thinking off, so a caller that wants thinking kept for chat puts its history in the system prompt or the first user
+     * message instead of [AssistantText] turns.
      */
     data class Assistant(val wire: Wire, val raw: JsonElement, val text: String?, val toolCalls: List<ToolCall>) : Turn
 

@@ -117,6 +117,25 @@ class AnthropicClientTest {
         assertEquals(listOf(Triple(Provider.ANTHROPIC, "claude-sonnet-5", u)), kit.recorded)
     }
 
+    @Test fun aServerSideFallbackBooksEveryAttemptOnItsOwnModel() = runBlocking {
+        // usage.iterations is the per-attempt record; top-level usage covers only the attempt that answered.
+        kit.enqueue(200, """{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5",
+            "content":[{"type":"fallback","from":{"model":"claude-sonnet-5-5"},"to":{"model":"claude-sonnet-5"}},{"type":"text","text":"好"}],
+            "stop_reason":"end_turn","usage":{"input_tokens":50,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,
+            "iterations":[{"type":"message","input_tokens":48,"output_tokens":7,"cache_read_input_tokens":3,"cache_creation_input_tokens":0},
+            {"type":"fallback_message","model":"claude-sonnet-5","input_tokens":50,"output_tokens":10,"cache_read_input_tokens":0,
+            "cache_creation_input_tokens":0}]}}""")
+        val r = kit.claude("claude-sonnet-5-5").chat(user) as ChatResult.Ok
+        assertEquals("好", r.text)
+        assertEquals(
+            listOf(
+                Triple(Provider.ANTHROPIC, "claude-sonnet-5-5", Usage(inputTokens = 48, outputTokens = 7, cacheReadTokens = 3)),
+                Triple(Provider.ANTHROPIC, "claude-sonnet-5", Usage(inputTokens = 50, outputTokens = 10)),
+            ),
+            kit.recorded,
+        )
+    }
+
     @Test fun emptyTextIsABadResponse() = runBlocking {
         kit.enqueue(200, message("""[{"type":"text","text":" "}]""", stop = "max_tokens"))
         assertEquals(ChatResult.Failed(Fail.BAD_RESPONSE), kit.claude().chat(user))

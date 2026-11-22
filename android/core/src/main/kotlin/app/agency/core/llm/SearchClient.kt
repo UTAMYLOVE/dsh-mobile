@@ -83,8 +83,8 @@ class DeepSeekSearchClient(
             val summary = (r.str("summary")?.takeIf { it.isNotBlank() } ?: r.str("snippet")).orEmpty()
             SearchHit(
                 url = url,
-                title = title.take(MAX_TITLE),
-                summary = clean(summary).take(MAX_SUMMARY),
+                title = takeCodePoints(title, MAX_TITLE),
+                summary = takeCodePoints(clean(summary), MAX_SUMMARY),
                 date = r.str("date"),
                 authority = (r["authority"] as? JsonPrimitive)?.intOrNull ?: -1,
                 rerank = rerank,
@@ -106,7 +106,8 @@ class DeepSeekSearchClient(
         const val METER_MODEL = "deepseek-search"
 
         private val operatorChars = Regex("""["'“”:：()（）|]""")
-        private val space = Regex("""\s+""")
+        // `\s` alone misses the full-width space U+3000, which would leave `雞排　-炸物` as one word with a live `-` in it.
+        private val space = Regex("""[\s\u3000]+""")
 
         /** Control characters out, runs of white space folded to one space. */
         private fun clean(s: String) = s.filter { !it.isISOControl() || it == ' ' || it == '\n' }.replace(space, " ").trim()
@@ -114,7 +115,11 @@ class DeepSeekSearchClient(
         /** Operator characters out, and a leading `-` (exclude) or `site`-style word prefix cannot survive either. */
         private fun words(s: String, max: Int): String =
             clean(s.replace(operatorChars, " ")).split(' ').map { it.trimStart('-', '+') }.filter { it.isNotEmpty() }
-                .joinToString(" ").take(max).trim()
+                .joinToString(" ").let { takeCodePoints(it, max) }.trim()
+
+        /** At most [max] characters counted in code points, so an emoji or other pair is never cut in half. */
+        private fun takeCodePoints(s: String, max: Int): String =
+            s.substring(0, s.offsetByCodePoints(0, minOf(max, s.codePointCount(0, s.length))))
 
         /** `<area> <dish> 推薦`, at most [MAX_QUERY] characters; null when no dish is left to search for. */
         fun placesQuery(area: String, dish: String): String? {
