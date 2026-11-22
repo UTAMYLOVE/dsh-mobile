@@ -34,6 +34,7 @@ import app.dshmobile.security.KeyVault
 import java.io.File
 import java.time.Clock
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,6 +58,8 @@ class TestOverrides(
     val modelBase: HttpUrl? = null,
     val openDatabase: ((Context) -> AgencyDatabase)? = null,
     val mediaVault: ((Context) -> MediaVault)? = null,
+    /** Wraps the store the importer and the brain use (a test makes it fail on purpose). */
+    val store: ((AgencyStore) -> AgencyStore)? = null,
 )
 
 /** Where the company stands at start. [Ready] carries what the screens use. */
@@ -76,8 +79,11 @@ sealed interface StartState {
     data object Unavailable : StartState
 }
 
-/** A one-time line on the home screen after the import. */
-enum class ImportNotice { PARTIAL, FAILED }
+/**
+ * A line on the home screen after the import. [PARTIAL] and [MEDIA_PENDING] are shown once (kept in prefs until he taps
+ * 知道了, so a process that dies first does not lose them); [FAILED] comes back at each start that fails again.
+ */
+enum class ImportNotice { PARTIAL, MEDIA_PENDING, FAILED }
 
 /** What 設定 › 舊資料 shows, read from the outcome row `import-legacy` only (never from the failed-attempt row). */
 data class LegacyStatus(
@@ -113,7 +119,16 @@ class AgencyApp(
     private val legacyPrefs = context.getSharedPreferences(LegacyPrefs.NAME, Context.MODE_PRIVATE)
     val settings = AgencySettings(agencyPrefs)
     val notifier = AgencyNotifier(context)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** Anything thrown outside the start's own catches is logged and ends on a try-again screen, never a crash at start. */
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            errorLog.append(TAG, "start threw (${e.javaClass.simpleName})")
+            if (_start.value !is StartState.Ready) _start.value = StartState.Unavailable
+        },
+    )
+
+    /** His coach-day start hour (profile), for the compatible service's daily cap; read at open and after each message. */
+    @Volatile private var dayStartHour = DEFAULT_DAY_START
 
     private val _start = MutableStateFlow<StartState>(StartState.Opening)
     val start: StateFlow<StartState> = _start.asStateFlow()
@@ -125,12 +140,14 @@ class AgencyApp(
     @Volatile private var db: AgencyDatabase? = null
     @Volatile private var importer: LegacyImporter? = null
 
-    /** Opens the company once (again after [StartState.Unavailable]); a call while it opens or once it is open does nothing. */
+    /**
+     * Opens the company once, and again after [StartState.Unavailable] or [StartState.Locked] (再試一次: opening deletes
+     * nothing, and a Keystore that was only busy may answer now). A call while it opens or once it is open does nothing.
+     */
     fun start() {
         synchronized(this) {
             if (job?.isActive == true) return
-            val s = _start.value
-            if (s is StartState.Ready || s == StartState.Locked) return
+            if (_start.value is StartState.Ready) return
             job = scope.launch { open() }
         }
     }
@@ -138,6 +155,9 @@ class AgencyApp(
     private suspend fun open() {
         _start.value = StartState.Opening
         runCatching { MediaVault.sweepCameraCache(MediaVault.cameraDir(context)) }
+        // Copies he shared from 設定 › 舊資料 are plaintext: they live only until the next start.
+        runCatching { File(context.cacheDir, EXPORT_DIR).listFiles()?.forEach { it.deleteRecursively() } }
+        storedNotice()?.let { _notice.value = it }
         val opened = try {
             overrides?.openDatabase?.invoke(context) ?: AgencyDatabase.open(context)
         } catch (e: CancellationException) {
@@ -154,11 +174,18 @@ class AgencyApp(
             return
         }
         db = opened
-        val store = RoomAgencyStore(opened)
+        val store = RoomAgencyStore(opened).let { overrides?.store?.invoke(it) ?: it }
         val vault = overrides?.mediaVault?.invoke(context) ?: MediaVault.forApp(context)
         val imp = LegacyImporter(context.filesDir, legacyPrefs, agencyPrefs, importPrefs, store, vault)
         importer = imp
         if (agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0) == 0 && legacyPresent()) _start.value = StartState.Importing
+        importAndSeal(imp)
+        refreshDayStart(store)
+        _start.value = StartState.Ready(store, brain(store))
+    }
+
+    /** The import (first run, a changed partial, or the retry of a failed one), then any pending media; sets the notice. */
+    private suspend fun importAndSeal(imp: LegacyImporter) {
         val report = try {
             imp.run()
         } catch (e: CancellationException) {
@@ -168,13 +195,41 @@ class AgencyApp(
             null
         }
         logImport(report)
-        _notice.value = when {
-            report == null -> ImportNotice.FAILED
-            report.partialNotice -> ImportNotice.PARTIAL
-            !report.ok && !report.skipped && !report.partial -> ImportNotice.FAILED
-            else -> _notice.value
+        when {
+            report == null -> _notice.value = ImportNotice.FAILED
+            report.partialNotice -> setNotice(ImportNotice.PARTIAL)
+            !report.ok && !report.skipped && !report.partial -> _notice.value = ImportNotice.FAILED
+            report.ok && !report.skipped && report.note?.mediaPending.orEmpty().isNotEmpty() -> setNotice(ImportNotice.MEDIA_PENDING)
+            report.ok && _notice.value == ImportNotice.FAILED -> _notice.value = null
         }
-        _start.value = StartState.Ready(store, brain(store))
+        val sealed = try {
+            imp.sealPending()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            errorLog.append(TAG, "pending media threw (${e.javaClass.simpleName})")
+            0
+        }
+        if (sealed > 0) {
+            errorLog.append(TAG, "pending media sealed=$sealed")
+            // Everything is in now: the line about pending photos is no longer true.
+            if (_notice.value == ImportNotice.MEDIA_PENDING && runCatching { imp.pendingMedia() }.getOrNull()?.isEmpty() == true) dismissNotice()
+        }
+    }
+
+    private suspend fun refreshDayStart(store: AgencyStore) {
+        dayStartHour = runCatching { store.profile.get()?.dayStartHour }.getOrNull() ?: DEFAULT_DAY_START
+    }
+
+    /** The coach day the compatible service's daily cap counts in (his day start, not a fixed hour). */
+    internal fun quotaDay(): String = CoachRules.coachDay(clock.now(), clock.zone, dayStartHour).toString()
+
+    private fun storedNotice(): ImportNotice? =
+        agencyPrefs.getString(NOTICE_KEY, null)?.let { n -> ImportNotice.entries.firstOrNull { it.name == n } }
+
+    private fun setNotice(n: ImportNotice) {
+        agencyPrefs.edit().putString(NOTICE_KEY, n.name).commit()
+        _notice.value = n
     }
 
     private fun legacyPresent(): Boolean = File(context.filesDir, LegacyImporter.LEGACY_DIR).isDirectory || legacyPrefs.all.isNotEmpty()
@@ -186,7 +241,17 @@ class AgencyApp(
     }
 
     fun dismissNotice() {
+        agencyPrefs.edit().remove(NOTICE_KEY).commit()
         _notice.value = null
+    }
+
+    /**
+     * 設定 › 舊資料 「再試一次」 after a failed first import (NOT_YET): runs the import now instead of at the next process
+     * start, and the pending media after it.
+     */
+    suspend fun retryFirstImport() {
+        val imp = importer ?: return
+        importAndSeal(imp)
     }
 
     /** Sends his message to the brain, off the main thread; a failure is logged, never thrown at the screen. */
@@ -195,6 +260,7 @@ class AgencyApp(
         scope.launch {
             try {
                 ready.brain.onText(text)
+                refreshDayStart(ready.store)
                 if (costMeter.consumeAlert()) notifier.costAlert(costMeter.todayUsd())
             } catch (e: CancellationException) {
                 throw e
@@ -262,9 +328,20 @@ class AgencyApp(
         val claude = AnthropicClient(transport, { settings.claudeModel }, { keyVault.get(Provider.ANTHROPIC) }, checks, costMeter, base ?: AnthropicClient.BASE)
         val compat = OpenAiCompatClient(
             transport, { settings.compatEndpoint(allowHttp = base != null) }, { keyVault.getNamed(AgencySettings.COMPAT_KEY) }, checks, costMeter,
-            takeQuota = { settings.takeCompatRequest(CoachRules.coachDay(clock.now(), clock.zone, 5).toString()) },
+            takeQuota = { settings.takeCompatRequest(quotaDay()) },
         )
-        return Brain(store, ProviderRouter({ settings.provider }, deepseek, claude, compat), { settings.provider }, clock)
+        // The data clerk's call goes to the cheapest model of the provider he chose (never another provider): it only sorts
+        // his sentence into a kind (controller ruling on the T06 review M3). The compatible service has one model.
+        val deepseekClerk = OpenAiCompatClient(
+            transport,
+            { if (base != null) CompatEndpoint.deepseek(CompatEndpoint.DEEPSEEK_FLASH, base) else CompatEndpoint.deepseek(CompatEndpoint.DEEPSEEK_FLASH) },
+            { keyVault.get(Provider.DEEPSEEK) }, checks, costMeter,
+        )
+        val claudeClerk = AnthropicClient(transport, { CLAUDE_CLERK }, { keyVault.get(Provider.ANTHROPIC) }, checks, costMeter, base ?: AnthropicClient.BASE)
+        return Brain(
+            store, ProviderRouter({ settings.provider }, deepseek, claude, compat), { settings.provider }, clock,
+            intakeLlm = ProviderRouter({ settings.provider }, deepseekClerk, claudeClerk, compat),
+        )
     }
 
     /** Test only: closes the database and forgets the start, so the next [start] opens again (the e2e suite shares a process). */
@@ -280,6 +357,12 @@ class AgencyApp(
 
     companion object {
         private const val TAG = "agency"
+        private const val NOTICE_KEY = "notice_pending"
+        private const val EXPORT_DIR = "export"
+        private const val DEFAULT_DAY_START = 5
+
+        /** The cheapest Claude model, for the data clerk only. */
+        const val CLAUDE_CLERK = "claude-haiku-5-5"
 
         /** Set by the instrumentation runner (and tests) before the company first opens. */
         @VisibleForTesting

@@ -14,6 +14,8 @@ import app.agency.core.migrate.LegacyState
 import app.agency.core.migrate.MediaCopy
 import app.agency.core.migrate.PrefValue
 import app.agency.core.migrate.StateOrigin
+import app.agency.core.migrate.LegacyBaselineStep
+import app.agency.core.model.Baseline
 import app.agency.core.model.CompanyRules
 import app.agency.core.model.Media
 import app.agency.core.model.MigrationLog
@@ -62,6 +64,12 @@ data class ImportReport(
 /** The phone ran out of memory sealing the baseline file [file]: that file is left out, everything else is imported. */
 class MediaTooLargeException(val file: String, cause: Throwable) : IOException("media too large", cause)
 
+/**
+ * The vault could not take the baseline file [file] (its Keystore key failed, or the sealed copy did not check out): the
+ * records are imported without it, and the file stays pending in the legacy folder ([ImportNote.mediaPending]).
+ */
+class MediaUnavailableException(val file: String, cause: Throwable) : IOException("media unavailable", cause)
+
 /** The store did not hold what the plan wrote (only kind names and numbers, never content). */
 class ImportMismatchException(val expected: Map<ImportKind, Int>, val found: Map<ImportKind, Int>) :
     IllegalStateException("import counts differ: " + ImportKind.entries.filter { expected[it] != found[it] }.joinToString { "${it.name} ${found[it]}/${expected[it]}" })
@@ -78,6 +86,8 @@ class ImportMismatchException(val expected: Map<ImportKind, Int>, val found: Map
  * 3. Seals the baseline files into the [vault], then inserts everything in one store transaction, INSERT OR IGNORE on the
  *    legacy ids; the profile, rules and audit rows only when they are not there yet. A second run writes nothing.
  *    A baseline file the phone runs out of memory sealing is left out ([ImportNote.mediaTooLarge]); the rest still imports.
+ *    A file the vault cannot take (its Keystore key fails) is left pending ([ImportNote.mediaPending]): the records still
+ *    import, the original stays in the legacy folder, and [sealPending] seals it on a later start.
  * 4. Inside the transaction, checks every planned record is in the store as planned (and every media file decrypts to its
  *    bytes); any difference rolls everything back, removes the media no committed row points at, logs the counts (one row,
  *    brought up to date by each failed run), and leaves the legacy files as they were, for the next start to try again. On
@@ -165,6 +175,13 @@ class LegacyImporter(
             while (sealed == null) {
                 try {
                     sealed = seal(plan)
+                } catch (e: MediaUnavailableException) {
+                    // The vault failed on this file: the records still come; the file waits in the folder for a later start.
+                    check(e.file !in input.mediaPending) { "media unavailable again" }
+                    unseal(plan.media.filter { it.file == e.file })
+                    input = input.copy(mediaPending = input.mediaPending + e.file)
+                    full = LegacyMapper.map(input, now)
+                    plan = withoutLabelsHeMadeMoot(full.except(carried), carried)
                 } catch (e: MediaTooLargeException) {
                     // That one file is left out (noted as too large); every other file and record still comes.
                     check(input.baselineFiles.any { it.name == e.file && it.size != Long.MAX_VALUE }) { "media too large again" }
@@ -332,10 +349,12 @@ class LegacyImporter(
      * The plaintext is hashed as a stream; [MediaVault.put] holds the plaintext and its sealed copy, and the check afterwards
      * the sealed copy and its decryption (the cipher may buffer one more copy).
      * @throws MediaTooLargeException when the phone runs out of memory on one file.
+     * @throws MediaUnavailableException when the vault fails on one file (any other exception of the put or the check).
      */
-    private fun seal(plan: ImportPlan): List<Media> = plan.media.map { c ->
+    private fun seal(plan: ImportPlan): List<Media> = plan.media.map { c -> sealOne(c, File(File(dir, BASELINE_DIR), c.file)) }
+
+    private fun sealOne(c: MediaCopy, file: File): Media =
         try {
-            val file = File(File(dir, BASELINE_DIR), c.file)
             val (sha, size) = digest(file)
             val already = vault.has(c.id) && try {
                 sha256(vault.get(c.id)) == sha
@@ -351,6 +370,66 @@ class LegacyImporter(
         } catch (e: OutOfMemoryError) {
             // Not a crash at every start: this file is left out and the import goes on without it.
             throw MediaTooLargeException(c.file, e)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw MediaUnavailableException(c.file, e)
+        }
+
+    /**
+     * After a finished import: seals the baseline files the vault could not take then ([ImportNote.mediaPending]), from the
+     * kept legacy folder. Each file goes in its own transaction: its media row, the 入社建檔 link it was handed in for (only
+     * while that field is empty) and the outcome row's note without its name. A file that fails again stays pending and
+     * nothing else changes; the next start tries again. Returns how many files went in.
+     */
+    /** The baseline files still waiting for the vault after a finished import (empty otherwise). */
+    suspend fun pendingMedia(): List<String> = withContext(Dispatchers.IO) {
+        store.journal.migrations().firstOrNull { it.id == LOG_ID && it.ok }?.note
+            ?.let { runCatching { ImportNote.fromJson(it).mediaPending }.getOrNull() }.orEmpty()
+    }
+
+    suspend fun sealPending(): Int = withContext(Dispatchers.IO) {
+        LOCK.withLock {
+            if (agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0) != AgencyPrefKeys.MIGRATED_DONE) return@withLock 0
+            val row = store.journal.migrations().firstOrNull { it.id == LOG_ID && it.ok } ?: return@withLock 0
+            var note = row.note?.let { runCatching { ImportNote.fromJson(it) }.getOrNull() } ?: return@withLock 0
+            if (note.mediaPending.isEmpty()) return@withLock 0
+            val folder = dir.takeIf { it.isDirectory }
+                ?: filesDir.listFiles { f -> f.isDirectory && f.name.startsWith("$LEGACY_DIR.migrated-") }?.maxByOrNull { it.name }
+                ?: return@withLock 0
+            var sealed = 0
+            for (name in note.mediaPending) {
+                val file = File(File(folder, BASELINE_DIR), name)
+                if (!file.isFile) continue
+                val c = LegacyMapper.mediaCopy(name, file.lastModified())
+                try {
+                    val media = sealOne(c, file)
+                    val next = note.copy(mediaPending = note.mediaPending - name, mediaPendingLinks = note.mediaPendingLinks - name)
+                    store.transaction {
+                        store.media.insert(media)
+                        val step = note.mediaPendingLinks[name]
+                        store.baselines.get(Baseline.JOIN)?.let { b ->
+                            val linked = when {
+                                step == LegacyBaselineStep.PHOTO.name && b.photoFront == null -> b.copy(photoFront = c.id)
+                                step == LegacyBaselineStep.RECORDING.name && b.recording == null -> b.copy(recording = c.id)
+                                else -> b
+                            }
+                            val done = if (linked.step == null) LegacyMapper.completedIfDone(linked, clock()) else linked
+                            if (done != b) store.baselines.upsert(done)
+                        }
+                        store.journal.logMigration(row.copy(note = next.toJson()))
+                    }
+                    note = next
+                    sealed++
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    unseal(listOf(c))
+                } catch (_: OutOfMemoryError) {
+                    unseal(listOf(c))
+                }
+            }
+            sealed
         }
     }
 

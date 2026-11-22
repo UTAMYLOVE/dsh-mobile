@@ -22,6 +22,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import app.agency.core.migrate.ImportKind
+import app.agency.core.migrate.LegacyMapper
+import app.agency.core.model.MediaKind
 import app.dshmobile.R
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.LegacyStatus
@@ -39,6 +41,15 @@ object LegacyTags {
     const val RETRY = "ag-legacy-retry"
     const val COUNT = "ag-legacy-count-"
     const val SHARE = "ag-legacy-share-"
+    const val FILE = "ag-legacy-file-"
+}
+
+/** 「照片 1」「錄音 2」: a legacy file by its kind and its place among the [all] files of that kind. */
+@Composable
+internal fun fileLabel(name: String, all: List<String>): String {
+    val audio = LegacyMapper.mediaCopy(name, 0).kind == MediaKind.AUDIO
+    val same = all.filter { (LegacyMapper.mediaCopy(it, 0).kind == MediaKind.AUDIO) == audio }
+    return stringResource(if (audio) R.string.ag_legacy_audio_n else R.string.ag_legacy_photo_n, same.indexOf(name) + 1)
 }
 
 /**
@@ -72,14 +83,15 @@ fun LegacyDataPage(agency: AgencyApp) {
                 Note(stringResource(R.string.ag_legacy_count_row, stringResource(kindLabel(k)), s.counts.getValue(k)), Modifier.testTag(LegacyTags.COUNT + k.name))
             }
         }
-        if (s.kind == LegacyStatus.Kind.PARTIAL) {
+        // 再試一次: a partial import runs again now; a failed first import (NOT_YET) too, instead of at the next process start.
+        if (s.kind == LegacyStatus.Kind.PARTIAL || s.kind == LegacyStatus.Kind.NOT_YET) {
             PinkButton(
                 stringResource(if (retrying) R.string.ag_legacy_retrying else R.string.ag_try_again),
                 enabled = !retrying,
                 onClick = {
                     retrying = true
                     scope.launch {
-                        agency.retryImport()
+                        if (s.kind == LegacyStatus.Kind.PARTIAL) agency.retryImport() else agency.retryFirstImport()
                         retrying = false
                         reload++
                     }
@@ -87,13 +99,17 @@ fun LegacyDataPage(agency: AgencyApp) {
                 modifier = Modifier.testTag(LegacyTags.RETRY),
             )
         }
-        val big = s.note?.mediaTooLarge.orEmpty()
         val folder = s.folder
-        if (big.isNotEmpty() && folder != null) {
-            Note(stringResource(R.string.ag_legacy_too_large))
-            big.forEach { name ->
+        val lists = listOf(
+            R.string.ag_legacy_too_large to s.note?.mediaTooLarge.orEmpty(),
+            R.string.ag_legacy_pending to s.note?.mediaPending.orEmpty(),
+        )
+        if (folder != null) lists.filter { it.second.isNotEmpty() }.forEach { (title, names) ->
+            Note(stringResource(title))
+            names.forEach { name ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(name, color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    // His file names are Latin (「photo-1795224000000.jpg」): shown by kind and order, the name used only to share.
+                    Text(fileLabel(name, names), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.weight(1f).testTag(LegacyTags.FILE + name))
                     SoftButton(stringResource(R.string.ag_legacy_share), onClick = {
                         scope.launch {
                             val ok = withContext(Dispatchers.IO) { runCatching { shareCopy(context, File(folder, "${LegacyImporter.BASELINE_DIR}/$name")) }.getOrNull() }

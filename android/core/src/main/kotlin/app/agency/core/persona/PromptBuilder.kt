@@ -31,6 +31,8 @@ data class PromptInput(
     val companyName: String = DEFAULT_COMPANY,
     /** Latin names he gave himself (his idol, her group, songs); the only Latin the reply may use besides C, B, A. */
     val latinNames: List<String> = OutputGuard.LATIN_WHITELIST,
+    /** Whether this call's memory events are applied; false (T06, before the memory UI of T12) asks for none. */
+    val memoryWrites: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_COMPANY = "小雨娛樂"
@@ -50,7 +52,7 @@ object PromptBuilder {
         base(p.companyName, p.latinNames),
         rules(p.rules),
         role(p.role),
-        mode(p.mode, p.reply),
+        mode(p.mode, p.reply, p.memoryWrites),
         tone(p.role, p.tone),
         memory(p.memory),
         facts(p.facts),
@@ -94,19 +96,25 @@ object PromptBuilder {
         append("絕對不做：\n").append(c.forbidden.joinToString("\n") { "- $it" })
     }
 
-    fun mode(m: MessageMode, reply: ReplyKind): String = when {
+    fun mode(m: MessageMode, reply: ReplyKind, memoryWrites: Boolean = true): String {
+        val format = if (memoryWrites) Utterance.FORMAT else Utterance.FORMAT_NO_MEMORY
+        return when {
         reply == ReplyKind.NUDGE ->
             "【模式：提醒】程式已經決定要提醒他，也已經先發了固定的提醒；你只用你的語氣寫一到兩句，講清楚現在要做的那件事。\n" + NudgeLine.FORMAT
         m == MessageMode.DISCUSS ->
             "【模式：討論】他覺得計畫有地方不適合。用平常說話的方式跟他討論：這次只問一個問題，放在 ask，text 裡不要再問；" +
                 "最多四個選項放在 options，用 recommended 標出你推薦第幾個（從 0 算）。討論的結果用提議交出去，他確認之前什麼都沒有改。" +
-                "公司規章不在討論範圍。最多四句。\n" + Utterance.FORMAT
-        else -> "【模式：一般】下指令和期限，一次只盯一件事。最多四句。ask 給 null，options 給空陣列。\n" + Utterance.FORMAT
+                "公司規章不在討論範圍。最多四句。\n" + format
+        else -> "【模式：一般】下指令和期限，一次只盯一件事。最多四句。ask 給 null，options 給空陣列。\n" + format
+        }
     }
 
     fun tone(c: RoleCard, t: Tone): String = "【這一次的語氣：${TONE_ZH.getValue(t)}】" + (c.tones[t] ?: "")
 
     fun memory(m: RenderedMemory): String = "【你記得的事：方括號裡是編號，要改或刪時填在 item_id】\n" + m.text
+
+    /** The data clerk reads only the last [INTAKE_WINDOW] lines before his sentence: enough to resolve 「那個」, and cheap. */
+    const val INTAKE_WINDOW = 4
 
     fun facts(f: CallFacts): String = "【資料：程式算好的，照用，不准自己算】\n" + f.json.toString()
 
@@ -128,7 +136,7 @@ object PromptBuilder {
     fun intakeSystem(): String = Intake.SYSTEM
 
     fun intakeTurns(f: CallFacts, ownerText: String): List<Turn> =
-        merged(f.window.map { (it.who == Who.OWNER) to it.text } + (true to FactsBuilder.clean(ownerText)))
+        merged(f.window.takeLast(INTAKE_WINDOW).map { (it.who == Who.OWNER) to it.text } + (true to FactsBuilder.clean(ownerText)))
 
     private fun merged(lines: List<Pair<Boolean, String>>): List<Turn> {
         val out = mutableListOf<Pair<Boolean, String>>()

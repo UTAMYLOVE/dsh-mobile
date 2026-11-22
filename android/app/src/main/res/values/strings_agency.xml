@@ -78,11 +78,15 @@
     <string name="ag_legacy_done">搬完了</string>
     <string name="ag_legacy_partial">有些舊紀錄讀不出來；讀得到的都搬好了，舊資料都還留著。</string>
     <string name="ag_legacy_nothing">沒有舊資料要搬。</string>
-    <string name="ag_legacy_not_yet">還沒搬好，下次打開會再試一次；舊資料都還在。</string>
+    <string name="ag_legacy_not_yet">還沒搬好；可以按再試一次，下次打開也會再試。舊資料都還在。</string>
     <string name="ag_legacy_counts">搬了這些：</string>
     <string name="ag_legacy_count_row">%1$s %2$d 筆</string>
     <string name="ag_legacy_kept">舊資料夾還留著，等你確認紀錄都對了再處理。</string>
     <string name="ag_legacy_too_large">這些檔案太大搬不進來，還留在舊資料夾，可以先分享出去存起來：</string>
+    <string name="ag_legacy_pending">這些照片和錄音還沒搬進來，原檔還在舊資料夾，之後打開會再試；也可以先分享出去存起來：</string>
+    <string name="ag_legacy_photo_n">照片 %1$d</string>
+    <string name="ag_legacy_audio_n">錄音 %1$d</string>
+    <string name="ag_notice_media">紀錄都搬好了；照片和錄音還沒搬進來，原檔還在舊資料夾，之後會再試。</string>
     <string name="ag_legacy_share">分享</string>
     <string name="ag_legacy_share_failed">分享沒有成功，檔案還在原處。</string>
     <string name="ag_legacy_retrying">正在重新搬…</string>

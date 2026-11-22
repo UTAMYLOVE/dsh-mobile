@@ -199,6 +199,45 @@ class LegacyImporterTest {
         assertEquals(before, snapshot(kept))
     }
 
+    /** T06 review I1: a vault whose key fails takes none of the files, but every record still comes, and a later start seals them. */
+    @Test fun aVaultFailureStillBringsTheRecordsAndALaterStartSealsTheFiles() = runBlocking {
+        seedV2()
+        var locked = true
+        val flaky = MediaVault(mediaDir) { if (locked) throw app.dshmobile.agency.secure.DataLockedException("lost") else key }
+        val legacy = prefs("legacy", "agency-v2-prefs.xml")
+        val r = importer(legacy, media = flaky).run()
+        assertTrue(r.ok)
+        assertEquals(AgencyPrefKeys.MIGRATED_DONE, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        assertEquals(9, store.messages.count())
+        assertEquals(3, store.meals.count())
+        assertEquals(0, store.media.count())
+        assertEquals(baselineFiles, r.note!!.mediaPending)
+        assertEquals(mapOf("photo-1795224600000.jpg" to "PHOTO", "recording-1795225200000.m4a" to "RECORDING"), r.note!!.mediaPendingLinks)
+        assertTrue(r.note!!.missingMedia.isEmpty())
+        val b0 = store.baselines.get(Baseline.JOIN)!!
+        assertNull(b0.photoFront)
+        assertNull(b0.recording)
+        // The originals are kept aside, byte for byte; nothing is in the vault.
+        baselineFiles.forEach { assertArrayEquals(fixture("agency-v2-baseline/$it"), File(kept, "baseline/$it").readBytes()) }
+        assertTrue(mediaDir.listFiles().orEmpty().isEmpty())
+
+        // Still failing: nothing changes, the names stay pending.
+        assertEquals(0, importer(legacy, media = flaky).sealPending())
+        assertEquals(0, store.media.count())
+
+        // The key works again: every file goes in, decrypts to its bytes, the baseline is linked, nothing is pending.
+        locked = false
+        assertEquals(3, importer(legacy, media = flaky).sealPending())
+        for (name in baselineFiles) assertArrayEquals(fixture("agency-v2-baseline/$name"), flaky.get(LegacyMapper.mediaId(name)))
+        val b = store.baselines.get(Baseline.JOIN)!!
+        assertEquals(LegacyMapper.mediaId("photo-1795224600000.jpg"), b.photoFront)
+        assertEquals(LegacyMapper.mediaId("recording-1795225200000.m4a"), b.recording)
+        val row = store.journal.migrations().single { it.id == LegacyImporter.LOG_ID }
+        assertTrue(ImportNote.fromJson(row.note!!).mediaPending.isEmpty())
+        assertEquals(0, importer(legacy, media = flaky).sealPending())
+        baselineFiles.forEach { assertTrue(File(kept, "baseline/$it").isFile) }
+    }
+
     @Test fun agencyRecordsAndTheBaselineFilesArrive() = runBlocking {
         seedV2()
         val r = importer(prefs("legacy", "agency-v2-prefs.xml")).run()

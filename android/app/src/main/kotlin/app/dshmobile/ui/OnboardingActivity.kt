@@ -17,6 +17,14 @@ import app.dshmobile.ui.theme.SakuraTheme
 class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        (application as DshMobileApp).let { a ->
+            if (a.legacyShellRetired) {
+                // Retired since the cutover (T06 review I2): forward to the company, nothing of dsh is built.
+                a.forwardToAgency(this)
+                finish()
+                return
+            }
+        }
         enableEdgeToEdge()
         val app = application as DshMobileApp
         val state = OnboardingState(getSharedPreferences(OnboardingState.PREFS, Context.MODE_PRIVATE))

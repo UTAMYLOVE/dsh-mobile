@@ -31,7 +31,9 @@ import org.robolectric.Shadows.shadowOf
 /** Only the paths that need no running dsh: the rootfs is never installed here. */
 @RunWith(RobolectricTestRunner::class)
 class DshServiceTest {
-    private val app = ApplicationProvider.getApplicationContext<Context>() as DshMobileApp
+    private val app = (ApplicationProvider.getApplicationContext<Context>() as DshMobileApp).also {
+        it.legacyShellRetired = false // the old service itself; since the cutover it stops at once (T09 deletes it)
+    }
 
     private val tmp: File = Files.createTempDirectory("svctest").toFile()
     private val processes = java.util.concurrent.CopyOnWriteArrayList<Process>()

@@ -6,6 +6,9 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import app.agency.core.metering.Provider
+import app.agency.core.model.Message
+import app.agency.core.store.AgencyStore
+import app.agency.core.store.MessageRepo
 import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.data.AgencyDatabase
 import app.dshmobile.agency.media.MediaVault
@@ -43,7 +46,17 @@ class AgencyTestKit(private val dir: File) {
             AgencyDatabase.build(ctx, File(dir, "agency.db").path, FrameworkSQLiteOpenHelperFactory())
         },
         mediaVault = { MediaVault(File(dir, "media")) { if (vaultLocked) throw DataLockedException("lost") else key } },
+        store = { inner -> DropsMessagesWhile(inner) { dropMessages } },
     )
+
+    /** While true, the store says it wrote a message it did not keep: the import's count check fails and rolls back. */
+    @Volatile var dropMessages = false
+
+    private class DropsMessagesWhile(private val inner: AgencyStore, private val on: () -> Boolean) : AgencyStore by inner {
+        override val messages: MessageRepo = object : MessageRepo by inner.messages {
+            override suspend fun insert(message: Message): Boolean = if (on()) true else inner.messages.insert(message)
+        }
+    }
 
     class MemoryKeys(vararg keys: Pair<Provider, String>) : KeyVault {
         private val map = mutableMapOf<String, String>().apply { keys.forEach { (p, k) -> put(p.name, k) } }

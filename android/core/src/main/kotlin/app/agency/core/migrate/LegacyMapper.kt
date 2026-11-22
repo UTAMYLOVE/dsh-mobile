@@ -42,6 +42,11 @@ data class LegacyInput(
     val setAsideSalvaged: Set<String> = emptySet(),
     /** The largest baseline file to bring ([LegacyMapper.mediaCap] of this phone's heap); a larger one is noted, not read. */
     val maxMediaBytes: Long = LegacyMapper.MAX_IMPORT_MEDIA_BYTES,
+    /**
+     * Baseline files the vault could not take on this run (its Keystore key failed): the records come without them, the file
+     * stays in the legacy folder, and a later start seals it ([ImportNote.mediaPending]).
+     */
+    val mediaPending: Set<String> = emptySet(),
 )
 
 /**
@@ -93,6 +98,12 @@ object LegacyMapper {
     /** A vault id for the legacy file [name] (vault ids allow no dots; the same name always gives the same id). */
     fun mediaId(name: String): String = "legacy-" + sha256(name).take(24)
 
+    /** How the baseline file [name] goes into the vault: its id, kind, purpose, type and the time it was handed in. */
+    fun mediaCopy(name: String, lastModified: Long): MediaCopy {
+        val kind = kindOf(name)
+        return MediaCopy(mediaId(name), name, kind, MediaPurpose.BASELINE, mimeOf(name, kind), createdAtOf(name) ?: lastModified)
+    }
+
     fun map(input: LegacyInput, now: Long): ImportPlan {
         val main = input.state ?: LegacyState()
         // His food table is known only when a state file was read whole (or there is none, and the coach would have seeded
@@ -143,14 +154,18 @@ object LegacyMapper {
         val added = if (!tableKnown) emptyList() else newSeeds(now).filter { s -> food.none { it.name == s.name } && (listOf(s.name) + s.aliases).all { FoodTable.lookup(food, it) == null } }
         food += added
 
-        val (tooLarge, files) = input.baselineFiles.sortedBy { it.name }.partition { it.size > input.maxMediaBytes }
+        val (tooLarge, fitting) = input.baselineFiles.sortedBy { it.name }.partition { it.size > input.maxMediaBytes }
+        val (waiting, files) = fitting.partition { it.name in input.mediaPending }
         val present = files.map { it.name }.toSet()
         val skippedLarge = tooLarge.map { it.name }.toSet()
+        val pendingNames = waiting.map { it.name }.toSet()
         val missing = mutableListOf<String>()
+        val pendingLinks = linkedMapOf<String, String>()
         fun linked(name: String?, step: LegacyBaselineStep): String? = when {
             name == null -> null
             name in present -> mediaId(name)
             name in skippedLarge -> null // listed in mediaTooLarge
+            name in pendingNames -> null.also { pendingLinks[name] = step.name } // linked when a later start seals it
             else -> null.also { missing += step.name }
         }
         val baseline = state.baseline?.let { b ->
@@ -161,13 +176,10 @@ object LegacyMapper {
                 skipped = LegacyBaselineStep.entries.filter { it in b.skipped }.map { it.name }, step = b.step?.name,
             )
             // No question open and every step handed in or skipped: 入社建檔 was finished in the 5a94d3c build.
-            if (b.step == null && LegacyBaselineStep.entries.all { it.name in out.skipped || handedIn(out, it) }) out.copy(completedAt = now) else out
+            if (b.step == null) completedIfDone(out, now) else out
         }
         // Every file in the folder is carried, also older hand-ins the baseline no longer points at.
-        val media = files.map { f ->
-            val kind = kindOf(f.name)
-            MediaCopy(mediaId(f.name), f.name, kind, MediaPurpose.BASELINE, mimeOf(f.name, kind), createdAtOf(f.name) ?: f.lastModified)
-        }
+        val media = files.map { f -> mediaCopy(f.name, f.lastModified) }
 
         val messages = firstById(ImportKind.MESSAGES, input.messages) { it.id }.map { m ->
             val company = m.who == LegacySpeaker.COACH
@@ -209,6 +221,8 @@ object LegacyMapper {
             },
             missingMedia = missing,
             mediaTooLarge = tooLarge.map { it.name },
+            mediaPending = waiting.map { it.name },
+            mediaPendingLinks = pendingLinks,
             mealsWithEvidence = state.meals.count { it.evidence != null },
             correctedFood = corrected,
             addedSeeds = added.map { it.name },
@@ -242,6 +256,13 @@ object LegacyMapper {
             },
         )
     }
+
+    /**
+     * [b] stamped [now] as finished when every step is handed in or skipped (no question was open in the 5a94d3c build); also
+     * used when a pending file is sealed later and completes it.
+     */
+    fun completedIfDone(b: Baseline, now: Long): Baseline =
+        if (b.completedAt == null && LegacyBaselineStep.entries.all { it.name in b.skipped || handedIn(b, it) }) b.copy(completedAt = now) else b
 
     private fun handedIn(b: Baseline, step: LegacyBaselineStep): Boolean = when (step) {
         LegacyBaselineStep.BODY -> b.heightCm != null && b.weightKg != null

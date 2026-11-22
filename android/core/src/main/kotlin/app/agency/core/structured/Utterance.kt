@@ -63,6 +63,16 @@ data class Utterance(
 memory 只放他這一輪親口說的、以後用得到的事，最多兩件；沒有就給空陣列。quote 照抄他的原話。update 和 delete 的 item_id 照抄記得的事前面方括號裡的編號（例如記3）。
 """.trimIndent()
 
+        /**
+         * [FORMAT] while nothing applies memory events (until T12): memory is always empty, so the model is never invited to
+         * remember something and then say it did.
+         */
+        val FORMAT_NO_MEMORY = """
+只輸出一個 json 物件，不要其他文字：
+{"text":"要說的話（最多 $TEXT_CHARS 字，最多四句）","ask":null,"options":[],"recommended":null,"memory":[]}
+memory 永遠給空陣列。不要說你記下來了或會記住。
+""".trimIndent()
+
         val SPEC: StructuredSpec<Utterance> = object : StructuredSpec<Utterance> {
             override val schema = SCHEMA
             override val defaults = DEFAULTS

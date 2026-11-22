@@ -63,6 +63,7 @@ class MainActivityCoachTest {
     }
 
     private fun launch(): MainActivity {
+        app.legacyShellRetired = false // the old shell itself (it forwards to the company since the cutover; T08 deletes it)
         val state = OnboardingState(app.getSharedPreferences(OnboardingState.PREFS, Context.MODE_PRIVATE))
         OnboardingState.Step.entries.forEach { state.markDone(it) }
         File(app.filesDir, "rootfs/${RootfsInstaller.VERSION_MARKER}").apply { parentFile!!.mkdirs() }.writeText(BuildConfig.ROOTFS_VERSION)

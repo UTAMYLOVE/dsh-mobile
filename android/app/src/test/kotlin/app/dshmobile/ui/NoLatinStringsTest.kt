@@ -7,8 +7,9 @@ import org.junit.Test
 /**
  * He reads only Traditional Chinese (arch §3): the app name, every string of the company's screens (`strings_agency.xml`) and
  * every string literal in their code (`ui/agency`, `ui/settings`, `ui/kit`, `ui/warroom`, `agency/notify`) has no Latin
- * letter, except his idol names, song titles and the level letters C, B, A. A literal with no Chinese in it is a key, a tag
- * or a format (lowercase only, no spaces), never something he reads. The old dsh screens are deleted in T08, not scanned here.
+ * letter, except his idol names, song titles and the level letters C, B, A. A literal with Latin and no Chinese passes only
+ * where its line shows it is never on screen ([HIDDEN]: a constant, a test tag, a key, a file or a format); anywhere else, such
+ * as `Text("ok")`, it fails. The old dsh screens are deleted in T08, not scanned here.
  */
 class NoLatinStringsTest {
     private val whitelist = listOf("BABYMONSTER", "DESERVE", "On My Way")
@@ -31,21 +32,36 @@ class NoLatinStringsTest {
         assertTrue("strings with Latin letters: $bad", bad.isEmpty())
     }
 
+    /** A literal with Latin on a line that matches is not shown to him. */
+    private val hidden = Regex(
+        "const val|testTag\\(|key = |startsWith\\(|String\\.format\\(|File\\(|require\\(|getUriForFile|getMimeTypeFromExtension|" +
+            "getSharedPreferences|getString\\(|putString\\(|setType\\(",
+    )
+
+    private fun badLiterals(line: String): List<String> {
+        val t = line.trimStart()
+        if (t.startsWith("//") || t.startsWith("*") || t.startsWith("import ")) return emptyList()
+        return literal.findAll(line).map { it.groupValues[1] }.map { Regex("\\$\\{[^}]*\\}|\\$[A-Za-z_]+").replace(it, "") }
+            .filter { s -> if (cjk.containsMatchIn(s)) visibleLatin(s) else latin.containsMatchIn(s) && !hidden.containsMatchIn(line) }
+            .toList()
+    }
+
+    private val literal = Regex("\"((?:[^\"\\\\\\n]|\\\\.)*)\"")
+
     @Test fun theCompanysCodeShowsNoLatin() {
         val roots = listOf("ui/agency", "ui/settings", "ui/kit", "ui/warroom", "agency/notify")
             .map { File("src/main/kotlin/app/dshmobile/$it") }.filter { it.isDirectory }
         val files = roots.flatMap { it.walkTopDown().filter { f -> f.extension == "kt" }.toList() }
         assertTrue(files.size >= 10)
-        val literal = Regex("\"((?:[^\"\\\\\\n]|\\\\.)*)\"")
-        val bad = files.flatMap { f ->
-            f.readLines().withIndex().filterNot { (_, l) -> l.trimStart().startsWith("//") || l.trimStart().startsWith("*") || l.trimStart().startsWith("import ") }
-                .flatMap { (i, l) ->
-                    literal.findAll(l).map { it.groupValues[1] }.map { Regex("\\$\\{[^}]*\\}|\\$[A-Za-z_]+").replace(it, "") }
-                        .filter { s -> if (cjk.containsMatchIn(s)) visibleLatin(s) else !Regex("^[a-z0-9_.:/%# -]*$").matches(s) }
-                        .map { "${f.name}:${i + 1}: $it" }
-                }
-        }
+        val bad = files.flatMap { f -> f.readLines().withIndex().flatMap { (i, l) -> badLiterals(l).map { "${f.name}:${i + 1}: $it" } } }
         assertTrue("literals he could read with Latin letters: $bad", bad.isEmpty())
+    }
+
+    @Test fun aLatinLiteralOnScreenIsCaughtButATagOrAKeyIsNot() {
+        assertTrue(badLiterals("        Text(\"ok\", color = Sakura.Text)").isNotEmpty())
+        assertTrue(badLiterals("        item(key = \"older\") {").isEmpty())
+        assertTrue(badLiterals("    const val HOME = \"ag-home\"").isEmpty())
+        assertTrue(badLiterals("        .testTag(\"ag-x\")").isEmpty())
     }
 
     @Test fun theScanCatchesLatinButNotTheWhitelist() {

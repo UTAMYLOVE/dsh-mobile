@@ -95,6 +95,8 @@ class MainActivityTest {
     }
 
     @Before fun setUp() {
+        // These tests drive the old shell itself; since the cutover it forwards to the company unless told otherwise (T08 deletes it).
+        app.legacyShellRetired = false
         // FileProvider caches its path strategy statically; every Robolectric test has a fresh cache dir.
         FileProvider::class.java.getDeclaredField("sCache").apply { isAccessible = true }
             .get(null).let { @Suppress("UNCHECKED_CAST") (it as MutableMap<String, Any>).clear() }

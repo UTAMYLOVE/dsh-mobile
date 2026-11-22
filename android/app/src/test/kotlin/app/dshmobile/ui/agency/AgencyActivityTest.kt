@@ -17,8 +17,15 @@ import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.StartState
+import app.dshmobile.agency.TestOverrides
 import app.dshmobile.agency.secure.DataLockedException
 import app.dshmobile.agency.secure.TransientDataException
+import app.dshmobile.agency.data.AgencyDatabase
+import app.dshmobile.agency.data.RoomAgencyStore
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import app.agency.core.model.Profile
+import app.agency.core.time.AgencyClock
+import app.agency.core.metering.MutableClock
 import app.dshmobile.ui.settings.ModelKeyTags
 import app.dshmobile.ui.settings.SettingsPage
 import app.dshmobile.ui.settings.SettingsTags
@@ -122,9 +129,6 @@ class AgencyActivityTest {
         rule.waitForTag(AgencyTags.LOCKED)
         rule.onNodeWithText("資料鎖打不開").assertIsDisplayed()
         assertEquals("invented", file.readText())
-        // Opening again does not help: start() does nothing once locked.
-        app.agency.start()
-        rule.waitForIdle()
         assertEquals(1, kit.opens)
     }
 
@@ -145,4 +149,64 @@ class AgencyActivityTest {
 
     private fun androidx.compose.ui.test.junit4.ComposeTestRule.onAllNodesWithTextCount(text: String) =
         onAllNodes(androidx.compose.ui.test.hasText(text, substring = true)).fetchSemanticsNodes().size
+
+    /** Review M5: the lock screen offers 再試一次; opening again deletes nothing and may work. */
+    @Test fun theLockCanBeRetried() {
+        kit.failures += DataLockedException("busy keystore")
+        launch()
+        rule.waitForTag(AgencyTags.LOCKED)
+        rule.onNodeWithTag(AgencyTags.RETRY).performClick()
+        rule.waitForTag(AgencyTags.HOME)
+        assertEquals(2, kit.opens)
+    }
+
+    /** Review M12: a throw outside the start's own catches ends on 再試一次, not a crash. */
+    @Test fun anUnexpectedThrowAtStartIsATryAgainScreen() {
+        AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys())
+        AgencyApp.testOverrides = kit.overrides().let { o ->
+            TestOverrides(o.modelBase, o.openDatabase, { error("invented") }, o.store)
+        }
+        scenario = ActivityScenario.launch(AgencyActivity::class.java)
+        rule.waitForTag(AgencyTags.UNAVAILABLE)
+    }
+
+    /** Review M7: a plaintext copy he shared from 舊資料 is gone at the next start. */
+    @Test fun sharedCopiesAreClearedAtStart() {
+        val copy = File(app.cacheDir, "export/photo-1.jpg").apply { parentFile!!.mkdirs(); writeText("invented") }
+        launch()
+        rule.waitForTag(AgencyTags.HOME)
+        assertFalse(copy.exists())
+    }
+
+    /** Controller ruling on review M3: the clerk runs on the cheapest model of the provider he chose, the reply on his model. */
+    @Test fun theClerkUsesTheCheapestModelOfHisProvider() {
+        val bodies = mutableListOf<String>()
+        val s = AgencyTestKit.fakeDeepSeek("現在去喝水。", bodies = bodies).also { server = it }
+        launch(AgencyTestKit.MemoryKeys(Provider.DEEPSEEK to "sk-test-0123456789abcdef"), s)
+        rule.waitForTag(AgencyTags.HOME)
+        app.agency.settings.deepseekModel = "deepseek-v4-pro"
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitForText("現在去喝水。")
+        val models = bodies.map { org.json.JSONObject(it).getString("model") }
+        assertEquals(listOf("deepseek-flash", "deepseek-v4-pro"), models)
+        assertTrue(bodies[0].contains("資料整理員"))
+    }
+
+    /** Review M11: the compatible service's daily cap counts in his coach day, from his own day start. */
+    @Test fun theCompatQuotaDayFollowsHisDayStart() {
+        runBlocking {
+            AgencyDatabase.build(app, File(tmp, "agency.db").path, FrameworkSQLiteOpenHelperFactory()).let { db ->
+                RoomAgencyStore(db).profile.put(Profile(dayStartHour = 0))
+                db.close()
+            }
+        }
+        // 03:00 in Taipei on 2026-11-24: with a 05:00 day start it would still be the 23rd.
+        val clock = AgencyClock.of(MutableClock(java.time.Instant.parse("2026-11-23T19:00:00Z")))
+        val agency = AgencyApp(app, AgencyTestKit.MemoryKeys(), app.costMeter, app.errorLog, kit.overrides(), clock)
+        agency.start()
+        rule.waitUntil(10_000) { agency.start.value is StartState.Ready }
+        assertEquals("2026-11-24", agency.quotaDay())
+        runBlocking { agency.stopForTest() }
+    }
 }

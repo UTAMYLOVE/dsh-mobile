@@ -66,7 +66,7 @@ class PriceTable {
         const val CONSERVATIVE_DEEPSEEK = "deepseek-v4-pro"
         const val CONSERVATIVE_ANTHROPIC = "claude-fable-5-1"
 
-        val dateSuffix = Regex("-\\d{8}$")
+        val dateSuffix = Regex("-[0-9]{8}$")
 
         val legacyDeepseek = mapOf(
             "deepseek-v4-flash" to "deepseek-flash",

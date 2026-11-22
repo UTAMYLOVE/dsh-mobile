@@ -54,7 +54,9 @@ class Evidence(
     private val lefts: List<Double>
 
     init {
-        val data = (texts + names).map { t ->
+        // Numbers, days and times come from the facts, the tool results and his words only: a digit in one of his food names
+        // (「雞胸肉 100g」) is not evidence for every figure of every turn (T06 review M2).
+        val data = texts.map { t ->
             var s = ISO_DAY.replace(t) { m -> days += OutputGuard.dayToken(m.groupValues[2], m.groupValues[3]); " " }
             s = OutputGuard.takeDays(s, days)
             s = OutputGuard.takeTimes(s, times)
@@ -77,11 +79,12 @@ class Evidence(
 
     companion object {
         val NONE = Evidence(emptyList())
-        private val ISO_DAY = Regex("(\\d{4})-(\\d{2})-(\\d{2})")
-        private val LEFT = Regex("\"(?:left|floor_left)\"\\s*:\\s*(\\d+(?:\\.\\d+)?)")
+        // ASCII classes spelt out: Android's ICU engine reads \d and \w as Unicode (fullwidth digits, Han), the JVM as ASCII.
+        private val ISO_DAY = Regex("([0-9]{4})-([0-9]{2})-([0-9]{2})")
+        private val LEFT = Regex("\"(?:left|floor_left)\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)")
 
         /** Ids and keys (a UUID, any token mixing letters and digits) are not numbers. */
-        private val ID_LIKE = Regex("[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}|(?=[\\w-]*[A-Za-z])(?=[\\w-]*\\d)[\\w-]+")
+        private val ID_LIKE = Regex("[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}|(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]+")
     }
 }
 
@@ -195,10 +198,10 @@ object OutputGuard {
 
     /** A dish head: the dish in front of it is fine unless it carries a proper-name mark. */
     private val DISH_HEAD = Regex("套餐|定食|便當|小吃|飯|麵|丼")
-    private val PROPER = Regex("^(阿|老)\\p{IsHan}|^小(?![碗份杯盒包塊條火])\\p{IsHan}|\\p{IsHan}{1,3}記|^\\p{IsHan}{1,2}家(?![常人裡])")
+    private val PROPER = Regex("^(阿|老)\\p{script=Han}|^小(?![碗份杯盒包塊條火])\\p{script=Han}|\\p{script=Han}{1,3}記|^\\p{script=Han}{1,2}家(?![常人裡])")
 
     /** 「阿華滷味」「老王雞排」: a name in front of a snack-shop word, with no suffix at all. */
-    private val NAMED_SNACK = Regex("(阿|老)\\p{IsHan}(滷味|雞排|豆花|水餃|鍋貼|鹽水雞|蔥油餅)|小(?![碗份杯盒包塊條火])\\p{IsHan}(滷味|雞排|豆花|水餃|鍋貼|鹽水雞|蔥油餅)")
+    private val NAMED_SNACK = Regex("(阿|老)\\p{script=Han}(滷味|雞排|豆花|水餃|鍋貼|鹽水雞|蔥油餅)|小(?![碗份杯盒包塊條火])\\p{script=Han}(滷味|雞排|豆花|水餃|鍋貼|鹽水雞|蔥油餅)")
 
     /** The backward scan stops at these: the candidate is the noun phrase only. */
     private const val STOP = "的了去到在買吃點叫找跟和或是有要想先再就也還那這天己煮帶選改"
@@ -311,7 +314,7 @@ object OutputGuard {
         Ban("叫他用運動補回來", R3),
         Ban("給體重速度或唱歌高度壓力", phrases("瘦得?太慢", "減得?太慢", "掉得?太慢", "怎麼還沒瘦", "還這麼胖", "還是這麼胖", "唱不上去", "高音.{0,4}(不行|太爛|太差)")),
         Ban("下醫療診斷", Regex("(我|幫你|替你)(來|先)?(幫你)?診斷|診斷(結果)?(是|為)|你得了|你罹患"), negatable = true),
-        Ban("下醫療診斷", Regex("((應該|可能|大概|八成|一定|就)是|像是?)\\p{IsHan}{0,6}($CONDITION)")),
+        Ban("下醫療診斷", Regex("((應該|可能|大概|八成|一定|就)是|像是?)\\p{script=Han}{0,6}($CONDITION)")),
     )
 
     /** Comfort words: banned in COLD and SWEET; in GENTLE only when the sentence excuses a slip. */
@@ -408,7 +411,10 @@ object OutputGuard {
 
     private fun numberIssues(sentence: String, ev: Evidence): List<String> {
         val bad = mutableListOf<String>()
-        var s = TIME.replace(sentence) { m -> if (!ev.hasTime(timeToken(m.groupValues[1], m.groupValues[2]))) bad += m.value; "　" }
+        // A name of this turn's evidence is a name, not a figure (「炸臭豆腐一盤」「50嵐」).
+        var masked = sentence
+        ev.names.forEach { masked = masked.replace(it, "　") }
+        var s = TIME.replace(masked) { m -> if (!ev.hasTime(timeToken(m.groupValues[1], m.groupValues[2]))) bad += m.value; "　" }
         s = CLOCK.replace(s) { m ->
             val tokens = clockTokens(m, s.getOrNull(m.range.first - 1)) ?: return@replace m.value
             if (tokens.none { ev.hasTime(it) }) bad += m.value.trim()

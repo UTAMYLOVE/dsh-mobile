@@ -249,3 +249,5 @@ dish	CLEAN	COLD		false	點一份蒜泥白肉飯。	held-out batch 2
 dish	CLEAN	COLD		false	去麵攤吃乾麵加燙青菜。	held-out batch 2
 shop	FLAG	COLD		false	去陳記便當。	held-out batch 2
 attach	FLAG	COLD		false	你都不跟我說話了。	held-out batch 2
+num	FLAG	COLD		false	蛋白質再補 100 克就夠了。	T06 review M2: a digit in a food name is not evidence
+shop	CLEAN	COLD		false	嘴饞的話，7分甜的無糖綠茶可以。	T06 review M2: a name holding digits is masked before numbers

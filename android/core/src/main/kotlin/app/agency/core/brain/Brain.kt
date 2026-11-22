@@ -17,6 +17,7 @@ import app.agency.core.model.WordedBy
 import app.agency.core.persona.PromptBuilder
 import app.agency.core.persona.PromptInput
 import app.agency.core.persona.Roles
+import app.agency.core.rules.FoodTable
 import app.agency.core.store.AgencyStore
 import app.agency.core.structured.Intake
 import app.agency.core.structured.Structured
@@ -46,11 +47,13 @@ class Brain(
     private val llm: LlmClient,
     private val provider: () -> ProviderChoice,
     private val clock: AgencyClock,
+    /** The data clerk's client: the cheapest model of the same provider (the app wires it; never another provider). */
+    private val intakeLlm: LlmClient = llm,
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
     private val mutex = Mutex()
     private val snapshot = SnapshotReader(store, clock)
-    private val structured = StructuredCaller(llm, provider)
+    private val structured = StructuredCaller(intakeLlm, provider)
     private val loop = ChatLoop(llm, provider)
     private val tools = ToolRegistry(readTools(store, snapshot))
 
@@ -111,9 +114,12 @@ class Brain(
                 memory = MemoryBlocks.render(store.memory.items(), today, dayOf), facts = facts,
                 companyName = profile.companyName ?: PromptInput.DEFAULT_COMPANY,
                 latinNames = (OutputGuard.LATIN_WHITELIST + latin).distinct(),
+                // Memory events are applied from T12 on (with 她記得的事 to see and undo them); until then none is asked for.
+                memoryWrites = false,
             ),
         )
-        val names = store.food.all().flatMap { listOf(it.name) + it.aliases }
+        // The seed table too: on a fresh install the store has no food yet, and 給力盒子 or 全家 must not read as unknown chains.
+        val names = (FoodTable.seed(0) + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct()
         val factsText = facts.json.toString()
         val round = ChatRound(system, PromptBuilder.turns(facts, owner), RoleKey.MANAGER, MessageMode.NORMAL, tone) { outputs ->
             Evidence(listOf(factsText) + outputs, names, latin, ownerText = owner.text, breachToday = input.today.breachToday)
@@ -144,6 +150,7 @@ class Brain(
             Fail.NO_KEY, Fail.NO_SETUP -> "還沒設定好模型和金鑰，請到設定的模型與金鑰。"
             Fail.KEY_REJECTED -> KEY_REJECTED
             Fail.CAP -> "今天的花費到上限了，要調整請到設定的花費上限。"
+            Fail.BAD_RESPONSE, Fail.REFUSED -> "模型這次沒有好好回答，再說一次試試。"
             else -> "現在連不上模型，等一下再試。"
         }
 

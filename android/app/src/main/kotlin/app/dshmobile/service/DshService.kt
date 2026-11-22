@@ -50,8 +50,15 @@ class DshService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /** Retired since the cutover (T06 review I2): a start from an old notification stops at once, nothing of dsh is built. */
+    private val retired by lazy { app.legacyShellRetired }
+
     override fun onCreate() {
         super.onCreate()
+        if (retired) {
+            stopSelf()
+            return
+        }
         exitSubscription = app.controller.onExit { code ->
             app.errorLog.append("service", "dsh exited with code $code")
             handleCrash()
@@ -65,6 +72,10 @@ class DshService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (retired) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (intent?.getStringExtra(Notifier.EXTRA_ACTION) == Notifier.ACTION_STOP_WORK) {
             // The notification's 「停止」: not a (re)start. Without a tracker there is nothing to stop and nothing running here.
             val t = tracker
@@ -97,6 +108,11 @@ class DshService : Service() {
     }
 
     override fun onDestroy() {
+        if (retired) {
+            scope.cancel()
+            super.onDestroy()
+            return
+        }
         exitSubscription?.close()
         detachTracker()
         scope.cancel()

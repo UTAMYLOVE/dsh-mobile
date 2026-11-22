@@ -16,6 +16,12 @@ import app.agency.core.migrate.LegacyPrefs
 import app.agency.core.model.Who
 import app.agency.core.model.WordedBy
 import app.dshmobile.agency.StartState
+import app.dshmobile.agency.media.MediaVault
+import app.agency.core.migrate.ImportNote
+import app.agency.core.migrate.LegacyMapper
+import app.agency.core.model.Baseline
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 import app.dshmobile.agency.data.AgencyDatabase
 import app.dshmobile.agency.migrate.LegacyImporter
 import app.dshmobile.ui.agency.AgencyActivity
@@ -68,15 +74,27 @@ class AgencyE2eTest {
         val coach = File(context.filesDir, LegacyImporter.LEGACY_DIR).apply { mkdirs() }
         File(coach, "state.json").writeBytes(asset("v083-state.json"))
         File(coach, "messages.jsonl").writeBytes(asset("v083-messages.jsonl"))
+        seedPrefs("v083-prefs.xml")
+    }
+
+    /** `dshm_coach` written through the prefs API from a saved prefs file (the file itself may be cached in this process). */
+    private fun seedPrefs(xml: String) {
         val edit = prefs(LegacyPrefs.NAME).edit().clear()
-        PREF.findAll(asset("v083-prefs.xml").decodeToString()).forEach { m ->
+        PREF.findAll(asset(xml).decodeToString()).forEach { m ->
             val (type, name, value, text) = m.destructured
             if (type == "int") edit.putInt(name, value.toInt()) else edit.putString(name, text)
         }
         assertTrue(edit.commit())
     }
 
+    /** The start states seen from before the company opens (review M13: an absence is checked from the start, not after). */
+    private val states = java.util.Collections.synchronizedList(mutableListOf<StartState>())
+    private var watch: kotlinx.coroutines.Job? = null
+
     private fun open() {
+        watch = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            app.agency.start.collect { states += it }
+        }
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
         rule.waitUntil(60_000) { rule.onAllNodesWithTag(AgencyTags.HOME).fetchSemanticsNodes().isNotEmpty() }
     }
@@ -86,6 +104,7 @@ class AgencyE2eTest {
     @Before fun setUp() = fresh()
 
     @After fun tearDown() {
+        watch?.cancel()
         scenario?.close()
         fresh()
     }
@@ -93,7 +112,7 @@ class AgencyE2eTest {
     @Test fun e01_freshInstallOpensTheCompany() {
         open()
         rule.onNodeWithTag(AgencyTags.TRAINEE).assertExists()
-        assertTrue(rule.onAllNodesWithTag(AgencyTags.IMPORTING).fetchSemanticsNodes().isEmpty())
+        assertTrue(states.toString(), states.none { it == StartState.Importing })
         assertEquals(AgencyPrefKeys.MIGRATED_DONE, prefs(AgencyPrefKeys.NAME).getInt(AgencyPrefKeys.MIGRATED, 0))
         runBlocking { assertEquals(0, ready().store.messages.count()) }
         assertTrue(fake.seen.isEmpty())
@@ -147,13 +166,73 @@ class AgencyE2eTest {
         assertTrue(fake.seen.all { it.auth == "Bearer $FAKE_KEY" && !it.body.contains(FAKE_KEY) })
         assertTrue(fake.seen.none { it.body.contains("/data/") || it.body.contains("http") && it.body.contains(context.packageName) })
         assertTrue(fake.seen[2].body.contains("\"role\":\"tool\""))
+        // Arch §3's e2e note, for every request: at most 10 conversation messages, no picture, no path, no content address.
+        fake.seen.forEach { s ->
+            val msgs = JSONObject(s.body).getJSONArray("messages")
+            val talk = (0 until msgs.length()).map { msgs.getJSONObject(it) }
+                .count { it.optString("role") in setOf("user", "assistant") && !it.has("tool_calls") }
+            assertTrue("messages: $talk", talk <= 10)
+            listOf("image", "/data/", "content://").forEach { bad -> assertFalse(bad, s.body.contains(bad)) }
+        }
     }
+
+    @Test fun e04_upgradeFromTheAgencyBuildSealsTheBaselineFiles() {
+        val coach = File(context.filesDir, LegacyImporter.LEGACY_DIR).apply { mkdirs() }
+        File(coach, "state.json").writeBytes(asset("agency-v2-state.json"))
+        File(coach, "messages.jsonl").writeBytes(asset("agency-v2-messages.jsonl"))
+        File(coach, "baseline").mkdirs()
+        BASELINE.forEach { File(coach, "baseline/$it").writeBytes(asset("agency-v2-baseline/$it")) }
+        seedPrefs("agency-v2-prefs.xml")
+        open()
+        val vault = MediaVault.forApp(context)
+        runBlocking {
+            val store = ready().store
+            assertEquals(9, store.messages.count())
+            assertEquals(3, store.media.count())
+            BASELINE.forEach { name ->
+                val id = LegacyMapper.mediaId(name)
+                assertEquals(name, sha(asset("agency-v2-baseline/$name")), store.media.get(id)!!.sha256)
+                assertEquals(name, sha(asset("agency-v2-baseline/$name")), sha(vault.get(id)))
+            }
+            val b = store.baselines.get(Baseline.JOIN)!!
+            assertEquals(LegacyMapper.mediaId("photo-1795224600000.jpg"), b.photoFront)
+            assertEquals(LegacyMapper.mediaId("recording-1795225200000.m4a"), b.recording)
+            assertTrue(ImportNote.fromJson(store.journal.migrations().single { it.id == LegacyImporter.LOG_ID }.note!!).mediaPending.isEmpty())
+        }
+        // Sealed on disk: no JPEG start, no MP4 box, nothing equal to a fixture.
+        val sealed = MediaVault.mediaDir(context).listFiles { f -> f.name.endsWith(".bin") }!!
+        assertEquals(3, sealed.size)
+        sealed.forEach { f ->
+            val bytes = f.readBytes()
+            assertFalse(f.name, contains(bytes, byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())))
+            assertFalse(f.name, contains(bytes, "ftyp".toByteArray()))
+        }
+        val kept = context.filesDir.listFiles { f -> f.name.startsWith("coach.migrated-") }!!.single()
+        BASELINE.forEach { assertTrue(it, asset("agency-v2-baseline/$it").contentEquals(File(kept, "baseline/$it").readBytes())) }
+    }
+
+    /** Review M13: with no network the reply is the template and says why, and his message is kept. */
+    @Test fun e05_offlineStillKeepsHisMessage() {
+        app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
+        fake.online = false
+        open()
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitUntil(60_000) { rule.onAllNodes(hasText("現在連不上模型", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        val stored = runBlocking { ready().store.messages.recent(5) }
+        assertEquals(listOf(Who.OWNER, Who.COMPANY), stored.map { it.who })
+        assertEquals("姐姐在嗎", stored[0].text)
+        assertEquals(WordedBy.TEMPLATE, stored[1].wordedBy)
+    }
+
+    private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 
     private fun contains(hay: ByteArray, needle: ByteArray): Boolean =
         (0..hay.size - needle.size).any { i -> needle.indices.all { hay[i + it] == needle[it] } }
 
     private companion object {
         const val FAKE_KEY = "sk-e2e-fake-key-0123456789"
+        val BASELINE = listOf("photo-1795224000000.jpg", "photo-1795224600000.jpg", "recording-1795225200000.m4a")
         val PREF = Regex("<(int|string) name=\"([^\"]+)\"(?: value=\"([^\"]*)\" />|>([^<]*)</string>)")
     }
 }

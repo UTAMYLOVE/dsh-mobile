@@ -65,7 +65,10 @@ fun AgencyRoot(agency: AgencyApp) {
         when (val s = start) {
             StartState.Opening -> Plate(AgencyTags.OPENING, stringResource(R.string.ag_opening), null, busy = true)
             StartState.Importing -> Plate(AgencyTags.IMPORTING, stringResource(R.string.ag_importing), stringResource(R.string.ag_importing_hint), busy = true)
-            StartState.Locked -> Plate(AgencyTags.LOCKED, stringResource(R.string.ag_locked), stringResource(R.string.ag_locked_hint))
+            // 再試一次 here too: opening deletes nothing, and a Keystore that was only busy after boot may answer now.
+            StartState.Locked -> Plate(AgencyTags.LOCKED, stringResource(R.string.ag_locked), stringResource(R.string.ag_locked_hint)) {
+                PinkButton(stringResource(R.string.ag_try_again), onClick = agency::start, modifier = Modifier.testTag(AgencyTags.RETRY))
+            }
             StartState.Unavailable -> Plate(AgencyTags.UNAVAILABLE, stringResource(R.string.ag_unavailable), stringResource(R.string.ag_unavailable_hint)) {
                 PinkButton(stringResource(R.string.ag_try_again), onClick = agency::start, modifier = Modifier.testTag(AgencyTags.RETRY))
             }

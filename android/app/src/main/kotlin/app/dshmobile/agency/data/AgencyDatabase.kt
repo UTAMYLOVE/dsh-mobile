@@ -103,7 +103,7 @@ abstract class AgencyDatabase : RoomDatabase() {
          *   does not open with it or is damaged. Trying again does not help (「資料鎖打不開」).
          * - [TransientDataException]: the secrets file or the Keystore could not be read or written, or an existing file could
          *   not be opened for a passing reason (disk full, an I/O error, busy, cannot open). Offer to try again.
-         * - For a new file, the raw [SQLiteException] of a failed create.
+         * - For a new file that cannot be created (disk full, I/O), [TransientDataException] too (T06 review M5).
          * - Not mapped, so the caller must catch them too and must not delete anything: Room's [IllegalStateException] (the
          *   schema's identity hash differs, or a migration is missing after a downgrade), a [RuntimeException] the Keystore
          *   throws that is not one of the above, and an [UnsatisfiedLinkError] when SQLCipher's library cannot load.
@@ -129,11 +129,12 @@ abstract class AgencyDatabase : RoomDatabase() {
                 throw DataLockedException("the database key does not open the file", e)
             } catch (e: SQLiteDatabaseCorruptException) {
                 db.closeQuietly()
-                if (!existed) throw e
+                // A file being created cannot be damaged yet: a passing failure (T06 review M5), never the lock.
+                if (!existed) throw TransientDataException("the database file could not be created", e)
                 throw DataLockedException("the database file is damaged", e)
             } catch (e: SQLiteException) {
                 db.closeQuietly()
-                if (!existed) throw e
+                if (!existed) throw TransientDataException("the database file could not be created", e)
                 throw TransientDataException("the database file cannot be opened now", e)
             }
             return db

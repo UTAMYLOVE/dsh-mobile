@@ -12,6 +12,9 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import app.agency.core.migrate.AgencyPrefKeys
 import app.agency.core.migrate.ImportKind
+import app.agency.core.migrate.ImportNote
+import app.agency.core.migrate.LegacyMapper
+import app.agency.core.model.Baseline
 import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
@@ -112,6 +115,10 @@ class FirstStartImportTest {
         rule.onNodeWithText("有些舊紀錄讀不出來；讀得到的都搬好了，舊資料都還留著。").assertIsDisplayed()
         assertEquals(AgencyPrefKeys.MIGRATED_PARTIAL, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
         assertArrayEquals(cut, File(app.filesDir, "coach/state.json").readBytes())
+        // The process dies before he taps 知道了 (review M4): the next start still says it once.
+        restart()
+        rule.waitForTag(AgencyTags.HOME)
+        rule.waitForTag(AgencyTags.NOTICE)
         rule.onNodeWithTag(AgencyTags.NOTICE_OK).performClick()
         rule.waitUntil { rule.onAllNodesWithTag(AgencyTags.NOTICE).fetchSemanticsNodes().isEmpty() }
 
@@ -135,23 +142,68 @@ class FirstStartImportTest {
         }
     }
 
-    @Test fun aFailedImportNeverBlocksDeletesNothingAndTriesAgainNextStart() {
+    /** T06 review I1: a vault that fails takes no file, but every record comes; a later start seals the files. */
+    @Test fun aVaultFailureStillBringsTheRecords() {
+        AgencyTestKit.seedV2(app)
+        val names = listOf("photo-1795224000000.jpg", "photo-1795224600000.jpg", "recording-1795225200000.m4a")
+        kit.vaultLocked = true
+        launch()
+        rule.waitForTag(AgencyTags.HOME, 20_000)
+        rule.waitForText("紀錄都搬好了；照片和錄音還沒搬進來，原檔還在舊資料夾，之後會再試。")
+        assertEquals(AgencyPrefKeys.MIGRATED_DONE, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        val kept = app.filesDir.listFiles { f -> f.name.startsWith("coach.migrated-") }!!.single()
+        names.forEach { assertArrayEquals(AgencyTestKit.fixture("agency-v2-baseline/$it"), File(kept, "baseline/$it").readBytes()) }
+        runBlocking {
+            assertEquals(9, ready().store.messages.count())
+            assertEquals(0, ready().store.media.count())
+            val note = ImportNote.fromJson(ready().store.journal.migrations().single { it.id == LegacyImporter.LOG_ID }.note!!)
+            assertEquals(names, note.mediaPending)
+        }
+        // 舊資料 lists them by kind and order (his file names are Latin), each with 分享.
+        rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performClick()
+        rule.waitForText("照片 2")
+        rule.onNodeWithText("錄音 1").assertExists()
+        rule.onNodeWithTag(LegacyTags.SHARE + names[2]).assertExists()
+        assertTrue(rule.onAllNodesWithText("photo-", substring = true).fetchSemanticsNodes().isEmpty())
+
+        kit.vaultLocked = false
+        restart()
+        rule.waitForTag(AgencyTags.HOME, 20_000)
+        runBlocking {
+            assertEquals(3, ready().store.media.count())
+            val b = ready().store.baselines.get(Baseline.JOIN)!!
+            assertEquals(LegacyMapper.mediaId(names[1]), b.photoFront)
+            assertEquals(LegacyMapper.mediaId(names[2]), b.recording)
+            val note = ImportNote.fromJson(ready().store.journal.migrations().single { it.id == LegacyImporter.LOG_ID }.note!!)
+            assertTrue(note.mediaPending.isEmpty())
+        }
+        rule.waitUntil { rule.onAllNodesWithTag(AgencyTags.NOTICE).fetchSemanticsNodes().isEmpty() }
+    }
+
+    /** A store that does not keep what it was given still rolls everything back; 再試一次 retries now (review M6). */
+    @Test fun aMismatchRollsBackDeletesNothingAndCanBeRetriedAtOnce() {
         AgencyTestKit.seedV2(app)
         val coach = File(app.filesDir, "coach")
         val before = coach.walkTopDown().filter { it.isFile }.associate { it.relativeTo(coach).path to it.readBytes().toList() }
-        // The vault's key is lost: the baseline files cannot be sealed, so the import rolls back.
-        kit.vaultLocked = true
+        kit.dropMessages = true
         launch()
         rule.waitForTag(AgencyTags.HOME, 20_000)
         rule.waitForText("搬資料沒有成功，舊資料都還在。")
         assertEquals(before, coach.walkTopDown().filter { it.isFile }.associate { it.relativeTo(coach).path to it.readBytes().toList() })
         assertEquals(0, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        kit.dropMessages = false
         runBlocking { assertEquals(0, ready().store.messages.count()) }
 
-        kit.vaultLocked = false
-        restart()
-        rule.waitForTag(AgencyTags.HOME, 20_000)
+        rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performClick()
+        rule.waitForTag(LegacyTags.RETRY)
+        rule.onNodeWithTag(LegacyTags.RETRY).performClick()
+        rule.waitForText("搬完了", 20_000)
         runBlocking { assertEquals(9, ready().store.messages.count()) }
         assertEquals(AgencyPrefKeys.MIGRATED_DONE, agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0))
+        // The failure line is gone once the import is done.
+        rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.COMPANY.name).performClick()
+        assertTrue(rule.onAllNodesWithTag(AgencyTags.NOTICE).fetchSemanticsNodes().isEmpty())
     }
 }

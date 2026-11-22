@@ -100,7 +100,13 @@ internal fun joinDay(p: Profile, clock: AgencyClock): Long? {
 
 @Composable
 private fun NoticeBar(n: ImportNotice, onDismiss: () -> Unit) {
-    val text = stringResource(if (n == ImportNotice.PARTIAL) R.string.ag_notice_partial else R.string.ag_notice_failed)
+    val text = stringResource(
+        when (n) {
+            ImportNotice.PARTIAL -> R.string.ag_notice_partial
+            ImportNotice.MEDIA_PENDING -> R.string.ag_notice_media
+            ImportNotice.FAILED -> R.string.ag_notice_failed
+        },
+    )
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).background(Sakura.Aqua.copy(alpha = .5f), RoundedCornerShape(16.dp))
             .padding(horizontal = 14.dp, vertical = 8.dp).testTag(AgencyTags.NOTICE),

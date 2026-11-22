@@ -93,6 +93,13 @@ data class ImportNote(
      * less on a small heap), or the phone ran out of memory sealing one. Not imported (a step that names one reads as not handed in); the original stays in the legacy folder.
      */
     val mediaTooLarge: List<String> = emptyList(),
+    /**
+     * Baseline files the vault could not take ([LegacyInput.mediaPending]): still in the legacy folder, sealed by a later start
+     * (`LegacyImporter.sealPending`), which takes each name off this list once it is in.
+     */
+    val mediaPending: List<String> = emptyList(),
+    /** Of [mediaPending], the 入社建檔 step each file was handed in for (`PHOTO`, `RECORDING`), to link once sealed. */
+    val mediaPendingLinks: Map<String, String> = emptyMap(),
     /** Meals that carried an evidence text (no version ever wrote one; the agency has no field for it). */
     val mealsWithEvidence: Int = 0,
     val correctedFood: List<String> = emptyList(),

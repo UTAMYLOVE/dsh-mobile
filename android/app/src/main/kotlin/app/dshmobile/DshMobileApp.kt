@@ -546,11 +546,37 @@ class DshMobileApp : Application(), Configuration.Provider {
      */
     val agency: AgencyApp by lazy { AgencyApp(this, keyVault, costMeter, errorLog) }
 
+    /**
+     * Since the cutover the old shell, its onboarding and [DshService] are retired: an entry an older build left on the phone
+     * (its task in Recents, a notification's PendingIntent) forwards to the company or stops at once, before anything of dsh
+     * is built (T06 review I2). Tests of the old code set it false; T08/T09 delete that code.
+     */
+    @VisibleForTesting
+    @Volatile
+    var legacyShellRetired: Boolean = true
+
+    /** For the old shell and onboarding: opens the company in a fresh task. */
+    fun forwardToAgency(from: Context) {
+        from.startActivity(
+            Intent(from, app.dshmobile.ui.agency.AgencyActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+        )
+    }
+
     override fun onCreate() {
         super.onCreate()
         // Cutover (arch §2 D0): dsh never starts again. No heartbeat is scheduled, nothing is moved in its folders, the coach
         // engine is not warmed (its folder is the importer's, read-only), and the works an older build left are cancelled.
         cancelDshWork()
+        deleteDshChannels()
+    }
+
+    /** The old dsh channels and whatever they still show (a tap on one would reach the retired shell). */
+    private fun deleteDshChannels() {
+        runCatching {
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            listOf(Notifier.CHANNEL_MESSAGES, Notifier.CHANNEL_ALERTS, Notifier.CHANNEL_SERVICE).forEach(nm::deleteNotificationChannel)
+        }.onFailure { errorLog.append("cutover", "could not delete the old channels (${it.javaClass.simpleName})") }
     }
 
     /** The heartbeat and every helper wake (all tagged with the worker's class name); a failure is logged, never thrown. */

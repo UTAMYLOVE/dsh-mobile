@@ -235,6 +235,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Retired since the cutover (T06 review I2): an old task or notification lands in the company; nothing of dsh is built.
+        (application as DshMobileApp).let { a ->
+            if (a.legacyShellRetired) {
+                a.forwardToAgency(this)
+                finish()
+                return
+            }
+        }
         if (!isSetUp()) {
             startActivity(Intent(this, OnboardingActivity::class.java))
             finish()

@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 object InlineToolCallParser {
     data class Parsed(val calls: List<ToolCall>, val text: String)
 
-    private val tagged = Regex("""<tool_call>\s*(\{.*?})\s*</tool_call>""", RegexOption.DOT_MATCHES_ALL)
+    private val tagged = Regex("""<tool_call>\s*(\{.*?\})\s*</tool_call>""", RegexOption.DOT_MATCHES_ALL)
     private val native = Regex("""<｜tool▁call▁begin｜>(.*?)<｜tool▁sep｜>(.*?)<｜tool▁call▁end｜>""", RegexOption.DOT_MATCHES_ALL)
     private val nativeFrame = Regex("""<｜tool▁calls▁(begin|end)｜>""")
     private val fence = Regex("""^\s*([^\n`]+?)\s*\n\s*```(?:json)?\s*(.*?)\s*```\s*$""", RegexOption.DOT_MATCHES_ALL)

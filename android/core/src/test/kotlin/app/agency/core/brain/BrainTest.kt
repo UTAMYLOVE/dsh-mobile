@@ -119,4 +119,39 @@ class BrainTest {
         val lines = Fail.entries.map(Brain::failLine) + Router.NOT_YET
         assertTrue(lines.none { Regex("[A-Za-z]").containsMatchIn(it) })
     }
+
+    @Test fun theSeedTableIsEvidenceOnAFreshInstall() {
+        val llm = ScriptedLlm(intake("chat"), utter("早餐可以吃全家 紐奧良風味烤雞鮮蔬三明治。吃完拍給我。"))
+        val out = runBlocking { brain(llm).onText("早餐吃什麼") }
+        assertEquals("早餐可以吃全家 紐奧良風味烤雞鮮蔬三明治。吃完拍給我。", out[1].text)
+    }
+
+    @Test fun theClerkGetsItsOwnClientAndOnlyTheLastFourLines() {
+        runBlocking { (1..9).forEach { i -> store.messages.insert(Message("h$i", i.toLong(), if (i % 2 == 1) Who.OWNER else Who.COMPANY, role = RoleKey.MANAGER.takeIf { i % 2 == 0 }, text = "第${i}句")) } }
+        val clerk = ScriptedLlm(intake("chat"))
+        val llm = ScriptedLlm(utter("去喝水。"))
+        val b = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), intakeLlm = clerk) { "id-${++n}" }
+        runBlocking { b.onText("好") }
+        assertEquals(listOf(Purpose.INTAKE), clerk.requests.map { it.purpose })
+        assertEquals(listOf(Purpose.CHAT), llm.requests.map { it.purpose })
+        val clerkText = clerk.requests[0].turns.joinToString("\n") { (it as? Turn.User)?.text ?: (it as Turn.AssistantText).text }
+        assertTrue(clerkText, clerkText.contains("第7句") && clerkText.contains("第9句"))
+        assertFalse(clerkText, clerkText.contains("第5句"))
+        // The manager still sees the whole window.
+        assertTrue(llm.requests[0].turns.any { (it as? Turn.User)?.text?.contains("第1句") == true })
+    }
+
+    @Test fun noMemoryIsAskedForWhileNothingAppliesIt() {
+        val llm = ScriptedLlm(intake("chat"), utter("去喝水。"))
+        runBlocking { brain(llm).onText("記得我不吃香菜") }
+        val system = llm.requests[1].system
+        assertTrue(system.contains("memory 永遠給空陣列"))
+        assertFalse(system.contains("memory 只放"))
+    }
+
+    @Test fun aReplyThatNeverPassesSaysTheModelDidNotAnswerWell() {
+        val llm = ScriptedLlm(intake("chat"), ScriptedLlm.failed(Fail.REFUSED))
+        val out = runBlocking { brain(llm).onText("在嗎") }
+        assertTrue(out[1].text.endsWith("模型這次沒有好好回答，再說一次試試。"))
+    }
 }
