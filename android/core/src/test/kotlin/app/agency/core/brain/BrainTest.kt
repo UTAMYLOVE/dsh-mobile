@@ -239,10 +239,13 @@ class BrainTest {
     }
 
     @Test fun drinksCountAsFoodTalkButWaterDoesNot() {
-        for (t in listOf("喝了珍奶", "喝可樂", "我剛喝了一杯珍奶", "昨天喝了兩罐可樂", "好想喝汽水", "珍奶好想要", "來杯拿鐵", "喝了冬瓜茶", "晚上喝了一碗湯")) {
+        for (t in listOf("喝了珍奶", "喝可樂", "我剛喝了一杯珍奶", "昨天喝了兩罐可樂", "好想喝汽水", "珍奶好想要", "來杯拿鐵", "喝了冬瓜茶", "晚上喝了一碗湯",
+            "喝水果茶", "喝了一杯水果茶", "冬瓜茶好想要", "買了綠茶", "紅茶", "烏龍拿鐵", "早上一杯豆漿", "牛奶", "優酪乳",
+            "氣泡飲", "運動飲料", "能量飲")) {
             assertTrue(t, Brain.mentionsFood(t))
         }
-        for (t in listOf("去喝水", "喝溫水", "多喝開水", "喝一杯水再睡", "喝完水去睡", "姐姐在嗎", "早點睡。")) {
+        for (t in listOf("去喝水", "喝溫水", "多喝開水", "喝一杯水再睡", "喝完水去睡", "喝三杯水", "喝很多水", "喝礦泉水",
+            "喝夠水", "喝多一點水", "姐姐在嗎", "早點睡。")) {
             assertFalse(t, Brain.mentionsFood(t))
         }
         val clerk = ScriptedLlm(intake("chat"), judgeOk())

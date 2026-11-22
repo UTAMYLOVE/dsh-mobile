@@ -139,7 +139,7 @@ class SecondPassJudgeTest {
         // A bare 「沒關係」 is never an example on its own.
         assertTrue(excuse.toString(), "沒關係" !in excuse)
         // The limit is on the word 沒關係 only; every other excuse still counts (FIX-T05c re-review N1).
-        assertTrue(SecondPassJudge.SYSTEM.contains("「沒關係」只有用在破戒或吃超過上才算違規"))
+        assertTrue(SecondPassJudge.SYSTEM.contains("「沒關係」只有用在破戒或吃超過上才算藉口"))
         assertTrue(SecondPassJudge.SYSTEM.contains("其他替破戒或超量找理由、淡化的說法（例如偶爾放縱很正常、一次兩次不會怎樣）一律算藉口"))
         assertTrue(SecondPassJudge.SYSTEM.contains("對他的心情或身體說沒關係"))
         assertTrue(SecondPassJudge.SYSTEM.contains("溫柔安慰他"))

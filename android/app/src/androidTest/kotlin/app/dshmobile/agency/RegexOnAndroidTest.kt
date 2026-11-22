@@ -96,8 +96,8 @@ class RegexOnAndroidTest {
         assertEquals("記1", MemoryApplier.ref("【記1】"))
         assertEquals(Router.route("喝完一壺！"), Router.route("喝完一壺"))
         // The second-pass judge's food words: 喝 with a lookahead that skips water.
-        listOf("喝了珍奶", "喝可樂", "我剛喝了一杯珍奶").forEach { assertTrue(it, Brain.mentionsFood(it)) }
-        listOf("去喝水", "喝溫水", "喝一杯水再睡").forEach { assertTrue(it, !Brain.mentionsFood(it)) }
+        listOf("喝了珍奶", "喝可樂", "我剛喝了一杯珍奶", "喝水果茶", "喝了一杯水果茶", "早上一杯豆漿").forEach { assertTrue(it, Brain.mentionsFood(it)) }
+        listOf("去喝水", "喝溫水", "喝一杯水再睡", "喝三杯水", "喝很多水", "喝礦泉水").forEach { assertTrue(it, !Brain.mentionsFood(it)) }
         // \b next to Han: a key glued to Chinese is still caught, the same as on the JVM.
         assertEquals("不能記金鑰、密碼、帳號、證件或卡號", PrivacyFilter.reason("我的sk-abcdef"))
     }

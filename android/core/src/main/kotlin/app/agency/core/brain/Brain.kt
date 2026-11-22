@@ -165,13 +165,15 @@ class Brain(
 
         /**
          * Words that make a conversation one about food (his words or the reply). 喝 counts unless what is drunk is water
-         * (「去喝水」「喝溫水」「喝一杯水」 are in many replies and are no food talk); the common drinks are named too, for a line
-         * without 喝 (「珍奶好想要」). ICU-safe: no bare `}`, no `\b` next to Han (RegexOnAndroidTest runs it on the phone).
+         * (「去喝水」「喝溫水」「喝三杯水」「喝很多水」「喝礦泉水」 are in many replies and are no food talk); a 水 followed by 果 is
+         * a drink (「喝水果茶」). The common drinks are named too, for a line without 喝 (「珍奶好想要」「來一瓶豆漿」). ICU-safe:
+         * no bare `}`, no `\b` next to Han (RegexOnAndroidTest runs it on the phone).
          */
         private val FOOD_TALK = Regex(
             "吃|餐|飯|麵|熱量|大卡|卡路里|食物|零食|宵夜|點心|甜點|蛋白質|份量|分量|菜單|外送|" +
-                "喝(?![了完一兩點杯口些大碗瓶罐]*(?:水|開水|溫水|熱水|冰水))|" +
-                "飲料|珍奶|珍珠|奶茶|手搖|可樂|汽水|果汁|拿鐵|咖啡|啤酒|酒|含糖",
+                "喝(?![了完一兩二三四五六七八九十點杯口些大碗瓶罐很多夠個]*(?:礦泉水|開水|溫水|熱水|冰水|水)(?!果))|" +
+                "飲料|珍奶|珍珠|奶茶|手搖|可樂|汽水|果汁|拿鐵|咖啡|啤酒|酒|含糖|" +
+                "冬瓜茶|綠茶|紅茶|烏龍|豆漿|牛奶|優酪乳|氣泡飲|運動飲料|能量飲",
         )
 
         /** Whether [text] talks about food or a drink that is not water ([FOOD_TALK]). */
