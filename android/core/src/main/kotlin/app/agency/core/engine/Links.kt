@@ -21,8 +21,8 @@ import kotlin.math.ceil
  */
 object Links {
     fun all(): List<Link> = listOf(
-        L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L6Floor, L8Riding, L9RideEnd, L12Chase, L17Grooming,
-        L18NoClassDay, L21WeightStop, L22TiredRiding, L23WeightTrend,
+        L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L6Floor, L8Riding, L9RideEnd, L12Chase, L14Discuss,
+        L17Grooming, L18NoClassDay, L21WeightStop, L22TiredRiding, L23WeightTrend,
     ) + Pending.all
 
     private fun hhmm(minute: Int) = DayClock.hhmm(minute)
@@ -208,6 +208,26 @@ object Links {
             }
     }
 
+    /**
+     * L14: one required item ended undone three coach days in a row → the manager opens 討論 with one question to find the
+     * cause (code-written, with chips); a change to the plan comes only as a proposal he says yes to. Once a day.
+     */
+    object L14Discuss : Link {
+        override val id = "L14"
+        override val zh = "同一項連三天沒做：開討論"
+        override val dailyCap = 1
+        const val DAYS = 3
+        val OPTIONS = listOf("時間排不進去", "忘記了", "身體不舒服", "其他原因")
+
+        fun question(key: SlotKey) = "${key.zh}已經連三天沒做到了。我要先弄清楚原因：是哪裡卡住了？"
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.DayMissed || signal.day != state.day.minusDays(1).toString()) return emptyList()
+            val key = signal.keys.sortedBy { it.ordinal }.firstOrNull { (state.missedInRow[it] ?: 0) >= DAYS } ?: return emptyList()
+            return listOf(Effect.Say(question(key), discuss = true, options = OPTIONS), Effect.Record("discuss", key.name))
+        }
+    }
+
     /** L17: grooming cycles → reminders in today's free time (shave at sign-in). */
     object L17Grooming : Link {
         override val id = "L17"
@@ -360,7 +380,6 @@ object Links {
                 Pending("L10", "喝水落後：下一個空檔加一次提醒", "第 4 批（T17）"),
                 Pending("L11", "核心或肌力第一次完成：撒嬌一次、照片牆加一張", "第 5 批（T18）、第 6 批（T20）"),
                 Pending("L13", "違規：記進評鑑、第二道審稿", "第 4 批（T14）"),
-                Pending("L14", "同一項連三天沒做：開討論", "第 3 批（T12 討論）"),
                 Pending("L15", "肌力一週都輕鬆：提案升級", "第 5 批（T18）"),
                 Pending("L16", "花費從生活費或娛樂金扣", "第六階段（記帳）"),
                 Pending("L19", "睡前簽退：檢討卡、明天的提案", "第 5 批（T19）"),

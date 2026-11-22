@@ -115,7 +115,7 @@ class NerveTest {
     @Test fun everyLinkOfTheTableIsRegistered() {
         val ids = Links.all().map { it.id }
         assertEquals((1..23).map { "L$it" }.toSet(), ids.filter { it.matches(Regex("L\\d+")) }.toSet())
-        assertEquals(listOf("L5", "L7", "L10", "L11", "L13", "L14", "L15", "L16", "L19", "L20"), Links.Pending.all.map { it.id })
+        assertEquals(listOf("L5", "L7", "L10", "L11", "L13", "L15", "L16", "L19", "L20"), Links.Pending.all.map { it.id })
         Links.Pending.all.forEach { assertTrue(it.id, it.batch.isNotBlank()) }
     }
 
@@ -438,5 +438,22 @@ class NerveTest {
         emit(nv, Signal.WeightLogged("w1", t("07:00", d0.plusDays(7)), 81.3))
         emit(nv, Signal.WeightLogged("w2", t("07:00"), 80.5))
         assertTrue(of("L23").isEmpty())
+    }
+
+    @Test fun l14OneItemUndoneThreeDaysInARowOpensADiscussionOnce() {
+        val state = DayState(
+            java.time.LocalDate.parse("2026-11-23"), app.agency.core.schedule.DayPlanner.build(java.time.LocalDate.parse("2026-11-23")),
+            missedInRow = mapOf(app.agency.core.schedule.SlotKey.STRENGTH to 3, app.agency.core.schedule.SlotKey.LUNCH to 2),
+        )
+        val ctx = LinkContext(Instant.parse("2026-11-23T04:00:00Z"), AgencyClock.TAIPEI, app.agency.core.model.CompanyRules(), app.agency.core.schedule.PlanSpecs())
+        val keys = listOf(app.agency.core.schedule.SlotKey.LUNCH, app.agency.core.schedule.SlotKey.STRENGTH)
+        val fx = Links.L14Discuss.fire(Signal.DayMissed("missed:2026-11-22", 0, "2026-11-22", keys), state, ctx)
+        val say = fx.filterIsInstance<Effect.Say>().single()
+        assertEquals("肌力三輪已經連三天沒做到了。我要先弄清楚原因：是哪裡卡住了？", say.text)
+        assertTrue(say.discuss)
+        assertEquals(4, say.options.size)
+        // An older day's report, or a two-day streak, opens nothing.
+        assertTrue(Links.L14Discuss.fire(Signal.DayMissed("missed:2026-11-21", 0, "2026-11-21", keys), state, ctx).isEmpty())
+        assertTrue(Links.L14Discuss.fire(Signal.DayMissed("missed:2026-11-22", 0, "2026-11-22", keys.take(1)), state, ctx).isEmpty())
     }
 }

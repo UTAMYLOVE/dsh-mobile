@@ -50,8 +50,12 @@ sealed interface Effect {
         val soundOnce: Boolean = false,
     ) : Effect
 
+    /**
+     * A line in the conversation. [discuss] opens 討論 with it (the line is the one question; [options] are its chips, L14):
+     * his next message is answered in 討論 mode.
+     */
     @Serializable @SerialName("say")
-    data class Say(val text: String, val role: RoleKey = RoleKey.MANAGER) : Effect
+    data class Say(val text: String, val role: RoleKey = RoleKey.MANAGER, val discuss: Boolean = false, val options: List<String> = emptyList()) : Effect
 
     @Serializable @SerialName("record")
     data class Record(val what: String, val detail: String = "") : Effect

@@ -26,7 +26,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.agency.core.brain.Discussion
+import app.agency.core.brain.ProposalView
+import app.agency.core.model.MemoryEvent
 import app.agency.core.model.Message
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import app.agency.core.engine.IdolCardFacts
 import app.dshmobile.R
 import app.dshmobile.agency.AgencyApp
@@ -64,6 +69,21 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             total = count
         }
     }
+    // Her memory events (for the grey lines under her bubbles) and the proposals waiting for his yes (T12).
+    val memory by produceState<Map<String, MemoryEvent>>(emptyMap(), revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.store.memory.events().associateBy { it.id } }.getOrDefault(emptyMap()) } }
+    }
+    val proposals by produceState<List<ProposalView>>(emptyList(), revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.pendingProposals() }.getOrDefault(emptyList()) } }
+    }
+    val scope = rememberCoroutineScope()
+    val chatActions = remember(agency, ready) {
+        ChatActions(
+            onResend = agency::resend,
+            onOption = agency::send,
+            onUndo = { id -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.undoMemory(id) } } } },
+        )
+    }
     val onboarding by produceState<OnboardingStatus?>(null, revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.onboardingStatus() }.getOrNull() } }
     }
@@ -80,7 +100,11 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 4.dp)) { BaselineBadges(agency, status) }
         }
         notice?.let { NoticeBar(it, agency::dismissNotice) }
-        ChatList(messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f))
+        ChatList(
+            messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f),
+            memory = memory, actions = chatActions, busy = busy,
+        )
+        ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
         onboarding?.let { OnboardingFlow(agency, it, actions) }
         // The ride buttons come with the reminders, after 入社建檔 (the 入社建檔 panel has the room until then).
         if (onboarding?.completed == true) RideButtons(busy) { agency.send(it) }
@@ -90,7 +114,10 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
 
 private const val PAGE = 500
 
-/** 出門跑單 / 收工 (arch T13): the same words he may type; riding makes reminders sound once. */
+/**
+ * 出門跑單 / 收工 (arch T13): the same words he may type; riding makes reminders sound once. 「這裡有問題」 (T12) opens 討論
+ * with the manager.
+ */
 @Composable
 private fun RideButtons(busy: Boolean, onSay: (String) -> Unit) {
     val start = stringResource(R.string.ag_ride_start)
@@ -98,6 +125,7 @@ private fun RideButtons(busy: Boolean, onSay: (String) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
         SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
+        SoftButton(stringResource(R.string.ag_discuss), onClick = { onSay(Discussion.OPEN_WORD) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.DISCUSS))
     }
 }
 

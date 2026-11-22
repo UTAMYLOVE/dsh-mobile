@@ -26,6 +26,7 @@ import app.dshmobile.agency.data.dao.ProfileDao
 import app.dshmobile.agency.data.dao.ProposalDao
 import app.dshmobile.agency.data.dao.RulesDao
 import app.dshmobile.agency.data.dao.SignDao
+import app.dshmobile.agency.data.dao.ThinkingDao
 import app.dshmobile.agency.data.dao.TrainingDao
 import app.dshmobile.agency.data.dao.WaterDao
 import app.dshmobile.agency.data.dao.WeightDao
@@ -55,6 +56,7 @@ import app.dshmobile.agency.data.entities.ProposalEntity
 import app.dshmobile.agency.data.entities.SearchResultEntity
 import app.dshmobile.agency.data.entities.SignLogEntity
 import app.dshmobile.agency.data.entities.SignalEntity
+import app.dshmobile.agency.data.entities.ThinkingEntity
 import app.dshmobile.agency.data.entities.TrainingLogEntity
 import app.dshmobile.agency.data.entities.WaterLogEntity
 import app.dshmobile.agency.data.entities.WeightLogEntity
@@ -66,10 +68,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 /**
  * The agency's records (arch 1.2): Room over SQLCipher, file `noBackupFilesDir/agency/agency.db`. Schemas are in `schemas/`:
- * v1 (T02), v2 adds the nerve's `signal` and `nerve_effect` (T11b, [MIGRATION_1_2]).
+ * v1 (T02), v2 adds the nerve's `signal` and `nerve_effect` (T11b, [MIGRATION_1_2]), v3 the 「沒送出」 mark on `message` and the
+ * manager's `thinking` (T12, [MIGRATION_2_3]).
  */
 @Database(
-    version = 2,
+    version = 3,
     exportSchema = true,
     entities = [
         ProfileEntity::class, CompanyRulesEntity::class, CompanyRulesHistoryEntity::class, PlanSectionEntity::class,
@@ -78,7 +81,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         WaterLogEntity::class, TrainingLogEntity::class, ConditionLogEntity::class, SignLogEntity::class, WeightLogEntity::class,
         BaselineEntity::class, MediaEntity::class, MessageEntity::class, ProposalEntity::class, MemoryItemEntity::class,
         MemoryEventEntity::class, NudgeEntity::class, MigrationLogEntity::class, AuditLogEntity::class, SignalEntity::class,
-        NerveEffectEntity::class,
+        NerveEffectEntity::class, ThinkingEntity::class,
     ],
 )
 abstract class AgencyDatabase : RoomDatabase() {
@@ -102,6 +105,7 @@ abstract class AgencyDatabase : RoomDatabase() {
     abstract fun nudges(): NudgeDao
     abstract fun journal(): JournalDao
     abstract fun nerve(): NerveDao
+    abstract fun thinking(): ThinkingDao
 
     companion object {
         /** v1 → v2 (T11b): the nerve's two tables; nothing else changes, every v1 row stays. */
@@ -120,7 +124,21 @@ abstract class AgencyDatabase : RoomDatabase() {
             "CREATE INDEX IF NOT EXISTS `index_nerve_effect_status` ON `nerve_effect` (`status`)",
         )
 
-        val MIGRATIONS = arrayOf(MIGRATION_1_2)
+        /** v2 → v3 (T12): the 「沒送出」 mark (every existing line was sent: 0) and the thinking table; every v2 row stays. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                MIGRATION_2_3_SQL.forEach(db::execSQL)
+            }
+        }
+
+        /** Copied from `schemas/…/3.json` (Room checks the result against it on open). */
+        val MIGRATION_2_3_SQL = listOf(
+            "ALTER TABLE `message` ADD COLUMN `unsent` INTEGER NOT NULL DEFAULT 0",
+            "CREATE TABLE IF NOT EXISTS `thinking` (`message_id` TEXT NOT NULL, `at` INTEGER NOT NULL, `provider` TEXT NOT NULL, `wire` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`message_id`))",
+            "CREATE INDEX IF NOT EXISTS `index_thinking_at` ON `thinking` (`at`)",
+        )
+
+        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 
         fun file(context: Context) = File(context.noBackupFilesDir, "agency/agency.db")
 

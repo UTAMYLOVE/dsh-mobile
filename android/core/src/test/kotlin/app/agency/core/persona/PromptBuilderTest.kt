@@ -118,4 +118,23 @@ class PromptBuilderTest {
         assertTrue(Roles.BODY.tones.getValue(Tone.GENTLE).contains("這次不撒嬌"))
         assertTrue(Roles.MANAGER.tones.getValue(Tone.GENTLE).contains("不要說「沒關係」"))
     }
+
+    @Test fun aChatWindowSendsHerRepliesWithReasoningAndCodeLinesOnHisSide() {
+        val window = listOf(
+            app.agency.core.model.Message("a", 1, app.agency.core.model.Who.OWNER, text = "早安"),
+            app.agency.core.model.Message("b", 2, app.agency.core.model.Who.COMPANY, role = app.agency.core.model.RoleKey.MANAGER, text = "早點睡。"),
+            app.agency.core.model.Message("c", 3, app.agency.core.model.Who.COMPANY, role = app.agency.core.model.RoleKey.MANAGER, text = "還缺：午餐。"),
+            app.agency.core.model.Message("d", 4, app.agency.core.model.Who.OWNER, text = "好"),
+            app.agency.core.model.Message("e", 5, app.agency.core.model.Who.COMPANY, role = app.agency.core.model.RoleKey.BODY, text = "記得吃早餐。", legacy = true),
+        )
+        val facts = app.agency.core.brain.CallFacts(kotlinx.serialization.json.JsonObject(emptyMap()), window)
+        val turns = PromptBuilder.turns(facts, app.agency.core.model.Message("f", 6, app.agency.core.model.Who.OWNER, text = "在嗎"), replay = PromptBuilder.Replay(mapOf("b" to "想"), setOf("e")))
+        assertEquals(5, turns.size)
+        assertEquals(app.agency.core.llm.Turn.User("早安"), turns[0])
+        val b = turns[1] as app.agency.core.llm.Turn.Assistant
+        assertEquals("早點睡。", b.text)
+        assertEquals(app.agency.core.llm.Turn.User(PromptBuilder.CONTEXT + "【經紀人】還缺：午餐。\n好"), turns[2])
+        assertEquals(app.agency.core.llm.Turn.AssistantText("【體態管理老師】記得吃早餐。"), turns[3])
+        assertEquals(app.agency.core.llm.Turn.User("【他剛說】\n在嗎"), turns[4])
+    }
 }

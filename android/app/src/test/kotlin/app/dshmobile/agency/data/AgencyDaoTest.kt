@@ -212,7 +212,8 @@ class AgencyDaoTest {
                 buildList { while (c.moveToNext()) add(c.getString(nameAt) to c.getInt(pkAt)) }
             }
             val liveTable = Table(info.map { it.first }.toSet(), info.filter { it.second > 0 }.sortedBy { it.second }.map { it.first })
-            assertEquals("live $name", table, liveTable)
+            // Later schemas only add (v3: the 「沒送出」 mark); every v1 column is still there.
+            assertEquals("live $name", table.copy(columns = table.columns + ADDED[name].orEmpty()), liveTable)
         }
     }
 
@@ -221,6 +222,9 @@ class AgencyDaoTest {
     private companion object {
         private fun t(key: String, columns: String) = t(listOf(key), columns)
         private fun t(key: List<String>, columns: String) = Table(columns.split(",").map { it.trim() }.toSet(), key)
+
+        /** Columns later schemas added to a v1 table (v3, T12). */
+        val ADDED = mapOf("message" to setOf("unsent"))
 
         /** Arch 1.2, every table with its columns and primary key (plus `id` on the one-row tables). */
         val TABLES = mapOf(

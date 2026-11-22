@@ -19,8 +19,6 @@ import app.dshmobile.ui.settings.SpendTags
 import kotlin.concurrent.thread
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
-import app.agency.core.brain.Brain
-import app.agency.core.llm.Fail
 import app.agency.core.metering.Provider
 import app.dshmobile.DshMobileApp
 import app.dshmobile.R
@@ -110,7 +108,8 @@ class AgencyMainThreadTest {
         changeProfile(5)
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
-        rule.waitForText(Brain.failLine(Fail.OFFLINE))
+        // No network: his line is kept and marked 「沒送出」 (T12; no company line is written).
+        rule.waitForText("沒送出", 30_000)
 
         online.set(true)
         changeProfile(6)

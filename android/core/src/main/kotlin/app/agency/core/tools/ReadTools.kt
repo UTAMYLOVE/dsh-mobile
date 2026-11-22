@@ -22,9 +22,13 @@ import kotlinx.serialization.json.put
 
 /**
  * Tool 1 `get_today` (arch 1.4): today's numbers, every one computed by code, with today's slots from the day planner and their
- * status (T11). `riding` comes with the riding buttons (T13). Record ids are what the model may cite.
+ * status (T11). `riding` is the nerve's (出門跑單 to 收工, T13/T12). Record ids are what the model may cite.
  */
-class GetTodayTool(private val store: AgencyStore, private val snapshot: SnapshotReader) : AgencyTool {
+class GetTodayTool(
+    private val store: AgencyStore,
+    private val snapshot: SnapshotReader,
+    private val riding: suspend () -> Boolean = { false },
+) : AgencyTool {
     override val spec = ToolSpec(NAME, "今天的紀錄和剩下的額度（程式算好的數字）。", JsonSchema.obj())
 
     override suspend fun run(args: JsonObject): JsonElement {
@@ -73,7 +77,7 @@ class GetTodayTool(private val store: AgencyStore, private val snapshot: Snapsho
                 put("used_this_week", week.count { it.cheat }); put("declared_today", override?.cheatSlot != null)
             })
             put("zero_cal_week", week.sumOf { m -> m.items.count { it.zeroCal } })
-            put("riding", false)
+            put("riding", riding())
         }
     }
 
@@ -182,6 +186,6 @@ class GetPlanTool(private val store: AgencyStore, private val snapshot: Snapshot
     }
 }
 
-/** The tools of stage 1's first cut (T06): 1, 2 and 6. T12 adds the rest. */
+/** The read tools of stage 1's first cut (T06): 1, 2 and 6. A chat round gets all ten ([chatTools], T12). */
 fun readTools(store: AgencyStore, snapshot: SnapshotReader): List<AgencyTool> =
     listOf(GetTodayTool(store, snapshot), QueryRecordsTool(store, snapshot), GetPlanTool(store, snapshot))

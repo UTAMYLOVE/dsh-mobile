@@ -47,11 +47,11 @@ sealed interface Turn {
      * compatible service gets it rebuilt as role, content, tool_calls and its `reasoning_content` (no other field); another
      * provider gets [text] and [toolCalls] rebuilt in its own format.
      *
-     * Valid only inside the ChatLoop round that produced it (one owner message and the tool steps that answer it). Stored
-     * history crosses rounds as [AssistantText], or as context in the system prompt; never keep this turn for a later round.
-     * On DeepSeek a tools request whose assistant messages are not all of this kind (with their reasoning) goes out with
-     * thinking off, so a caller that wants thinking kept for chat puts its history in the system prompt or the first user
-     * message instead of [AssistantText] turns.
+     * Valid only inside the ChatLoop round that produced it (one owner message and the tool steps that answer it); never keep
+     * a provider's turn for a later round. The one exception is [Thoughts.replay] (T12): one of the manager's stored replies
+     * rebuilt in OpenAI form with the `reasoning_content` DeepSeek returned for it, so a later DeepSeek round can keep
+     * thinking on. On DeepSeek a tools request whose assistant messages do not all carry their reasoning goes out with
+     * thinking off.
      *
      * Only the clients in `:core` build one (the constructor and `copy` are internal): [raw] is free-form, so a caller outside
      * could otherwise put a picture block in it (against the no-media rule of arch 1.3).

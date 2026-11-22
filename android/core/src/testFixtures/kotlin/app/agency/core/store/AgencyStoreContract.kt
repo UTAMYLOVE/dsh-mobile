@@ -27,6 +27,7 @@ import app.agency.core.model.EffectStatus
 import app.agency.core.model.NerveEffect
 import app.agency.core.model.Nudge
 import app.agency.core.model.StoredSignal
+import app.agency.core.model.StoredThinking
 import app.agency.core.model.OrderStatus
 import app.agency.core.model.PendingLabel
 import app.agency.core.model.PlanSection
@@ -329,6 +330,29 @@ abstract class AgencyStoreContract {
         assertEquals(e.copy(status = EffectStatus.CANCELLED, decidedAt = 50), nerve.effect("e-1"))
         assertEquals(listOf("e-2"), nerve.effectsWith(EffectStatus.PENDING).map { it.id })
         assertEquals(99L, nerve.effect("e-2")!!.dueAt)
+    }
+
+    @Test fun thinkingIsKeptPerMessageAndPruned() = test {
+        val a = StoredThinking("m-1", 100, "DEEPSEEK", "OPENAI", "先想一下")
+        thinking.put(a)
+        thinking.put(StoredThinking("m-2", 200, "CLAUDE", "ANTHROPIC", "[]"))
+        thinking.put(a.copy(payload = "改過")) // one row per message
+        assertEquals(listOf("改過"), thinking.of(listOf("m-1", "m-9")).map { it.payload })
+        assertEquals(2, thinking.count())
+        assertEquals(1, thinking.prune(150))
+        assertEquals(listOf("m-2"), thinking.of(listOf("m-1", "m-2")).map { it.messageId })
+    }
+
+    @Test fun anUnsentMessageAndItsRefsRoundTrip() = test {
+        val m = Message(
+            "u-1", 5, Who.OWNER, text = "姐姐在嗎", unsent = true,
+            refs = MessageRefs(options = listOf("早一點", "照舊"), recommended = 0, memory = listOf("ev-1"), proposals = listOf("p-1")),
+        )
+        assertTrue(messages.insert(m))
+        assertEquals(m, messages.get("u-1"))
+        messages.upsert(m.copy(unsent = false))
+        assertFalse(messages.get("u-1")!!.unsent)
+        assertEquals(1, messages.count())
     }
 
     @Test fun theJournalKeepsMigrationsAndAudits() = test {

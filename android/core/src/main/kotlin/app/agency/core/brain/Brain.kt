@@ -10,6 +10,19 @@ import app.agency.core.brain.handlers.Onboarding
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.agency.core.brain.handlers.OnboardingStep
 import app.agency.core.engine.IdolCard
+import app.agency.core.engine.SlotStatus
+import app.agency.core.llm.Thinking
+import app.agency.core.llm.Thoughts
+import app.agency.core.llm.Turn
+import app.agency.core.llm.Wire
+import app.agency.core.memory.MemoryApplier
+import app.agency.core.memory.UndoResult
+import app.agency.core.model.MemoryEvent
+import app.agency.core.model.MemoryOp
+import app.agency.core.model.MessageRefs
+import app.agency.core.model.Proposal
+import app.agency.core.model.ProposalStatus
+import app.agency.core.model.StoredThinking
 import app.agency.core.engine.Effect
 import app.agency.core.engine.Fire
 import app.agency.core.engine.Gaps
@@ -57,7 +70,8 @@ import app.agency.core.structured.Structured
 import app.agency.core.structured.StructuredCaller
 import app.agency.core.time.AgencyClock
 import app.agency.core.tools.ToolRegistry
-import app.agency.core.tools.readTools
+import app.agency.core.tools.RoundContext
+import app.agency.core.tools.chatTools
 import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,14 +82,17 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * The one queue every inbound event goes through (arch 1.3): one at a time, so a message, a button and an alarm never
- * interleave writes. His message is stored before any model call, so a failed call never loses it.
+ * interleave writes. His message is stored before any model call, so a failed call never loses it; with no network at all it
+ * stays marked 「沒送出」 and [resend] answers the same row later.
  *
- * Stage 1's first cut (T06): a command word or a record kind gets [Router.NOT_YET] from the role it belongs to; anything else
- * goes to the data clerk (Intake) for its kind, then chat, mood and unwell go to the manager's [ChatLoop] (NORMAL mode, tools
- * 1, 2 and 6), whose reply has passed the output guard or is the template. When the provider gives no answer the reply is the
+ * Code first: 入社建檔 answers, 藝名, his yes/no to the one waiting proposal, illness and 「今天照表」 (the nerve), 「先這樣」 in a
+ * discussion, command words and attempts to change 公司規章 never reach a model. Anything else goes to the data clerk (Intake)
+ * for its kind; conversation goes to the manager's [ChatLoop] with the ten tools (T12), in 討論 mode while a discussion is
+ * open, whose reply has passed the output guard or is the template. When the provider gives no answer the reply is the
  * template plus a fixed line saying why ([failLine]); [lastFail] keeps that reason for 設定 › 模型與金鑰. On a day over the
  * quota or with a breach, or while he discusses food, a reply that passed the guard also goes to the second-pass judge
- * (arch 1.9b) on the data clerk's client.
+ * (arch 1.9b) on the data clerk's client. Her thinking behind every reply is kept and sent back to the provider that made it
+ * (owner's choice 乙; [Thoughts]).
  */
 class Brain(
     private val store: AgencyStore,
@@ -87,6 +104,8 @@ class Brain(
      * another provider).
      */
     private val intakeLlm: LlmClient = llm,
+    /** One line per event worth a diagnostic (the app's error log); never a key, a prompt, a reply or thinking. */
+    private val log: (String) -> Unit = {},
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
     private val mutex = Mutex()
@@ -96,7 +115,7 @@ class Brain(
     private val snapshot = SnapshotReader(store, clock) { nerve.changes(it) }
     private val structured = StructuredCaller(intakeLlm, provider)
     private val loop = ChatLoop(llm, provider, judge = SecondPassJudge(intakeLlm, provider))
-    private val tools = ToolRegistry(readTools(store, snapshot))
+    private val proposals = ProposalApplier(store, clock, newId)
     private val onboarding = Onboarding(store, clock, newId)
     private val idol = IdolProfile(store)
     private val restDay = RestDay(store, snapshot.plans)
@@ -122,12 +141,35 @@ class Brain(
         if (clean.isEmpty()) return@withLock emptyList()
         _busy.value = true
         try {
-            val history = store.messages.recent(FactsBuilder.MAX_MESSAGES)
             val owner = Message(newId(), clock.millis(), Who.OWNER, text = clean)
             store.messages.insert(owner)
             bump()
+            // The day's start first (its lines, a 討論 question of L14 too, are part of what he is answering).
             val started = ensureDay()
-            (listOf(owner) + started + answer(owner, history)).sortedWith(compareBy({ it.at }, { if (it.id == owner.id) 0 else 1 })).also { bump() }
+            val history = store.messages.recent(FactsBuilder.MAX_MESSAGES + 1).filter { it.id != owner.id }.takeLast(FactsBuilder.MAX_MESSAGES)
+            val replies = answer(owner, history)
+            val mine = store.messages.get(owner.id) ?: owner
+            (listOf(mine) + started + replies).sortedWith(compareBy({ it.at }, { if (it.id == owner.id) 0 else 1 })).also { bump() }
+        } finally {
+            _busy.value = false
+        }
+    }
+
+    /**
+     * 重送 on a line of his marked 「沒送出」: answered again as if just sent; once it gets through the mark goes, on the same row
+     * (no second copy). Still no network: it stays marked. Returns what was written (his line first); empty for a line that is
+     * not his or not marked.
+     */
+    suspend fun resend(messageId: String): List<Message> = mutex.withLock {
+        val mine = store.messages.get(messageId)?.takeIf { it.who == Who.OWNER && it.unsent } ?: return@withLock emptyList()
+        _busy.value = true
+        try {
+            val history = store.messages.recent(FactsBuilder.MAX_MESSAGES + 1).filter { it.id != mine.id }.takeLast(FactsBuilder.MAX_MESSAGES)
+            val started = ensureDay()
+            val replies = answer(mine.copy(unsent = false), history)
+            val now = store.messages.get(mine.id) ?: mine
+            val after = if (replies.isNotEmpty() && now.unsent) now.copy(unsent = false).also { store.messages.upsert(it) } else now
+            (listOf(after) + started + replies).also { bump() }
         } finally {
             _busy.value = false
         }
@@ -149,7 +191,26 @@ class Brain(
     private suspend fun dayStarted(): NerveResult {
         val profile = snapshot.profile()
         val day = snapshot.today(profile)
-        return nerve.emit(Signal.DayStarted("day:$day", clock.millis(), day.toString()))
+        val id = "day:$day"
+        val fresh = store.nerve.signal(id) == null
+        val r = nerve.emit(Signal.DayStarted(id, clock.millis(), day.toString()))
+        return if (fresh && profile.onboardingDone) r + missedDays(day, profile) else r
+    }
+
+    /**
+     * At a day's start, what each of the last days left undone (L14 reads the streak): only days after the reminders started,
+     * oldest first (once per day: the id is the day).
+     */
+    private suspend fun missedDays(today: java.time.LocalDate, profile: app.agency.core.model.Profile): NerveResult {
+        val since = remindersSince()?.let { snapshot.dayOf(it, profile) } ?: return NerveResult()
+        var r = NerveResult()
+        for (back in Links.L14Discuss.DAYS downTo 1) {
+            val d = today.minusDays(back.toLong())
+            if (!d.isAfter(since)) continue
+            val keys = snapshot.slots(d, snapshot.records(d), profile).filter { it.slot.required && it.status == SlotStatus.MISSED }.map { it.key }
+            r += nerve.emit(Signal.DayMissed("missed:$d", clock.millis(), d.toString(), keys))
+        }
+        return r
     }
 
     /**
@@ -282,9 +343,53 @@ class Brain(
     /** He cancels a 今天微調 of today from the card. */
     suspend fun cancelLink(effectId: String): Boolean = mutex.withLock { nerve.cancel(effectId).also { if (it) bump() } }
 
-    /** His tap on a link proposal: the answer is written as the manager's line. */
+    /** His tap on a link proposal on the war room's card: the answer is written as the manager's line. */
     suspend fun decideLink(effectId: String, accept: Boolean): Message? = mutex.withLock {
-        nerve.decide(effectId, accept)?.let { reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, Nerve.KIND) }.also { bump() }
+        nerve.decide(effectId, accept)?.let { reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, Discussion.DECIDED_KIND) }.also { bump() }
+    }
+
+    /**
+     * The proposals waiting for his yes, from the one proposal table (the links' and the conversation's alike), as their
+     * cards. Lapsed ones are expired first.
+     */
+    suspend fun pendingProposals(): List<ProposalView> = mutex.withLock { pendingLocked().map(ProposalApplier::view) }
+
+    /** His 好 / 不要 on a proposal card: decided by code (the nerve for its own), written as the manager's line. */
+    suspend fun decide(proposalId: String, accept: Boolean): Message? = mutex.withLock { decideLocked(proposalId, accept).also { bump() } }
+
+    private suspend fun pendingLocked(): List<Proposal> {
+        proposals.expire()
+        val today = snapshot.today(snapshot.profile()).toString()
+        val links = nerve.pending().filter { it.day == today || it.link == Links.L23WeightTrend.id }.mapNotNull { it.proposalId }.toSet()
+        return store.proposals.withStatus(ProposalStatus.PENDING).filter { it.kind !in ProposalApplier.NERVE_KINDS || it.id in links }
+    }
+
+    private suspend fun decideLocked(proposalId: String, accept: Boolean): Message? {
+        val p = pendingLocked().firstOrNull { it.id == proposalId } ?: return null
+        val line = if (p.kind in ProposalApplier.NERVE_KINDS) {
+            val effect = store.nerve.effectsWith(EffectStatus.PROPOSED).firstOrNull { it.proposalId == p.id } ?: return null
+            nerve.decide(effect.id, accept) ?: return null
+        } else {
+            proposals.decide(p, accept)
+        }
+        return reply(RoleKey.MANAGER, line, WordedBy.TEMPLATE, Discussion.DECIDED_KIND)
+    }
+
+    /** 撤銷 under her bubble or in 設定 › 她記得的事. */
+    suspend fun undoMemory(eventId: String): UndoResult = mutex.withLock {
+        MemoryApplier(store, clock, snapshot.profile().dayStartHour, newId).undo(eventId).also { if (it.ok) bump() }
+    }
+
+    /** 刪掉 in 設定 › 她記得的事: he removes an item himself (an event like hers, so it can be undone). */
+    suspend fun forgetMemory(itemId: String): Boolean = mutex.withLock {
+        val item = store.memory.item(itemId)?.takeIf { !it.deleted } ?: return@withLock false
+        val now = clock.millis()
+        store.transaction {
+            store.memory.putItem(item.copy(deleted = true, updatedAt = now))
+            store.memory.putEvent(MemoryEvent(newId(), now, MemoryOp.DELETE, item.block, item.id, item.text, null, null, beforeDue = item.dueDay))
+        }
+        bump()
+        true
     }
 
     /** 入社建檔 on the first open (arch T07): the manager's welcome and first question, once; null when not due. */
@@ -332,10 +437,16 @@ class Brain(
         onboarding.answer(owner.text)?.let { return listOf(reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, BASELINE_KIND)) }
         idol.answer(owner.text)?.let { return listOf(reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, PROFILE_KIND)) }
         body(owner)?.let { return it }
+        if (Router.clean(owner.text) in Discussion.END_WORDS) {
+            val profile = snapshot.profile()
+            if (Discussion.active(history, snapshot.today(profile)) { snapshot.dayOf(Instant.ofEpochMilli(it), profile) }) {
+                return listOf(reply(RoleKey.MANAGER, Discussion.END_LINE, WordedBy.TEMPLATE, Discussion.END_KIND))
+            }
+        }
         return when (val route = Router.route(owner.text)) {
-            is Route.Command -> command(route, owner)
+            is Route.Command -> if (route.kind == Router.DISCUSS_OPEN) model(owner, history, forceDiscuss = true) else command(route, owner)
             Route.RulesLocked -> listOf(reply(RoleKey.MANAGER, RulesBook.LOCKED, WordedBy.TEMPLATE, RULES_KIND))
-            Route.Model -> listOf(model(owner, history))
+            Route.Model -> model(owner, history)
         }
     }
 
@@ -347,9 +458,10 @@ class Brain(
     private suspend fun body(owner: Message): List<Message>? {
         val t = Router.clean(owner.text)
         if (t in Router.YES || t in Router.NO) {
-            val waiting = nerve.pending().filter { it.day == snapshot.today(snapshot.profile()).toString() || it.link == "L23" }
-            if (waiting.size == 1) {
-                nerve.decide(waiting[0].id, accept = t in Router.YES)?.let { return listOf(reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, Nerve.KIND)) }
+            val waiting = pendingLocked()
+            if (waiting.size == 1) decideLocked(waiting[0].id, accept = t in Router.YES)?.let { return listOf(it) }
+            if (waiting.size > 1) {
+                return listOf(reply(RoleKey.MANAGER, "現在有 ${waiting.size} 個提案在等你，在提案卡上一個一個按「好」或「不要」。", WordedBy.TEMPLATE, PROPOSALS_KIND))
             }
         }
         BodyWords.illness(owner.text)?.let { (kind, word) ->
@@ -361,35 +473,43 @@ class Brain(
         return null
     }
 
-    private suspend fun model(owner: Message, history: List<Message>): Message {
+    /**
+     * The model's turn (arch 1.3 steps 2–6): the data clerk sorts his words, then the manager's tool loop answers, in 討論 mode
+     * when one is open, he asked for it, or the clerk found it ([forceDiscuss]: his tap on 「這裡有問題」 skips the clerk). The
+     * reply's memory events are applied by code; the proposals its tools made wait for his yes; her thinking is kept (乙).
+     * No network at all: nothing is answered, his line is kept as 「沒送出」 for 重送 ([unsent]).
+     */
+    private suspend fun model(owner: Message, history: List<Message>, forceDiscuss: Boolean = false): List<Message> {
         val input = snapshot.facts(history)
         val facts = FactsBuilder.build(input)
-        val intake = structured.call(
+        val profile = input.profile
+        val today = snapshot.today(profile)
+        val dayOf = { at: Long -> snapshot.dayOf(Instant.ofEpochMilli(at), profile) }
+        val discussing = forceDiscuss || Discussion.active(history, today, dayOf)
+        val intake = if (forceDiscuss) null else structured.call(
             Intake.spec(owner.text), PromptBuilder.intakeSystem(), PromptBuilder.intakeTurns(facts, owner.text), Purpose.INTAKE,
             INTAKE_TOKENS, fallback = { null },
         )
         val parsed = (intake as? Structured.Model)?.value
-        val kind = parsed?.kind ?: CHAT
-        val gentleToday = nerve.state(snapshot.today(input.profile)).gentle
+        val kind = parsed?.kind ?: if (discussing) DISCUSS else CHAT
+        val gentleToday = nerve.state(today).gentle
         val tone = ToneDecider.decide(ToneInputs(ownerText = owner.text, intakeKind = kind, breachToday = input.today.breachToday, gentleToday = gentleToday))
         if (intake is Structured.Template && intake.fail != null) {
+            if (intake.fail == Fail.OFFLINE) return unsent(owner)
             _lastFail.value = intake.fail
-            return reply(RoleKey.MANAGER, Roles.template(RoleKey.MANAGER, tone) + failLine(intake.fail), WordedBy.TEMPLATE, kind)
+            return listOf(reply(RoleKey.MANAGER, Roles.template(RoleKey.MANAGER, tone) + failLine(intake.fail), WordedBy.TEMPLATE, kind))
         }
-        if (Router.isRecordKind(kind)) return reply(Router.roleOf(kind), recordHint(kind), WordedBy.TEMPLATE, kind)
+        if (Router.isRecordKind(kind)) return listOf(reply(Router.roleOf(kind), recordHint(kind), WordedBy.TEMPLATE, kind))
 
-        val profile = input.profile
-        val today = snapshot.today(profile)
-        val dayOf = { at: Long -> snapshot.dayOf(Instant.ofEpochMilli(at), profile) }
+        val mode = if (discussing || kind == DISCUSS) MessageMode.DISCUSS else MessageMode.NORMAL
         val latin = profile.idolNames
+        val rendered = MemoryBlocks.render(store.memory.items(), today, dayOf)
         val system = PromptBuilder.system(
             PromptInput(
-                role = Roles.MANAGER, mode = MessageMode.NORMAL, tone = tone, rules = input.rules,
-                memory = MemoryBlocks.render(store.memory.items(), today, dayOf), facts = facts,
+                role = Roles.MANAGER, mode = mode, tone = tone, rules = input.rules, memory = rendered, facts = facts,
                 companyName = profile.companyName ?: PromptInput.DEFAULT_COMPANY,
                 latinNames = (OutputGuard.LATIN_WHITELIST + latin).distinct(),
-                // Memory events are applied from T12 on (with 她記得的事 to see and undo them); until then none is asked for.
-                memoryWrites = false,
+                memoryWrites = true,
             ),
         )
         // The seed table too: on a fresh install the store has no food yet, and 給力盒子 or 全家 must not read as unknown chains.
@@ -397,13 +517,82 @@ class Brain(
         val factsText = facts.json.toString()
         val foodItems = parsed?.items.orEmpty().isNotEmpty()
         val judgeContext = { shown: String -> judgeContext(input, foodItems, owner.text, shown) }
-        val round = ChatRound(system, PromptBuilder.turns(facts, owner), RoleKey.MANAGER, MessageMode.NORMAL, tone, judgeContext) { outputs ->
+        val ctx = RoundContext(owner, rendered.refs, today)
+        val memory = MemoryApplier(store, clock, profile.dayStartHour, newId)
+        val tools = ToolRegistry(chatTools(store, snapshot, clock, newId, memory, ctx) { nerve.state(today).riding })
+        val replay = replay(facts.window)
+        // 乙: she thinks on every reply. DeepSeek refuses a thinking request with tools when an older reply of hers in the
+        // window has no reasoning to send back (imported, or written before thinking was kept): that round goes without.
+        val thinking = if (provider() == ProviderChoice.DEEPSEEK && replay.old > 0) {
+            log("chat thinking off this round: ${replay.old} earlier replies have no stored thinking")
+            Thinking.OFF
+        } else {
+            Thinking.LOW
+        }
+        val round = ChatRound(system, PromptBuilder.turns(facts, owner, replay = replay.replay), RoleKey.MANAGER, mode, tone, judgeContext, thinking) { outputs ->
             Evidence(listOf(factsText) + outputs, names, latin, ownerText = owner.text, breachToday = input.today.breachToday)
         }
         val result = loop.run(round, tools)
+        if (result.fail == Fail.OFFLINE && ctx.proposals.isEmpty() && ctx.memoryEvents.isEmpty()) return unsent(owner)
         _lastFail.value = result.fail
-        val text = result.utterance.text + (result.fail?.let(::failLine) ?: "")
-        return reply(RoleKey.MANAGER, text, if (result.fromModel) WordedBy.MODEL else WordedBy.TEMPLATE, kind)
+        val u = result.utterance
+        if (result.fromModel && u.memory.isNotEmpty() && ctx.memoryLeft > 0) {
+            ctx.memoryEvents += memory.apply(u.memory.take(ctx.memoryLeft), owner, rendered.refs).applied.map { it.id }
+        }
+        val text = u.text + (u.ask?.let { "\n$it" } ?: "") + (result.fail?.let(::failLine) ?: "")
+        val refs = MessageRefs(
+            proposal = ctx.proposals.lastOrNull(), options = u.options, recommended = u.recommended, memory = ctx.memoryEvents.toList(),
+            proposals = ctx.proposals.toList(),
+        )
+        val m = Message(
+            newId(), clock.millis(), Who.COMPANY, role = RoleKey.MANAGER, kind = if (mode == MessageMode.DISCUSS) DISCUSS else kind,
+            mode = mode, text = text, refs = refs, wordedBy = if (result.fromModel) WordedBy.MODEL else WordedBy.TEMPLATE,
+        )
+        store.messages.insert(m)
+        if (result.fromModel) keepThinking(m, result.assistant)
+        return listOf(m)
+    }
+
+    /** No network: his line stays, marked 「沒送出」, and nothing is answered (重送 tries again on the same row). */
+    private suspend fun unsent(owner: Message): List<Message> {
+        store.messages.upsert(owner.copy(unsent = true))
+        _lastFail.value = Fail.OFFLINE
+        return emptyList()
+    }
+
+    /** How the window's company lines go back ([PromptBuilder.turns]); [old] counts her replies with no stored thinking. */
+    private class Window(val replay: PromptBuilder.Replay, val old: Int)
+
+    private suspend fun replay(window: List<Message>): Window {
+        val replies = window.filter(::isReply)
+        val rows = store.thinking.of(replies.map { it.id }).associateBy { it.messageId }
+        val now = provider().name
+        val reasoning = mutableMapOf<String, String>()
+        val plain = mutableSetOf<String>()
+        var old = 0
+        replies.forEach { m ->
+            val row = rows[m.id]
+            when {
+                // Imported, or written before thinking was kept: her reply, with nothing to send back.
+                row == null -> { plain += m.id; old++ }
+                row.provider != now -> Unit // another provider's reply: a labelled line on his side
+                row.wire == Wire.OPENAI.name -> reasoning[m.id] = row.payload
+                // Claude's own: plain text (its blocks are bound to the round that made them, see Thoughts).
+                row.wire == Wire.ANTHROPIC.name -> plain += m.id
+                else -> Unit // a reply of a thinking-off round: a labelled line, so it never turns thinking off again
+            }
+        }
+        return Window(PromptBuilder.Replay(reasoning, plain), old)
+    }
+
+    /** Her chat replies (the model's, or imported ones); code-written lines and reminders are not. */
+    private fun isReply(m: Message): Boolean = m.who == Who.COMPANY && (m.legacy || (m.wordedBy == WordedBy.MODEL && m.kind in REPLY_KINDS))
+
+    /** Keeps the thinking behind reply [m] (乙): never shown, never logged; a row also for none, so the next round can tell. */
+    private suspend fun keepThinking(m: Message, assistant: Turn.Assistant?) {
+        val t = assistant?.let(Thoughts::of)
+        store.thinking.put(StoredThinking(m.id, m.at, provider().name, t?.first?.name ?: NO_THINKING, t?.second.orEmpty()))
+        store.thinking.prune(clock.millis() - THINKING_KEEP_MS)
     }
 
     /** A command word (code only, no model): its line, then what the links said about its signal. */
@@ -466,6 +655,19 @@ class Brain(
         const val INTAKE_TOKENS = 600
         const val NUDGE_TOKENS = 200
         private const val CHAT = "chat"
+        private const val DISCUSS = "discuss"
+
+        /** The kinds of her replies from the tool loop (the ones whose thinking is kept and sent back). */
+        val REPLY_KINDS = setOf(CHAT, "mood", "unwell", DISCUSS)
+
+        /** The thinking row of a reply made with thinking off (nothing to send back). */
+        const val NO_THINKING = "OFF"
+
+        /** Thinking older than this is deleted (it only ever goes back for the last ten messages). */
+        const val THINKING_KEEP_MS = 30L * 24 * 3_600_000
+
+        /** The kind of the line that says several proposals are waiting. */
+        const val PROPOSALS_KIND = "proposals"
 
         /** The kind of the manager's 入社建檔 lines. */
         const val BASELINE_KIND = "baseline"

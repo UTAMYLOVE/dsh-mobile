@@ -35,6 +35,8 @@ class FakeModel {
     @Volatile var intakeKind = "chat"
     @Volatile var reply = "收到。現在去喝水。"
     @Volatile var toolFirst = false
+    /** A tool the chat call asks for first (name to arguments), once per message (e10). */
+    @Volatile var toolCall: Pair<String, String>? = null
     /** Requests cut off while [online] was false. */
     val cutOff = AtomicInteger()
     private val ids = AtomicInteger()
@@ -77,6 +79,7 @@ class FakeModel {
         intakeKind = "chat"
         reply = "收到。現在去喝水。"
         toolFirst = false
+        toolCall = null
     }
 
     private fun utterance() = JSONObject().put("text", reply).put("ask", JSONObject.NULL).put("options", JSONArray())
@@ -93,6 +96,10 @@ class FakeModel {
                 .put("reasoning_content", "先看今天的紀錄")
                 .put("tool_calls", JSONArray().put(JSONObject().put("id", "call_${ids.incrementAndGet()}").put("type", "function")
                     .put("function", JSONObject().put("name", "get_today").put("arguments", "{}"))))
+            toolCall != null && req.has("tools") && last?.optString("role") != "tool" -> message.put("content", "")
+                .put("reasoning_content", "要提一個調整")
+                .put("tool_calls", JSONArray().put(JSONObject().put("id", "call_${ids.incrementAndGet()}").put("type", "function")
+                    .put("function", JSONObject().put("name", toolCall!!.first).put("arguments", toolCall!!.second))))
             else -> message.put("content", utterance()).put("reasoning_content", "好")
         }
         return json(

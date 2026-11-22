@@ -43,6 +43,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.FixMethodOrder
 import org.junit.Rule
+import app.dshmobile.ui.agency.ChatTags
+import app.dshmobile.ui.agency.ProposalTags
+import app.agency.core.model.ProposalStatus
+import app.agency.core.model.PlanSectionKey
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
@@ -228,8 +233,8 @@ class AgencyE2eTest {
     }
 
     /**
-     * Review M13: with no network his message is kept and shown, the reply is the template and says the company could not
-     * reach the model, and once the network is back he can send again and gets a real answer.
+     * Review M13 and T12: with no network his message is kept and shown, marked 「沒送出」 with 「重送」 beside it, and nothing
+     * is answered; once the network is back one tap on 重送 gets a real answer and the mark goes, on the same row (no copy).
      */
     @Test fun e05_offlineStillKeepsHisMessage() {
         // The screen's Compose state changes on the main thread only (the first CI run of b7b2703 drew while an IO thread
@@ -269,31 +274,53 @@ class AgencyE2eTest {
         open()
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
-        val offline = Brain.failLine(Fail.OFFLINE)
-        rule.waitUntil(60_000) { rule.onAllNodes(hasText(offline, substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        val stored = runBlocking { ready().store.messages.recent(5) }.filter { it.kind != Brain.BASELINE_KIND }
-        assertEquals(listOf(Who.OWNER, Who.COMPANY), stored.map { it.who })
+        fun mine() = runBlocking { ready().store.messages.recent(5) }.filter { it.kind != Brain.BASELINE_KIND }
+        rule.waitUntil(60_000) { mine().singleOrNull()?.unsent == true }
+        val stored = mine()
+        assertEquals(listOf(Who.OWNER), stored.map { it.who })
         assertEquals("姐姐在嗎", stored[0].text)
-        assertEquals(WordedBy.TEMPLATE, stored[1].wordedBy)
-        assertTrue(stored[1].text, stored[1].text.endsWith(offline))
         assertEquals(Fail.OFFLINE, ready().brain.lastFail.value)
         // The app did try and was cut off; nothing reached the model.
         assertTrue(fake.cutOff.get() > 0)
         assertTrue(fake.seen.isEmpty())
-        // On screen: his own bubble with his words, and the company's line saying it could not reach the model.
+        // On screen: his own bubble with his words, 「沒送出」 and 「重送」.
         rule.onNode(hasTestTag(AgencyTags.BUBBLE + stored[0].id) and hasAnyDescendant(hasText("姐姐在嗎"))).assertExists()
-        rule.onNode(hasTestTag(AgencyTags.BUBBLE + stored[1].id) and hasAnyDescendant(hasText(offline, substring = true))).assertExists()
-        // The network is back: he sends again and the company answers; his first message is still there.
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag(ChatTags.UNSENT + stored[0].id).fetchSemanticsNodes().isNotEmpty() }
+        // The network is back: one tap on 重送 and the company answers; the same row, the mark gone.
         fake.online = true
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
-        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(AgencyTags.SEND).assertIsEnabled() }.isSuccess }
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(ChatTags.RESEND + stored[0].id).assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag(ChatTags.RESEND + stored[0].id).performClick()
         rule.waitUntil(60_000) { rule.onAllNodes(hasText("現在去喝水。", substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        val after = runBlocking { ready().store.messages.recent(5) }.filter { it.kind != Brain.BASELINE_KIND }
-        assertEquals(listOf(Who.OWNER, Who.COMPANY, Who.OWNER, Who.COMPANY), after.map { it.who })
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag(ChatTags.UNSENT + stored[0].id).fetchSemanticsNodes().isEmpty() }
+        val after = mine()
+        assertEquals(listOf(Who.OWNER, Who.COMPANY), after.map { it.who })
         assertEquals(stored[0].id, after[0].id)
-        assertEquals(WordedBy.MODEL, after[3].wordedBy)
+        assertFalse(after[0].unsent)
+        assertEquals(WordedBy.MODEL, after[1].wordedBy)
         assertEquals(null, ready().brain.lastFail.value)
+    }
+
+    /**
+     * Arch T12 e2e: the fake model calls `propose_change`; the plan stays as it is until he taps 好 on the card; then the
+     * schedule has a new version written by that proposal.
+     */
+    @Test fun e10_proposalNeedsConfirm() {
+        app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
+        fake.toolCall = "propose_change" to """{"section":"schedule","ops":[{"path":"class_wake","value":"08:20"}],"reason":"早一點起來吃早餐"}"""
+        fake.reply = "我提了一個調整，你看卡片。"
+        open()
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("我想早一點起床")
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitUntil(60_000) { runBlocking { ready().store.proposals.withStatus(ProposalStatus.PENDING) }.isNotEmpty() }
+        val p = runBlocking { ready().store.proposals.withStatus(ProposalStatus.PENDING) }.single()
+        assertEquals(1, runBlocking { ready().store.rules.section(PlanSectionKey.SCHEDULE) }!!.version)
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(ProposalTags.YES + p.id).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(ProposalTags.YES + p.id).performScrollTo().performClick()
+        rule.waitUntil(30_000) { runBlocking { ready().store.rules.section(PlanSectionKey.SCHEDULE) }!!.version == 2 }
+        val section = runBlocking { ready().store.rules.section(PlanSectionKey.SCHEDULE) }!!
+        assertEquals(p.id, section.changedBy)
+        assertEquals(ProposalStatus.ACCEPTED, runBlocking { ready().store.proposals.get(p.id) }!!.status)
+        rule.waitUntil(30_000) { rule.onAllNodes(hasText("好，改了：上課日起床 08:30 → 08:20。")).fetchSemanticsNodes().isNotEmpty() }
     }
 
     /**

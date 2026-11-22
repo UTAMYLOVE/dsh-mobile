@@ -95,6 +95,13 @@ sealed interface Signal {
     @Serializable @SerialName("gap_due")
     data class GapDue(override val id: String, override val at: Long, val keys: List<SlotKey>, val index: Int, override val source: String = "scheduler") : Signal
 
+    /**
+     * The required slots of coach day [day] that ended undone (the brain emits it at the next day's start, T12; id
+     * `missed:<day>`). L14 reads a streak of these.
+     */
+    @Serializable @SerialName("day_missed")
+    data class DayMissed(override val id: String, override val at: Long, val day: String, val keys: List<SlotKey>, override val source: String = "clock") : Signal
+
     /** Chained by L9: is the day still under the floor? */
     @Serializable @SerialName("floor_check")
     data class FloorCheck(override val id: String, override val at: Long, override val source: String = "link") : Signal

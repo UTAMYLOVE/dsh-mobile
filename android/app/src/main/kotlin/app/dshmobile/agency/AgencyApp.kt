@@ -489,11 +489,16 @@ class AgencyApp(
     }
 
     /** Sends his message to the brain, off the main thread; a failure is logged, never thrown at the screen. */
-    fun send(text: String) {
+    fun send(text: String) = talk { it.onText(text) }
+
+    /** 重送 on a line of his marked 「沒送出」 (T12): the same row is answered again; nothing is copied. */
+    fun resend(messageId: String) = talk { it.resend(messageId) }
+
+    private fun talk(say: suspend (app.agency.core.brain.Brain) -> Unit) {
         val ready = _start.value as? StartState.Ready ?: return
         scope.launch {
             try {
-                ready.brain.onText(text)
+                say(ready.brain)
                 refreshDayStart(ready.store)
                 remind(ready)
                 if (costMeter.consumeAlert()) notifier.costAlert(costMeter.todayUsd())
@@ -620,6 +625,7 @@ class AgencyApp(
         return Brain(
             store, ProviderRouter({ settings.provider }, deepseek, claude, compat), { settings.provider }, clock,
             intakeLlm = ProviderRouter({ settings.provider }, deepseekClerk, claudeClerk, compat),
+            log = { line -> errorLog.append("brain", line) },
         )
     }
 

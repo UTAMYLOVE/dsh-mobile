@@ -34,6 +34,11 @@ class ChatRound(
     val mode: MessageMode,
     val tone: Tone,
     val judgeContext: (visibleReply: String) -> String? = { null },
+    /**
+     * Thinking for this round (owner's choice 乙: the manager thinks on every reply). The brain turns it OFF only for a round
+     * whose history holds an older reply of hers with no stored thinking (DeepSeek would refuse a thinking request then).
+     */
+    val thinking: Thinking = Thinking.LOW,
     val evidence: (toolOutputs: List<String>) -> Evidence,
 )
 
@@ -49,6 +54,8 @@ data class LoopReply(
     val steps: Int,
     val toolCalls: Int,
     val judged: Int = 0,
+    /** The provider's turn that held the accepted reply (its thinking is kept by the brain); null for the template. */
+    val assistant: Turn.Assistant? = null,
 )
 
 /**
@@ -82,7 +89,7 @@ class ChatLoop(
         for (step in 1..maxSteps) {
             val request = ChatRequest(
                 system = round.system, turns = convo, purpose = Purpose.CHAT, maxTokens = tokens, tools = tools.specs,
-                output = Output.Json(Utterance.SCHEMA), thinking = Thinking.LOW,
+                output = Output.Json(Utterance.SCHEMA), thinking = round.thinking,
             )
             val result = llm.chat(request)
             if (result is ChatResult.Failed) {
@@ -116,7 +123,7 @@ class ChatLoop(
                     } else {
                         null
                     }
-                    if (verdict !is Verdict.Breach) return LoopReply(checked.value, true, null, step, called, judged)
+                    if (verdict !is Verdict.Breach) return LoopReply(checked.value, true, null, step, called, judged, ok.assistant)
                     if (retries >= StructuredCaller.MAX_RETRIES) return template(null, step)
                     retries++
                     convo = convo + ok.assistant + Turn.User(StructuredCaller.retryText(listOf(verdict.violation)))

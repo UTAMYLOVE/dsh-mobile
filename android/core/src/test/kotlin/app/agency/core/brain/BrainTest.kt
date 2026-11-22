@@ -37,6 +37,7 @@ class BrainTest {
 
     private fun intake(kind: String) = ScriptedLlm.ok("""{"kind":"$kind"}""")
     private fun utter(text: String) = ScriptedLlm.ok("""{"text":"$text","ask":null,"options":[],"recommended":null,"memory":[]}""")
+    private fun ask(text: String, q: String) = ScriptedLlm.ok("""{"text":"$text","ask":"$q","options":[],"recommended":null,"memory":[]}""")
 
     private fun stored(): List<Message> = runBlocking { store.messages.recent(100) }
 
@@ -72,7 +73,10 @@ class BrainTest {
         assertFalse(stored().any { it.text.contains("1234") })
         val chat = llm.requests[1]
         assertEquals(Purpose.CHAT, chat.purpose)
-        assertEquals(listOf("get_today", "query_records", "get_plan"), chat.tools.map { it.name })
+        assertEquals(
+            listOf("get_today", "query_records", "lookup_food", "compute", "search_places", "get_plan", "propose_change", "propose_meal_order", "save_place", "remember"),
+            chat.tools.map { it.name },
+        )
         assertTrue(chat.system.contains("【你的角色：經紀人】"))
         assertNull(b.lastFail.value)
         assertFalse(b.busy.value)
@@ -110,9 +114,9 @@ class BrainTest {
     }
 
     @Test fun theLoopFailingAfterTheClerkAlsoSaysWhy() {
-        val llm = ScriptedLlm(intake("mood"), ScriptedLlm.failed(Fail.OFFLINE))
+        val llm = ScriptedLlm(intake("mood"), ScriptedLlm.failed(Fail.SERVER))
         val out = runBlocking { brain(llm).onText("今天心情不好") }
-        assertEquals(Roles.template(RoleKey.MANAGER, Tone.GENTLE) + Brain.failLine(Fail.OFFLINE), out[1].text)
+        assertEquals(Roles.template(RoleKey.MANAGER, Tone.GENTLE) + Brain.failLine(Fail.SERVER), out[1].text)
     }
 
     @Test fun blankTextWritesNothing() {
@@ -147,12 +151,12 @@ class BrainTest {
         assertTrue(llm.requests[0].turns.any { (it as? Turn.User)?.text?.contains("第1句") == true })
     }
 
-    @Test fun noMemoryIsAskedForWhileNothingAppliesIt() {
+    @Test fun memoryIsAskedForNowThatItIsApplied() {
         val llm = ScriptedLlm(intake("chat"), utter("去喝水。"))
         runBlocking { brain(llm).onText("記得我不吃香菜") }
         val system = llm.requests[1].system
-        assertTrue(system.contains("memory 永遠給空陣列"))
-        assertFalse(system.contains("memory 只放"))
+        assertTrue(system.contains("memory 只放"))
+        assertFalse(system.contains("memory 永遠給空陣列"))
     }
 
     @Test fun aReplyThatNeverPassesSaysTheModelDidNotAnswerWell() {
@@ -216,7 +220,7 @@ class BrainTest {
         assertEquals(listOf(Purpose.INTAKE), clerk.requests.map { it.purpose })
 
         val other = ScriptedLlm(intake("discuss"))
-        runBlocking { withClerk(other, ScriptedLlm(utter("好，先照計畫。"))).onText("核心可以改到晚上嗎") }
+        runBlocking { withClerk(other, ScriptedLlm(ask("好，先弄清楚。", "是哪一天不方便？"))).onText("核心可以改到晚上嗎") }
         assertEquals(listOf(Purpose.INTAKE), other.requests.map { it.purpose })
     }
 
@@ -224,10 +228,12 @@ class BrainTest {
         // No meal today, no breach: only the conversation is about food. 「chat」, 「mood」 and 「discuss」 all count.
         for (kind in listOf("chat", "mood", "discuss")) {
             val clerk = ScriptedLlm(intake(kind), judgeOk())
-            val llm = ScriptedLlm(utter("今天照計畫走。"))
+            val discuss = kind == "discuss"
+            val llm = ScriptedLlm(if (discuss) ask("今天照計畫走。", "是哪一餐？") else utter("今天照計畫走。"))
             runBlocking { withClerk(clerk, llm).onText("昨天宵夜吃太多今天怎麼辦") }
             assertEquals(kind, listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
-            assertEquals(kind, SecondPassJudge.userText("今天照計畫走。", "他正在討論吃的"), (clerk.requests[1].turns.single() as Turn.User).text)
+            val shown = if (discuss) "今天照計畫走。\n是哪一餐？" else "今天照計畫走。"
+            assertEquals(kind, SecondPassJudge.userText(shown, "他正在討論吃的"), (clerk.requests[1].turns.single() as Turn.User).text)
         }
     }
 

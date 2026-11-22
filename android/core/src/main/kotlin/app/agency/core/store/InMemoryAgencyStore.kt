@@ -9,6 +9,7 @@ import app.agency.core.model.DayRecord
 import app.agency.core.model.EffectStatus
 import app.agency.core.model.NerveEffect
 import app.agency.core.model.StoredSignal
+import app.agency.core.model.StoredThinking
 import app.agency.core.model.FavoritePlace
 import app.agency.core.model.FoodEntry
 import app.agency.core.model.Meal
@@ -65,6 +66,7 @@ class InMemoryAgencyStore : AgencyStore {
         val audits: MutableList<AuditLog> = mutableListOf(),
         val signals: MutableMap<String, StoredSignal> = mutableMapOf(),
         val effects: MutableMap<String, NerveEffect> = mutableMapOf(),
+        val thinking: MutableMap<String, StoredThinking> = mutableMapOf(),
     ) {
         /** The records are immutable, so copying the containers is a full snapshot. */
         fun snapshot() = Tables(
@@ -73,7 +75,7 @@ class InMemoryAgencyStore : AgencyStore {
             water.toMutableMap(), training.toMutableMap(), signs.toMutableMap(), weights.toMutableMap(), conditions.toMutableMap(),
             baselines.toMutableMap(), media.toMutableMap(), messages.toMutableMap(), proposals.toMutableMap(),
             memoryItems.toMutableMap(), memoryEvents.toMutableMap(), nudges.toMutableMap(), migrations.toMutableList(),
-            audits.toMutableList(), signals.toMutableMap(), effects.toMutableMap(),
+            audits.toMutableList(), signals.toMutableMap(), effects.toMutableMap(), thinking.toMutableMap(),
         )
     }
 
@@ -288,5 +290,16 @@ class InMemoryAgencyStore : AgencyStore {
             effects[id] = e.copy(status = status, decidedAt = decidedAt)
             true
         }
+    }
+
+    override val thinking = object : ThinkingRepo {
+        override suspend fun put(thinking: StoredThinking) = locked { this.thinking[thinking.messageId] = thinking }
+        override suspend fun of(messageIds: Collection<String>): List<StoredThinking> = locked { messageIds.mapNotNull { thinking[it] } }
+        override suspend fun prune(before: Long): Int = locked {
+            val old = thinking.values.filter { it.at < before }.map { it.messageId }
+            old.forEach { thinking.remove(it) }
+            old.size
+        }
+        override suspend fun count(): Int = locked { thinking.size }
     }
 }

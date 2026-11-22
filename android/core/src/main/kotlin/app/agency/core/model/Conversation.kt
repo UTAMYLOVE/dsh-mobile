@@ -12,15 +12,27 @@ enum class MessageMode { NORMAL, DISCUSS }
 /** Whether a company sentence was written by the model (and passed the guard) or by a code template. */
 enum class WordedBy { MODEL, TEMPLATE }
 
-/** What a message points at: record ids, search result ids, a proposal. */
+/**
+ * What a message points at: record ids, search result ids, a proposal. In 討論 (T12) [options] are the chips under the
+ * question (at most four) and [recommended] the one she marks; [memory] holds the memory events this reply applied (shown
+ * under her bubble as 「經紀人記下：…」 with 撤銷); [proposals] every proposal this reply created.
+ */
 @Serializable
 data class MessageRefs(
     val records: List<String> = emptyList(),
     val results: List<String> = emptyList(),
     val proposal: String? = null,
+    val options: List<String> = emptyList(),
+    val recommended: Int? = null,
+    val memory: List<String> = emptyList(),
+    val proposals: List<String> = emptyList(),
 )
 
-/** One line of the one conversation. [legacy] marks lines imported from v0.8.3. */
+/**
+ * One line of the one conversation. [legacy] marks lines imported from v0.8.3. [unsent] marks a line of his that could not
+ * reach the model (no network, T12): it is kept and shown with 「沒送出」 and 「重送」; a resend that gets through clears it on
+ * the same row (never a second copy).
+ */
 data class Message(
     val id: String,
     val at: Long,
@@ -32,6 +44,22 @@ data class Message(
     val refs: MessageRefs = MessageRefs(),
     val wordedBy: WordedBy? = null,
     val legacy: Boolean = false,
+    val unsent: Boolean = false,
+)
+
+/**
+ * The provider's thinking behind one of the manager's chat replies (owner's choice 乙, T12), kept in its own table of the
+ * encrypted database: never shown to him, never logged, never put in memory or an export. [provider] is the
+ * [app.agency.core.llm.ProviderChoice] name that produced it (it goes back only to that provider); [wire] says what [payload]
+ * holds: for OPENAI the `reasoning_content` string, for ANTHROPIC the JSON array of `thinking` / `redacted_thinking` blocks
+ * with their signatures, exactly as returned.
+ */
+data class StoredThinking(
+    val messageId: String,
+    val at: Long,
+    val provider: String,
+    val wire: String,
+    val payload: String,
 )
 
 /** [TODAY_CHANGE] and [RULES_SUGGESTION] come from the links (T11b): a today-only illness change, a hint to go to 設定. */

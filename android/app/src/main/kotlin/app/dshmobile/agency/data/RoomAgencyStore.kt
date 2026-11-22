@@ -21,6 +21,9 @@ import app.agency.core.model.EffectStatus
 import app.agency.core.model.NerveEffect
 import app.agency.core.model.Nudge
 import app.agency.core.model.StoredSignal
+import app.agency.core.model.StoredThinking
+import app.agency.core.store.ThinkingRepo
+import app.dshmobile.agency.data.entities.ThinkingEntity
 import app.agency.core.model.OrderStatus
 import app.agency.core.model.PendingLabel
 import app.agency.core.model.PlanSection
@@ -278,5 +281,14 @@ class RoomAgencyStore(private val db: AgencyDatabase) : AgencyStore {
         override suspend fun effects(day: String): List<NerveEffect> = dao.effects(day).map { it.toModel() }
         override suspend fun effectsWith(status: EffectStatus): List<NerveEffect> = dao.effectsWith(status).map { it.toModel() }
         override suspend fun setStatus(id: String, status: EffectStatus, decidedAt: Long?): Boolean = dao.setStatus(id, status, decidedAt) > 0
+    }
+
+    override val thinking = object : ThinkingRepo {
+        private val dao = db.thinking()
+        override suspend fun put(thinking: StoredThinking) = dao.put(ThinkingEntity.of(thinking))
+        override suspend fun of(messageIds: Collection<String>): List<StoredThinking> =
+            messageIds.distinct().chunked(500).flatMap { dao.of(it) }.map { it.toModel() }
+        override suspend fun prune(before: Long): Int = dao.prune(before)
+        override suspend fun count(): Int = dao.count()
     }
 }

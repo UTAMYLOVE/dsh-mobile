@@ -9,6 +9,7 @@ import app.agency.core.model.DayRecord
 import app.agency.core.model.EffectStatus
 import app.agency.core.model.NerveEffect
 import app.agency.core.model.StoredSignal
+import app.agency.core.model.StoredThinking
 import app.agency.core.model.FavoritePlace
 import app.agency.core.model.FoodEntry
 import app.agency.core.model.Meal
@@ -61,6 +62,7 @@ interface AgencyStore {
     val nudges: NudgeRepo
     val journal: JournalRepo
     val nerve: NerveRepo
+    val thinking: ThinkingRepo
 
     /** Runs [block] atomically: if it throws, nothing it wrote stays. Calls may nest (the outermost one commits). */
     suspend fun <T> transaction(block: suspend () -> T): T
@@ -231,6 +233,21 @@ interface NerveRepo {
     /** Effects with [status] (any day), by `at`, then id. */
     suspend fun effectsWith(status: EffectStatus): List<NerveEffect>
     suspend fun setStatus(id: String, status: EffectStatus, decidedAt: Long?): Boolean
+}
+
+/**
+ * The manager's stored thinking (T12, owner's choice 乙), one row per reply. Read only to send it back to the provider that
+ * produced it; nothing else reads it (no screen, no log, no memory, no export).
+ */
+interface ThinkingRepo {
+    suspend fun put(thinking: StoredThinking)
+
+    /** The rows of [messageIds] that exist. */
+    suspend fun of(messageIds: Collection<String>): List<StoredThinking>
+
+    /** Deletes the rows written before [before]; returns how many went. */
+    suspend fun prune(before: Long): Int
+    suspend fun count(): Int
 }
 
 /** The import log and the audit log. */

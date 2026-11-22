@@ -4,6 +4,8 @@ import app.agency.core.model.CompanyRules
 import app.agency.core.model.EffectKind
 import app.agency.core.model.EffectStatus
 import app.agency.core.model.Message
+import app.agency.core.model.MessageMode
+import app.agency.core.model.MessageRefs
 import app.agency.core.model.NerveEffect
 import app.agency.core.model.Proposal
 import app.agency.core.model.ProposalKind
@@ -108,7 +110,11 @@ class Nerve(
                     is Effect.Say -> {
                         result += write(row(EffectKind.SAY, EffectStatus.DONE, e.text, null, null))
                         msgAt += 1
-                        val m = Message(newId(), msgAt, Who.COMPANY, role = e.role, kind = KIND, text = e.text, wordedBy = WordedBy.TEMPLATE)
+                        val m = Message(
+                            newId(), msgAt, Who.COMPANY, role = e.role, kind = KIND,
+                            mode = if (e.discuss) MessageMode.DISCUSS else MessageMode.NORMAL, text = e.text,
+                            refs = MessageRefs(options = e.options), wordedBy = WordedBy.TEMPLATE,
+                        )
                         store.messages.insert(m)
                         result += NerveResult(messages = listOf(m))
                     }

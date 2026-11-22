@@ -48,6 +48,8 @@ data class DayState(
     val flags: Set<DayFlag> = emptySet(),
     /** A today-only illness change is proposed or accepted today. */
     val reductionProposed: Boolean = false,
+    /** Per required slot, how many coach days in a row up to yesterday it ended undone (L14, from `day_missed`). */
+    val missedInRow: Map<SlotKey, Int> = emptyMap(),
 ) {
     val riding: Boolean get() = rideStartAt != null && (rideEndAt == null || rideEndAt < rideStartAt) && signedOutAt == null
     val gentle: Boolean get() = ill != null || moodLow
@@ -107,6 +109,12 @@ object DayStateBuilder {
         val weights = decoded.mapNotNull { (row, s) -> (s as? Signal.WeightLogged)?.let { LocalDate.parse(row.day) to it.kg } }
         val kcalByDay = decoded.mapNotNull { (row, s) -> (s as? Signal.MealLogged)?.let { LocalDate.parse(row.day) to it.kcal } }
             .groupBy({ it.first }, { it.second }).mapValues { (_, v) -> v.sum() }
+        val missedDays = decoded.mapNotNull { (_, s) -> (s as? Signal.DayMissed)?.let { LocalDate.parse(it.day) to it.keys.toSet() } }.toMap()
+        val missedInRow = missedDays.values.flatten().toSet().associateWith { key ->
+            var n = 0
+            while (missedDays[day.minusDays(n + 1L)]?.contains(key) == true) n++
+            n
+        }.filterValues { it > 0 }
         val flags = adjustments(todayEffects).filterIsInstance<DayAdjust.Flag>().map { it.flag }.toSet()
         val proposed = todayEffects.any {
             it.kind == EffectKind.PROPOSAL && it.status in setOf(EffectStatus.PROPOSED, EffectStatus.ACCEPTED) &&
@@ -114,7 +122,7 @@ object DayStateBuilder {
         }
         return st.copy(
             lastNightOutAt = lastOut, illDaysInRow = streak, groomingLast = grooming, weights = weights, kcalByDay = kcalByDay,
-            flags = flags, reductionProposed = proposed,
+            flags = flags, reductionProposed = proposed, missedInRow = missedInRow,
         )
     }
 }

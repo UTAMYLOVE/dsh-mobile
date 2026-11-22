@@ -32,11 +32,32 @@ data class MessageEntity(
     val refs: String,
     @ColumnInfo(name = "worded_by") val wordedBy: WordedBy?,
     val legacy: Boolean,
+    /** Schema v3 (T12): his line could not reach the model (「沒送出」). */
+    @ColumnInfo(defaultValue = "0") val unsent: Boolean = false,
 ) {
-    fun toModel() = Message(id, at, who, role, kind, mode, text, JsonCols.refs(refs), wordedBy, legacy)
+    fun toModel() = Message(id, at, who, role, kind, mode, text, JsonCols.refs(refs), wordedBy, legacy, unsent)
 
     companion object {
-        fun of(m: Message) = MessageEntity(m.id, m.at, m.who, m.role, m.kind, m.mode, m.text, JsonCols.refs(m.refs), m.wordedBy, m.legacy)
+        fun of(m: Message) = MessageEntity(m.id, m.at, m.who, m.role, m.kind, m.mode, m.text, JsonCols.refs(m.refs), m.wordedBy, m.legacy, m.unsent)
+    }
+}
+
+/**
+ * The manager's thinking per reply (schema v3, T12, owner's choice 乙): its own table, read only to send it back to the
+ * provider that produced it; no screen, log, memory or export reads it.
+ */
+@Entity(tableName = "thinking", indices = [Index("at")])
+data class ThinkingEntity(
+    @PrimaryKey @ColumnInfo(name = "message_id") val messageId: String,
+    val at: Long,
+    val provider: String,
+    val wire: String,
+    val payload: String,
+) {
+    fun toModel() = app.agency.core.model.StoredThinking(messageId, at, provider, wire, payload)
+
+    companion object {
+        fun of(t: app.agency.core.model.StoredThinking) = ThinkingEntity(t.messageId, t.at, t.provider, t.wire, t.payload)
     }
 }
 

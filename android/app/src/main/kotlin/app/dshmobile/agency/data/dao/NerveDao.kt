@@ -21,3 +21,11 @@ import app.dshmobile.agency.data.entities.SignalEntity
     @Query("UPDATE nerve_effect SET status = :status, decided_at = :decidedAt WHERE id = :id")
     suspend fun setStatus(id: String, status: EffectStatus, decidedAt: Long?): Int
 }
+
+/** The manager's stored thinking (schema v3, T12). */
+@Dao interface ThinkingDao {
+    @androidx.room.Upsert suspend fun put(row: app.dshmobile.agency.data.entities.ThinkingEntity)
+    @Query("SELECT * FROM thinking WHERE message_id IN (:ids)") suspend fun of(ids: List<String>): List<app.dshmobile.agency.data.entities.ThinkingEntity>
+    @Query("DELETE FROM thinking WHERE at < :before") suspend fun prune(before: Long): Int
+    @Query("SELECT COUNT(*) FROM thinking") suspend fun count(): Int
+}

@@ -41,11 +41,11 @@ class AgencyDatabaseMigrationTest {
     private fun schema(version: Int): JSONObject =
         JSONObject(File("schemas/app.dshmobile.agency.data.AgencyDatabase/$version.json").readText()).getJSONObject("database")
 
-    /** The v1 file as the T02 build left it, with a profile, a message and a sign-in. */
-    private fun writeV1() {
-        val v1 = schema(1)
+    /** An empty file of schema [version], built from its checked-in JSON. */
+    private fun create(version: Int): SQLiteDatabase {
+        val v = schema(version)
         val db = SQLiteDatabase.openOrCreateDatabase(file, null)
-        val entities = v1.getJSONArray("entities")
+        val entities = v.getJSONArray("entities")
         for (i in 0 until entities.length()) {
             val e = entities.getJSONObject(i)
             val table = e.getString("tableName")
@@ -53,8 +53,15 @@ class AgencyDatabaseMigrationTest {
             val indices = e.optJSONArray("indices") ?: continue
             for (j in 0 until indices.length()) db.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", table))
         }
-        val setup = v1.getJSONArray("setupQueries")
+        val setup = v.getJSONArray("setupQueries")
         for (i in 0 until setup.length()) db.execSQL(setup.getString(i))
+        db.version = version
+        return db
+    }
+
+    /** The v1 file as the T02 build left it, with a profile, a message and a sign-in. */
+    private fun writeV1() {
+        val db = create(1)
         db.execSQL(
             "INSERT INTO profile (id, height_cm, start_weight_kg, stage_name, member_color, company_name, trainee_no, join_date, level, " +
                 "area_text, idol_names, day_start_hour, onboarding_done) VALUES (1, 170.0, 80.0, '小雨', '#8E2440', NULL, NULL, '2026-11-01', 'C', NULL, '[]', 5, 1)",
@@ -77,7 +84,7 @@ class AgencyDatabaseMigrationTest {
             assertTrue(store.nerve.insertSignal(StoredSignal("sig", "2026-11-22", 1, "woke_up", "{}")))
             assertTrue(store.nerve.insertEffect(NerveEffect("e", "2026-11-22", 2, "L1", "sig", EffectKind.ADJUST, "{}", "因為…所以…", EffectStatus.ACTIVE)))
             assertEquals(1, store.nerve.effects("2026-11-22").size)
-            assertEquals(2, db.openHelper.readableDatabase.version)
+            assertEquals(3, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -113,5 +120,50 @@ class AgencyDatabaseMigrationTest {
         val v2Tables = (0 until v2.length()).map { v2.getJSONObject(it).getString("tableName") }.toSet()
         assertTrue((v1Tables - v2Tables).isEmpty())
         assertEquals(setOf("signal", "nerve_effect"), v2Tables - v1Tables)
+    }
+
+    /** The v2 file as batch 2 (T11b) left it: a line of his and one of the manager's, and a signal. */
+    private fun writeV2() {
+        val db = create(2)
+        db.execSQL("INSERT INTO message (id, at, who, role, kind, mode, text, refs, worded_by, legacy) VALUES ('m1', 5, 'OWNER', NULL, NULL, 'NORMAL', '姐姐在嗎', '{}', NULL, 0)")
+        db.execSQL("INSERT INTO message (id, at, who, role, kind, mode, text, refs, worded_by, legacy) VALUES ('m2', 6, 'COMPANY', 'MANAGER', 'chat', 'NORMAL', '在。', '{}', 'MODEL', 0)")
+        db.execSQL("INSERT INTO signal (id, day, at, type, json, depth, cause_id) VALUES ('day:2026-11-22', '2026-11-22', 7, 'day_started', '{}', 0, NULL)")
+        db.close()
+    }
+
+    @Test fun aVersionTwoFileMigratesToThreeEveryLineSentAndThinkingWorks() = runBlocking {
+        writeV2()
+        val db = AgencyDatabase.build(context, file.path, FrameworkSQLiteOpenHelperFactory())
+        try {
+            val store = RoomAgencyStore(db)
+            val lines = store.messages.recent(10)
+            assertEquals(listOf("姐姐在嗎", "在。"), lines.map { it.text })
+            assertTrue(lines.none { it.unsent })
+            assertTrue(store.nerve.signal("day:2026-11-22") != null)
+            store.messages.upsert(lines[0].copy(unsent = true))
+            assertTrue(store.messages.get("m1")!!.unsent)
+            store.thinking.put(app.agency.core.model.StoredThinking("m2", 6, "DEEPSEEK", "OPENAI", "想一下"))
+            assertEquals("想一下", store.thinking.of(listOf("m2")).single().payload)
+            assertEquals(3, db.openHelper.readableDatabase.version)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun theMigrationToThreeIsWhatTheV3SchemaSays() {
+        val v3 = schema(3).getJSONArray("entities")
+        val byName = (0 until v3.length()).map { v3.getJSONObject(it) }.associateBy { it.getString("tableName") }
+        val thinking = byName.getValue("thinking")
+        val idx = thinking.getJSONArray("indices")
+        val expected = listOf(thinking.getString("createSql").replace("\${TABLE_NAME}", "thinking")) +
+            (0 until idx.length()).map { idx.getJSONObject(it).getString("createSql").replace("\${TABLE_NAME}", "thinking") }
+        assertEquals(expected, AgencyDatabase.MIGRATION_2_3_SQL.drop(1))
+        val unsent = byName.getValue("message").getJSONArray("fields").let { f -> (0 until f.length()).map { f.getJSONObject(it) } }.single { it.getString("columnName") == "unsent" }
+        assertEquals("0", unsent.getString("defaultValue"))
+        assertTrue(unsent.getBoolean("notNull"))
+        assertEquals("ALTER TABLE `message` ADD COLUMN `unsent` INTEGER NOT NULL DEFAULT 0", AgencyDatabase.MIGRATION_2_3_SQL.first())
+        val v2Tables = schema(2).getJSONArray("entities").let { a -> (0 until a.length()).map { a.getJSONObject(it).getString("tableName") } }.toSet()
+        assertEquals(setOf("thinking"), byName.keys - v2Tables)
+        assertTrue((v2Tables - byName.keys).isEmpty())
     }
 }

@@ -103,8 +103,9 @@ object PromptBuilder {
             "【模式：提醒】程式已經決定要提醒他，也已經先發了固定的提醒；你只用你的語氣寫一到兩句，講清楚現在要做的那件事。\n" + NudgeLine.FORMAT
         m == MessageMode.DISCUSS ->
             "【模式：討論】他覺得計畫有地方不適合。用平常說話的方式跟他討論：這次只問一個問題，放在 ask，text 裡不要再問；" +
-                "最多四個選項放在 options，用 recommended 標出你推薦第幾個（從 0 算）。討論的結果用提議交出去，他確認之前什麼都沒有改。" +
-                "公司規章不在討論範圍。最多四句。\n" + format
+                "最多四個選項放在 options，用 recommended 標出你推薦第幾個（從 0 算）。先找出原因，再給辦法；" +
+                "要改作息、吃飯時間或訓練時間時，用 propose_change 交出提議，他說好之前什麼都沒有改，不准說已經改好。" +
+                "訓練的量和公司規章不在討論範圍；累、沒睡好、不想做都不是減量的理由，照表。最多四句。\n" + format
         else -> "【模式：一般】下指令和期限，一次只盯一件事。最多四句。ask 給 null，options 給空陣列。\n" + format
         }
     }
@@ -121,15 +122,52 @@ object PromptBuilder {
     /**
      * The turns of a reply call: the window ([CallFacts.window]) and then his message ([owner]), or, for a nudge,
      * [instruction] (what the code decided to remind him of). Turns of one side are merged; the first turn is always his.
+     *
+     * Without [replay] every company line is an assistant line (the nudge's wording call). With it (chat, T12): her replies
+     * named in [Replay.reasoning] go back as assistant turns with the reasoning this provider returned
+     * ([app.agency.core.llm.Thoughts.replay]), those in [Replay.plain] as plain assistant lines, and every other company line
+     * (code-written lines, reminders, another provider's reply) as a labelled line on his side (「【公司訊息】【經紀人】…」),
+     * so a line that never had a provider's reasoning cannot turn thinking off.
      */
-    fun turns(f: CallFacts, owner: Message?, instruction: String? = null): List<Turn> {
+    fun turns(f: CallFacts, owner: Message?, instruction: String? = null, replay: Replay? = null): List<Turn> {
         val lines = f.window.map { m ->
-            if (m.who == Who.OWNER) true to m.text
-            else false to ((m.role?.let { "【${Roles.of(it).zh}】" } ?: "") + m.text)
+            val labelled = (m.role?.let { "【${Roles.of(it).zh}】" } ?: "") + m.text
+            when {
+                m.who == Who.OWNER -> Line(Side.OWNER, m.text)
+                replay == null -> Line(Side.PLAIN, labelled)
+                replay.reasoning.containsKey(m.id) -> Line(Side.REPLAY, m.text, replay.reasoning.getValue(m.id))
+                m.id in replay.plain -> Line(Side.PLAIN, labelled)
+                else -> Line(Side.OWNER, CONTEXT + labelled)
+            }
         }.toMutableList()
-        if (owner != null) lines += true to "【他剛說】\n" + FactsBuilder.clean(owner.text)
-        else lines += true to "【程式】" + (instruction ?: "寫一句提醒。")
-        return merged(lines)
+        if (owner != null) lines += Line(Side.OWNER, "【他剛說】\n" + FactsBuilder.clean(owner.text))
+        else lines += Line(Side.OWNER, "【程式】" + (instruction ?: "寫一句提醒。"))
+        return mergedLines(lines)
+    }
+
+    /** The label of a company line that goes on his side of the conversation (see [turns]). */
+    const val CONTEXT = "【公司訊息】"
+
+    /** How the window's company lines go back in a chat call (see [turns]). */
+    data class Replay(val reasoning: Map<String, String> = emptyMap(), val plain: Set<String> = emptySet())
+
+    private enum class Side { OWNER, PLAIN, REPLAY }
+
+    private data class Line(val side: Side, val text: String, val reasoning: String? = null)
+
+    private fun mergedLines(lines: List<Line>): List<Turn> {
+        val out = mutableListOf<Line>()
+        lines.dropWhile { it.side != Side.OWNER }.forEach { l ->
+            val last = out.lastOrNull()
+            if (last != null && last.side == l.side && l.side != Side.REPLAY) out[out.size - 1] = last.copy(text = last.text + "\n" + l.text) else out += l
+        }
+        return out.map { l ->
+            when (l.side) {
+                Side.OWNER -> Turn.User(l.text)
+                Side.PLAIN -> Turn.AssistantText(l.text)
+                Side.REPLAY -> app.agency.core.llm.Thoughts.replay(l.text, l.reasoning!!)
+            }
+        }
     }
 
     /** The data clerk's call: the clerk's prompt, the window and his sentence. */

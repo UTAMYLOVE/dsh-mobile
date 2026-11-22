@@ -26,6 +26,8 @@
     <string name="ag_role_manager">【經紀人】</string>
     <string name="ag_role_body">【體態管理老師】</string>
     <string name="ag_role_company">【公司】</string>
+    <string name="ag_role_manager_plain">經紀人</string>
+    <string name="ag_role_body_plain">體態管理老師</string>
     <string name="ag_empty_chat">還沒有對話。有事就跟經紀人說。</string>
     <string name="ag_older">看更早的對話</string>
     <string name="ag_composer_hint">跟公司說…</string>
@@ -245,4 +247,28 @@
     <string name="ag_lic_show">看授權全文</string>
     <string name="ag_lic_hide">收起授權全文</string>
     <string name="ag_lic_close">關閉</string>
+    <!-- 對話 (T12): 沒送出／重送, 討論 chips, memory lines, proposal cards, 她記得的事 -->
+    <string name="ag_unsent">沒送出</string>
+    <string name="ag_resend">重送</string>
+    <string name="ag_discuss">這裡有問題</string>
+    <string name="ag_recommended">推薦</string>
+    <string name="ag_mem_added">%1$s記下：%2$s</string>
+    <string name="ag_mem_updated">%1$s改成：%2$s</string>
+    <string name="ag_mem_deleted">%1$s刪掉：%2$s</string>
+    <string name="ag_mem_undo">撤銷</string>
+    <string name="ag_mem_undone">已撤銷</string>
+    <string name="ag_proposals_title">等你說好的提案</string>
+    <string name="ag_proposal_line">%1$s：%2$s → %3$s</string>
+    <string name="ag_proposal_line_new">%1$s：%2$s</string>
+    <string name="ag_proposal_yes">好</string>
+    <string name="ag_proposal_no">不要</string>
+    <string name="ag_set_memory">她記得的事</string>
+    <string name="ag_mem_intro">經紀人只記你親口說過、以後用得到的事。每一條都可以刪掉，每一次改動都可以撤銷。</string>
+    <string name="ag_mem_none">還沒有。</string>
+    <string name="ag_mem_delete">刪掉</string>
+    <string name="ag_mem_history">改動紀錄</string>
+    <string name="ag_mem_history_none">還沒有改動。</string>
+    <string name="ag_mem_by_you">你</string>
+    <string name="ag_mem_by_her">經紀人</string>
+    <string name="ag_mem_due">（%1$s）</string>
 </resources>

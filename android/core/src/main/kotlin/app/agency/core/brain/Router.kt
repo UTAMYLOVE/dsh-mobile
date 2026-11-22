@@ -23,6 +23,9 @@ sealed interface Route {
 object Router {
     const val NOT_YET = "這個功能下一版開"
 
+    /** His 「這裡有問題」 (a button or typed): the manager opens 討論 (T12). */
+    const val DISCUSS_OPEN = "discuss_open"
+
     /** The kind prefix of a grooming report (「刮好了」 → `grooming:SHAVE`). */
     const val GROOMING = "grooming:"
 
@@ -44,6 +47,7 @@ object Router {
     /** Exact command words (button words he may also type), by kind. */
     private val COMMANDS: Map<String, String> = buildMap {
         listOf("今天休息").forEach { put(it, "rest_day") }
+        listOf(Discussion.OPEN_WORD, "這個有問題", "這不適合我").forEach { put(it, DISCUSS_OPEN) }
         listOf("早上很餓").forEach { put(it, "hungry_morning") }
         listOf("喝完一壺", "喝了一壺", "喝了半壺", "喝完半壺").forEach { put(it, "water") }
         listOf("簽到", "起床", "起床了").forEach { put(it, "sign_in") }
