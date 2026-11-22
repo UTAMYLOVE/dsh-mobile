@@ -53,13 +53,14 @@ class BrainTest {
     }
 
     @Test fun aRecordKindTheClerkFindsGetsTheNotYetLineFromItsRole() {
-        val llm = ScriptedLlm(intake("meal"))
-        val out = runBlocking { brain(llm).onText("中午吃了雞腿便當") }
+        // Training reports come with T18; meals have their handler since T14.
+        val llm = ScriptedLlm(intake("training"))
+        val out = runBlocking { brain(llm).onText("今天的肌力三輪做完了") }
         assertEquals(1, llm.requests.size)
         assertEquals(Purpose.INTAKE, llm.requests[0].purpose)
         assertEquals(Router.NOT_YET, out[1].text)
         assertEquals(RoleKey.BODY, out[1].role)
-        assertEquals("meal", out[1].kind)
+        assertEquals("training", out[1].kind)
     }
 
     @Test fun chatGoesToTheManagersLoopAndOnlyTheGuardedReplyIsStored() {

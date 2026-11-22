@@ -108,8 +108,8 @@ class LookupFoodTool(private val store: AgencyStore) : AgencyTool {
         const val MAX_QUERY = 30
         const val MAX_CANDIDATES = 3
 
-        /** The seed table and his own entries (a stored entry wins over a seed of the same name). */
-        suspend fun table(store: AgencyStore) = (store.food.all() + FoodTable.seed(0)).distinctBy { it.name }
+        /** His own entries and plan v3's table (a stored entry wins over a seed of the same name). */
+        suspend fun table(store: AgencyStore) = FoodTable.withCurrent(store.food.all())
     }
 }
 

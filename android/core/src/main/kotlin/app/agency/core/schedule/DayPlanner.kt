@@ -20,6 +20,8 @@ data class DayPlan(
     val cheatSlot: SlotKey? = null,
     val soyMorning: Boolean = false,
     val reduction: Reduction? = null,
+    /** Today's smaller meals (L5): slot → at most this many kcal. */
+    val budgets: Map<SlotKey, Int> = emptyMap(),
 ) {
     fun slot(key: SlotKey): Slot? = slots.firstOrNull { it.key == key }
 
@@ -84,6 +86,7 @@ object DayPlanner {
             cheatSlot = SlotKey.parse(override?.cheatSlot),
             soyMorning = soy,
             reduction = reduction,
+            budgets = adjust.filterIsInstance<DayAdjust.MealBudget>().associate { it.key to it.kcal },
         )
     }
 }

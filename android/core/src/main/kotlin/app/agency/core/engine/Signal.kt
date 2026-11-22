@@ -77,6 +77,8 @@ sealed interface Signal {
         val kcal: Int,
         val proteinG: Double,
         val breaches: List<String> = emptyList(),
+        /** The declared 休假餐 (L7): banned food was allowed in it. */
+        val cheat: Boolean = false,
         override val source: String = "meal",
     ) : Signal
 
@@ -110,7 +112,7 @@ sealed interface Signal {
     @Serializable @SerialName("weight_logged")
     data class WeightLogged(override val id: String, override val at: Long, val kg: Double, override val source: String = "weight") : Signal
 
-    /** Money spent (stage 6, L16). */
+    /** Money spent (L16): a price he wrote with a meal (T14); 記帳 itself is stage 6. [image] is 形象用品 (娛樂費). */
     @Serializable @SerialName("spend_logged")
     data class SpendLogged(override val id: String, override val at: Long, val amount: Int, val image: Boolean, override val source: String = "money") : Signal
 

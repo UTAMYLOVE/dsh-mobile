@@ -17,6 +17,28 @@ object FoodTable {
         FoodEntry("蚵仔麵線一碗", listOf("蚵仔麵線"), 415, null, null, null, fried = false, estimated = true, seeded = true, addedAt = now),
     )
 
+    /** The two foods plan v3 adds to his table (即食雞胸 is his own estimate until a label; the soy milk is the label's). */
+    fun v3Added(now: Long): List<FoodEntry> = listOf(
+        FoodEntry("即食雞胸", listOf("即食雞胸肉", "超商雞胸"), 117, null, null, null, fried = false, estimated = true, seeded = true, addedAt = now),
+        FoodEntry("統一高纖豆漿", listOf("高纖豆漿"), 193, 15.0, null, null, fried = false, estimated = false, seeded = true, addedAt = now),
+    )
+
+    /**
+     * The table as plan v3 states it (T14): [seed] with 給力盒子 南加州烤雞腿 corrected to 714 kcal / 48 g (menu board), plus
+     * [v3Added]. Lookups use his stored table first and these for anything he has not stored ([withCurrent]).
+     */
+    fun current(now: Long): List<FoodEntry> = seed(now).map {
+        if (it.name == GELI_CHICKEN) it.copy(kcal = 714, proteinG = 48.0) else it
+    } + v3Added(now)
+
+    /** His stored entries, then [current] for the names he has none of (a stored entry always wins). */
+    fun withCurrent(stored: List<FoodEntry>): List<FoodEntry> {
+        val have = stored.map { normalize(it.name) }.toSet()
+        return stored + current(0).filter { normalize(it.name) !in have }
+    }
+
+    const val GELI_CHICKEN = "給力盒子 南加州烤雞腿"
+
     val FRIED_WORDS = listOf("炸", "酥", "鹽酥", "鹹酥", "天婦羅", "薯條", "雞塊", "雞排")
 
     private val PUNCT = Regex("[\\s·・、，,。.()（）「」]")

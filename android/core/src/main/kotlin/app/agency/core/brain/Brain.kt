@@ -2,6 +2,11 @@ package app.agency.core.brain
 
 import app.agency.core.brain.handlers.BodyWords
 import app.agency.core.brain.handlers.CheatDeclare
+import app.agency.core.brain.handlers.CravingDesk
+import app.agency.core.brain.handlers.MealDesk
+import app.agency.core.brain.handlers.MealOutcome
+import app.agency.core.brain.handlers.MealWords
+import app.agency.core.brain.handlers.WeightDesk
 import app.agency.core.brain.handlers.HungryMorning
 import app.agency.core.brain.handlers.IdolProfile
 import app.agency.core.brain.handlers.RestDay
@@ -122,6 +127,9 @@ class Brain(
     private val hungry = HungryMorning(store)
     private val cheat = CheatDeclare(store, snapshot.plans, clock.zone)
     private val sign = Sign(store, clock.zone, newId)
+    private val meals = MealDesk(store, snapshot, clock, newId)
+    private val cravings = CravingDesk(store, snapshot, clock, meals)
+    private val weights = WeightDesk(store, snapshot, clock, newId)
 
     private val _busy = MutableStateFlow(false)
     /** True while a message is being answered. */
@@ -491,7 +499,7 @@ class Brain(
             INTAKE_TOKENS, fallback = { null },
         )
         val parsed = (intake as? Structured.Model)?.value
-        val kind = parsed?.kind ?: if (discussing) DISCUSS else CHAT
+        val kind = parsed?.kind?.let { MealWords.kindOf(it, owner.text) } ?: if (discussing) DISCUSS else CHAT
         val gentleToday = nerve.state(today).gentle
         val tone = ToneDecider.decide(ToneInputs(ownerText = owner.text, intakeKind = kind, breachToday = input.today.breachToday, gentleToday = gentleToday))
         if (intake is Structured.Template && intake.fail != null) {
@@ -499,6 +507,7 @@ class Brain(
             _lastFail.value = intake.fail
             return listOf(reply(RoleKey.MANAGER, Roles.template(RoleKey.MANAGER, tone) + failLine(intake.fail), WordedBy.TEMPLATE, kind))
         }
+        if (parsed != null) recorded(owner, parsed, kind)?.let { return it }
         if (Router.isRecordKind(kind)) return listOf(reply(Router.roleOf(kind), recordHint(kind), WordedBy.TEMPLATE, kind))
 
         val mode = if (discussing || kind == DISCUSS) MessageMode.DISCUSS else MessageMode.NORMAL
@@ -513,7 +522,7 @@ class Brain(
             ),
         )
         // The seed table too: on a fresh install the store has no food yet, and 給力盒子 or 全家 must not read as unknown chains.
-        val names = (FoodTable.seed(0) + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct()
+        val names = (FoodTable.current(0) + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct()
         val factsText = facts.json.toString()
         val foodItems = parsed?.items.orEmpty().isNotEmpty()
         val judgeContext = { shown: String -> judgeContext(input, foodItems, owner.text, shown) }
@@ -595,6 +604,57 @@ class Brain(
         store.thinking.prune(clock.millis() - THINKING_KEEP_MS)
     }
 
+    /**
+     * A record kind the clerk found, answered by code (T14): a meal (the body teacher's lines, then what the links said: L5's
+     * smaller next meal in the same bubble, L13's line of the manager after it), a craving, a label, a weight. Null for the
+     * kinds without a handler yet.
+     */
+    private suspend fun recorded(owner: Message, parsed: Intake, kind: String): List<Message>? {
+        val ill = nerve.state(snapshot.today(snapshot.profile())).ill != null
+        val outcome: MealOutcome = when (kind) {
+            "meal" -> meals.record(owner.text, parsed.items, ill).let { m ->
+                val w = parsed.weightKg?.let { weights.record(it, parsed.waistCm) }
+                if (w == null) m else MealOutcome(m.meal, m.lines + w.lines, m.signals + w.signals)
+            }
+            "craving" -> MealOutcome(null, cravings.answer(owner.text, parsed.items))
+            "label" -> meals.label(parsed.label?.name ?: parsed.items.firstOrNull()?.name, parsed.label?.kcal, parsed.label?.proteinG)
+            "weight" -> parsed.weightKg?.let { weights.record(it, parsed.waistCm) } ?: MealOutcome(null, listOf("沒聽到體重。說「今天體重 79.5」。"))
+            else -> return null
+        }
+        return said(outcome, kind)
+    }
+
+    /** The lines of a record handler as one bubble of the body teacher, then the links' answers to its signals. */
+    private suspend fun said(outcome: MealOutcome, kind: String): List<Message> {
+        var r = NerveResult()
+        outcome.signals.forEach { r += nerve.emit(it) }
+        val adjusted = r.effects.filter { it.link == Links.L5NextMeal.id && it.kind == app.agency.core.model.EffectKind.ADJUST }.map { it.because }
+        val text = (outcome.lines + adjusted).joinToString("\n")
+        val m = Message(
+            newId(), clock.millis(), Who.COMPANY, role = RoleKey.BODY, kind = kind, text = text,
+            refs = MessageRefs(records = listOfNotNull(outcome.meal?.id)), wordedBy = WordedBy.TEMPLATE,
+        )
+        store.messages.insert(m)
+        return listOf(m) + r.messages
+    }
+
+    /** 拍這餐 (T15): the sealed photo of a meal ([media] is written here with its link); the body teacher's line. */
+    suspend fun attachMealPhoto(media: Media): Message = mutex.withLock {
+        said(meals.attachPhoto(media), MEAL_PHOTO_KIND).first().also { bump() }
+    }
+
+    /** 刪掉照片 after his confirm: the media id whose sealed file the app deletes (null: nothing was deleted). */
+    suspend fun deleteMealPhoto(mealId: String): String? = mutex.withLock { meals.deletePhoto(mealId).also { if (it != null) bump() } }
+
+    /** The label form (T15): kcal and protein typed from a package or a menu for item [itemIdx] of meal [mealId]. */
+    suspend fun label(mealId: String, itemIdx: Int, kcal: Int, proteinG: Double?): Message = mutex.withLock {
+        val name = store.meals.get(mealId)?.items?.getOrNull(itemIdx)?.name
+        said(meals.label(name, kcal, proteinG, mealId to itemIdx), "label").first().also { bump() }
+    }
+
+    /** Today's items waiting for their label (the card's 補標示). */
+    suspend fun pendingLabels(): List<app.agency.core.model.PendingLabel> = meals.pendingToday()
+
     /** A command word (code only, no model): its line, then what the links said about its signal. */
     private suspend fun command(route: Route.Command, owner: Message): List<Message> {
         val profile = snapshot.profile()
@@ -674,6 +734,9 @@ class Brain(
 
         /** The kind of the manager's 藝名 lines. */
         const val PROFILE_KIND = "profile"
+
+        /** The kind of the body teacher's line about a meal photo (T15). */
+        const val MEAL_PHOTO_KIND = "meal_photo"
 
         /** The kind of the fixed 公司規章 reply. */
         const val RULES_KIND = "rules"

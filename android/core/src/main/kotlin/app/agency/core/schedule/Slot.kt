@@ -55,6 +55,12 @@ sealed interface DayAdjust {
 
     /** A way today runs that is no slot: reminders sound once while riding (L8), no 宵夜 after the on-run portion (L9). */
     @Serializable data class Flag(val flag: DayFlag) : DayAdjust
+
+    /**
+     * L5: what is left today makes the next meal [key] smaller: at most [kcal] (never below the floor of the day, never a
+     * skipped meal; [app.agency.core.rules.MealBudget]). The suggestion and the nearby search follow it.
+     */
+    @Serializable data class MealBudget(val key: SlotKey, val kcal: Int) : DayAdjust
 }
 
 enum class DayFlag { RIDING_ONE_SOUND, LATE_SNACK_OFF }

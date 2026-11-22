@@ -21,9 +21,13 @@ import kotlin.math.ceil
  */
 object Links {
     fun all(): List<Link> = listOf(
-        L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L6Floor, L8Riding, L9RideEnd, L12Chase, L14Discuss,
-        L17Grooming, L18NoClassDay, L21WeightStop, L22TiredRiding, L23WeightTrend,
+        L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd,
+        L12Chase, L13Violation, L14Discuss, L16Spend, L17Grooming, L18NoClassDay, L21WeightStop, L22TiredRiding, L23WeightTrend,
     ) + Pending.all
+
+    /** Minutes of [at] from 00:00 of the coach day's date (after midnight is past 24 × 60, like a slot's minute). */
+    fun minuteOf(day: java.time.LocalDate, at: Long, zone: java.time.ZoneId): Int =
+        Duration.between(day.atStartOfDay(zone).toInstant(), Instant.ofEpochMilli(at)).toMinutes().toInt()
 
     private fun hhmm(minute: Int) = DayClock.hhmm(minute)
 
@@ -128,6 +132,31 @@ object Links {
             }
     }
 
+    /**
+     * L5: a meal is in → when what is left today is less than the next meal usually is, that meal gets a smaller budget
+     * (今天微調, [DayAdjust.MealBudget]): the suggestion and the nearby search follow it. Never below the floor of the day, never a
+     * skipped meal, and nothing when the day is already over (then it is 「明天回到 1700」, not less food).
+     */
+    object L5NextMeal : Link {
+        override val id = "L5"
+        override val zh = "每餐熱量：下一餐跟著調整（不低於 1200）"
+        override val dailyCap = 6
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.MealLogged) return emptyList()
+            val minute = minuteOf(state.plan.day, signal.at, ctx.zone)
+            val b = app.agency.core.rules.MealBudget.next(state.plan, ctx.rules, state.kcal, state.proteinG, state.mealSlots, minute) ?: return emptyList()
+            if (!b.smaller || state.plan.budgets[b.slot]?.let { it <= b.kcal } == true) return emptyList()
+            val label = state.plan.slot(b.slot)?.label ?: b.slot.zh
+            return listOf(
+                Effect.AdjustToday(
+                    DayAdjust.MealBudget(b.slot, b.kcal),
+                    "因為今天到現在吃了 ${state.kcal} 大卡，所以${label}建議 ${b.kcal} 大卡以內、蛋白質至少 ${b.proteinG} 克；照樣要吃，不能跳過。",
+                ),
+            )
+        }
+    }
+
     /** L6: by dinner (or after L9) the day is under the floor → eat enough (never less). */
     object L6Floor : Link {
         override val id = "L6"
@@ -142,6 +171,24 @@ object Links {
                     "floor", "今天才吃 ${state.kcal} 大卡，不到 ${ctx.rules.floorKcal}。要吃夠，不准少吃；吃了拍照回報。", NotifyKind.REMINDER,
                 ),
             )
+        }
+    }
+
+    /**
+     * L7: the declared 休假餐 (closed until 2026-12-31, back from 2027-01-01: [app.agency.core.rules.RulesBook.cheatOpen]; the
+     * declaration itself refuses before that). Banned food in that meal is no breach (the meal handler reads the declaration);
+     * it still counts in the day and under the single-meal cap, the other meals of the day are as always, and the second-pass
+     * judge still reads the day's replies. Recorded here.
+     */
+    object L7CheatMeal : Link {
+        override val id = "L7"
+        override val zh = "休假餐：那一餐的禁止食物不算違規，熱量照算"
+        override val dailyCap = 2
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when {
+            signal is Signal.CheatDeclared -> listOf(Effect.Record("cheat_declared", "${signal.day} ${signal.slot.name}"))
+            signal is Signal.MealLogged && signal.cheat -> listOf(Effect.Record("cheat_meal", signal.slot?.name.orEmpty()))
+            else -> emptyList()
         }
     }
 
@@ -209,6 +256,27 @@ object Links {
     }
 
     /**
+     * L13: a meal broke 公司規章 (the banned list of the rules, fried food included, outside a declared 休假餐; the single-meal
+     * cap; the weekly zero-calorie limit; 即食雞胸, 統一高纖豆漿, 給力盒子, 全家烤雞三明治, 麥當勞嫩煎雞腿堡／藜麥烤雞沙拉 never are)
+     * → recorded for the evaluation, and the manager says so coolly: what he did and that the next meal goes to plan. Never
+     * 「明天少吃補回來」. A breach on the day turns the second-pass judge on for every reply of it (the day's `breachToday`).
+     */
+    object L13Violation : Link {
+        override val id = "L13"
+        override val zh = "違規：記進評鑑，經紀人指出"
+        override val dailyCap = 10
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.MealLogged || signal.breaches.isEmpty()) return emptyList()
+            val what = signal.breaches.map { app.agency.core.rules.Breach.zh(it) }.distinct().joinToString("、")
+            return listOf(
+                Effect.Record("violation", signal.breaches.joinToString(",")),
+                Effect.Say("記一次違規：$what。今天第 ${state.breaches} 次，會算進評鑑。下一餐照計畫。"),
+            )
+        }
+    }
+
+    /**
      * L14: one required item ended undone three coach days in a row → the manager opens 討論 with one question to find the
      * cause (code-written, with chips); a change to the plan comes only as a proposal he says yes to. Once a day.
      */
@@ -226,6 +294,23 @@ object Links {
             val key = signal.keys.sortedBy { it.ordinal }.firstOrNull { (state.missedInRow[it] ?: 0) >= DAYS } ?: return emptyList()
             return listOf(Effect.Say(question(key), discuss = true, options = OPTIONS), Effect.Record("discuss", key.name))
         }
+    }
+
+    /**
+     * L16: money he spent on food (a price he wrote with a meal) comes out of 生活費; 形象用品 out of 娛樂費. Recorded only:
+     * 記帳 and its buckets are stage 6, so there is no balance to warn about yet.
+     */
+    object L16Spend : Link {
+        override val id = "L16"
+        override val zh = "花費：外食從生活費扣，形象用品從娛樂費扣"
+        override val dailyCap = 30
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> =
+            if (signal is Signal.SpendLogged && signal.amount > 0) {
+                listOf(Effect.Record("spend", (if (signal.image) "娛樂費 " else "生活費 ") + signal.amount))
+            } else {
+                emptyList()
+            }
     }
 
     /** L17: grooming cycles → reminders in today's free time (shave at sign-in). */
@@ -375,13 +460,9 @@ object Links {
 
         companion object {
             val all = listOf(
-                Pending("L5", "每餐熱量：下一餐建議縮小（不低於 1200）", "第 4 批（吃飯 T14、討論與搜尋 T16）"),
-                Pending("L7", "休假餐那一餐不算超量違規", "第 4 批（T14）"),
                 Pending("L10", "喝水落後：下一個空檔加一次提醒", "第 4 批（T17）"),
                 Pending("L11", "核心或肌力第一次完成：撒嬌一次、照片牆加一張", "第 5 批（T18）、第 6 批（T20）"),
-                Pending("L13", "違規：記進評鑑、第二道審稿", "第 4 批（T14）"),
                 Pending("L15", "肌力一週都輕鬆：提案升級", "第 5 批（T18）"),
-                Pending("L16", "花費從生活費或娛樂金扣", "第六階段（記帳）"),
                 Pending("L19", "睡前簽退：檢討卡、明天的提案", "第 5 批（T19）"),
                 Pending("L20", "一週結束：評鑑、等級、照片牆", "第二階段"),
             )

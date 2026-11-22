@@ -16,6 +16,9 @@ object AdjustBounds {
 
     fun allows(change: DayAdjust, plan: DayPlan, base: DayPlan, firstMealGapMin: Int): Boolean = when (change) {
         is DayAdjust.Flag -> true
+        // A smaller meal, never none and never above the single-meal cap's bound (the link keeps the floor of the day).
+        is DayAdjust.MealBudget -> change.key in app.agency.core.rules.MealBudget.ADJUSTABLE && plan.slot(change.key) != null &&
+            change.kcal in app.agency.core.rules.MealBudget.MIN_MEAL_KCAL..app.agency.core.rules.SafetyBounds.MEAL_CAP_MAX
         DayAdjust.SoyMorning -> plan.slot(SlotKey.RIDE_MEAL) != null
         is DayAdjust.Move -> {
             val slot = plan.slot(change.key)
