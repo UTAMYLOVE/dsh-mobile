@@ -153,6 +153,11 @@ android {
             (project.findProperty("dshm.shots") as String?)?.let { dir -> it.systemProperty("dshm.shots", dir) }
         }
     }
+
+    // The legacy coach fixtures (android/core/src/test/resources/legacy) also feed the importer's Robolectric tests.
+    sourceSets.getByName("test") {
+        resources.srcDir("../core/src/test/resources")
+    }
 }
 
 dependencies {
