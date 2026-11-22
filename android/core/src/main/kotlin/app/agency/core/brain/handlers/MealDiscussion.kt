@@ -78,9 +78,12 @@ object MealDiscussion {
     /** His words are about what to eat next (the brain's food words, or these). */
     fun aboutFood(text: String, mentionsFood: (String) -> Boolean): Boolean = mentionsFood(text) || ABOUT.containsMatchIn(text)
 
-    /** A meal talk is still on: the body teacher's latest line is a suggestion or a talk line of the last two hours. */
+    /**
+     * A meal talk is still on: the body teacher's latest line is a suggestion or a talk line of the last two hours (a link's
+     * note in between, such as the week's real-person task, does not end it).
+     */
     fun talking(history: List<Message>, now: Long): Boolean =
-        history.lastOrNull { it.who == Who.COMPANY }?.let { it.kind in setOf(PLAN_KIND, TALK_KIND) && now - it.at <= TALK_WINDOW_MS } == true
+        history.lastOrNull { it.who == Who.COMPANY && it.kind != app.agency.core.engine.Nerve.KIND }?.let { it.kind in setOf(PLAN_KIND, TALK_KIND) && now - it.at <= TALK_WINDOW_MS } == true
 
     /** The pre-meal line (code's numbers and names only). */
     fun suggestion(

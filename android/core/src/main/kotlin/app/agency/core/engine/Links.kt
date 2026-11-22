@@ -23,8 +23,8 @@ import kotlin.math.ceil
 object Links {
     fun all(): List<Link> = listOf(
         L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd, L10Water,
-        L11Completion, L12Chase, L13Violation, L14Discuss, L15Progression, L16Spend, L17Grooming, L18NoClassDay, L21WeightStop,
-        L22TiredRiding, L23WeightTrend,
+        L11Completion, L12Chase, L13Violation, L14Discuss, L15Progression, L16Spend, L17Grooming, L18NoClassDay, L19Review, L20Week,
+        L21WeightStop, L22TiredRiding, L23WeightTrend,
     ) + Pending.all
 
     /** Minutes of [at] from 00:00 of the coach day's date (after midnight is past 24 × 60, like a slot's minute). */
@@ -105,6 +105,8 @@ object Links {
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
             is Signal.Unwell -> if (signal.kind != IllKind.UNKNOWN) listOf(Effect.Record("gentle", signal.kind.name)) else emptyList()
             is Signal.MoodLow -> listOf(Effect.Record("gentle", "MOOD"))
+            // A low morning score (T19): gentle today, the plan stays.
+            is Signal.ConditionScored -> if (signal.ill == null && signal.score <= DayState.LOW_SCORE) listOf(Effect.Record("gentle", "SCORE")) else emptyList()
             else -> emptyList()
         }
     }
@@ -482,6 +484,83 @@ object Links {
         }
     }
 
+    /**
+     * L19: the bedtime review (T19) → the 檢討卡 (what code counted: done, not done, breaches, the illness change, and his two
+     * answers) and his 「明天要改」 as a proposal: on his yes the manager reminds him of it at tomorrow's sign-in ([Signal.FixPlanned],
+     * then [Signal.WokeUp] here). Nothing not done is to be made up tomorrow.
+     */
+    object L19Review : Link {
+        override val id = "L19"
+        override val zh = "睡前簽退：檢討卡，明天要改的變提案"
+        override val dailyCap = 2
+
+        fun card(r: Signal.ReviewDone): String = buildString {
+            append("今天的檢討卡\n")
+            append("做到：").append(r.done.joinToString("、") { it.zh }.ifEmpty { "還沒有" }).append("\n")
+            append("沒做到：").append(r.missed.joinToString("、") { it.zh }.ifEmpty { "沒有，全部做到" }).append("\n")
+            if (r.breaches > 0) append("違規：${r.breaches} 次\n")
+            r.reduction?.let { append("調整：今天${it}，只改了今天，不用補做\n") }
+            if (r.missed.isNotEmpty()) append("沒做到的不用補，明天照表。\n")
+            append("你說做得好：").append(r.good).append("\n")
+            append("明天要改：").append(r.fix)
+        }
+
+        fun change(fix: String) = "明天起床簽到時，我提醒你：$fix"
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
+            is Signal.ReviewDone -> listOf(
+                Effect.Say(card(signal)),
+                Effect.Record("review", "done=${signal.done.size} missed=${signal.missed.size}"),
+                Effect.Proposal(
+                    todayOnly = false, change = change(signal.fix),
+                    because = "因為你在睡前回顧說明天要改「${signal.fix}」，所以提案：明天簽到時提醒你一次。你說好才記。", fixTomorrow = signal.fix,
+                ),
+            )
+            is Signal.WokeUp -> state.fixToday?.let { listOf(Effect.Say("昨晚你說今天要改：$it。今天就做到。")) } ?: emptyList()
+            else -> emptyList()
+        }
+    }
+
+    /**
+     * L20: a Mon–Sun week is over (the brain counts it at the next week's start) → the week's numbers as the manager's
+     * announcement (完成率, 訓練, 違規, 照片牆, 真人任務, on target or not, the weeks on target and the level), recorded for the
+     * evaluation, and the next week's real-person task. The first one is given when the reminders start.
+     */
+    object L20Week : Link {
+        override val id = "L20"
+        override val zh = "一週結束：評鑑分數、等級進度、照片牆、真人任務"
+        override val dailyCap = 4
+
+        fun summary(w: Signal.WeekEnded): String {
+            val monday = java.time.LocalDate.parse(w.monday)
+            fun md(d: java.time.LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
+            return buildString {
+                append("一週結果（${md(monday)}–${md(monday.plusDays(6))}）\n")
+                append("完成率 ${WeekReport.pct(w.done, w.due)}%（該做 ${w.due} 項，做到 ${w.done} 項）\n")
+                append("訓練 ${w.trainingDone}/${w.trainingDue}\n")
+                append("違規 ${w.breaches} 次\n")
+                append("照片牆加了 ${w.photocards} 張\n")
+                append("真人任務：").append(if (w.realTask) "做到了" else "沒做到").append("\n")
+                append(if (w.onTarget) "這週達標。" else "這週沒達標（要完成率 ${WeekReport.TARGET_PCT}% 以上、沒有違規、真人任務做到）。")
+                append("等級 ${w.level}，達標週數 ${w.weeksOnTarget} 週；升級看月末評鑑。")
+            }
+        }
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
+            is Signal.WeekEnded -> {
+                val next = java.time.LocalDate.parse(signal.monday).plusDays(7)
+                listOf(
+                    Effect.Say(summary(signal)),
+                    Effect.Record("week", "${signal.monday} ${signal.done}/${signal.due} breaches=${signal.breaches} real=${signal.realTask} target=${signal.onTarget}"),
+                    Effect.Say(RealTasks.line(next)),
+                )
+            }
+            is Signal.RemindersOn -> listOf(Effect.Say(RealTasks.line(state.day.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))))
+            is Signal.RealTaskDone -> listOf(Effect.Record("real_task", state.day.toString()))
+            else -> emptyList()
+        }
+    }
+
     /** L21: under 65 kg → no lower target until the photos and a health check; never below 52. */
     object L21WeightStop : Link {
         override val id = "L21"
@@ -574,10 +653,7 @@ object Links {
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = emptyList()
 
         companion object {
-            val all = listOf(
-                Pending("L19", "睡前簽退：檢討卡、明天的提案", "第 5 批（T19）"),
-                Pending("L20", "一週結束：評鑑、等級、照片牆", "第二階段"),
-            )
+            val all = emptyList<Pending>()
         }
     }
 

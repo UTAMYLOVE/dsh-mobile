@@ -64,13 +64,25 @@ data class DayState(
     val sweetToday: Int = 0,
     /** Photocards added to the wall today (L11). */
     val photocardsToday: Int = 0,
+    /** This morning's 狀態打分 (T19), the last he gave. */
+    val conditionScore: Int? = null,
+    /** What he said last night to fix today, after his yes to the review's proposal (L19). */
+    val fixToday: String? = null,
+    /** The real-person task of this Mon–Sun week is done (L20). */
+    val realTaskThisWeek: Boolean = false,
 ) {
     val riding: Boolean get() = rideStartAt != null && (rideEndAt == null || rideEndAt < rideStartAt) && signedOutAt == null
-    val gentle: Boolean get() = ill != null || moodLow
+    /** Ill, low, or a morning score of [LOW_SCORE] or less: she speaks gently (the plan stays, agency-links §3b). */
+    val gentle: Boolean get() = ill != null || moodLow || (conditionScore != null && conditionScore <= LOW_SCORE)
     val rideMealEaten: Boolean get() = SlotKey.RIDE_MEAL in mealSlots
 
     /** Hours slept last night (sign-out → sign-in), when both are known. */
     val sleepHours: Double? get() = if (lastNightOutAt != null && wokeAt != null && wokeAt > lastNightOutAt) (wokeAt - lastNightOutAt) / 3_600_000.0 else null
+
+    companion object {
+        /** A morning score this low makes the day gentle (never lighter). */
+        const val LOW_SCORE = 2
+    }
 
     fun awakeHours(now: Instant): Double? = wokeAt?.let { Duration.between(Instant.ofEpochMilli(it), now).toMinutes() / 60.0 }
 }
@@ -111,6 +123,7 @@ object DayStateBuilder {
                 )
                 is Signal.WaterLogged -> st.copy(waterHalves = st.waterHalves + s.halves)
                 is Signal.TrainingDone -> st.copy(training = st.training + s.kind)
+                is Signal.ConditionScored -> st.copy(conditionScore = s.score)
                 else -> st
             }
         }
@@ -134,6 +147,9 @@ object DayStateBuilder {
         val restDays = decoded.filter { it.second is Signal.RestDay }.map { LocalDate.parse(it.first.day) }.toSet()
         val proteinByDay = decoded.mapNotNull { (row, s) -> (s as? Signal.MealLogged)?.let { LocalDate.parse(row.day) to it.proteinG } }
             .groupBy({ it.first }, { it.second }).mapValues { (_, v) -> v.sum() }
+        val fix = decoded.mapNotNull { (_, s) -> (s as? Signal.FixPlanned)?.takeIf { it.forDay == d } }.maxByOrNull { it.at }?.text
+        val monday = day.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+        val realTask = decoded.any { (row, s) -> s is Signal.RealTaskDone && !LocalDate.parse(row.day).isBefore(monday) && !LocalDate.parse(row.day).isAfter(day) }
         val l11 = todayEffects.filter { it.link == Links.L11Completion.id && it.kind == EffectKind.RECORD }
         val flags = adjustments(todayEffects).filterIsInstance<DayAdjust.Flag>().map { it.flag }.toSet()
         val proposed = todayEffects.any {
@@ -144,6 +160,7 @@ object DayStateBuilder {
             lastNightOutAt = lastOut, illDaysInRow = streak, groomingLast = grooming, weights = weights, kcalByDay = kcalByDay,
             flags = flags, reductionProposed = proposed, missedInRow = missedInRow,
             strengthSessions = sessions, restDays = restDays, illDays = illDays, proteinByDay = proteinByDay,
+            fixToday = fix, realTaskThisWeek = realTask,
             sweetToday = l11.count { it.because == Links.L11Completion.SWEET }, photocardsToday = l11.count { it.because == Links.L11Completion.PHOTOCARD },
         )
     }

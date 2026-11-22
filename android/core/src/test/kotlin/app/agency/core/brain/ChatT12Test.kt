@@ -349,13 +349,14 @@ class ChatT12Test {
         val llm = ScriptedLlm(intake("chat"), reply("先講原因。", ask = "是時間不夠嗎？", options = listOf("時間不夠", "忘記了")))
         val b = brain(llm)
         val out = runBlocking { b.onText("在嗎") }
-        val q = out.single { it.who == Who.COMPANY && it.kind == "link" }
+        // The day start also says what the week before came to (L20): the question is the one in 討論.
+        val q = out.single { it.who == Who.COMPANY && it.kind == "link" && it.mode == MessageMode.DISCUSS }
         assertEquals("起床簽到已經連三天沒做到了。我要先弄清楚原因：是哪裡卡住了？", q.text)
         assertEquals(MessageMode.DISCUSS, q.mode)
         assertEquals(app.agency.core.engine.Links.L14Discuss.OPTIONS, q.refs.options)
         // The reply to his message is in 討論 already.
         assertTrue(llm.requests[1].system.contains("【模式：討論】"))
-        assertEquals(MessageMode.DISCUSS, out.last().mode)
+        assertEquals(MessageMode.DISCUSS, out.last { it.who == Who.COMPANY && it.kind != "link" }.mode)
         // Once a day.
         assertEquals(1, runBlocking { store.nerve.effects("2026-11-23") }.count { it.link == "L14" && it.kind == app.agency.core.model.EffectKind.SAY })
     }

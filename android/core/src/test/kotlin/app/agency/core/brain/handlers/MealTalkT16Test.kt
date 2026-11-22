@@ -219,7 +219,8 @@ class MealTalkT16Test {
         assertTrue(post.nudgeId.endsWith(":DINNER"))
         assertNull(post.slot) // tapping it opens the conversation, not the camera
         assertTrue(post.word)
-        val line = runBlocking { store.messages.recent(5) }.last()
+        // (The first alarm also gave the week's real-person task, L20: a link's line.)
+        val line = runBlocking { store.messages.recent(5) }.last { it.kind != app.agency.core.engine.Nerve.KIND }
         assertEquals(RoleKey.BODY, line.role)
         assertEquals(MealDiscussion.PLAN_KIND, line.kind)
         at("16:50")

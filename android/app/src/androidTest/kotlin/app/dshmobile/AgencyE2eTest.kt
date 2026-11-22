@@ -29,6 +29,8 @@ import app.dshmobile.agency.media.MediaVault
 import app.agency.core.migrate.ImportNote
 import app.agency.core.migrate.LegacyMapper
 import app.agency.core.model.Baseline
+import app.dshmobile.ui.agency.sign.SignTags
+import app.dshmobile.ui.agency.training.TrainingTags
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import app.dshmobile.agency.data.AgencyDatabase
@@ -423,6 +425,39 @@ class AgencyE2eTest {
         val search = fake.seen.single { it.path.endsWith("/v1/tools/search") }
         assertTrue(search.body, search.body.contains("大安區 雞胸便當 推薦"))
         m.refs.results.forEach { id -> rule.waitUntil(30_000) { rule.onAllNodesWithTag(ResultTags.CARD + id).fetchSemanticsNodes().isNotEmpty() } }
+    }
+
+    /**
+     * T18–T19 on the phone: 簽到 opens the score picker, the core timer guides every move and reports by itself (the day's
+     * polaroid), 簽退 opens the bedtime review, whose answers make the 檢討卡 (no key: code lines only).
+     */
+    @Test fun e13_signInCoreTimerAndBedtimeReview() {
+        open()
+        runBlocking {
+            ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
+            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
+        }
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("刮好了")
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitUntil(60_000) { rule.onAllNodesWithTag(SignTags.SIGN_IN).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(SignTags.SIGN_IN).performClick()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.PICKER).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(SignTags.SCORE + "3").performClick()
+        rule.onNodeWithTag(SignTags.SEND).performClick()
+        rule.waitUntil(30_000) { runBlocking { ready().store.conditions.count() } == 1 }
+        rule.onNodeWithTag(TrainingTags.CORE).performClick()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(TrainingTags.START).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(TrainingTags.START).performClick()
+        repeat(7) { rule.onNodeWithTag(TrainingTags.NEXT).performClick() }
+        rule.waitUntil(30_000) { runBlocking { ready().store.training.count() } == 1 }
+        rule.waitUntil(30_000) { runBlocking { ready().brain.photocards() }.size == 1 }
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.SIGN_OUT).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(SignTags.SIGN_OUT).performClick()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.REVIEW).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(SignTags.GOOD).performTextInput("核心照計時做完")
+        rule.onNodeWithTag(SignTags.FIX).performTextInput("早點睡")
+        rule.onNodeWithTag(SignTags.REVIEW_SEND).performClick()
+        rule.waitUntil(30_000) { runBlocking { ready().store.messages.recent(5) }.any { it.text.startsWith("今天的檢討卡") } }
     }
 
     private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }

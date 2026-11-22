@@ -8,6 +8,11 @@ import app.agency.core.schedule.DayPlan
 import app.agency.core.schedule.RuleEngineTime
 import app.agency.core.schedule.SlotKey
 import app.agency.core.store.AgencyStore
+import app.agency.core.model.PlanSectionKey
+import app.agency.core.model.Proposal
+import app.agency.core.model.ProposalKind
+import app.agency.core.model.ProposalStatus
+import app.agency.core.model.RoleKey
 import java.time.Instant
 import java.time.ZoneId
 
@@ -16,8 +21,14 @@ import java.time.ZoneId
  * bedtime review). Each writes its sign row and returns the line plus the signal for the nerve (the row id is the signal id,
  * so one row is one signal).
  */
-class Sign(private val store: AgencyStore, private val zone: ZoneId, private val newId: () -> String) {
-    data class Done(val line: String, val signal: Signal?)
+class Sign(
+    private val store: AgencyStore,
+    private val zone: ZoneId,
+    private val newId: () -> String,
+    private val plans: app.agency.core.schedule.PlanStore = app.agency.core.schedule.PlanStore(store),
+) {
+    /** [proposal]: the 「提早起床」 proposal made with this sign-in (T19), with its line. */
+    data class Done(val line: String, val signal: Signal?, val proposal: Pair<String, String>? = null)
 
     private suspend fun today(day: String) = store.signs.onDay(day)
 
@@ -31,7 +42,41 @@ class Sign(private val store: AgencyStore, private val zone: ZoneId, private val
         store.signs.insert(log)
         val late = wake?.let { SignPolicy.minutesLate(now, it) } ?: 0
         val line = if (onTime == false) "簽到了，比表定晚 $late 分鐘。" else "簽到了，準時。"
-        return Done(line, Signal.WokeUp(log.id, at))
+        return Done(line, Signal.WokeUp(log.id, at), if (onTime == true) earlier(plan, at) else null)
+    }
+
+    /**
+     * Two weeks of on-time class-day sign-ins (T19): a WAKE_EARLIER proposal, the class-day wake 10 minutes earlier, checked
+     * like any plan change and applied only on his yes. Once per run: only sign-ins after the last such proposal count.
+     */
+    private suspend fun earlier(plan: DayPlan, at: Long): Pair<String, String>? {
+        if (plan.type != app.agency.core.schedule.DayType.CLASS) return null
+        val specs = plans.specs()
+        val run = SignPolicy.earlierRun(specs.schedule.classDays.size)
+        val asked = ProposalStatus.entries.flatMap { store.proposals.withStatus(it) }.filter { it.kind == ProposalKind.WAKE_EARLIER }
+            .maxOfOrNull { it.createdAt }?.let { app.agency.core.rules.CoachRules.coachDay(Instant.ofEpochMilli(it), zone, store.profile.get()?.dayStartHour ?: 5) }
+        val history = mutableListOf<Boolean?>()
+        var d = plan.day
+        while (history.size <= run && (asked == null || d.isAfter(asked)) && d.isAfter(plan.day.minusDays(LOOK_BACK_DAYS))) {
+            if (app.agency.core.schedule.Timetable.type(d, specs.schedule) == app.agency.core.schedule.DayType.CLASS) {
+                history += store.signs.onDay(d.toString()).firstOrNull { it.kind == SignKind.IN }?.onTime
+            }
+            d = d.minusDays(1)
+        }
+        if (!SignPolicy.earlierDue(history, run)) return null
+        val now = specs.schedule.classWake
+        val to = app.agency.core.schedule.DayClock.hhmm(app.agency.core.schedule.DayClock.minute(now) - SignPolicy.EARLIER_MIN)
+        val checked = app.agency.core.schedule.PlanChanges.check(specs, PlanSectionKey.SCHEDULE, listOf(app.agency.core.schedule.PlanPath.CLASS_WAKE.key to to), plan.day)
+            as? app.agency.core.schedule.PlanChanges.Checked.Ok ?: return null
+        val id = newId()
+        val reason = "因為連續兩週上課日都準時簽到，所以問你要不要每天提早 ${SignPolicy.EARLIER_MIN} 分鐘起床。"
+        store.proposals.insert(
+            Proposal(
+                id, at, RoleKey.MANAGER, ProposalKind.WAKE_EARLIER, PlanSectionKey.SCHEDULE.name,
+                app.agency.core.brain.ProposalApplier.JSON.encodeToString(app.agency.core.schedule.PlanChange.serializer(), checked.change), reason,
+            ),
+        )
+        return id to "連續兩週上課日都準時簽到了。要不要每天提早 ${SignPolicy.EARLIER_MIN} 分鐘起床：$now → $to？你說「好」才改。"
     }
 
     suspend fun signOut(plan: DayPlan, at: Long): Done {
@@ -41,7 +86,12 @@ class Sign(private val store: AgencyStore, private val zone: ZoneId, private val
         val late = latest?.let { SignPolicy.lateSignOut(Instant.ofEpochMilli(at), it) } == true
         val log = SignLog(newId(), day, at, SignKind.OUT, onTime = !late)
         store.signs.insert(log)
-        return Done(if (late) "簽退了，比最晚的時間晚了。明天早點睡。晚安。" else "簽退了。晚安，明天見。", Signal.SignedOut(log.id, at))
+        return Done(if (late) "簽退了，比最晚的時間晚了。明天早點睡。" else "簽退了。", Signal.SignedOut(log.id, at))
+    }
+
+    companion object {
+        /** How far back the 「提早起床」 run is looked for. */
+        const val LOOK_BACK_DAYS = 40L
     }
 
     suspend fun rideStart(plan: DayPlan, at: Long): Done {

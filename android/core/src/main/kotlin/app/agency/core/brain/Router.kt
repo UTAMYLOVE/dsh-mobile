@@ -26,6 +26,9 @@ object Router {
     /** His 「這裡有問題」 (a button or typed): the manager opens 討論 (T12). */
     const val DISCUSS_OPEN = "discuss_open"
 
+    /** 「真人任務完成」 (L20): the week's real-person task is done. */
+    const val REAL_TASK = "real_task"
+
     /** The kind prefix of a grooming report (「刮好了」 → `grooming:SHAVE`). */
     const val GROOMING = "grooming:"
 
@@ -55,6 +58,7 @@ object Router {
         listOf("出門了", "出門跑單", "出門").forEach { put(it, "ride_start") }
         listOf("收工", "收工了", "跑完了").forEach { put(it, "ride_end") }
         listOf("核心開始", "肌力開始", "伸展開始", "核心完成", "核心做完了", "肌力完成", "伸展完成", "伸展做完了", "快走完成", "快走完了").forEach { put(it, "training") }
+        listOf(app.agency.core.engine.RealTasks.DONE_WORDS, "真人任務做完了", "真人任務做好了", "真人任務做到了").forEach { put(it, REAL_TASK) }
         listOf("刮好了", "鬍子刮好了", "刮鬍子了", "刮好鬍子了").forEach { put(it, GROOMING + "SHAVE") }
         listOf("指甲剪好了", "剪指甲了", "指甲剪了").forEach { put(it, GROOMING + "NAILS") }
         listOf("眉毛修好了", "修眉了", "修好眉毛了").forEach { put(it, GROOMING + "BROWS") }

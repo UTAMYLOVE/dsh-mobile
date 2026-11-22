@@ -15,6 +15,7 @@ import app.agency.core.brain.handlers.HungryMorning
 import app.agency.core.brain.handlers.IdolProfile
 import app.agency.core.brain.handlers.RestDay
 import app.agency.core.brain.handlers.Sign
+import app.agency.core.brain.handlers.ReviewDesk
 import app.agency.core.brain.handlers.Onboarding
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.agency.core.brain.handlers.OnboardingStep
@@ -133,7 +134,9 @@ class Brain(
     private val restDay = RestDay(store, snapshot.plans)
     private val hungry = HungryMorning(store)
     private val cheat = CheatDeclare(store, snapshot.plans, clock.zone)
-    private val sign = Sign(store, clock.zone, newId)
+    private val sign = Sign(store, clock.zone, newId, snapshot.plans)
+    private val conditions = app.agency.core.brain.handlers.ConditionDesk(store, newId)
+    private val review = app.agency.core.brain.handlers.ReviewDesk(store)
     private val meals = MealDesk(store, snapshot, clock, newId)
     private val cravings = CravingDesk(store, snapshot, clock, meals)
     private val weights = WeightDesk(store, snapshot, clock, newId)
@@ -211,7 +214,30 @@ class Brain(
         val id = "day:$day"
         val fresh = store.nerve.signal(id) == null
         val r = nerve.emit(Signal.DayStarted(id, clock.millis(), day.toString()))
-        return if (fresh && profile.onboardingDone) r + missedDays(day, profile) else r
+        return if (fresh && profile.onboardingDone) r + missedDays(day, profile) + weekEnded(day, profile) else r
+    }
+
+    /**
+     * At the first day start of a week, the week before (L20), once (the id is its Monday): what code counts over its days
+     * after the reminders started ([app.agency.core.engine.WeekReport]), the real-person task, and the weeks on target so far.
+     */
+    private suspend fun weekEnded(today: java.time.LocalDate, profile: app.agency.core.model.Profile): NerveResult {
+        val monday = snapshot.weekStart(today).minusDays(7)
+        val id = "week:$monday"
+        if (store.nerve.signal(id) != null) return NerveResult()
+        val since = remindersSince() ?: return NerveResult()
+        val sinceDay = snapshot.dayOf(since, profile)
+        val sunday = monday.plusDays(6)
+        if (sinceDay.isAfter(sunday)) return NerveResult()
+        val days = (0L..6L).map { monday.plusDays(it) }.filter { !it.isBefore(sinceDay) }.map { d ->
+            val records = snapshot.records(d)
+            val cards = store.nerve.effects(d.toString()).count { it.link == Links.L11Completion.id && it.because == Links.L11Completion.PHOTOCARD }
+            app.agency.core.engine.WeekReport.Day(d, snapshot.slots(d, records, profile), records.meals.sumOf { it.breaches.size }, cards)
+        }
+        val signals = store.nerve.signals(monday.minusDays(WEEKS_LOOKBACK_DAYS).toString(), sunday.toString())
+        val real = signals.any { it.type == "real_task_done" && it.day >= monday.toString() }
+        val earlier = signals.filter { it.type == "week_ended" }.count { (Signal.decode(it.json) as? Signal.WeekEnded)?.onTarget == true }
+        return nerve.emit(app.agency.core.engine.WeekReport.of(id, clock.millis(), monday, days, since, real, earlier, profile.level))
     }
 
     /**
@@ -506,6 +532,17 @@ class Brain(
         // An open 入社建檔 question reads his message as its answer first (code, no model); anything else goes on as usual.
         onboarding.answer(owner.text)?.let { return listOf(reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, BASELINE_KIND)) }
         idol.answer(owner.text)?.let { return listOf(reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, PROFILE_KIND)) }
+        // The bedtime review's question waiting (T19): his message is its answer (code, no model).
+        val profile0 = snapshot.profile()
+        val today0 = snapshot.today(profile0)
+        review.open(history, { snapshot.dayOf(Instant.ofEpochMilli(it), profile0).toString() }, today0.toString())?.let { open ->
+            return reviewAnswer(owner, open, today0)
+        }
+        // The morning score typed after sign-in (「3」「4 分」).
+        app.agency.core.engine.ConditionPolicy.parse(owner.text)?.let { score ->
+            val d = today0.toString()
+            if (store.signs.onDay(d).any { it.kind == app.agency.core.model.SignKind.IN } && store.conditions.get(d) == null) return conditionLines(score, null, null, null, owner.at)
+        }
         body(owner)?.let { return it }
         if (Router.clean(owner.text) in Discussion.END_WORDS) {
             val profile = snapshot.profile()
@@ -695,6 +732,7 @@ class Brain(
             "weight" -> parsed.weightKg?.let { weights.record(it, parsed.waistCm) } ?: MealOutcome(null, listOf("沒聽到體重。說「今天體重 79.5」。"))
             "water" -> water.record(WaterDesk.halvesIn(owner.text) ?: parsed.waterHalf ?: 0, nerve.state(snapshot.today(snapshot.profile())).riding)
             "training" -> training.typed(owner.text, parsed.training)
+            "condition" -> return parsed.conditionScore?.let { conditionLines(it, null, null, null, owner.at) }
             else -> return null
         }
         return said(outcome, kind)
@@ -712,6 +750,120 @@ class Brain(
         )
         store.messages.insert(m)
         return listOf(m) + r.messages
+    }
+
+    /**
+     * The 狀態打分 picker (T19): the score, how he slept and his energy (1–5), and 生病/受傷 if so (that goes on to L2). The
+     * manager's line, then what the links said.
+     */
+    suspend fun condition(score: Int, sleep: Int?, energy: Int?, ill: app.agency.core.engine.IllKind?): List<Message> = mutex.withLock {
+        val started = ensureDay()
+        (started + conditionLines(score, sleep, energy, ill, clock.millis())).also { bump() }
+    }
+
+    private suspend fun conditionLines(score: Int, sleep: Int?, energy: Int?, ill: app.agency.core.engine.IllKind?, at: Long): List<Message> {
+        val day = snapshot.today(snapshot.profile()).toString()
+        val done = conditions.record(day, at, score, sleep, energy, ill)
+        val line = reply(RoleKey.MANAGER, done.line, WordedBy.TEMPLATE, CONDITION_KIND)
+        var said = NerveResult()
+        done.signals.forEach { said += nerve.emit(it) }
+        return listOf(line) + said.messages
+    }
+
+    /** Today's 狀態打分 is still to give (signed in, no score yet): the picker shows. */
+    suspend fun conditionDue(): Boolean {
+        val d = snapshot.today(snapshot.profile()).toString()
+        return store.signs.onDay(d).any { it.kind == app.agency.core.model.SignKind.IN } && store.conditions.get(d) == null
+    }
+
+    /** The review question waiting now (the sheet shows), or null. */
+    suspend fun reviewOpen(): app.agency.core.brain.handlers.ReviewDesk.Open? {
+        val profile = snapshot.profile()
+        val history = store.messages.recent(FactsBuilder.MAX_MESSAGES)
+        return review.open(history, { snapshot.dayOf(Instant.ofEpochMilli(it), profile).toString() }, snapshot.today(profile).toString())
+    }
+
+    /**
+     * The bedtime review sheet (T19): both answers at once, written as his line, then answered as if typed one by one. Empty
+     * when no review is waiting or an answer is blank.
+     */
+    suspend fun review(good: String, fix: String): List<Message> = mutex.withLock {
+        if (fix.isBlank()) return@withLock emptyList()
+        val profile = snapshot.profile()
+        val today = snapshot.today(profile)
+        val history = store.messages.recent(FactsBuilder.MAX_MESSAGES)
+        val open = review.open(history, { snapshot.dayOf(Instant.ofEpochMilli(it), profile).toString() }, today.toString()) ?: return@withLock emptyList()
+        if (open == ReviewDesk.Open.GOOD && good.isBlank()) return@withLock emptyList()
+        val said = (if (open == ReviewDesk.Open.GOOD) "做得好：${ReviewDesk.clean(good)}\n" else "") + "明天要改：${ReviewDesk.clean(fix)}"
+        val owner = Message(newId(), clock.millis(), Who.OWNER, text = said)
+        store.messages.insert(owner)
+        if (open == ReviewDesk.Open.GOOD) review.keep(today.toString(), ReviewDesk.Open.GOOD, good)
+        (listOf(owner) + finishReview(fix, today)).also { bump() }
+    }
+
+    /** His answer to the review question waiting: the next question, or (the second) the 檢討卡, its proposal and her line. */
+    private suspend fun reviewAnswer(owner: Message, open: ReviewDesk.Open, today: java.time.LocalDate): List<Message> {
+        if (open == ReviewDesk.Open.GOOD) {
+            review.keep(today.toString(), open, owner.text)
+            return listOf(reply(RoleKey.MANAGER, ReviewDesk.ASK_FIX, WordedBy.TEMPLATE, ReviewDesk.FIX_KIND))
+        }
+        return finishReview(owner.text, today)
+    }
+
+    private suspend fun finishReview(fixText: String, today: java.time.LocalDate): List<Message> {
+        val d = today.toString()
+        review.keep(d, ReviewDesk.Open.FIX, fixText)
+        val profile = snapshot.profile()
+        val out = store.signs.onDay(d).filter { it.kind == app.agency.core.model.SignKind.OUT }.minByOrNull { it.at }
+        val records = snapshot.records(today)
+        val slots = snapshot.slots(today, records, profile).filter { it.slot.required }
+        val plan = snapshot.plan(today)
+        val signal = Signal.ReviewDone(
+            "review:$d", clock.millis(), out?.reviewGood.orEmpty(), out?.reviewFix ?: ReviewDesk.clean(fixText),
+            slots.filter { it.status == SlotStatus.DONE }.map { it.key }, slots.filter { it.status != SlotStatus.DONE && it.key != SlotKey.SIGN_OUT }.map { it.key },
+            records.meals.sumOf { it.breaches.size }, plan.reduction?.zh,
+        )
+        val said = nerve.emit(signal).messages
+        val card = said.firstOrNull()?.text.orEmpty()
+        // After the card in the conversation (the nerve's lines are written just after now).
+        val at = maxOf(clock.millis(), (said.maxOfOrNull { it.at } ?: 0) + 1)
+        val line = reviewLine(card, at)
+            ?: Message(newId(), at, Who.COMPANY, role = RoleKey.MANAGER, kind = ReviewDesk.LINE_KIND, text = ReviewDesk.GOOD_NIGHT, wordedBy = WordedBy.TEMPLATE)
+                .also { store.messages.insert(it) }
+        return said + line
+    }
+
+    /**
+     * The manager's one sentence after the 檢討卡 (arch T19: code asks, she adds one guarded sentence): a NudgeLine in her voice,
+     * guarded, and judged on a day with a breach or over the quota; null keeps the template (no key, offline, refused).
+     */
+    private suspend fun reviewLine(card: String, at: Long): Message? {
+        if (card.isEmpty()) return null
+        val profile = snapshot.profile()
+        val day = snapshot.today(profile)
+        val input = snapshot.facts(store.messages.recent(FactsBuilder.MAX_MESSAGES))
+        val facts = FactsBuilder.build(input, hasCurrentMessage = false)
+        val tone = ToneDecider.decide(ToneInputs(breachToday = input.today.breachToday, gentleToday = nerve.state(day).gentle, sweetToday = ToneDecider.MAX_SWEET_PER_DAY))
+        val system = PromptBuilder.system(
+            PromptInput(
+                role = Roles.of(RoleKey.MANAGER), mode = MessageMode.NORMAL, tone = tone, rules = input.rules,
+                memory = MemoryBlocks.render(store.memory.items(), day) { at -> snapshot.dayOf(Instant.ofEpochMilli(at), profile) },
+                facts = facts, reply = ReplyKind.NUDGE, companyName = profile.companyName ?: PromptInput.DEFAULT_COMPANY,
+                latinNames = (OutputGuard.LATIN_WHITELIST + profile.idolNames).distinct(), memoryWrites = false,
+            ),
+        )
+        val evidence = Evidence(listOf(facts.json.toString(), card), emptyList(), profile.idolNames, breachToday = input.today.breachToday)
+        val out = structured.call(
+            NudgeLine.SPEC, system, PromptBuilder.turns(facts, null, REVIEW_INSTRUCTION + "\n" + card), Purpose.NUDGE, NUDGE_TOKENS,
+            check = NudgeLine.checker(evidence, tone), fallback = { null },
+        )
+        val text = (out as? Structured.Model)?.value?.text ?: return null
+        val over = input.today.meals.sumOf { it.kcal } - input.rules.quotaKcal
+        SecondPassJudge.contextLine(over, input.today.breachToday, foodTalk = mentionsFood(text))?.let { ctx ->
+            if (judge.judge(text, ctx) is app.agency.core.guard.Verdict.Breach) return null
+        }
+        return Message(newId(), at, Who.COMPANY, role = RoleKey.MANAGER, kind = ReviewDesk.LINE_KIND, text = text, wordedBy = WordedBy.MODEL)
+            .also { store.messages.insert(it) }
     }
 
     /**
@@ -834,6 +986,7 @@ class Brain(
         val plan = nerve.plan(today)
         val at = owner.at
         var signal: Signal? = null
+        var earlier: Pair<String, String>? = null
         val text = when {
             route.kind == "rest_day" -> restDay.declare(today, at).also {
                 if (store.days.get(today.toString())?.restDay == true) signal = Signal.RestDay("rest:$today", at)
@@ -846,8 +999,14 @@ class Brain(
                 if (r.day != null && r.slot != null) signal = Signal.CheatDeclared(newId(), at, r.day.toString(), r.slot)
                 r.line
             }
-            route.kind == "sign_in" -> sign.signIn(plan, at).also { signal = it.signal }.line
+            route.kind == "sign_in" -> sign.signIn(plan, at).also { signal = it.signal; earlier = it.proposal }.line
             route.kind == "sign_out" -> sign.signOut(plan, at).also { signal = it.signal }.line
+            route.kind == Router.REAL_TASK -> if (nerve.state(today).realTaskThisWeek) {
+                "這週的真人任務已經記過了。"
+            } else {
+                signal = Signal.RealTaskDone(newId(), at)
+                "記下：這週的真人任務做到了。跟真的人相處，就是這樣。"
+            }
             route.kind == "ride_start" -> sign.rideStart(plan, at).also { signal = it.signal }.line
             route.kind == "ride_end" -> sign.rideEnd(plan, at).also { signal = it.signal }.line
             route.kind.startsWith(Router.GROOMING) -> GroomingItem.valueOf(route.kind.removePrefix(Router.GROOMING)).let { item ->
@@ -858,7 +1017,17 @@ class Brain(
         }
         val line = reply(route.role, text, WordedBy.TEMPLATE, route.kind)
         val said = signal?.let { nerve.emit(it).messages }.orEmpty()
-        return listOf(line) + said
+        // After sign-in (T19): the 「提早起床」 proposal when it is due, then the morning score; after sign-out: the review.
+        val after = mutableListOf<Message>()
+        earlier?.let { (id, ask) ->
+            after += Message(newId(), clock.millis(), Who.COMPANY, role = RoleKey.MANAGER, kind = PROPOSALS_KIND, text = ask, refs = MessageRefs(proposal = id, proposals = listOf(id)), wordedBy = WordedBy.TEMPLATE)
+                .also { store.messages.insert(it) }
+        }
+        if (route.kind == "sign_in" && signal != null && store.conditions.get(today.toString()) == null) {
+            after += reply(RoleKey.MANAGER, app.agency.core.engine.ConditionPolicy.ASK, WordedBy.TEMPLATE, CONDITION_ASK_KIND)
+        }
+        if (route.kind == "sign_out" && signal != null) after += reply(RoleKey.MANAGER, ReviewDesk.ASK_GOOD, WordedBy.TEMPLATE, ReviewDesk.GOOD_KIND)
+        return listOf(line) + said + after
     }
 
     /**
@@ -869,6 +1038,9 @@ class Brain(
         "rest_day" -> "要換成休息日，就打「今天休息」。"
         "hungry_morning" -> "早上很餓就打「早上很餓」，豆漿會挪到早上。"
         "cheat_declare" -> CheatDeclare.FORMAT
+        "sign_in" -> "要簽到就打「簽到」，或按首頁的簽到。"
+        "sign_out" -> "要睡了就打「簽退」，或按首頁的簽退。"
+        "condition" -> "今天狀態幾分？打一到五的數字就好。"
         else -> Router.NOT_YET
     }
 
@@ -912,6 +1084,16 @@ class Brain(
 
         /** The kind of the body teacher's line about a meal photo (T15). */
         const val MEAL_PHOTO_KIND = "meal_photo"
+
+        /** The kinds of the 狀態打分 lines (T19). */
+        const val CONDITION_KIND = "condition"
+        const val CONDITION_ASK_KIND = "condition_ask"
+
+        /** What she is asked for after the 檢討卡 (one sentence, no question). */
+        const val REVIEW_INSTRUCTION = "他剛做完睡前回顧，下面是程式寫好的檢討卡。用你的語氣說一到兩句睡前的話：具體肯定他說做得好的那件事，提醒明天要改的那件事，叫他去睡。不要問問題，不要提新的要求。"
+
+        /** How far back the weeks on target are counted (L20). */
+        const val WEEKS_LOOKBACK_DAYS = 400L
 
         /** The kind of the fixed 公司規章 reply. */
         const val RULES_KIND = "rules"

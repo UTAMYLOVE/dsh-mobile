@@ -197,6 +197,11 @@ class Nerve(
             return "好，只改今天：${p.change}不用明天補做，好好休息。"
         }
         p.progression?.let { next -> return progress(e, next, now) }
+        p.fixTomorrow?.let { fix ->
+            mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
+            emit(Signal.FixPlanned("fix:${e.id}", now, LocalDate.parse(e.day).plusDays(1).toString(), fix), 1, e.signalId)
+            return "好，明天起床簽到的時候我提醒你：$fix"
+        }
         mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
         return p.suggestQuota?.let { "好。公司規章要你自己改：到設定的公司規章，把每天的熱量改成 $it，確認兩次。" } ?: "好。"
     }

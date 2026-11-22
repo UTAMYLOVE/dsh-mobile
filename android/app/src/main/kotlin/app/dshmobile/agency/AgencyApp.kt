@@ -542,6 +542,11 @@ class AgencyApp(
 
     fun walkDone() = talk { it.walkDone() }
 
+    /** The 狀態打分 picker and the bedtime review sheet (T19). */
+    fun condition(score: Int, sleep: Int?, energy: Int?, ill: app.agency.core.engine.IllKind?) = talk { it.condition(score, sleep, energy, ill) }
+
+    fun review(good: String, fix: String) = talk { it.review(good, fix) }
+
     /** 重送 on a line of his marked 「沒送出」 (T12): the same row is answered again; nothing is copied. */
     fun resend(messageId: String) = talk { it.resend(messageId) }
 

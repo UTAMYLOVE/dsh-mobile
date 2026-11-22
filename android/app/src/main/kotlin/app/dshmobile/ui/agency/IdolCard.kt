@@ -143,6 +143,9 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
                     color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.WATER),
                 )
             }
+            if (facts.photocards > 0) {
+                Text(stringResource(R.string.ag_card_photocards, facts.photocards), color = Sakura.Text, fontSize = 14.sp)
+            }
             if (facts.unverified.isNotEmpty()) {
                 Text(
                     stringResource(R.string.ag_card_unverified, facts.unverified.joinToString("、")), color = Sakura.Text, fontSize = 14.sp,

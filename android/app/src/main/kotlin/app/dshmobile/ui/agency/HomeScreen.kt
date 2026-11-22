@@ -59,6 +59,10 @@ import app.agency.core.engine.StrengthMove
 import app.agency.core.model.TrainingKind
 import app.agency.core.schedule.SlotKey
 import app.dshmobile.ui.agency.training.TrainingScreen
+import androidx.compose.runtime.key
+import app.dshmobile.ui.agency.sign.BedtimeReviewSheet
+import app.dshmobile.ui.agency.sign.ConditionPicker
+import app.dshmobile.ui.agency.sign.SignTags
 import app.dshmobile.ui.agency.training.TrainingTags
 
 /**
@@ -124,6 +128,13 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
     val onboarding by produceState<OnboardingStatus?>(null, revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.onboardingStatus() }.getOrNull() } }
     }
+    // The morning score after the sign-in and the bedtime review after the sign-out (T19).
+    val conditionDue by produceState(false, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.conditionDue() }.getOrDefault(false) } }
+    }
+    val reviewOpen by produceState<app.agency.core.brain.handlers.ReviewDesk.Open?>(null, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.reviewOpen() }.getOrNull() } }
+    }
     var cardRevision by remember { mutableIntStateOf(0) }
     val settingsRevision by agency.settings.revision.collectOnMain()
     val card by produceState<IdolCardFacts?>(null, revision, cardRevision, settingsRevision) {
@@ -165,8 +176,10 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             LabelForm(p, onSave = { kcal, protein -> labelling = null; agency.label(p.mealId, p.itemIdx, kcal, protein) }, onClose = { labelling = null })
         }
         if (onboarding?.completed == true) {
+            if (conditionDue) ConditionPicker { score, sleep, energy, ill -> agency.condition(score, sleep, energy, ill) }
+            reviewOpen?.let { open -> key(open) { BedtimeReviewSheet(open) { good, fix -> agency.review(good, fix) } } }
             MediaLine(agency)
-            QuickButtons(busy, onPhoto = actions.takeMealPhoto) { agency.send(it) }
+            QuickButtons(card, busy, onPhoto = actions.takeMealPhoto) { agency.send(it) }
             TrainingButtons(card, busy, onWalk = agency::walkDone) { kind ->
                 scope.launch {
                     val open = withContext(Dispatchers.IO) {
@@ -212,13 +225,20 @@ private const val PAGE = 500
  * type; riding makes reminders sound once) and 「這裡有問題」 (T12: 討論 with the manager). The row scrolls sideways.
  */
 @Composable
-private fun QuickButtons(busy: Boolean, onPhoto: () -> Unit, onSay: (String) -> Unit) {
+private fun QuickButtons(card: IdolCardFacts?, busy: Boolean, onPhoto: () -> Unit, onSay: (String) -> Unit) {
     val start = stringResource(R.string.ag_ride_start)
     val end = stringResource(R.string.ag_ride_end)
+    val slots = card?.slots.orEmpty()
+    fun done(key: SlotKey) = slots.firstOrNull { it.key == key }?.status == SlotStatus.DONE
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // 簽到 until he has, then 簽退 (T19): the same words he may type.
+        if (!done(SlotKey.WAKE)) {
+            val w = stringResource(R.string.ag_sign_in)
+            PinkButton(w, onClick = { onSay(w) }, enabled = !busy, modifier = Modifier.testTag(SignTags.SIGN_IN))
+        }
         PinkButton(stringResource(R.string.ag_meal_photo), onClick = onPhoto, enabled = !busy, modifier = Modifier.testTag(MealTags.PHOTO))
         // 喝水 (T17): the same words he may type.
         val full = stringResource(R.string.ag_water_full)
@@ -228,6 +248,10 @@ private fun QuickButtons(busy: Boolean, onPhoto: () -> Unit, onSay: (String) -> 
         SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
         SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
         SoftButton(stringResource(R.string.ag_discuss), onClick = { onSay(Discussion.OPEN_WORD) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.DISCUSS))
+        if (done(SlotKey.WAKE) && !done(SlotKey.SIGN_OUT)) {
+            val o = stringResource(R.string.ag_sign_out)
+            SoftButton(o, onClick = { onSay(o) }, enabled = !busy, modifier = Modifier.testTag(SignTags.SIGN_OUT))
+        }
     }
 }
 

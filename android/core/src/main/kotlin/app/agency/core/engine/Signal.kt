@@ -127,9 +127,59 @@ sealed interface Signal {
     @Serializable @SerialName("spend_logged")
     data class SpendLogged(override val id: String, override val at: Long, val amount: Int, val image: Boolean, override val source: String = "money") : Signal
 
-    /** The end of a Mon–Sun week (stage 2, L20). */
+    /**
+     * The end of a Mon–Sun week (L20; the brain emits it at the next week's first day start, id `week:<monday>`), with the
+     * numbers code counted over its days: required items [due] and [done] (the training ones [trainingDue], [trainingDone]),
+     * [breaches], polaroids added ([photocards]), whether the week's real-person task was done ([realTask]), whether the week is
+     * [onTarget], and how many weeks were on target so far, this one included ([weeksOnTarget]).
+     */
     @Serializable @SerialName("week_ended")
-    data class WeekEnded(override val id: String, override val at: Long, val monday: String, override val source: String = "clock") : Signal
+    data class WeekEnded(
+        override val id: String,
+        override val at: Long,
+        val monday: String,
+        val due: Int = 0,
+        val done: Int = 0,
+        val trainingDue: Int = 0,
+        val trainingDone: Int = 0,
+        val breaches: Int = 0,
+        val photocards: Int = 0,
+        val realTask: Boolean = false,
+        val onTarget: Boolean = false,
+        val weeksOnTarget: Int = 0,
+        /** His level now (C in stage 1). */
+        val level: String = "C",
+        override val source: String = "clock",
+    ) : Signal
+
+    /** The morning 狀態打分 (T19): [score] 1–5; [ill] when he marked 生病 or 受傷 on the picker. */
+    @Serializable @SerialName("condition_scored")
+    data class ConditionScored(override val id: String, override val at: Long, val score: Int, val ill: IllKind? = null, override val source: String = "sign") : Signal
+
+    /**
+     * The bedtime review answered (T19, L19): what code counted of the day ([done], [missed] required slots, [breaches], the
+     * accepted illness change [reduction]) and his two answers ([good] one thing done well, [fix] one thing to fix tomorrow).
+     */
+    @Serializable @SerialName("review_done")
+    data class ReviewDone(
+        override val id: String,
+        override val at: Long,
+        val good: String,
+        val fix: String,
+        val done: List<SlotKey> = emptyList(),
+        val missed: List<SlotKey> = emptyList(),
+        val breaches: Int = 0,
+        val reduction: String? = null,
+        override val source: String = "sign",
+    ) : Signal
+
+    /** His yes to the review's 「明天要改」 (L19): the manager says [text] at the sign-in of [forDay]. */
+    @Serializable @SerialName("fix_planned")
+    data class FixPlanned(override val id: String, override val at: Long, val forDay: String, val text: String, override val source: String = "link") : Signal
+
+    /** The week's real-person task done (L20; 「真人任務完成」). */
+    @Serializable @SerialName("real_task_done")
+    data class RealTaskDone(override val id: String, override val at: Long, override val source: String = "command") : Signal
 
     companion object {
         const val REMINDERS_ON = "reminders:on"

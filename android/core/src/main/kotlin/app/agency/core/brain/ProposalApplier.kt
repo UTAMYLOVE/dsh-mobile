@@ -82,7 +82,7 @@ class ProposalApplier(
             return@transaction "好，不改，照原本的。"
         }
         when (p.kind) {
-            ProposalKind.PLAN_CHANGE -> planChange(p, now)
+            ProposalKind.PLAN_CHANGE, ProposalKind.WAKE_EARLIER -> planChange(p, now)
             ProposalKind.MEAL_ORDER -> {
                 val d = JSON.decodeFromString(OrderDiff.serializer(), p.diffJson)
                 store.orders.insert(
@@ -138,9 +138,10 @@ class ProposalApplier(
         /** The 差異卡 of [p], from its typed diff (code-written; an unreadable diff shows its reason only). */
         fun view(p: Proposal): ProposalView = runCatching {
             when (p.kind) {
-                ProposalKind.PLAN_CHANGE -> {
+                ProposalKind.PLAN_CHANGE, ProposalKind.WAKE_EARLIER -> {
                     val c = JSON.decodeFromString(PlanChange.serializer(), p.diffJson)
-                    ProposalView(p.id, p.kind, "改${SECTION_ZH[c.section] ?: "計畫"}", c.ops.map { DiffLine(it.label, it.before, it.after) }, p.reason)
+                    val title = if (p.kind == ProposalKind.WAKE_EARLIER) "提早起床" else "改${SECTION_ZH[c.section] ?: "計畫"}"
+                    ProposalView(p.id, p.kind, title, c.ops.map { DiffLine(it.label, it.before, it.after) }, p.reason)
                 }
                 ProposalKind.MEAL_ORDER -> {
                     val d = JSON.decodeFromString(OrderDiff.serializer(), p.diffJson)

@@ -340,5 +340,22 @@
     <string name="ag_train_extra">最後一輪還能多做幾下？</string>
     <string name="ag_train_send">回報</string>
     <string name="ag_wall_title">拍立得照片牆（%1$d 張）</string>
+    <string name="ag_card_photocards">拍立得照片牆：%1$d 張（在指揮室）</string>
     <string name="ag_wall_empty">還沒有。每天第一次做完核心或肌力，就貼一張。</string>
+    <!-- 簽到、狀態打分、睡前回顧 (T19) -->
+    <string name="ag_sign_in">簽到</string>
+    <string name="ag_sign_out">簽退</string>
+    <string name="ag_condition_title">今天狀態幾分？（一到五）</string>
+    <string name="ag_condition_sleep">昨晚睡得</string>
+    <string name="ag_condition_energy">精神</string>
+    <string name="ag_condition_body">身體</string>
+    <string name="ag_condition_fine">沒事</string>
+    <string name="ag_condition_send">送出</string>
+    <string name="ag_level_good">好</string>
+    <string name="ag_level_ok">普通</string>
+    <string name="ag_level_bad">不好</string>
+    <string name="ag_review_title">睡前回顧</string>
+    <string name="ag_review_good">今天做得好的一件事</string>
+    <string name="ag_review_fix">明天要改的一件事</string>
+    <string name="ag_review_send">交出</string>
 </resources>
