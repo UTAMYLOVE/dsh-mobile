@@ -20,7 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger
  *    [toolFirst], then with an Utterance whose text is [reply];
  *  - `POST /v1/messages` (Claude shape) with the same Utterance;
  *  - `POST /v1/tools/search` with no results.
- * Every request body is kept in [seen] for assertions (never logged); [online] false drops every connection (offline test).
+ * Every request body is kept in [seen] for assertions (never logged); [online] false cuts every request off with no answer
+ * (offline test), counted in [cutOff].
  * No real key, no network.
  */
 class FakeModel {
@@ -34,6 +35,8 @@ class FakeModel {
     @Volatile var intakeKind = "chat"
     @Volatile var reply = "收到。現在去喝水。"
     @Volatile var toolFirst = false
+    /** Requests cut off while [online] was false. */
+    val cutOff = AtomicInteger()
     private val ids = AtomicInteger()
     private val server = MockWebServer()
 
@@ -41,7 +44,10 @@ class FakeModel {
     fun start() {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                if (!online) return MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)
+                // Offline: close the socket once the request is read, so the app sees a dropped connection (Offline). Not
+                // DISCONNECT_AT_START: returned from dispatch() it is ignored (MockWebServer reads it only from peek(), at the
+                // start of a connection) and the app got a 200 with an empty body, a bad answer instead of no network.
+                if (!online) return MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST).also { cutOff.incrementAndGet() }
                 val path = request.path.orEmpty()
                 val body = request.body.readUtf8()
                 seen += Seen(path, body, request.getHeader("Authorization") ?: request.getHeader("x-api-key"))
@@ -66,6 +72,7 @@ class FakeModel {
 
     fun reset() {
         seen.clear()
+        cutOff.set(0)
         online = true
         intakeKind = "chat"
         reply = "收到。現在去喝水。"

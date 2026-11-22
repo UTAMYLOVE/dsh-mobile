@@ -38,6 +38,21 @@ class TransportTest {
         assertEquals(listOf(2_000L), sleeps)
     }
 
+    /**
+     * A connection dropped with no answer (what the e2e offline test does) is Offline at once, not a bad answer and not retried,
+     * on a pooled connection and on a fresh one alike, through the app's own client.
+     */
+    @Test fun aConnectionDroppedWithNoAnswerIsOfflineAtOnce() = runBlocking {
+        val sleeps = mutableListOf<Long>()
+        val transport = Transport(HttpFactory.create(kit.gate)) { sleeps += it }
+        kit.server.enqueue(MockResponse().setBody("{}"))
+        assertEquals(HttpOutcome.Response(200, "{}"), transport.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}"))
+        repeat(4) { kit.server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)) }
+        assertEquals(HttpOutcome.Offline, transport.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}"))
+        assertEquals(HttpOutcome.Offline, Transport(HttpFactory.create(kit.gate)) { sleeps += it }.postJson(kit.base.resolve("/x")!!, emptyMap(), "{}"))
+        assertEquals(emptyList<Long>(), sleeps)
+    }
+
     @Test fun aBodyOverTheCapIsABadResponse() = runBlocking {
         // A well-formed reply, only too long: without the cap it would be read whole and come back Ok (and metered).
         val text = "好".repeat((Transport.MAX_BODY_BYTES / 3 + 1).toInt())

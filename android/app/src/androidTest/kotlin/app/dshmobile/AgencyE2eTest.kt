@@ -1,6 +1,9 @@
 package app.dshmobile
 
 import android.content.Context
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -10,6 +13,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.agency.core.brain.Brain
+import app.agency.core.llm.Fail
 import app.agency.core.metering.Provider
 import app.agency.core.migrate.AgencyPrefKeys
 import app.agency.core.migrate.LegacyPrefs
@@ -211,18 +216,41 @@ class AgencyE2eTest {
         BASELINE.forEach { assertTrue(it, asset("agency-v2-baseline/$it").contentEquals(File(kept, "baseline/$it").readBytes())) }
     }
 
-    /** Review M13: with no network the reply is the template and says why, and his message is kept. */
+    /**
+     * Review M13: with no network his message is kept and shown, the reply is the template and says the company could not
+     * reach the model, and once the network is back he can send again and gets a real answer.
+     */
     @Test fun e05_offlineStillKeepsHisMessage() {
         app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
         fake.online = false
         open()
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
-        rule.waitUntil(60_000) { rule.onAllNodes(hasText("現在連不上模型", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        val offline = Brain.failLine(Fail.OFFLINE)
+        rule.waitUntil(60_000) { rule.onAllNodes(hasText(offline, substring = true)).fetchSemanticsNodes().isNotEmpty() }
         val stored = runBlocking { ready().store.messages.recent(5) }
         assertEquals(listOf(Who.OWNER, Who.COMPANY), stored.map { it.who })
         assertEquals("姐姐在嗎", stored[0].text)
         assertEquals(WordedBy.TEMPLATE, stored[1].wordedBy)
+        assertTrue(stored[1].text, stored[1].text.endsWith(offline))
+        assertEquals(Fail.OFFLINE, ready().brain.lastFail.value)
+        // The app did try and was cut off; nothing reached the model.
+        assertTrue(fake.cutOff.get() > 0)
+        assertTrue(fake.seen.isEmpty())
+        // On screen: his own bubble with his words, and the company's line saying it could not reach the model.
+        rule.onNode(hasTestTag(AgencyTags.BUBBLE + stored[0].id) and hasAnyDescendant(hasText("姐姐在嗎"))).assertExists()
+        rule.onNode(hasTestTag(AgencyTags.BUBBLE + stored[1].id) and hasAnyDescendant(hasText(offline, substring = true))).assertExists()
+        // The network is back: he sends again and the company answers; his first message is still there.
+        fake.online = true
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(AgencyTags.SEND).assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitUntil(60_000) { rule.onAllNodes(hasText("現在去喝水。", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        val after = runBlocking { ready().store.messages.recent(5) }
+        assertEquals(listOf(Who.OWNER, Who.COMPANY, Who.OWNER, Who.COMPANY), after.map { it.who })
+        assertEquals(stored[0].id, after[0].id)
+        assertEquals(WordedBy.MODEL, after[3].wordedBy)
+        assertEquals(null, ready().brain.lastFail.value)
     }
 
     private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
