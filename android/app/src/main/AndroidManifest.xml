@@ -30,10 +30,9 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:networkSecurityConfig="@xml/network_security_config">
 
-        <!-- configChanges：轉向、深色模式不重建殼 (a rotation or dark mode switch keeps the shell and its state).
-             exported=true is required by the LAUNCHER filter; notification actions arrive as extras and are validated by LaunchRequest. -->
+        <!-- 小雨娛樂 (arch 1.13): the only launcher. configChanges: a rotation or dark mode switch keeps the conversation. -->
         <activity
-            android:name=".ui.MainActivity"
+            android:name=".ui.agency.AgencyActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
@@ -42,21 +41,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Share into DSH (0.5.0): text, links, images and files from other apps; no permission is needed for this. -->
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/*" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="application/*" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND_MULTIPLE" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="application/*" />
-            </intent-filter>
         </activity>
+
+        <!-- The old dsh shell: compiled but unreachable since the cutover (no launcher, no share target, not exported); T08
+             deletes it. -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection" />
 
         <!-- configChanges: a rotation or font change must not restart the rootfs extraction that runs inside this screen. -->
         <activity

@@ -45,9 +45,20 @@ class HeartbeatDeps(
 )
 
 /** Hands [deps] to [HeartbeatWorker]; any other worker class falls through to WorkManager's default factory. */
-class HeartbeatWorkerFactory(private val deps: () -> HeartbeatDeps) : WorkerFactory() {
-    override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? =
-        if (workerClassName == HeartbeatWorker::class.java.name) HeartbeatWorker(appContext, workerParameters, deps()) else null
+class HeartbeatWorkerFactory(private val retired: Boolean = false, private val deps: () -> HeartbeatDeps) : WorkerFactory() {
+    override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? = when {
+        workerClassName != HeartbeatWorker::class.java.name -> null
+        retired -> RetiredHeartbeatWorker(appContext, workerParameters)
+        else -> HeartbeatWorker(appContext, workerParameters, deps())
+    }
+}
+
+/**
+ * Since the cutover (arch §2 D0) a heartbeat or helper wake an older build scheduled, run before the start cancelled it, ends
+ * at once: nothing of dsh is built or started.
+ */
+class RetiredHeartbeatWorker(context: Context, params: WorkerParameters) : androidx.work.Worker(context, params) {
+    override fun doWork(): Result = Result.success()
 }
 
 /**

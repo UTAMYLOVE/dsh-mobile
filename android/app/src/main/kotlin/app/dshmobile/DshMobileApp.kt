@@ -12,6 +12,7 @@ import app.dshmobile.config.AppSkills
 import app.dshmobile.config.AgentPatchProvider
 import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.runtime.DshClient
+import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.metering.CostMeter
 import app.agency.core.metering.PriceTable
 import app.agency.core.metering.Provider
@@ -536,24 +537,30 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder().setWorkerFactory(HeartbeatWorkerFactory { heartbeatDeps }).build()
+        // Retired: dsh never starts again (arch §2 D0), even for a stale heartbeat that runs before onCreate cancels it.
+        get() = Configuration.Builder().setWorkerFactory(HeartbeatWorkerFactory(retired = true) { heartbeatDeps }).build()
+
+    /**
+     * 小雨娛樂 (arch 1.1): the store, the importer, the providers and the brain. Nothing opens until [AgencyApp.start], which
+     * the company's screen calls; the e2e runner sets [AgencyApp.testOverrides] before this is first read.
+     */
+    val agency: AgencyApp by lazy { AgencyApp(this, keyVault, costMeter, errorLog) }
 
     override fun onCreate() {
         super.onCreate()
-        // Before anything reads the workspace or dsh's home: data an older build kept inside the rootfs moves to userdata/.
-        migrateLegacyUserData()
-        // The interval is the user's setting (default 45). UPDATE keeps an existing schedule's timing.
-        HeartbeatScheduler.schedule(this, agentSettingsStore.heartbeatIntervalMin)
-        // The coach's records load off the main thread, before the first screen asks for them.
-        applicationScope.launch { coach }
+        // Cutover (arch §2 D0): dsh never starts again. No heartbeat is scheduled, nothing is moved in its folders, the coach
+        // engine is not warmed (its folder is the importer's, read-only), and the works an older build left are cancelled.
+        cancelDshWork()
     }
 
-    /** [AppPaths.migrateLegacy], logged; a failure leaves the data where it was (nothing is deleted) and is retried next time. */
-    private fun migrateLegacyUserData() {
+    /** The heartbeat and every helper wake (all tagged with the worker's class name); a failure is logged, never thrown. */
+    private fun cancelDshWork() {
         try {
-            appPaths.migrateLegacy().forEach { errorLog.append("paths", "moved $it out of the rootfs into userdata") }
+            val wm = androidx.work.WorkManager.getInstance(this)
+            wm.cancelUniqueWork(HeartbeatScheduler.WORK_NAME)
+            wm.cancelAllWorkByTag(HeartbeatWorker::class.java.name)
         } catch (e: Exception) {
-            errorLog.append("paths", "could not move user data out of the rootfs (${e.javaClass.simpleName})")
+            errorLog.append("cutover", "could not cancel the old works (${e.javaClass.simpleName})")
         }
     }
 

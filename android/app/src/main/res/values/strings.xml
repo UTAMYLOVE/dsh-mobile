@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">DSH Mobile</string>
+    <string name="app_name" translatable="false">小雨娛樂</string>
 
     <string name="onb_step_counter">第 %1$d 步，共 %2$d 步</string>
     <string name="onb_skip">略過</string>

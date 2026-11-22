@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小雨娛樂's own screens (ui/agency, ui/settings, ui/warroom, ui/kit). Traditional Chinese only, no Latin letters
+     (NoLatinStringsTest); his idol names and the level letters C, B, A are the only exceptions. -->
+<resources>
+    <!-- Start -->
+    <string name="ag_opening">公司開門中…</string>
+    <string name="ag_importing">正在搬資料</string>
+    <string name="ag_importing_hint">把以前的紀錄搬進新的公司，搬完就會自動進去，請不要關掉。</string>
+    <string name="ag_locked">資料鎖打不開</string>
+    <string name="ag_locked_hint">手機裡的資料鎖打不開，所以現在讀不到紀錄。什麼都沒有刪掉，資料都還在手機裡。</string>
+    <string name="ag_unavailable">資料暫時打不開</string>
+    <string name="ag_unavailable_hint">可能是手機空間不夠或正在忙。什麼都沒有刪掉，等一下再試。</string>
+    <string name="ag_try_again">再試一次</string>
+
+    <!-- Navigation -->
+    <string name="ag_tab_company">公司</string>
+    <string name="ag_tab_warroom">指揮室</string>
+    <string name="ag_tab_settings">設定</string>
+
+    <!-- Home -->
+    <string name="ag_trainee">練習生 %1$s</string>
+    <string name="ag_join_day">入社第 %1$d 天</string>
+    <string name="ag_notice_partial">有些舊紀錄讀不出來；讀得到的都搬好了，舊資料都還留著。</string>
+    <string name="ag_notice_failed">搬資料沒有成功，舊資料都還在。下次打開會再試一次。</string>
+    <string name="ag_notice_ok">知道了</string>
+    <string name="ag_role_manager">【經紀人】</string>
+    <string name="ag_role_body">【體態管理老師】</string>
+    <string name="ag_role_company">【公司】</string>
+    <string name="ag_empty_chat">還沒有對話。有事就跟經紀人說。</string>
+    <string name="ag_older">看更早的對話</string>
+    <string name="ag_composer_hint">跟公司說…</string>
+    <string name="ag_send">送出</string>
+    <string name="ag_answering">公司正在回…</string>
+
+    <!-- War room -->
+    <string name="ag_warroom_title">指揮室</string>
+    <string name="ag_warroom_closed">指揮室整修中</string>
+
+    <!-- Settings -->
+    <string name="ag_back">返回</string>
+    <string name="ag_set_model">模型與金鑰</string>
+    <string name="ag_set_spend">花費上限</string>
+    <string name="ag_set_legacy">舊資料</string>
+    <string name="ag_set_licenses">授權</string>
+    <string name="ag_saved">已儲存</string>
+    <string name="ag_save">儲存</string>
+
+    <!-- Model and keys -->
+    <string name="ag_model_source">用哪一家的模型</string>
+    <string name="ag_provider_deepseek">深度求索</string>
+    <string name="ag_provider_claude">克勞德</string>
+    <string name="ag_provider_compat">相容服務</string>
+    <string name="ag_model_which">用哪一個模型</string>
+    <string name="ag_key_set">金鑰已設定</string>
+    <string name="ag_key_missing">還沒有金鑰</string>
+    <string name="ag_key_new">貼上新的金鑰</string>
+    <string name="ag_key_save">儲存金鑰</string>
+    <string name="ag_key_clear">清除金鑰</string>
+    <string name="ag_key_bad">這不像金鑰：請整段貼上，不要有空白。</string>
+    <string name="ag_key_rejected">金鑰被拒或帳戶餘額不足，請到服務商網站確認</string>
+    <string name="ag_compat_url">服務位址</string>
+    <string name="ag_compat_model">模型名稱</string>
+    <string name="ag_compat_bad_url">這個位址不能用：只接受加密連線的位址。</string>
+    <string name="ag_compat_json">這個服務支援結構化輸出</string>
+    <string name="ag_compat_tools">這個服務支援工具</string>
+    <string name="ag_compat_key_note">換了服務位址，原本的金鑰會清掉，要重新貼上。</string>
+
+    <!-- Spend -->
+    <string name="ag_spend_today">今天花了 %1$s 美元</string>
+    <string name="ag_spend_month">這個月花了 %1$s 美元</string>
+    <string name="ag_spend_alert">提醒金額（美元，超過就通知一次）</string>
+    <string name="ag_spend_cap">每日上限（美元，到了就只用固定的話回；空白是不設）</string>
+    <string name="ag_spend_bad">請填數字，例如 1 或 0.5。</string>
+    <string name="ag_spend_suggest">還沒有設每日上限，建議每天 1 美元。</string>
+    <string name="ag_spend_use_suggest">設成 1 美元</string>
+
+    <!-- Legacy data -->
+    <string name="ag_legacy_done">搬完了</string>
+    <string name="ag_legacy_partial">有些舊紀錄讀不出來；讀得到的都搬好了，舊資料都還留著。</string>
+    <string name="ag_legacy_nothing">沒有舊資料要搬。</string>
+    <string name="ag_legacy_not_yet">還沒搬好，下次打開會再試一次；舊資料都還在。</string>
+    <string name="ag_legacy_counts">搬了這些：</string>
+    <string name="ag_legacy_count_row">%1$s %2$d 筆</string>
+    <string name="ag_legacy_kept">舊資料夾還留著，等你確認紀錄都對了再處理。</string>
+    <string name="ag_legacy_too_large">這些檔案太大搬不進來，還留在舊資料夾，可以先分享出去存起來：</string>
+    <string name="ag_legacy_share">分享</string>
+    <string name="ag_legacy_share_failed">分享沒有成功，檔案還在原處。</string>
+    <string name="ag_legacy_retrying">正在重新搬…</string>
+    <string name="ag_kind_profile">練習生資料</string>
+    <string name="ag_kind_rules">公司規章</string>
+    <string name="ag_kind_meals">餐</string>
+    <string name="ag_kind_meal_items">餐點項目</string>
+    <string name="ag_kind_pending">等標示的食物</string>
+    <string name="ag_kind_weights">體重</string>
+    <string name="ag_kind_trainings">訓練</string>
+    <string name="ag_kind_food">常吃食物</string>
+    <string name="ag_kind_audit">修正紀錄</string>
+    <string name="ag_kind_baselines">入社資料</string>
+    <string name="ag_kind_media">照片和錄音</string>
+    <string name="ag_kind_messages">對話</string>
+</resources>

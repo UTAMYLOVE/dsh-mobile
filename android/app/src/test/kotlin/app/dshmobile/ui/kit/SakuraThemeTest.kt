@@ -1,4 +1,4 @@
-package app.dshmobile.ui.theme
+package app.dshmobile.ui.kit
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.shape.RoundedCornerShape

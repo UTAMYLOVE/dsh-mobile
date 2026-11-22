@@ -152,18 +152,14 @@ jobs:
           path: out/native-x86_64
           retention-days: 7
 
-  # Spec §9 end to end on a real Android (x86_64 emulator): proot + Debian + Node 24 + the official dsh + our plugins + the app.
-  # The model is an in-process fake (src/androidTest/.../FakeModel.kt) with a fake key: no real key, no cost.
+  # 小雨娛樂 end to end on a real Android (x86_64 emulator): AgencyE2eTest on the real encrypted database and Keystore.
+  # The model is an in-process fake (src/androidTest/.../FakeModel.kt) with a fake key: no real key, no cost. Since the cutover
+  # (arch §2 D0) the APK carries no rootfs and no native runtime; T09 removes the `needs` and the jobs that built them.
   e2e:
     needs: [rootfs, native]
     runs-on: ubuntu-latest
-    # The stage-1 suite drives the native shell (t01-t24), which gates the release, and measures jank (PerfGateTest) on a
-    # software GPU. The jank numbers are ADVISORY here (they go to the step summary and never fail the job on their threshold;
-    # numbers from a real device decide that gate later); a crash or exception in PerfGateTest still fails it.
+    # AgencyE2eTest gates the release; the jank gate comes back for the conversation in T21 (advisory).
     timeout-minutes: 90
-    env:
-      ROOTFS_FILE: ${{ github.workspace }}/rootfs-artifact/dshm-rootfs-x86_64.tar.xz
-      NATIVE_DIR: ${{ github.workspace }}/native-artifact
     steps:
       # The emulator's userdata image needs 1.2 x disk-size free on the runner; the stock image leaves ~5 GB.
       - name: Free runner disk space
@@ -187,17 +183,9 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - uses: actions/download-artifact@v4
-        with:
-          name: dshm-rootfs-x86_64
-          path: rootfs-artifact
-      - uses: actions/download-artifact@v4
-        with:
-          name: dshm-native-x86_64
-          path: native-artifact
-      - name: Build the app and test APKs (x86_64 rootfs bundled)
+      - name: Build the app and test APKs
         working-directory: android
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pdshm.nativeDir=$NATIVE_DIR"
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
       - name: Run the instrumentation tests on the emulator
         # The suite takes about 35 minutes. A test that hangs must end this step, not the job: the steps below then still
         # list what ran and upload the logcat (run 43308098768 was cancelled at the job's limit with nothing to read).
@@ -221,12 +209,10 @@ jobs:
           disable-animations: true
           working-directory: android
           # The APKs are built already: this Gradle only installs and drives the tests, so it runs on a smaller heap.
-          # IntroWebLooksTest copies its screenshots to /data/local/tmp/intro-shots (the app's own files go with its uninstall
-          # after the run); they are pulled on the same line, pass or fail, while the emulator is still up.
           script: |
             adb logcat -c
             adb logcat -v threadtime > "$GITHUB_WORKSPACE/logcat.txt" 2>&1 < /dev/null &
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m -Pdshm.rootfsAbi=x86_64 "-Pdshm.rootfsFile=$ROOTFS_FILE" "-Pdshm.nativeDir=$NATIVE_DIR" "-Pandroid.testInstrumentationRunnerArguments.plainBackground=$PLAIN_BACKGROUND"; status=$?; adb pull /data/local/tmp/intro-shots "$GITHUB_WORKSPACE/intro-shots" || true; exit $status
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon -Dorg.gradle.jvmargs=-Xmx1536m "-Pandroid.testInstrumentationRunnerArguments.plainBackground=$PLAIN_BACKGROUND"
       # Names, times and pass/fail only (failure messages stay in the uploaded report), so a green job shows what ran.
       - name: List the instrumentation test results
         if: always()
@@ -242,16 +228,6 @@ jobs:
                   print(f'- {state} {m[2].rsplit(".", 1)[-1]}.{m[1]} ({float(m[3]):.1f} s)')
           if not files: print('no results')
           PY
-          # t24's screen width, then the jank fractions per scenario: ADVISORY on this emulator (never a failure by themselves).
-          grep -hoE "t24: .*" logcat.txt 2>/dev/null | sed 's/^/    /' | tee -a "$GITHUB_STEP_SUMMARY" || true
-          {
-            echo; echo "### Jank per scenario (advisory on the CI emulator; the gate is set from device numbers)"; echo
-            echo "| scenario | frames | janky | fraction | threshold | verdict |"
-            echo "|---|---|---|---|---|---|"
-            rows=$(grep -hoE "perf-gate [a-z]+: frames=[0-9]+ janky=[0-9]+ fraction=[0-9.]+ max=[0-9.]+ verdict=[a-z-]+" logcat.txt 2>/dev/null \
-              | sed -E 's/perf-gate ([a-z]+): frames=([0-9]+) janky=([0-9]+) fraction=([0-9.]+) max=([0-9.]+) verdict=([a-z-]+)/| \1 | \2 | \3 | \4 | \5 | \6 |/' || true)
-            if [ -n "$rows" ]; then echo "$rows"; else echo "| (no measurement) | | | | | |"; fi
-          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Print failures and app crashes
         if: failure() || cancelled()
         run: |
@@ -268,15 +244,6 @@ jobs:
           sudo dmesg 2>/dev/null | grep -iE "killed process|out of memory|oom-kill|oom_reaper" | tail -n 20 || true
           echo "=== logcat: crashes, ANRs, low-memory kills, test runner"
           grep -E "FATAL EXCEPTION|AndroidRuntime|ANR in|lowmemorykiller|Low on memory|TestRunner|app\.dshmobile" logcat.txt | grep -vE "token=|Authorization|api[_-]?key" | tail -n 200 || true
-      # The dsh community startup looks as the emulator's WebView drew them (IntroWebLooksTest), on every run, for the owner.
-      - name: Upload the startup look screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: intro-shots
-          path: intro-shots
-          if-no-files-found: warn
-          retention-days: 14
       - name: Upload test reports and logcat
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4

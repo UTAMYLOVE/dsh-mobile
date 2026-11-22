@@ -158,6 +158,10 @@ android {
     sourceSets.getByName("test") {
         resources.srcDir("../core/src/test/resources")
     }
+    // The same fixtures reach the emulator as test-APK assets (`legacy/…`): AgencyE2eTest seeds a v0.8.3 install from them.
+    sourceSets.getByName("androidTest") {
+        assets.srcDir("../core/src/test/resources")
+    }
 }
 
 dependencies {
@@ -213,19 +217,19 @@ dependencies {
     // the shared MutableClock.
     testImplementation(testFixtures(project(":core")))
 
-    // Instrumentation tests (src/androidTest) need a real dsh: they run on an emulator in CI, locally they only have to compile.
+    // Instrumentation tests (src/androidTest, AgencyE2eTest): they run on an emulator in CI, locally they only have to compile.
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.core)
-    // The end-to-end suite: an in-process fake model (Anthropic Messages over SSE) and the heartbeat worker run by hand.
+    // The end-to-end suite: an in-process fake model (DeepSeek and Claude shapes) on 127.0.0.1.
     androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.work.testing)
-    // The native shell is driven through Compose's test APIs (test tags); espresso 3.7.0 for the same reason as above.
+    // The company is driven through Compose's test APIs (test tags); espresso 3.7.0 for the same reason as above.
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.test.espresso.core)
-    // The CI jank gate (PerfGateTest) drives the shell without Compose's test rule, which would cancel its infinite animations.
+    // The jank gate (deleted with dsh at the cutover, back for the conversation in T21) drives screens without Compose's test rule.
     androidTestImplementation(libs.androidx.test.uiautomator)
 }
 
