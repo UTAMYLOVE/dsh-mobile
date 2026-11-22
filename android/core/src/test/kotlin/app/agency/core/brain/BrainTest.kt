@@ -238,6 +238,21 @@ class BrainTest {
         assertEquals(listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
     }
 
+    @Test fun drinksCountAsFoodTalkButWaterDoesNot() {
+        for (t in listOf("喝了珍奶", "喝可樂", "我剛喝了一杯珍奶", "昨天喝了兩罐可樂", "好想喝汽水", "珍奶好想要", "來杯拿鐵", "喝了冬瓜茶", "晚上喝了一碗湯")) {
+            assertTrue(t, Brain.mentionsFood(t))
+        }
+        for (t in listOf("去喝水", "喝溫水", "多喝開水", "喝一杯水再睡", "喝完水去睡", "姐姐在嗎", "早點睡。")) {
+            assertFalse(t, Brain.mentionsFood(t))
+        }
+        val clerk = ScriptedLlm(intake("chat"), judgeOk())
+        runBlocking { withClerk(clerk, ScriptedLlm(utter("好，明天照計畫。"))).onText("喝了珍奶") }
+        assertEquals(listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
+        val water = ScriptedLlm(intake("chat"))
+        runBlocking { withClerk(water, ScriptedLlm(utter("好，早點睡。"))).onText("我去喝溫水") }
+        assertEquals(listOf(Purpose.INTAKE), water.requests.map { it.purpose })
+    }
+
     @Test fun aReplyThatNamesFoodIsJudgedEvenWhenHisWordsDoNot() {
         val clerk = ScriptedLlm(intake("chat"), judgeOk())
         val llm = ScriptedLlm(utter("晚餐照平常吃。"))

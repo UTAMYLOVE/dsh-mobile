@@ -164,10 +164,18 @@ class Brain(
         }
 
         /**
-         * Words that make a conversation one about food (his words or the reply). A bare 喝 is left out: 「去喝水」 is in many
-         * replies and is no food talk; drinks that are food are named (咖啡, 奶茶, 手搖, 含糖, 飲料, 酒).
+         * Words that make a conversation one about food (his words or the reply). 喝 counts unless what is drunk is water
+         * (「去喝水」「喝溫水」「喝一杯水」 are in many replies and are no food talk); the common drinks are named too, for a line
+         * without 喝 (「珍奶好想要」). ICU-safe: no bare `}`, no `\b` next to Han (RegexOnAndroidTest runs it on the phone).
          */
-        private val FOOD_TALK = Regex("吃|餐|飯|麵|熱量|大卡|卡路里|食物|零食|飲料|咖啡|奶茶|手搖|含糖|酒|宵夜|點心|甜點|蛋白質|份量|分量|菜單|外送")
+        private val FOOD_TALK = Regex(
+            "吃|餐|飯|麵|熱量|大卡|卡路里|食物|零食|宵夜|點心|甜點|蛋白質|份量|分量|菜單|外送|" +
+                "喝(?![了完一兩點杯口些大碗瓶罐]*(?:水|開水|溫水|熱水|冰水))|" +
+                "飲料|珍奶|珍珠|奶茶|手搖|可樂|汽水|果汁|拿鐵|咖啡|啤酒|酒|含糖",
+        )
+
+        /** Whether [text] talks about food or a drink that is not water ([FOOD_TALK]). */
+        fun mentionsFood(text: String): Boolean = FOOD_TALK.containsMatchIn(text)
 
         /**
          * The second-pass judge's context line for a ChatLoop turn (arch 1.9b), from code only: today's meals over the quota, a
@@ -177,7 +185,7 @@ class Brain(
          */
         fun judgeContext(input: FactsInput, foodItems: Boolean, ownerText: String, reply: String): String? {
             val over = input.today.meals.sumOf { it.kcal } - input.rules.quotaKcal
-            val foodTalk = foodItems || FOOD_TALK.containsMatchIn(ownerText) || FOOD_TALK.containsMatchIn(reply)
+            val foodTalk = foodItems || mentionsFood(ownerText) || mentionsFood(reply)
             return SecondPassJudge.contextLine(over, input.today.breachToday, foodTalk)
         }
 

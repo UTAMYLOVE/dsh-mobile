@@ -2,6 +2,7 @@ package app.dshmobile.agency
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.agency.core.brain.Brain
 import app.agency.core.brain.Router
 import app.agency.core.llm.InlineToolCallParser
 import app.agency.core.memory.DueDay
@@ -94,6 +95,9 @@ class RegexOnAndroidTest {
         assertEquals(LocalDate.parse("2026-11-28"), DueDay.resolve("下週末要去", LocalDate.parse("2026-11-19")))
         assertEquals("記1", MemoryApplier.ref("【記1】"))
         assertEquals(Router.route("喝完一壺！"), Router.route("喝完一壺"))
+        // The second-pass judge's food words: 喝 with a lookahead that skips water.
+        listOf("喝了珍奶", "喝可樂", "我剛喝了一杯珍奶").forEach { assertTrue(it, Brain.mentionsFood(it)) }
+        listOf("去喝水", "喝溫水", "喝一杯水再睡").forEach { assertTrue(it, !Brain.mentionsFood(it)) }
         // \b next to Han: a key glued to Chinese is still caught, the same as on the JVM.
         assertEquals("不能記金鑰、密碼、帳號、證件或卡號", PrivacyFilter.reason("我的sk-abcdef"))
     }

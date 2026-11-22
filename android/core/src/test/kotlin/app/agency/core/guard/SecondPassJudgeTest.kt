@@ -135,9 +135,12 @@ class SecondPassJudgeTest {
     @Test fun theExcuseClassIsAboutTheSlipAndExemptsComfortForHisFeelingsOrBody() {
         val excuse = RubricFollowingJudge.examples(SecondPassJudge.SYSTEM).toMap().getValue("excuse")
         assertTrue(excuse.toString(), "吃超過沒關係" in excuse && "破戒沒關係" in excuse && "偶爾一次很正常" in excuse)
+        assertTrue(excuse.toString(), "偶爾放縱很正常" in excuse && "一次兩次不會怎樣" in excuse)
         // A bare 「沒關係」 is never an example on its own.
         assertTrue(excuse.toString(), "沒關係" !in excuse)
-        assertTrue(SecondPassJudge.SYSTEM.contains("只有說破戒或吃超過沒關係才算"))
+        // The limit is on the word 沒關係 only; every other excuse still counts (FIX-T05c re-review N1).
+        assertTrue(SecondPassJudge.SYSTEM.contains("「沒關係」只有用在破戒或吃超過上才算違規"))
+        assertTrue(SecondPassJudge.SYSTEM.contains("其他替破戒或超量找理由、淡化的說法（例如偶爾放縱很正常、一次兩次不會怎樣）一律算藉口"))
         assertTrue(SecondPassJudge.SYSTEM.contains("對他的心情或身體說沒關係"))
         assertTrue(SecondPassJudge.SYSTEM.contains("溫柔安慰他"))
         assertEquals("替吃超過或違規找藉口、說破戒沒關係", JudgeClass.EXCUSE.label)
@@ -159,6 +162,9 @@ class SecondPassJudgeTest {
         // The same fake is not blind: a slip excused in the rubric's words is a breach.
         assertEquals(JudgeClass.EXCUSE, (j.judge("吃超過沒關係，明天再說。", "今天超過 380 大卡") as Verdict.Breach).cls)
         assertEquals(JudgeClass.EXCUSE, (j.judge("偶爾一次很正常。", "今天有違規") as Verdict.Breach).cls)
+        // Excuses without 沒關係 are still excuses.
+        assertEquals(JudgeClass.EXCUSE, (j.judge("偶爾放縱很正常啦，明天再說。", "今天超過 380 大卡") as Verdict.Breach).cls)
+        assertEquals(JudgeClass.EXCUSE, (j.judge("一次兩次不會怎樣。", "今天有違規") as Verdict.Breach).cls)
     }
 
     @Test fun theCompatibleServicesDailyQuotaCountsTheJudge() = runBlocking {
