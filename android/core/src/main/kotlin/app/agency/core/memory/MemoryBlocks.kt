@@ -59,8 +59,9 @@ object MemoryBlocks {
 /**
  * The day an open loop is about, worked out by code from his words (the model never computes a date): 今天、明天、後天、
  * 大後天; 這週五、星期五、禮拜五 (the next such day, today included); 下週五 (that day of next week), 下下週五 (the week
- * after); 下週 (next Monday); 週末 (the coming Saturday); 下個月 (the first of next month); 月底 (the last day of this month).
- * Null when no such word is there.
+ * after). A range is due on its last day, so it stays in the prompt while it can still happen: 下週 (Sunday of next week),
+ * 下下週 (the Sunday after), 下週末 (Saturday of next week), 週末 (the coming Saturday), 下個月 (the last day of next month),
+ * 月底 (the last day of this month). Null when no such word is there.
  */
 object DueDay {
     private const val WEEK = "(?:週|星期|禮拜|周)"
@@ -70,6 +71,8 @@ object DueDay {
 
     /** A habit, not a coming event: it belongs in about_him. */
     val RECURRING = Regex("每$WEEK|每個$WEEK|每天|每晚|每個月|每次")
+
+    private fun nextWeekMonday(from: LocalDate): LocalDate = from.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).plusWeeks(1)
 
     fun resolve(text: String, from: LocalDate): LocalDate? {
         NEXT_WEEKDAY.find(text)?.let { m ->
@@ -85,10 +88,11 @@ object DueDay {
             text.contains("後天") -> from.plusDays(2)
             text.contains("明天") -> from.plusDays(1)
             text.contains("今天") || text.contains("今晚") -> from
-            Regex("下下(?:個)?$WEEK").containsMatchIn(text) -> from.with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(1)
-            Regex("下(?:個)?$WEEK").containsMatchIn(text) -> from.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+            Regex("下(?:個)?${WEEK}末|下(?:個)?周末").containsMatchIn(text) -> nextWeekMonday(from).plusDays(5)
+            Regex("下下(?:個)?$WEEK").containsMatchIn(text) -> nextWeekMonday(from).plusWeeks(1).plusDays(6)
+            Regex("下(?:個)?$WEEK").containsMatchIn(text) -> nextWeekMonday(from).plusDays(6)
             text.contains("週末") || text.contains("周末") -> from.with(TemporalAdjusters.nextOrSame(DayOfWeek.SATURDAY))
-            text.contains("下個月") -> from.with(TemporalAdjusters.firstDayOfNextMonth())
+            text.contains("下個月") -> from.plusMonths(1).with(TemporalAdjusters.lastDayOfMonth())
             text.contains("月底") -> from.with(TemporalAdjusters.lastDayOfMonth())
             else -> null
         }

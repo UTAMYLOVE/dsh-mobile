@@ -1,5 +1,7 @@
 package app.agency.core.memory
 
+import app.agency.core.brain.FactsBuilder
+import app.agency.core.guard.CoachNumbers
 import app.agency.core.guard.OutputGuard
 import app.agency.core.model.MemoryEvent
 import app.agency.core.model.MemoryItem
@@ -74,13 +76,15 @@ class MemoryApplier(
     private suspend fun applyOne(r: MemoryRequest, owner: Message?, refs: Map<String, String>): MemoryEvent {
         if (owner == null) reject("這一輪沒有他說的話，不能記")
         val quote = plain(r.quote.orEmpty())
-        if (quote.length !in 2..20 || !plain(owner.text).contains(quote)) reject("要引用他這一輪說過的原話（二到二十字）")
+        // The model saw his message as FactsBuilder cleaned it (links and file names replaced, 800 characters): either form counts.
+        val his = listOf(plain(owner.text), plain(FactsBuilder.clean(owner.text)))
+        if (quote.length !in 2..20 || his.none { it.contains(quote) }) reject("要引用他這一輪說過的原話（二到二十字）")
         val block = MemoryBlock.of(r.block) ?: reject("沒有這個區塊")
         val now = clock.millis()
         val today = today()
         val live = store.memory.items(block.key)
         fun named(): MemoryItem {
-            val id = r.itemRef?.trim()?.let { refs[it] } ?: reject("沒有這一條（用記得的事前面的編號，例如記一）")
+            val id = r.itemRef?.let { refs[ref(it)] } ?: reject("沒有這一條（用記得的事前面的編號，例如記1）")
             return live.firstOrNull { it.id == id } ?: reject("${block.zh}裡沒有這一條")
         }
         return when (r.op) {
@@ -114,7 +118,9 @@ class MemoryApplier(
         if (text.isEmpty()) reject("要寫要記的內容")
         if (text.codePointCount(0, text.length) > MemoryBlocks.ITEM_CHARS) reject("最多 ${MemoryBlocks.ITEM_CHARS} 個字")
         PrivacyFilter.reason(text)?.let { reject(it) }
-        OutputGuard.bannedLabel(text)?.let { reject("不能記：$it") }
+        // How to talk to him is guidance she follows: every ban applies. A fact about him (「他討厭空腹練」) is only checked
+        // for attachment and insults.
+        OutputGuard.bannedLabel(text, full = block == MemoryBlock.HOW_TO_TALK)?.let { reject("不能記：$it") }
         if (bigrams(text).intersect(bigrams(quote)).isEmpty()) reject("記的事要跟他引用的原話有關")
         if (block != MemoryBlock.OPEN_LOOPS) return text to null
         if (DueDay.RECURRING.containsMatchIn(text)) reject("固定的事放 about_him")
@@ -145,7 +151,7 @@ class MemoryApplier(
         val item = store.memory.item(e.itemId) ?: return@transaction UndoResult(false, "找不到這一筆")
         val now = clock.millis()
         val asLeft = when (e.op) {
-            MemoryOp.ADD -> !item.deleted && item.text == e.after
+            MemoryOp.ADD -> !item.deleted && item.text == e.after && item.dueDay == e.afterDue
             MemoryOp.UPDATE -> !item.deleted && item.text == e.after && item.dueDay == e.afterDue
             MemoryOp.DELETE -> item.deleted && item.text == e.before
         }
@@ -170,6 +176,15 @@ class MemoryApplier(
     companion object {
         const val MAX_PER_TURN = 2
         private val NOT_WORD = Regex("[\\s\\p{P}\\p{S}]")
+
+        /**
+         * An item reference as the model may write it (「記1」「[記1]」「記一」「1」) in the form the prompt shows (「記1」).
+         */
+        fun ref(raw: String): String {
+            val t = raw.replace(Regex("[\\s\\[\\]【】「」()（）]"), "").removePrefix(MemoryBlocks.REF_PREFIX)
+            val n = t.toIntOrNull() ?: CoachNumbers.arabic(t)?.toInt() ?: CoachNumbers.chinese(t)?.toInt()
+            return MemoryBlocks.REF_PREFIX + (n ?: t)
+        }
 
         /** [s] without spaces and punctuation (a quote matches his words whatever the commas). */
         fun plain(s: String): String = NOT_WORD.replace(s, "")

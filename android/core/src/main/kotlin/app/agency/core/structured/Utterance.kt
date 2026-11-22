@@ -60,7 +60,7 @@ data class Utterance(
 只輸出一個 json 物件，不要其他文字：
 {"text":"要說的話（最多 $TEXT_CHARS 字，最多四句）","ask":null,"options":[],"recommended":null,
  "memory":[{"op":"add|update|delete","block":"${MemoryBlock.KEYS.joinToString("|")}","item_id":null,"text":"要記的事（最多八十字，不要數字）","quote":"他這一輪原話裡的一小段（二到二十字）"}]}
-memory 只放他這一輪親口說的、以後用得到的事，最多兩件；沒有就給空陣列。quote 照抄他的原話。update 和 delete 的 item_id 填記得的事前面的編號（例如記三）。
+memory 只放他這一輪親口說的、以後用得到的事，最多兩件；沒有就給空陣列。quote 照抄他的原話。update 和 delete 的 item_id 照抄記得的事前面方括號裡的編號（例如記3）。
 """.trimIndent()
 
         val SPEC: StructuredSpec<Utterance> = object : StructuredSpec<Utterance> {
@@ -120,7 +120,7 @@ memory 只放他這一輪親口說的、以後用得到的事，最多兩件；�
             val whole = OutputGuard.check(u.text + (u.ask?.let { "\n$it" } ?: ""), evidence, guardMode, tone)
             val body = OutputGuard.check(u.text, evidence, GuardMode.NORMAL, tone)
             v += reasons("text", whole)
-            if (body.kept.isBlank()) v += Violation("text", "每一句都不能用")
+            if (body.kept.isBlank()) v += reasons("text", body, all = true) + Violation("text", "每一句都不能用")
             u.ask?.let { a -> OutputGuard.check(a, evidence, GuardMode.NORMAL, tone).takeIf { it.kept != a.trim() }?.let { v += reasons("ask", it, all = true) } }
             u.options.forEachIndexed { i, o ->
                 OutputGuard.check(o, evidence, GuardMode.NORMAL, tone).takeIf { it.kept != o.trim() || it.hard.isNotEmpty() }

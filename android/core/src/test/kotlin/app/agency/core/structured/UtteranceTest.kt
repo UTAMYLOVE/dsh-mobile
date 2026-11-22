@@ -48,7 +48,10 @@ class UtteranceTest {
     }
 
     @Test fun aDiscussionReplyAsksExactlyOneQuestion() {
-        val check = Utterance.checker(ev, MessageMode.DISCUSS, Tone.COLD)
+        // The times come from the plan the tools returned this turn; a clock time is checked like any number.
+        val plan = Evidence(listOf("""{"schedule":{"sleep":"22:00"},"free":["22:30","23:00"]}"""))
+        val check = Utterance.checker(plan, MessageMode.DISCUSS, Tone.COLD)
+        assertTrue(reasons(Utterance.checker(ev, MessageMode.DISCUSS, Tone.COLD)(Utterance("改成十點半。", ask = "可以嗎？"))).contains("十點半"))
         val ok = Utterance("十點太早的話可以改。", ask = "你想改到幾點？", options = listOf("十點半", "十一點"), recommended = 0)
         assertEquals(Checked.Accept(ok), check(ok))
         val two = Utterance("你覺得太早嗎？", ask = "你想改到幾點？", options = listOf("十點半"), recommended = 0)

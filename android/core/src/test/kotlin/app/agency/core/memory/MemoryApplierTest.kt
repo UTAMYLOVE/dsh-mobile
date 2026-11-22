@@ -91,7 +91,7 @@ class MemoryApplierTest {
         assertEquals(mapOf("記1" to "4f1c2d3e-0000-4000-8000-123456789abc"), r)
         val m = said("地瓜我現在可以吃了，芋頭不行")
         val unknown = apply(MemoryRequest(MemoryOp.UPDATE, "likes", "記9", "不吃芋頭", "芋頭不行"), owner = m)
-        assertEquals("沒有這一條（用記得的事前面的編號，例如記一）", unknown.rejected.single().reason)
+        assertEquals("沒有這一條（用記得的事前面的編號，例如記1）", unknown.rejected.single().reason)
         val byId = apply(MemoryRequest(MemoryOp.DELETE, "likes", "4f1c2d3e-0000-4000-8000-123456789abc", null, "地瓜我現在可以吃"), owner = m)
         assertEquals(1, byId.rejected.size)
         val wrongBlock = apply(MemoryRequest(MemoryOp.DELETE, "about_him", "記1", null, "地瓜我現在可以吃"), owner = m)
@@ -181,10 +181,64 @@ class MemoryApplierTest {
         assertEquals(LocalDate.of(2026, 11, 24), DueDay.resolve("禮拜二交報告", fri))
         assertEquals(LocalDate.of(2026, 11, 27), DueDay.resolve("下週五面試", fri))
         assertEquals(LocalDate.of(2026, 12, 4), DueDay.resolve("下下週五面試", fri))
-        assertEquals(LocalDate.of(2026, 11, 23), DueDay.resolve("下週要去健檢", fri))
-        assertEquals(LocalDate.of(2026, 11, 30), DueDay.resolve("下下週要搬家", fri))
+        // A range is due on its last day.
+        assertEquals(LocalDate.of(2026, 11, 29), DueDay.resolve("下週要去健檢", fri))
+        assertEquals(LocalDate.of(2026, 12, 6), DueDay.resolve("下下週要搬家", fri))
+        assertEquals(LocalDate.of(2026, 11, 28), DueDay.resolve("下週末要回家", fri))
+        assertEquals(LocalDate.of(2026, 11, 21), DueDay.resolve("週末要回家", fri))
         assertEquals(LocalDate.of(2026, 11, 30), DueDay.resolve("月底要繳報告", fri))
-        assertEquals(LocalDate.of(2026, 12, 1), DueDay.resolve("下個月開始上課", fri))
+        assertEquals(LocalDate.of(2026, 12, 31), DueDay.resolve("下個月開始上課", fri))
         assertNull(DueDay.resolve("一週一次", fri))
+    }
+
+    @Test fun refsAreReadTheWaysAModelWritesThem() = runBlocking {
+        store.memory.putItem(MemoryItem("4f1c2d3e-0000-4000-8000-123456789abc", "likes", "不吃地瓜", 0, 0, null))
+        val m = said("地瓜我不吃了")
+        for (r in listOf("記一", "[記1]", "1", " 記1 ", "【記1】")) {
+            assertEquals(r, "記1", MemoryApplier.ref(r))
+        }
+        for (r in listOf("記一", "[記1]", "1")) {
+            val out = apply(MemoryRequest(MemoryOp.UPDATE, "likes", r, "不吃地瓜了", "地瓜我不吃了"), owner = m)
+            assertTrue(r + out.rejected, out.rejected.isEmpty())
+        }
+        for (r in listOf("記9", "4f1c2d3e-0000-4000-8000-123456789abc")) {
+            assertEquals(1, apply(MemoryRequest(MemoryOp.UPDATE, "likes", r, "不吃地瓜了", "地瓜我不吃了"), owner = m).rejected.size)
+        }
+    }
+
+    @Test fun factsAboutHimAreCheckedOnlyForAttachmentAndInsults() = runBlocking {
+        val m = said("我討厭空腹練，晚餐也不吃澱粉，不要叫我少吃")
+        val facts = apply(add("about_him", "他討厭空腹練", "我討厭空腹練"), add("likes", "他晚餐也不吃澱粉", "晚餐也不吃澱粉"), owner = m)
+        assertTrue(facts.rejected.toString(), facts.rejected.isEmpty())
+        assertTrue(apply(add("how_to_talk", "他說不要叫他少吃", "不要叫我少吃"), owner = m).rejected.isEmpty())
+        val guidance = apply(add("how_to_talk", "叫他晚餐也不吃", "晚餐也不吃澱粉"), owner = m)
+        assertTrue(guidance.rejected.single().reason.startsWith("不能記："))
+        val insult = apply(add("about_him", "他是個廢物", "我討厭空腹練"), owner = m)
+        assertEquals(1, insult.rejected.size)
+    }
+
+    @Test fun aQuoteOfTheCleanedTextCounts() = runBlocking {
+        val m = said("看這個 https://shop.example.com/a 我想吃雞胸沙拉")
+        val out = apply(add("likes", "想吃雞胸沙拉", "（連結）我想吃雞胸沙拉"), owner = m)
+        assertTrue(out.rejected.toString(), out.rejected.isEmpty())
+    }
+
+    @Test fun undoOfAnAddNeedsItsDueDayToo() = runBlocking {
+        val e = apply(add("open_loops", "明天要考試", "明天要考試"), owner = said("明天要考試")).applied.single()
+        assertEquals("2026-11-17", e.afterDue)
+        // Tuesday: the same words now mean Wednesday; the item's text is unchanged but its day is not.
+        time.advance(Duration.ofDays(1))
+        val up = apply(MemoryRequest(MemoryOp.UPDATE, "open_loops", "記1", "明天要考試", "明天要考試"), owner = said("明天要考試")).applied.single()
+        assertEquals("2026-11-18", up.afterDue)
+        assertEquals(UndoResult(false, "先撤銷比較新的那一筆"), applier.undo(e.id))
+        assertEquals(UndoResult(true), applier.undo(up.id))
+        assertEquals(UndoResult(true), applier.undo(e.id))
+        assertTrue(store.memory.items("open_loops").isEmpty())
+    }
+
+    @Test fun aRangeStaysInThePromptUntilItsLastDay() = runBlocking {
+        apply(add("open_loops", "下週要去健檢", "下週要去健檢"), owner = said("下週要去健檢"))
+        time.advance(Duration.ofDays(9))
+        assertTrue(MemoryBlocks.render(store.memory.items(), today(), dayOf).text.contains("下週要去健檢"))
     }
 }

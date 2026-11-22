@@ -2,8 +2,11 @@ package app.agency.core.guard
 
 /** Numbers the way the owner writes them: Arabic (79.2) or Chinese (七十九點二, 兩百五十). */
 object CoachNumbers {
-    /** Arabic figures, half-width or full-width, with thousands separators (1,071) and a decimal part (79.2, ７９．２). */
-    val ARABIC = Regex("[0-9０-９]+(?:[,，][0-9０-９]{3})*(?:[.．][0-9０-９]+)?")
+    /**
+     * Arabic figures, half-width or full-width, with a decimal part (79.2, ７９．２). A thousands separator is an ASCII comma
+     * between groups of three (1,071); a full-width comma is punctuation (「上限是 800，1071 是今天剩的」 holds two numbers).
+     */
+    val ARABIC = Regex("[0-9０-９]{1,3}(?:,[0-9０-９]{3})+(?:[.．][0-9０-９]+)?|[0-9０-９]+(?:[.．][0-9０-９]+)?")
     val CHINESE = Regex("[零〇一二兩三四五六七八九十百千萬]+(?:點[零〇一二兩三四五六七八九]+)?")
     private val DIGIT = mapOf('零' to 0, '〇' to 0, '一' to 1, '二' to 2, '兩' to 2, '三' to 3, '四' to 4, '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9)
 
@@ -42,7 +45,7 @@ object CoachNumbers {
         for (c in s) when (c) {
             in '０'..'９' -> append('0' + (c - '０'))
             '．' -> append('.')
-            ',', '，' -> Unit
+            ',' -> Unit
             else -> append(c)
         }
     }.toDoubleOrNull()

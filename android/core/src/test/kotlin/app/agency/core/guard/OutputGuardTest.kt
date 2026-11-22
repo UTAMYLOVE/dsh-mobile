@@ -123,7 +123,7 @@ class OutputGuardTest {
         val mustPass = listOf(
             "晚餐至少吃一份雞胸。", "不舒服也多少吃一點。", "休假餐以外少吃炸的。", "這餐少吃加工的。", "別空腹出門跑單。", "不要餓肚子騎車。",
             "千萬別跳過晚餐。", "晚餐別跳過。", "上課日不吃早餐。", "21:00 吃過雞胸了，就不要吃宵夜。", "午餐蛋白質不夠，晚餐補回來。", "下次可以加練背包划船。",
-            "練完補充蛋白質。", "今天狀態差，肌力可以減量。", "今天超過了一點，明天回到 1700。",
+            "訓練完補充蛋白質。", "今天狀態差，肌力可以減量。", "今天超過了一點，明天回到 1700。",
         )
         val e = Evidence(listOf("""{"time":"21:00","quota_kcal":1700}"""))
         mustPass.forEach { assertFalse(it + OutputGuard.check(it, e, GuardMode.NORMAL).violations, OutputGuard.check(it, e, GuardMode.NORMAL).needsRetry) }
@@ -202,5 +202,104 @@ class OutputGuardTest {
         assertEquals("一。二。三。四。", OutputGuard.legacyFilter("一。二。三。四。五。", "", ""))
         // The old facts never list his places, so the name rule stays out of the old coach.
         assertEquals("去全家買雞胸。", OutputGuard.legacyFilter("去全家買雞胸。", "", ""))
+    }
+
+    private val corpusFacts = """{"rules":{"quota_kcal":1700,"floor_kcal":1200,"meal_cap_kcal":800,"cheat_meals_per_week":1},
+        "today":{"day":"2026-11-20","slots":[{"time":"12:00"},{"time":"18:30"},{"time":"21:00"}],"kcal":{"eaten":629,"left":1071,"floor_left":571},"protein":{"left":102}}}"""
+    private val cev = Evidence(listOf(corpusFacts))
+    private fun cflag(s: String, tone: Tone = Tone.COLD, e: Evidence = cev) = OutputGuard.check(s, e, GuardMode.NORMAL, tone).violations.isNotEmpty()
+
+    @Test fun protectiveOrdersInANegatedClausePass() {
+        for (s in listOf("晚餐不要少吃。", "吃超過了也不要少吃，明天回到 1700。", "吃多了，下一餐照常吃，別跳過。", "今天超過了，不用補，明天回到 1700。",
+            "別因為忙就不吃午餐。", "不准不吃晚餐。", "跳過午餐不行。", "晚餐不吃不行，去買。", "這餐不要超過 800，炸的不要吃。", "吃多了，少喝含糖飲料。")) {
+            assertFalse(s, cflag(s))
+        }
+        assertFalse(cflag("不舒服也別少吃，正常吃。", Tone.GENTLE))
+    }
+
+    @Test fun compensationAfterAnOverrunIsCaughtWhateverTheWords() {
+        for (s in listOf("今天超過額度，明天補回來。", "今天超過太多，明天中午不吃。", "今天爆卡，明天清淡一點、少一點。", "熱量超標，晚餐只喝湯。",
+            "多吃了一塊雞排，今天就不要再吃了。", "今天吃超過了，晚餐吃一點點就好。", "晚餐乾脆不要吃。", "今晚份量少一點。", "吃多了，下一頓減量。",
+            "吃多了，晚上那份減量。", "今天吃太多了，晚餐份量砍半。", "今天超過了，晚上不要再吃東西。", "今天吃超過了，明天晚餐飯吃半碗。",
+            "吃過頭了，明天一整天只喝豆漿。", "吃多了，晚上多做兩輪。")) {
+            assertTrue(s, OutputGuard.check(s, cev, GuardMode.NORMAL).hard.isNotEmpty())
+        }
+        assertFalse(cflag("今天狀態差，肌力可以減量。"))
+        assertFalse(cflag("吃牛肉湯麵，麵吃一半就好。"))
+    }
+
+    @Test fun dishNamesOutsideTheLexiconPass() {
+        for (s in listOf("可以點番茄炒蛋飯。", "點一份蔥爆牛肉飯。", "晚餐吃三杯雞飯。", "午餐吃海南雞飯。", "吃宮保雞丁飯也行。", "吃味噌湯配烤魚定食。",
+            "去水餃店買。", "健康餐盒店有賣。", "明天便當帶雞胸。", "回家煮麵加蛋。", "自己煮飯比較好。")) {
+            assertFalse(s, cflag(s))
+        }
+        for (s in listOf("吃池上便當。", "吃阿明雞腿便當。", "去老王滷味店。", "去王記水餃店。", "去阿美早餐店。", "去老張牛肉麵。", "去阿華滷味買。",
+            "推薦你去好食堂。", "去小七買茶葉蛋。", "去統一超商買雞胸。", "去悟饕便當買。")) {
+            assertTrue(s, OutputGuard.check(s, cev, GuardMode.NORMAL).violations.any { it.rule == GuardRule.NAME })
+        }
+    }
+
+    @Test fun gentleCareAndHonestDiagnosisLinesPass() {
+        for (s in listOf("身體不舒服沒關係，晚餐正常吃。", "感冒沒關係，多喝溫水。", "發燒沒關係，先喝水、吃點東西再睡。", "心情不好沒關係，今天一輪就好。",
+            "這不是我能診斷的，去看醫生。", "醫生才能診斷，去掛號。", "生病請假不用覺得丟臉。", "這沒什麼好丟臉的。", "不要緊，先睡。")) {
+            assertFalse(s, cflag(s, Tone.GENTLE))
+        }
+        for (s in listOf("吃炸的沒關係。", "今天沒練沒關係。", "聽起來像腸胃炎，多喝水。", "你這應該是胃食道逆流。", "我幫你診斷一下。", "這樣很丟臉。")) {
+            assertTrue(s, cflag(s, Tone.GENTLE))
+        }
+    }
+
+    @Test fun excusesAndAttachmentInOtherWordsAreCaught() {
+        for (s in listOf("不要緊，下次注意。", "這次就算了。", "吃一點炸的也還好啦。", "放鬆一下也好，吃吧。", "你已經很努力了，吃一點沒事。",
+            "今天怎麼都不找我？", "想你了，快回來練。", "一次兩次不會怎樣。", "你都不跟我說話了。")) {
+            assertTrue(s, OutputGuard.check(s, cev, GuardMode.NORMAL).hard.isNotEmpty())
+        }
+        assertFalse(cflag("我算了一下，今天還剩 1071 大卡。"))
+    }
+
+    @Test fun datesInToolTextAreNotEvidenceForOtherNumbers() {
+        val tool = Evidence(listOf("""{"results":[{"title":"某店","summary":"11月20日公休，12/25 營業"}]}"""))
+        for (s in listOf("再吃 20 克。", "還差 25 克。", "還差 12 克。")) assertEquals(s, "", kept(s, tool))
+        assertEquals("12/25 有營業。", kept("12/25 有營業。", tool))
+    }
+
+    @Test fun aFullWidthCommaSeparatesNumbers() {
+        assertEquals("上限是 800，1071 是今天剩的。", kept("上限是 800，1071 是今天剩的。", cev))
+        assertEquals(listOf(800.0, 1071.0), CoachNumbers.all("上限是 800，1071"))
+        assertEquals(listOf(1071.0), CoachNumbers.all("1,071"))
+    }
+
+    @Test fun clockTimesRuleCountsAndChineseDatesAreChecked() {
+        assertEquals("晚上九點前吃完。", kept("晚上九點前吃完。", cev))
+        assertEquals("", kept("晚上八點前吃完。", cev))
+        assertEquals("六點半吃晚餐。", kept("六點半吃晚餐。", Evidence(listOf("""{"time":"18:30"}"""))))
+        assertEquals("晚一點再睡也可以。", kept("晚一點再睡也可以。", cev))
+        assertEquals("", kept("這週可以有兩次休假餐。", cev))
+        assertEquals("這週還有一次休假餐。", kept("這週還有一次休假餐。", cev))
+        assertEquals("", kept("十二月五號要考試對吧。", cev))
+        assertEquals("十一月二十日考試加油。", kept("十一月二十日考試加油。", cev))
+    }
+
+    @Test fun aFigureSaidToBeLeftMustBeALeftValue() {
+        // 1200 is the floor in the rules, not what is left today.
+        assertEquals("", kept("還剩一千二。", cev))
+        assertEquals("", kept("還剩千二。", cev))
+        assertEquals("還剩 1071 大卡。", kept("還剩 1071 大卡。", cev))
+        assertEquals("蛋白質還差 102 克。", kept("蛋白質還差 102 克。", cev))
+        assertEquals("額度是 1200 起跳。", kept("額度是 1200 起跳。", cev))
+    }
+
+    @Test fun makingUpAPhotoOrASetIsNoCompensation() {
+        assertFalse(cflag("訓練照片記得補拍。"))
+        assertFalse(cflag("今天訓練沒做完，明天補做。"))
+        assertTrue(cflag("訓練多做一點把熱量補回來。"))
+    }
+
+    @Test fun linksAreFoundAsTheDeviceReadsWordBoundaries() {
+        // Android's regex counts Han as a word character; UNICODE_CHARACTER_CLASS gives the JVM the same view.
+        for ((re, text) in listOf(Links.URL to "上網搜example.com就有", Links.FILE to "IMG_1.jpg的照片")) {
+            val device = java.util.regex.Pattern.compile(re.pattern, java.util.regex.Pattern.UNICODE_CHARACTER_CLASS)
+            assertTrue(text, device.matcher(text).find())
+        }
     }
 }
