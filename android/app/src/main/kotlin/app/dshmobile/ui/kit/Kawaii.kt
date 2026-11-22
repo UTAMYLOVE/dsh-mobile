@@ -1,4 +1,4 @@
-package app.dshmobile.ui.fog
+package app.dshmobile.ui.kit
 
 import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
@@ -14,10 +14,18 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
-import app.dshmobile.ui.theme.Sakura
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+
+/** Which floating things to draw and how many (0..100); moved from the old look settings with the sparkle drawing. */
+data class KawaiiMix(
+    val petals: Boolean = true,
+    val sparkles: Boolean = true,
+    val hearts: Boolean = true,
+    val clouds: Boolean = true,
+    val amount: Int = 50,
+)
 
 /** What floats over the 粉嫩二次元 background. */
 enum class KawaiiKind { CLOUD, PETAL, SPARKLE, HEART }
@@ -51,9 +59,9 @@ object Kawaii {
         return (x and 0xFFFFFF) / 16777216f
     }
 
-    /** The particles [look] asks for: none for the cosy style or at 數量 0. */
-    fun particles(look: Look): List<KawaiiParticle> {
-        if (look.style != BackdropStyle.KAWAII || look.amount <= 0) return emptyList()
+    /** The particles [look] asks for: none at 數量 0. */
+    fun particles(look: KawaiiMix): List<KawaiiParticle> {
+        if (look.amount <= 0) return emptyList()
         val kinds = listOfNotNull(
             KawaiiKind.PETAL.takeIf { look.petals }, KawaiiKind.SPARKLE.takeIf { look.sparkles }, KawaiiKind.HEART.takeIf { look.hearts },
         )
@@ -207,13 +215,11 @@ object Kawaii {
 internal fun Modifier.kawaii(clock: State<Float>, particles: List<KawaiiParticle>, pace: Float, sides: Boolean = false): Modifier = this
     .graphicsLayer { }
     .drawWithCache {
-        FogDebug.count("background.kawaii")
         val petal = Kawaii.petalPath()
         val sparkle = Kawaii.sparklePath()
         val heart = Kawaii.heartPath()
         val cloud = Kawaii.cloudPath()
         onDrawBehind {
-            FogDebug.count("background.kawaii.draw")
             val t = clock.value * pace
             for (p in particles) drawParticle(p, Kawaii.place(p, t, sides), petal, sparkle, heart, cloud)
         }

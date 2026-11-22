@@ -1,4 +1,4 @@
-package app.dshmobile.ui.agents
+package app.dshmobile.ui.kit
 
 import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.background
@@ -34,12 +34,12 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import app.dshmobile.ui.fog.FogFonts
-import app.dshmobile.ui.fog.LocalEffects
-import app.dshmobile.ui.fog.LocalPageActive
-import app.dshmobile.ui.theme.Sakura
 
-/** The pink war room's colours (FOGCITY only) and text styles (owner-approved A+B+C mockup, 2026-11-04). */
+/**
+ * The pink war room's primitives (moved, trimmed, from the old `ui/agents/WarKit.kt` for the 指揮室 rebuild of T19): its colours
+ * and text styles on the Sakura palette, the glass panel, the dashed header, a small tag, the war-room clock and the icons.
+ * The old fonts went with the old screens; numbers use the system font with tabular figures.
+ */
 object War {
     val ink = Sakura.Text
     val ink2 = Sakura.TextSecondary
@@ -57,17 +57,10 @@ object War {
     val mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = ink)
     val ttl = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.5.sp, fontWeight = FontWeight.Bold, letterSpacing = .1.em, color = ink)
     val zh = TextStyle(fontWeight = FontWeight.Bold, color = ink)
-    fun num(size: TextUnit, color: Color = ink) =
-        // Chakra Petch, not Orbitron: Orbitron's slashed zero read as a 「禁止」 sign on the owner's phone (2026-11-05).
-        TextStyle(fontFamily = FogFonts.ChakraPetch, fontWeight = FontWeight.Bold, fontSize = size, color = color, fontFeatureSettings = "tnum")
+    /** Tabular figures, so changing numbers do not jump. */
+    private const val TABULAR = "tnum"
+    fun num(size: TextUnit, color: Color = ink) = TextStyle(fontWeight = FontWeight.Bold, fontSize = size, color = color, fontFeatureSettings = TABULAR)
 }
-
-/**
- * Text drawn inside a canvas that is scaled from a fixed design space (CoreOrb, the speed chart) is measured in design units:
- * measured at the screen's density and font scale and then scaled again it came out several times too big and overlapped on
- * the owner's phone (2026-11-05).
- */
-internal val DESIGN_UNITS = androidx.compose.ui.unit.Density(1f, 1f)
 
 /** A white glass panel with a pink rim. */
 @Composable
@@ -86,7 +79,7 @@ fun WarPanel(
     )
 }
 
-/** 「◆ TITLE」 left, a note right, a dashed line under both. */
+/** The title left, a note right, a dashed line under both. */
 @Composable
 fun WarHeader(title: String, right: String? = null, rightColor: Color = War.ink2) {
     Row(
@@ -103,22 +96,9 @@ fun WarHeader(title: String, right: String? = null, rightColor: Color = War.ink2
     }
 }
 
-/** An outlined label (status badge); [fill] paints it solid. */
+/** A small solid tag (a log line's kind). */
 @Composable
-fun Pill(text: String, color: Color = War.ink, fill: Color? = null, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(4.dp)
-    Text(
-        text,
-        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.5.sp, fontWeight = FontWeight.Bold, letterSpacing = .08.em, color = War.ink),
-        maxLines = 1,
-        modifier = modifier.then(if (fill != null) Modifier.background(fill, shape) else Modifier).border(1.dp, fill ?: color, shape)
-            .padding(horizontal = 6.dp, vertical = 1.dp),
-    )
-}
-
-/** A small solid tag (log kind). */
-@Composable
-fun Chip(text: String, bg: Color, fg: Color = War.ink) {
+fun WarTag(text: String, bg: Color, fg: Color = War.ink) {
     Text(
         text,
         style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 7.5.sp, fontWeight = FontWeight.Bold, color = fg),
@@ -128,12 +108,11 @@ fun Chip(text: String, bg: Color, fg: Color = War.ink) {
 }
 
 /**
- * Milliseconds since the war room appeared, advancing every frame only while ambient motion is allowed and the page shows (SAVER
- * and reduced motion: frozen at 0). Uses the infinite-animation clock, so tests and the idle governor treat it as decoration.
+ * Milliseconds since the war room appeared, advancing every frame only while [animate] (reduced motion: frozen at 0). Uses the
+ * infinite-animation clock, so tests treat it as decoration.
  */
 @Composable
-fun rememberWarTime(): LongState {
-    val animate = LocalEffects.current.ambient && LocalPageActive.current
+fun rememberWarTime(animate: Boolean = true): LongState {
     val time = remember { mutableLongStateOf(0L) }
     if (animate) {
         LaunchedEffect(Unit) {
@@ -144,17 +123,25 @@ fun rememberWarTime(): LongState {
     return time
 }
 
-/** SVG path data (18×18 icons from the mockup) as Compose paths. */
+/** SVG path data (18×18 icons of the war-room mockup) as Compose paths. */
 object WarIcons {
     private fun p(d: String) = PathParser().parsePathString(d).toPath()
-    val plan = p("M3 3h5v5H3zM10 3h5v5h-5zM3 10h5v5H3zM10 10h5v5h-5z")
-    val scan = p("M8 3a5 5 0 1 0 0.01 0M12 12l4 4")
-    val wait = p("M9 2l6 3v4c0 4-3 6-6 7c-3-1-6-3-6-7V5zM7 9h4")
-    val write = p("M3 15l1-4l8-8l3 3l-8 8zM10 5l3 3")
-    val check = p("M9 2l7 13H2zM9 7v4M9 13v.5")
-    val page = p("M4 2h7l3 3v11H4zM7 7h5M7 10h5M7 13h3")
-    val split = p("M6 9a3 3 0 1 0 .01 0M13 5a2 2 0 1 0 .01 0M13 13a2 2 0 1 0 .01 0M8.5 8l3-2M8.5 10l3 2")
-    val shield = p("M9 2l6 3v4c0 4-3 6-6 7c-3-1-6-3-6-7V5z")
-    val eye = p("M2 9c2-4 5-6 7-6s5 2 7 6c-2 4-5 6-7 6s-5-2-7-6zM9 7a2 2 0 1 0 .01 0")
-    val done = p("M3 9l4 4l8-9")
+    private const val PLAN_PATH = "M3 3h5v5H3zM10 3h5v5h-5zM3 10h5v5H3zM10 10h5v5h-5z"
+    private const val SCAN_PATH = "M8 3a5 5 0 1 0 0.01 0M12 12l4 4"
+    private const val WAIT_PATH = "M9 2l6 3v4c0 4-3 6-6 7c-3-1-6-3-6-7V5zM7 9h4"
+    private const val WRITE_PATH = "M3 15l1-4l8-8l3 3l-8 8zM10 5l3 3"
+    private const val CHECK_PATH = "M9 2l7 13H2zM9 7v4M9 13v.5"
+    private const val PAGE_PATH = "M4 2h7l3 3v11H4zM7 7h5M7 10h5M7 13h3"
+    private const val SHIELD_PATH = "M9 2l6 3v4c0 4-3 6-6 7c-3-1-6-3-6-7V5z"
+    private const val EYE_PATH = "M2 9c2-4 5-6 7-6s5 2 7 6c-2 4-5 6-7 6s-5-2-7-6zM9 7a2 2 0 1 0 .01 0"
+    private const val DONE_PATH = "M3 9l4 4l8-9"
+    val plan = p(PLAN_PATH)
+    val scan = p(SCAN_PATH)
+    val wait = p(WAIT_PATH)
+    val write = p(WRITE_PATH)
+    val check = p(CHECK_PATH)
+    val page = p(PAGE_PATH)
+    val shield = p(SHIELD_PATH)
+    val eye = p(EYE_PATH)
+    val done = p(DONE_PATH)
 }

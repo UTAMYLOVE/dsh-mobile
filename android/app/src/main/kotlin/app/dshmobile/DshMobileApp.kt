@@ -21,8 +21,6 @@ import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.heartbeat.HeartbeatWorker
 import app.dshmobile.heartbeat.HeartbeatWorkerFactory
 import app.dshmobile.log.ErrorLog
-import app.dshmobile.overview.OverviewSource
-import app.dshmobile.overview.OverviewState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -55,18 +53,8 @@ import app.dshmobile.security.KeyVault
 import app.dshmobile.service.CrashPolicy
 import app.dshmobile.service.DshController
 import app.dshmobile.service.DshLauncher
-import app.dshmobile.remote.DshRemote
-import app.dshmobile.service.DshService
 import app.dshmobile.service.RunningDsh
-import app.dshmobile.service.WorkRemote
-import app.dshmobile.service.asWorkRemote
 import app.dshmobile.system.PhantomProcessDetector
-import app.dshmobile.ui.SettingsJobs
-import app.dshmobile.ui.UiHolder
-import app.dshmobile.ui.fog.EffectsController
-import app.dshmobile.ui.fog.UiPrefs
-import app.dshmobile.ui.shell.ShellSession
-import app.dshmobile.ui.shell.ShellSessionHolder
 import app.dshmobile.update.ApkInstaller
 import app.dshmobile.update.ApkUpdateChecker
 import app.dshmobile.update.DailyUpdateCheck
@@ -137,35 +125,8 @@ class DshMobileApp : Application(), Configuration.Provider {
      */
     val loopbackHttp: OkHttpClient by lazy { OkHttpClient() }
 
-    /** Builds the [WorkRemote] [DshService] watches for work; a test seam (production: a [DshRemote] on the running dsh). */
-    @VisibleForTesting
-    internal var workRemoteFactory: (RunningDsh, CoroutineScope) -> WorkRemote = { dsh, scope ->
-        DshRemote(DshClient(loopbackHttp, dsh.launch), scope).asWorkRemote()
-    }
-
-    /** Starts [DshService]; a test seam (Robolectric cannot make `startForegroundService` refuse). */
-    @VisibleForTesting
-    internal var startDshService: (Context) -> Unit = DshService::start
-
-    /**
-     * The explicit hand-over of dsh to [DshService]'s crash supervision (Retry, a rollback, Settings' restart): ends a give-up and
-     * starts the service. Android 12+ refuses a foreground-service start while the app is in the background
-     * (`ForegroundServiceStartNotAllowedException`, e.g. a rollback that ends after the user left); that refusal is logged, never
-     * thrown. Without the service dsh is then only held by whoever still holds it, and the next screen start starts the service.
-     */
-    fun supervise(context: Context = this) {
-        serviceGaveUp.value = false
-        try {
-            startDshService(context)
-        } catch (e: Exception) {
-            errorLog.append("service", "could not start the service (${e.javaClass.simpleName})")
-        }
-    }
-
     /** Work that must not end with a screen (settings actions that stop and start dsh). Never cancelled. */
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
-
-    val settingsJobs: SettingsJobs by lazy { SettingsJobs(applicationScope, controller) }
 
     /**
      * Ends dsh's and guest commands' process trees for real (bug-writer-held): `/proc` for the tree, `Os.kill` for the signals,
@@ -276,7 +237,6 @@ class DshMobileApp : Application(), Configuration.Provider {
                 // start, so the two never pull a conversation two ways.
                 val level = runtimeMode.permission.value
                 val switch = agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview
-                launchedAutoReview = level.autoReviews(switch)
                 val native = DshLayout.active.native
                 val guard = app.dshmobile.runtime.GuardEnvironment.of(
                     level, switch, native,
@@ -351,52 +311,14 @@ class DshMobileApp : Application(), Configuration.Provider {
 
     val exporter: Exporter by lazy { Exporter(this, appPaths.workspace, errorLog) }
 
-    /**
-     * The UI's hold on dsh and the ten-minute background grace. Process-level on purpose: the countdown must survive an
-     * Activity being recreated.
-     */
-    val uiHolder: UiHolder by lazy {
-        UiHolder(
-            runtime = controller,
-            holders = { controller.holders },
-            // Work in flight keeps the service (and dsh); DshService ends itself when the work is done and nobody is looking.
-            stopService = { if (DshService.WORK_HOLDER !in controller.holders) stopService(Intent(this, DshService::class.java)) },
-        )
-    }
-
     /** The last ten reminders the heartbeat's dream produced (the overview's 記憶提醒). */
     val reminderLog: ReminderLog by lazy {
         ReminderLog(getSharedPreferences(ReminderLog.PREFS, Context.MODE_PRIVATE), Clock.systemUTC())
     }
 
-    /** Small per-install UI choices (effect level, last conversation). */
-    val uiPrefs: UiPrefs by lazy { UiPrefs(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)) }
-
-    /** 外觀主題: background style, the user's own picture and the startup animation (Settings). */
-    val look: app.dshmobile.ui.fog.LookController by lazy {
-        app.dshmobile.ui.fog.LookController(
-            app.dshmobile.ui.fog.LookStore(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)), java.io.File(filesDir, "look"),
-        )
-    }
-
-    /** Which segments the chat box's status line shows, in order (Settings). */
-    val statusLineConfig: kotlinx.coroutines.flow.MutableStateFlow<app.dshmobile.ui.shell.StatusLineConfig> by lazy {
-        kotlinx.coroutines.flow.MutableStateFlow(app.dshmobile.ui.shell.StatusLineConfig.load(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE)))
-    }
-
-    /** 「顯示更多功能」 (0.6.0): off, the app is the chat and the war room; on, the overview, bookshelf, projects, helpers and status line are back. */
-    val moreFeatures: kotlinx.coroutines.flow.MutableStateFlow<Boolean> by lazy {
-        kotlinx.coroutines.flow.MutableStateFlow(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).getBoolean(MORE_FEATURES, false))
-    }
-
-    fun setMoreFeatures(on: Boolean) {
-        moreFeatures.value = on
-        getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).edit().putBoolean(MORE_FEATURES, on).apply()
-    }
-
     /** 「生圖服務位址」 (0.7.0): the owner's own image service, or blank; dsh reads it from the workspace note ([app.dshmobile.chat.ImageGen]). */
     val imageGenUrl: kotlinx.coroutines.flow.MutableStateFlow<String> by lazy {
-        kotlinx.coroutines.flow.MutableStateFlow(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).getString(app.dshmobile.chat.ImageGen.KEY, "").orEmpty())
+        kotlinx.coroutines.flow.MutableStateFlow(getSharedPreferences("dshm_ui", Context.MODE_PRIVATE).getString(app.dshmobile.chat.ImageGen.KEY, "").orEmpty())
     }
 
     /** Stores [input] when it is a usable address or blank (blank = not connected) and rewrites the note; false = not an address. */
@@ -404,90 +326,9 @@ class DshMobileApp : Application(), Configuration.Provider {
         val url = app.dshmobile.chat.ImageGen.clean(input)
         if (url == null && input.isNotBlank()) return false
         imageGenUrl.value = url.orEmpty()
-        getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE).edit().putString(app.dshmobile.chat.ImageGen.KEY, url.orEmpty()).apply()
+        getSharedPreferences("dshm_ui", Context.MODE_PRIVATE).edit().putString(app.dshmobile.chat.ImageGen.KEY, url.orEmpty()).apply()
         applicationScope.launch(Dispatchers.IO) { app.dshmobile.chat.ImageGen.write(appPaths.workspace, url) }
         return true
-    }
-
-    fun setStatusLine(c: app.dshmobile.ui.shell.StatusLineConfig) {
-        statusLineConfig.value = c
-        app.dshmobile.ui.shell.StatusLineConfig.save(getSharedPreferences(UiPrefs.PREFS, Context.MODE_PRIVATE), c)
-    }
-
-    /** The effect level the screen draws with: the user's choice held down by the jank governor. One per process. */
-    val effectsController: EffectsController by lazy { EffectsController(uiPrefs) }
-
-    /**
-     * Whether conversations should be on dsh's Auto review now: the owner's switch, never at 全部放行 (PermissionLevel.autoReviews).
-     * Used before this process has started dsh; afterwards ShellSession follows [launchedAutoReview].
-     */
-    private fun autoReviewWanted(): Boolean =
-        runtimeMode.permission.value.autoReviews(agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), false).autoReview)
-
-    /**
-     * The Auto review value the running dsh's guard was started with (DSHM_AUTO_REVIEW). ShellSession puts conversations on the
-     * same preset until dsh starts again: a switch stored without a restart (a Claude key saved while work ran) used to make
-     * ShellSession send one preset before each message while the guard moved the conversation back at its next tool call.
-     */
-    @Volatile
-    private var launchedAutoReview: Boolean? = null
-
-    /**
-     * The native interface's link to the running dsh: one [ShellSession] per dsh instance, in a scope of its own (a child of
-     * [applicationScope], cancelled when that instance's session closes). Whenever dsh stops, with or without a screen (the
-     * background grace, a give-up), the session is detached here, so its remote never keeps retrying a dead port. On the main
-     * thread, like every attach, so a stop seen late can never detach the next instance's session.
-     */
-    val shellSessions: ShellSessionHolder by lazy {
-        val loopback = loopbackHttp
-        // One for the process, shared by every dsh instance's session: a restart no longer drops 審查輪數 and the rest.
-        val kept = app.dshmobile.ui.shell.KeptChoices(uiPrefs)
-        val holder = ShellSessionHolder { running ->
-            val scope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
-            DshRemote(DshClient(loopback, running.launch), scope).let {
-                ShellSession(it, it.events, scope, autoReview = { launchedAutoReview ?: autoReviewWanted() }, levelPreset = { runtimeMode.permission.value.preset }, keptChoices = kept)
-            }
-        }
-        applicationScope.launch(Dispatchers.Main) {
-            controller.isRunning.collect { running -> if (!running) holder.detach() }
-        }
-        holder
-    }
-
-    /**
-     * What the overview shows. The agents and recent flows follow whichever dsh session is current. [unverifiedDshVersion] is the current dsh version when this app has not verified it (read on IO by the source).
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val overviewSource: OverviewSource by lazy {
-        val sessions = shellSessions.current
-        val agents: Flow<Int?> = sessions.flatMapLatest { it?.agents?.runningCount ?: flowOf(null) }
-        val recent = sessions.flatMapLatest { s -> s?.index?.rows?.map { it.take(3) } ?: flowOf(emptyList()) }
-        val live = sessions.flatMapLatest { s ->
-            s?.tree?.state?.map { app.dshmobile.chat.allUsage(it) }?.distinctUntilChanged() ?: flowOf(app.dshmobile.chat.SessionUsage())
-        }
-        OverviewSource(
-            meter = costMeter,
-            reminders = reminderLog,
-            agentsLimit = {
-                agentSettingsStore.load(PhantomProcessDetector(contentResolver).state(), keyVault.has(Provider.ANTHROPIC)).maxConcurrent
-            },
-            heartbeatIntervalMin = { agentSettingsStore.heartbeatIntervalMin },
-            nextHeartbeatAt = HeartbeatScheduler.nextRunAt(this),
-            agentsRunning = agents,
-            recent = recent,
-            liveUsage = live,
-            unverifiedDshVersion = { runCatching { dshVersions.current() }.getOrNull()?.takeUnless(VerifiedDsh::isVerified) },
-            clock = Clock.systemUTC(),
-            context = Dispatchers.IO,
-        )
-    }
-
-    /**
-     * [overviewSource]'s state shared by every overview visit: computed while the page shows and for five seconds after it, and
-     * the last state kept, so a revisit never flashes an empty page (final review B2-M12).
-     */
-    val overviewState: StateFlow<OverviewState?> by lazy {
-        overviewSource.state().stateIn(applicationScope, SharingStarted.WhileSubscribed(OVERVIEW_LINGER_MS), null)
     }
 
     /** Asks the public releases repo for a newer shell app (no credentials; a failure is the caller's to log). */
@@ -546,23 +387,6 @@ class DshMobileApp : Application(), Configuration.Provider {
      */
     val agency: AgencyApp by lazy { AgencyApp(this, keyVault, costMeter, errorLog) }
 
-    /**
-     * Since the cutover the old shell, its onboarding and [DshService] are retired: an entry an older build left on the phone
-     * (its task in Recents, a notification's PendingIntent) forwards to the company or stops at once, before anything of dsh
-     * is built (T06 review I2). Tests of the old code set it false; T08/T09 delete that code.
-     */
-    @VisibleForTesting
-    @Volatile
-    var legacyShellRetired: Boolean = true
-
-    /** For the old shell and onboarding: opens the company in a fresh task. */
-    fun forwardToAgency(from: Context) {
-        from.startActivity(
-            Intent(from, app.dshmobile.ui.agency.AgencyActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
-        )
-    }
-
     override fun onCreate() {
         super.onCreate()
         // Cutover (arch §2 D0): dsh never starts again. No heartbeat is scheduled, nothing is moved in its folders, the coach
@@ -591,8 +415,6 @@ class DshMobileApp : Application(), Configuration.Provider {
     }
 
     private companion object {
-        const val MORE_FEATURES = "more_features"
-        const val OVERVIEW_LINGER_MS = 5_000L
     }
 
     /** DNS servers of the active network as literals; link-local IPv6 ones are unusable in the guest without a scope id. */

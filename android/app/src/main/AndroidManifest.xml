@@ -45,30 +45,6 @@
             </intent-filter>
         </activity>
 
-        <!-- The old dsh shell: compiled but unreachable since the cutover (no launcher, no share target, not exported); T08
-             deletes it. -->
-        <activity
-            android:name=".ui.MainActivity"
-            android:exported="false"
-            android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection" />
-
-        <!-- configChanges: a rotation or font change must not restart the rootfs extraction that runs inside this screen. -->
-        <activity
-            android:name=".ui.OnboardingActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection" />
-
-        <service
-            android:name=".service.DshService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="runs the local AI agent runtime the user is chatting with" />
-        </service>
-
         <!-- Exports go out as content:// URIs under cache/export/ only (res/xml/file_paths.xml); no storage permission needed. -->
         <provider
             android:name="androidx.core.content.FileProvider"

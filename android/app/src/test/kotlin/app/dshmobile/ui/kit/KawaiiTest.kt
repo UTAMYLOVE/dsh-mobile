@@ -1,14 +1,13 @@
-package app.dshmobile.ui.fog
+package app.dshmobile.ui.kit
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KawaiiTest {
-    private val kawaii = Look(style = BackdropStyle.KAWAII)
+    private val kawaii = KawaiiMix()
 
-    @Test fun theCosyLookAndAmountZeroFloatNothing() {
-        assertEquals(emptyList<KawaiiParticle>(), Kawaii.particles(Look()))
+    @Test fun amountZeroFloatsNothing() {
         assertEquals(emptyList<KawaiiParticle>(), Kawaii.particles(kawaii.copy(amount = 0)))
     }
 

@@ -12,14 +12,12 @@ import android.content.pm.PackageManager
 import app.dshmobile.R
 import app.dshmobile.gateway.NotifyRequest
 import app.agency.core.metering.Provider
-import app.dshmobile.service.DshService
-import app.dshmobile.service.RunningWork
 import app.dshmobile.update.ReleaseInfo
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Posts every notification the app shows. Taps open `app.dshmobile.ui.MainActivity` (built by Task 11a, so it is
+ * Posts every notification the app shows. Taps open the company (`AgencyActivity`, since T08; it is
  * addressed by class name) with extras `sessionId` or `action`. Without notification permission nothing is
  * posted and nothing is thrown. All PendingIntents are immutable.
  */
@@ -46,14 +44,14 @@ class Notifier(private val context: Context) {
         post(
             id,
             builder(CHANNEL_MESSAGES, if (locked) LOCKED_TITLE else req.title, if (locked) LOCKED_BODY else req.body)
-                .setContentIntent(openMainActivity(id, EXTRA_SESSION_ID to req.sessionId))
+                .setContentIntent(openCompany(id, EXTRA_SESSION_ID to req.sessionId))
                 .setAutoCancel(true),
         )
     }
 
     fun showCostAlert(usd: Double) {
         val text = String.format(Locale.US, "今日花費已超過 US$%.2f", usd)
-        post(ID_COST, builder(CHANNEL_ALERTS, "花費提醒", text).setContentIntent(openMainActivity(ID_COST)).setAutoCancel(true))
+        post(ID_COST, builder(CHANNEL_ALERTS, "花費提醒", text).setContentIntent(openCompany(ID_COST)).setAutoCancel(true))
     }
 
     fun showRateGuard(p: Provider) {
@@ -64,7 +62,7 @@ class Notifier(private val context: Context) {
         post(
             ID_RATE_GUARD + p.ordinal,
             builder(CHANNEL_ALERTS, "請求過於頻繁", "$name 的請求已被暫時限制，以免異常重送耗費額度")
-                .setContentIntent(openMainActivity(ID_RATE_GUARD + p.ordinal))
+                .setContentIntent(openCompany(ID_RATE_GUARD + p.ordinal))
                 .setAutoCancel(true),
         )
     }
@@ -73,7 +71,7 @@ class Notifier(private val context: Context) {
         post(
             ID_CRASH,
             builder(CHANNEL_ALERTS, "DSH Mobile 已停止", "代理人多次當掉，已不再自動重啟")
-                .setContentIntent(openMainActivity(ID_CRASH))
+                .setContentIntent(openCompany(ID_CRASH))
                 .addAction(action("退版", ID_CRASH + 1, ACTION_ROLLBACK))
                 .addAction(action("查看錯誤記錄", ID_CRASH + 2, ACTION_EXPORT_ERROR_LOG))
                 .setAutoCancel(true),
@@ -85,7 +83,7 @@ class Notifier(private val context: Context) {
         post(
             ID_UPDATE,
             builder(CHANNEL_ALERTS, "有新版本可更新", "DSH Mobile ${info.versionName} 已發佈，點一下下載並安裝")
-                .setContentIntent(openMainActivity(ID_UPDATE, EXTRA_ACTION to ACTION_INSTALL_UPDATE))
+                .setContentIntent(openCompany(ID_UPDATE, EXTRA_ACTION to ACTION_INSTALL_UPDATE))
                 .setAutoCancel(true),
         )
     }
@@ -95,40 +93,16 @@ class Notifier(private val context: Context) {
         post(
             ID_UPDATE,
             builder(CHANNEL_ALERTS, "新版已下載", "DSH Mobile ${info.versionName} 已下載，點一下安裝")
-                .setContentIntent(openMainActivity(ID_UPDATE, EXTRA_ACTION to ACTION_INSTALL_UPDATE))
+                .setContentIntent(openCompany(ID_UPDATE, EXTRA_ACTION to ACTION_INSTALL_UPDATE))
                 .setAutoCancel(true),
         )
     }
 
     fun serviceNotification(): Notification =
         builder(CHANNEL_SERVICE, "DSH Mobile 執行中", "AI 代理人正在背景運作")
-            .setContentIntent(openMainActivity(ID_SERVICE))
+            .setContentIntent(openCompany(ID_SERVICE))
             .setOngoing(true)
             .build()
-
-    /**
-     * The service notification while dsh works: the first conversation's title (at most 40 characters, "等 N 件" for the
-     * rest) and a 「停止」 action that sends `action=stop_work` to [DshService]. Never a URL or a token.
-     */
-    fun workingNotification(work: List<RunningWork>): Notification {
-        val first = work.firstOrNull { it.parentId == null } ?: work.firstOrNull()
-        // A locked conversation's title is never shown, here as in every other notice (the shade and the lock screen show this one).
-        val topLevel = first?.let { w -> if (w.parentId == null) w.sessionId else work.firstOrNull { it.sessionId == w.parentId }?.sessionId ?: w.sessionId }
-        val name = if (first != null && (isLocked(first.sessionId) || isLocked(topLevel))) LOCKED_TITLE
-            else first?.title?.trim()?.takeIf { it.isNotEmpty() }?.let(::clip) ?: "未命名對話"
-        val text = if (work.size > 1) "$name 等 ${work.size} 件" else name
-        val stop = PendingIntent.getService(
-            context, ID_WORK_STOP,
-            Intent(context, DshService::class.java).putExtra(EXTRA_ACTION, ACTION_STOP_WORK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        return builder(CHANNEL_SERVICE, "DSH 正在工作…", text)
-            // Not ID_SERVICE: the plain notification's intent (no extras) would replace this one's conversation (FLAG_UPDATE_CURRENT).
-            .setContentIntent(openMainActivity(ID_WORK_OPEN, EXTRA_SESSION_ID to first?.sessionId))
-            .addAction(Notification.Action.Builder(null, "停止", stop).build())
-            .setOngoing(true)
-            .build()
-    }
 
     /** Dsh finished everything while the app was away; the tap opens that conversation. */
     fun showWorkDone(sessionId: String?, title: String?, failed: Boolean = false) {
@@ -138,7 +112,7 @@ class Notifier(private val context: Context) {
             id,
             // [failed]: the turn ended with an error notice (a rejected key, no balance…); 「完成」 would send the owner away happy.
             builder(CHANNEL_MESSAGES, if (failed) "DSH 出錯了" else "DSH 完成了", name)
-                .setContentIntent(openMainActivity(id, EXTRA_SESSION_ID to sessionId))
+                .setContentIntent(openCompany(id, EXTRA_SESSION_ID to sessionId))
                 .setAutoCancel(true),
         )
     }
@@ -152,7 +126,7 @@ class Notifier(private val context: Context) {
         post(
             ID_WAITING,
             builder(CHANNEL_ALERTS, context.getString(R.string.notify_waiting_title), name)
-                .setContentIntent(openMainActivity(ID_WAITING, EXTRA_SESSION_ID to sessionId))
+                .setContentIntent(openCompany(ID_WAITING, EXTRA_SESSION_ID to sessionId))
                 .setAutoCancel(true),
         )
     }
@@ -175,12 +149,12 @@ class Notifier(private val context: Context) {
             .setContentText(text)
 
     private fun action(title: String, requestCode: Int, action: String): Notification.Action =
-        Notification.Action.Builder(null, title, openMainActivity(requestCode, EXTRA_ACTION to action)).build()
+        Notification.Action.Builder(null, title, openCompany(requestCode, EXTRA_ACTION to action)).build()
 
     /** Each notification needs its own [requestCode]: PendingIntents that differ only in extras would otherwise be merged. */
-    private fun openMainActivity(requestCode: Int, extra: Pair<String, String?>? = null): PendingIntent {
+    private fun openCompany(requestCode: Int, extra: Pair<String, String?>? = null): PendingIntent {
         val intent = Intent().apply {
-            component = ComponentName(context, MAIN_ACTIVITY)
+            component = ComponentName(context, COMPANY_ACTIVITY)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (extra?.second != null) putExtra(extra.first, extra.second)
         }
@@ -219,6 +193,7 @@ class Notifier(private val context: Context) {
         private const val ID_UPDATE = 6
         private const val ID_CRASH = 10 // 10..12: notification and its two actions' request codes
         private const val FIRST_DYNAMIC_ID = 100
-        const val MAIN_ACTIVITY = "app.dshmobile.ui.MainActivity"
+        /** Every tap opens the company since the old shell is gone (T08). */
+        const val COMPANY_ACTIVITY = "app.dshmobile.ui.agency.AgencyActivity"
     }
 }

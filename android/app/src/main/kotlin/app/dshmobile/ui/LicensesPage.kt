@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.dshmobile.R
-import app.dshmobile.ui.theme.Sakura
+import app.dshmobile.ui.kit.Sakura
 
 /** One open-source project the app's startup looks learned from: shown with its author, link and MIT copyright line. */
 internal class OpenSourceCredit(val project: String, val author: String, val url: String, val copyright: String, val usedFor: String)

@@ -20,9 +20,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.robolectric.Robolectric
 import org.robolectric.Shadows
-import app.dshmobile.service.DshService
-import app.dshmobile.ui.MainActivity
-import app.dshmobile.ui.OnboardingActivity
 import app.dshmobile.ui.agency.AgencyActivity
 import org.junit.Before
 import org.junit.Test
@@ -70,24 +67,6 @@ class CutoverTest {
     }
 
     /** Review I2: the old shell's task or an old notification lands in the company; nothing of dsh is built. */
-    @Test fun theOldShellAndOnboardingForwardToTheCompany() {
-        listOf<Class<out android.app.Activity>>(MainActivity::class.java, OnboardingActivity::class.java).forEach { cls ->
-            val activity = Robolectric.buildActivity(cls).create().get()
-            val next = Shadows.shadowOf(activity).nextStartedActivity
-            assertEquals(cls.simpleName, AgencyActivity::class.java.name, next.component!!.className)
-            assertTrue(activity.isFinishing)
-        }
-        assertNotBuilt("controller", "rootfsInstaller", "uiHolder", "coach")
-    }
-
-    @Test fun theOldServiceStopsAtOnce() {
-        val sc = Robolectric.buildService(DshService::class.java).create()
-        assertEquals(android.app.Service.START_NOT_STICKY, sc.get().onStartCommand(null, 0, 1))
-        assertTrue(Shadows.shadowOf(sc.get()).isStoppedBySelf)
-        sc.destroy()
-        assertNotBuilt("controller")
-    }
-
     @Test fun theOldChannelsAreDeleted() {
         val nm = app.getSystemService(android.app.NotificationManager::class.java)
         listOf("dshm_messages", "dshm_alerts", "dshm_service").forEach {

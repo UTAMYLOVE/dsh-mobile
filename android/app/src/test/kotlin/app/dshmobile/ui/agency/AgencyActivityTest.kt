@@ -103,7 +103,7 @@ class AgencyActivityTest {
         assertNull(shadowOf(app).nextStartedService)
         assertFalse(shadowOf(app).nextStartedActivity?.component?.className == "app.dshmobile.ui.MainActivity")
         // Nothing of dsh or the old coach was even built.
-        listOf("controller", "uiHolder", "shellSessions", "coach", "coachStore", "rootfsInstaller").forEach { f ->
+        listOf("controller", "coach", "coachStore", "rootfsInstaller").forEach { f ->
             val lazy = DshMobileApp::class.java.getDeclaredField("$f\$delegate").apply { isAccessible = true }.get(app) as Lazy<*>
             assertFalse("$f was built", lazy.isInitialized())
         }

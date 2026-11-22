@@ -9,7 +9,7 @@ import org.junit.Test
  * every string literal in their code (`ui/agency`, `ui/settings`, `ui/kit`, `ui/warroom`, `agency/notify`) has no Latin
  * letter, except his idol names, song titles and the level letters C, B, A. A literal with Latin and no Chinese passes only
  * where its line shows it is never on screen ([HIDDEN]: a constant, a test tag, a key, a file or a format); anywhere else, such
- * as `Text("ok")`, it fails. The old dsh screens are deleted in T08, not scanned here.
+ * as `Text("ok")`, it fails. The old dsh screens were deleted in T08.
  */
 class NoLatinStringsTest {
     private val whitelist = listOf("BABYMONSTER", "DESERVE", "On My Way")

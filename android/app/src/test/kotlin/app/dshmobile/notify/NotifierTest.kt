@@ -52,7 +52,7 @@ class NotifierTest {
         assertEquals("提醒", n.title())
         assertEquals("該開會了", n.text())
         val intent = tapIntent(n)
-        assertEquals("app.dshmobile.ui.MainActivity", intent.component!!.className)
+        assertEquals("app.dshmobile.ui.agency.AgencyActivity", intent.component!!.className)
         assertEquals("app.dshmobile", intent.component!!.packageName)
         assertEquals("sess-1", intent.getStringExtra("sessionId"))
         assertTrue(shadowOf(n.contentIntent).isActivity)
@@ -105,7 +105,7 @@ class NotifierTest {
         assertEquals(listOf("退版", "查看錯誤記錄"), actions.map { it.title.toString() })
         val extras = actions.map { shadowOf(it.actionIntent).savedIntent }
         assertEquals(listOf("rollback", "export_error_log"), extras.map { it.getStringExtra("action") })
-        assertTrue(extras.all { it.component!!.className == "app.dshmobile.ui.MainActivity" })
+        assertTrue(extras.all { it.component!!.className == "app.dshmobile.ui.agency.AgencyActivity" })
     }
 
     @Test fun serviceNotificationIsOngoingOnTheServiceChannel() {
@@ -131,7 +131,7 @@ class NotifierTest {
         assertTrue(n.title(), n.title().isNotBlank())
         assertTrue(n.text().contains("0.7.0"))
         val intent = tapIntent(n)
-        assertEquals("app.dshmobile.ui.MainActivity", intent.component!!.className)
+        assertEquals("app.dshmobile.ui.agency.AgencyActivity", intent.component!!.className)
         assertEquals("install_update", intent.getStringExtra("action"))
         // Only the action travels in the intent: MainActivity is exported, so no URL or hash may ride along.
         assertEquals(setOf("action"), intent.extras!!.keySet())
@@ -162,7 +162,7 @@ class NotifierTest {
         assertEquals("DSH 完成了", n.title())
         assertEquals("寫小說", n.text())
         val intent = tapIntent(n)
-        assertEquals("app.dshmobile.ui.MainActivity", intent.component!!.className)
+        assertEquals("app.dshmobile.ui.agency.AgencyActivity", intent.component!!.className)
         assertEquals("sess-7", intent.getStringExtra("sessionId"))
         assertTrue(n.flags and Notification.FLAG_AUTO_CANCEL != 0)
     }
@@ -190,14 +190,6 @@ class NotifierTest {
     }
 
     /** Final review A minor: the working tap keeps its conversation even after the plain service notification is built again. */
-    @Test fun theWorkingTapKeepsItsConversationAfterThePlainNotificationIsBuilt() {
-        val working = notifier.workingNotification(listOf(app.dshmobile.service.RunningWork("sess-9", null, "小說")))
-        notifier.serviceNotification()
-        assertEquals("sess-9", shadowOf(working.contentIntent).savedIntent.getStringExtra("sessionId"))
-        assertTrue(shadowOf(working.contentIntent).requestCode != shadowOf(notifier.serviceNotification().contentIntent).requestCode)
-    }
-
-    /** Final review A-I3: dsh waits on an approval or a question while nobody looks. */
     @Test fun waitingForAnAnswerOpensThatConversationAndCanBeWithdrawn() {
         notifier.showWaitingForAnswer("sess-3", "寫小說")
         val n = posted().single()
