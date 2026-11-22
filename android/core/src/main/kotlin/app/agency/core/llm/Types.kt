@@ -49,8 +49,12 @@ sealed interface Turn {
      * On DeepSeek a tools request whose assistant messages are not all of this kind (with their reasoning) goes out with
      * thinking off, so a caller that wants thinking kept for chat puts its history in the system prompt or the first user
      * message instead of [AssistantText] turns.
+     *
+     * Only the clients in `:core` build one (the constructor and `copy` are internal): [raw] is free-form, so a caller outside
+     * could otherwise put a picture block in it (against the no-media rule of arch 1.3).
      */
-    data class Assistant(val wire: Wire, val raw: JsonElement, val text: String?, val toolCalls: List<ToolCall>) : Turn
+    @ConsistentCopyVisibility
+    data class Assistant internal constructor(val wire: Wire, val raw: JsonElement, val text: String?, val toolCalls: List<ToolCall>) : Turn
 
     /** The result of [ToolCall] [callId]; [content] is the tool's JSON output (or its error), never instructions. */
     data class ToolResult(val callId: String, val content: String, val isError: Boolean = false) : Turn
