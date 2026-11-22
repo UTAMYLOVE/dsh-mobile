@@ -5,7 +5,12 @@ import app.agency.core.llm.ProviderChoice
 import app.agency.core.llm.Purpose
 import app.agency.core.llm.Turn
 import app.agency.core.metering.MutableClock
+import app.agency.core.guard.SecondPassJudge
 import app.agency.core.model.FoodEntry
+import app.agency.core.model.KcalSource
+import app.agency.core.model.Meal
+import app.agency.core.model.MealItem
+import app.agency.core.model.Profile
 import app.agency.core.model.Message
 import app.agency.core.model.RoleKey
 import app.agency.core.model.Who
@@ -153,5 +158,72 @@ class BrainTest {
         val llm = ScriptedLlm(intake("chat"), ScriptedLlm.failed(Fail.REFUSED))
         val out = runBlocking { brain(llm).onText("在嗎") }
         assertTrue(out[1].text.endsWith("模型這次沒有好好回答，再說一次試試。"))
+    }
+
+    private fun judgeOk() = ScriptedLlm.ok("""{"violation":false,"class":"none","reason":""}""")
+
+    /** A meal of [kcal] today (coach day of the test clock), with [breaches]. */
+    private fun eat(kcal: Int, breaches: List<String> = emptyList()) = runBlocking {
+        val day = SnapshotReader(store, AgencyClock.of(clock)).today(Profile()).toString()
+        store.meals.insert(
+            Meal("m-$kcal", day, clock.millis() - 60_000, text = "便當", breaches = breaches,
+                items = listOf(MealItem("雞腿便當", 1.0, kcal, 30.0, null, null, true, KcalSource.ESTIMATE))),
+        )
+    }
+
+    private fun withClerk(clerk: ScriptedLlm, llm: ScriptedLlm) =
+        Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), intakeLlm = clerk) { "id-${++n}" }
+
+    @Test fun onAnOverrunDayTheGuardedReplyGoesToTheJudgeOnTheCheapClientWithOnlyTheReplyAndOneLine() {
+        eat(2080) // quota 1700: 380 over
+        runBlocking { store.messages.insert(Message("h1", 1, Who.OWNER, text = "昨天的秘密話")) }
+        val clerk = ScriptedLlm(intake("chat"), judgeOk())
+        val llm = ScriptedLlm(utter("晚餐照平常吃。"))
+        val out = runBlocking { withClerk(clerk, llm).onText("我中午吃太多了") }
+        assertEquals("晚餐照平常吃。", out[1].text)
+        assertEquals(WordedBy.MODEL, out[1].wordedBy)
+        assertEquals(listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
+        val req = clerk.requests[1]
+        assertEquals(SecondPassJudge.SYSTEM, req.system)
+        assertEquals(listOf(Turn.User(SecondPassJudge.userText("晚餐照平常吃。", "今天超過 380 大卡"))), req.turns)
+        // Nothing of his: not his message, not the history, not the facts.
+        val all = req.system + (req.turns.single() as Turn.User).text
+        listOf("吃太多", "秘密話", "雞腿便當", "quota", "2080", "1700").forEach { assertFalse(it, all.contains(it)) }
+    }
+
+    @Test fun aBreachTheJudgeFindsIsRewrittenBeforeAnythingIsStored() {
+        eat(600, breaches = listOf("fried"))
+        val clerk = ScriptedLlm(
+            intake("chat"),
+            ScriptedLlm.ok("""{"violation":true,"class":"compensation","reason":"叫他晚餐不吃"}"""),
+            judgeOk(),
+        )
+        val llm = ScriptedLlm(utter("晚餐就省了吧。"), utter("晚餐照計畫吃。"))
+        val out = runBlocking { withClerk(clerk, llm).onText("中午吃了炸雞") }
+        assertEquals("晚餐照計畫吃。", out[1].text)
+        assertEquals(2, llm.requests.size)
+        assertEquals(listOf(Purpose.INTAKE, Purpose.JUDGE, Purpose.JUDGE), clerk.requests.map { it.purpose })
+        assertTrue(clerk.requests[1].turns.single().let { it is Turn.User && it.text.startsWith("今天的情況：今天有違規\n") })
+        assertFalse(stored().any { it.text.contains("省了") })
+    }
+
+    @Test fun anOrdinaryDayAndChatNeverCallTheJudge() {
+        eat(500)
+        val clerk = ScriptedLlm(intake("chat"))
+        val llm = ScriptedLlm(utter("去喝水。"))
+        runBlocking { withClerk(clerk, llm).onText("姐姐在嗎") }
+        assertEquals(listOf(Purpose.INTAKE), clerk.requests.map { it.purpose })
+    }
+
+    @Test fun aDiscussionAboutFoodCallsTheJudgeEvenOnAnOrdinaryDay() {
+        val clerk = ScriptedLlm(intake("discuss"), judgeOk())
+        val llm = ScriptedLlm(utter("先照計畫試一週。"))
+        runBlocking { withClerk(clerk, llm).onText("晚餐的份量是不是太少") }
+        assertEquals(listOf(Purpose.INTAKE, Purpose.JUDGE), clerk.requests.map { it.purpose })
+        assertTrue((clerk.requests[1].turns.single() as Turn.User).text.startsWith("今天的情況：他正在討論吃的\n"))
+
+        val other = ScriptedLlm(intake("discuss"))
+        runBlocking { withClerk(other, ScriptedLlm(utter("好，先照計畫。"))).onText("核心可以改到晚上嗎") }
+        assertEquals(listOf(Purpose.INTAKE), other.requests.map { it.purpose })
     }
 }

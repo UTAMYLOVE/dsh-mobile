@@ -4,6 +4,7 @@ import app.agency.core.engine.ToneDecider
 import app.agency.core.engine.ToneInputs
 import app.agency.core.guard.Evidence
 import app.agency.core.guard.OutputGuard
+import app.agency.core.guard.SecondPassJudge
 import app.agency.core.llm.Fail
 import app.agency.core.llm.LlmClient
 import app.agency.core.llm.ProviderChoice
@@ -40,21 +41,26 @@ import kotlinx.coroutines.sync.withLock
  * Stage 1's first cut (T06): a command word or a record kind gets [Router.NOT_YET] from the role it belongs to; anything else
  * goes to the data clerk (Intake) for its kind, then chat, mood and unwell go to the manager's [ChatLoop] (NORMAL mode, tools
  * 1, 2 and 6), whose reply has passed the output guard or is the template. When the provider gives no answer the reply is the
- * template plus a fixed line saying why ([failLine]); [lastFail] keeps that reason for 設定 › 模型與金鑰.
+ * template plus a fixed line saying why ([failLine]); [lastFail] keeps that reason for 設定 › 模型與金鑰. On a day over the
+ * quota or with a breach, or while he discusses food, a reply that passed the guard also goes to the second-pass judge
+ * (arch 1.9b) on the data clerk's client.
  */
 class Brain(
     private val store: AgencyStore,
     private val llm: LlmClient,
     private val provider: () -> ProviderChoice,
     private val clock: AgencyClock,
-    /** The data clerk's client: the cheapest model of the same provider (the app wires it; never another provider). */
+    /**
+     * The data clerk's and the second-pass judge's client: the cheapest model of the same provider (the app wires it; never
+     * another provider).
+     */
     private val intakeLlm: LlmClient = llm,
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
     private val mutex = Mutex()
     private val snapshot = SnapshotReader(store, clock)
     private val structured = StructuredCaller(intakeLlm, provider)
-    private val loop = ChatLoop(llm, provider)
+    private val loop = ChatLoop(llm, provider, judge = SecondPassJudge(intakeLlm, provider))
     private val tools = ToolRegistry(readTools(store, snapshot))
 
     private val _busy = MutableStateFlow(false)
@@ -96,7 +102,8 @@ class Brain(
             Intake.spec(owner.text), PromptBuilder.intakeSystem(), PromptBuilder.intakeTurns(facts, owner.text), Purpose.INTAKE,
             INTAKE_TOKENS, fallback = { null },
         )
-        val kind = (intake as? Structured.Model)?.value?.kind ?: CHAT
+        val parsed = (intake as? Structured.Model)?.value
+        val kind = parsed?.kind ?: CHAT
         val tone = ToneDecider.decide(ToneInputs(ownerText = owner.text, intakeKind = kind, breachToday = input.today.breachToday))
         if (intake is Structured.Template && intake.fail != null) {
             _lastFail.value = intake.fail
@@ -121,7 +128,8 @@ class Brain(
         // The seed table too: on a fresh install the store has no food yet, and 給力盒子 or 全家 must not read as unknown chains.
         val names = (FoodTable.seed(0) + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct()
         val factsText = facts.json.toString()
-        val round = ChatRound(system, PromptBuilder.turns(facts, owner), RoleKey.MANAGER, MessageMode.NORMAL, tone) { outputs ->
+        val judgeContext = judgeContext(input, kind, parsed?.items.orEmpty().isNotEmpty(), owner.text)
+        val round = ChatRound(system, PromptBuilder.turns(facts, owner), RoleKey.MANAGER, MessageMode.NORMAL, tone, judgeContext) { outputs ->
             Evidence(listOf(factsText) + outputs, names, latin, ownerText = owner.text, breachToday = input.today.breachToday)
         }
         val result = loop.run(round, tools)
@@ -144,6 +152,7 @@ class Brain(
         const val MAX_OWNER_CHARS = 2000
         const val INTAKE_TOKENS = 600
         private const val CHAT = "chat"
+        private const val DISCUSS = "discuss"
 
         /** The fixed line after the template when the provider gave no answer (code-written; no model). */
         fun failLine(fail: Fail): String = when (fail) {
@@ -152,6 +161,19 @@ class Brain(
             Fail.CAP -> "今天的花費到上限了，要調整請到設定的花費上限。"
             Fail.BAD_RESPONSE, Fail.REFUSED -> "模型這次沒有好好回答，再說一次試試。"
             else -> "現在連不上模型，等一下再試。"
+        }
+
+        /** Words that make a 討論 a discussion about food. */
+        private val FOOD_TALK = Regex("吃|喝|餐|飯|麵|熱量|大卡|卡路里|食物|零食|飲料|宵夜|點心|甜點|蛋白質|份量|分量|菜單|外送")
+
+        /**
+         * The second-pass judge's context line for this turn (arch 1.9b), from code only: today's meals over the quota, a breach
+         * today, or a discussion about food (the clerk's kind is discuss and it found food items, or his words name food).
+         */
+        fun judgeContext(input: FactsInput, kind: String, foodItems: Boolean, ownerText: String): String? {
+            val over = input.today.meals.sumOf { it.kcal } - input.rules.quotaKcal
+            val foodTalk = kind == DISCUSS && (foodItems || FOOD_TALK.containsMatchIn(ownerText))
+            return SecondPassJudge.contextLine(over, input.today.breachToday, foodTalk)
         }
 
         /** KEY_REJECTED covers DeepSeek's 402 (no balance), so he does not delete a good key (FIX-T04 M2). */

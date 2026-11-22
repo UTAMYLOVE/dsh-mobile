@@ -120,7 +120,7 @@ class OpenAiCompatClient(
             put("thinking", buildJsonObject { put("type", if (thinking) "enabled" else "disabled") })
             if (thinking) put("reasoning_effort", "low")
         }
-        if (!thinking) put("temperature", if (request.purpose == Purpose.INTAKE) 0.2 else 0.7)
+        if (!thinking) put("temperature", temperature(request.purpose))
         if (request.output is Output.Json && ep.jsonMode) put("response_format", buildJsonObject { put("type", "json_object") })
         if (withTools) {
             put("tools", buildJsonArray {
@@ -241,5 +241,12 @@ class OpenAiCompatClient(
 
     private companion object {
         val inlineSeq = java.util.concurrent.atomic.AtomicLong()
+
+        /** Low for the data clerk, zero for the second-pass judge (a verdict, not wording), 0.7 for wording. */
+        fun temperature(p: Purpose): Double = when (p) {
+            Purpose.INTAKE -> 0.2
+            Purpose.JUDGE -> 0.0
+            Purpose.UTTERANCE, Purpose.NUDGE, Purpose.CHAT -> 0.7
+        }
     }
 }

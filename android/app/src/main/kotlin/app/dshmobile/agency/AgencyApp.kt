@@ -330,8 +330,10 @@ class AgencyApp(
             transport, { settings.compatEndpoint(allowHttp = base != null) }, { keyVault.getNamed(AgencySettings.COMPAT_KEY) }, checks, costMeter,
             takeQuota = { settings.takeCompatRequest(quotaDay()) },
         )
-        // The data clerk's call goes to the cheapest model of the provider he chose (never another provider): it only sorts
-        // his sentence into a kind (controller ruling on the T06 review M3). The compatible service has one model.
+        // The data clerk's call and the second-pass judge's (arch 1.9b) go to the cheapest model of the provider he chose (never
+        // another provider): one sorts his sentence into a kind (controller ruling on the T06 review M3), the other reads a
+        // guarded reply for three paraphrase classes. Both share the checks and the meter, so they count toward the spend cap.
+        // The compatible service has one model.
         val deepseekClerk = OpenAiCompatClient(
             transport,
             { if (base != null) CompatEndpoint.deepseek(CompatEndpoint.DEEPSEEK_FLASH, base) else CompatEndpoint.deepseek(CompatEndpoint.DEEPSEEK_FLASH) },
@@ -361,7 +363,7 @@ class AgencyApp(
         private const val EXPORT_DIR = "export"
         private const val DEFAULT_DAY_START = 5
 
-        /** The cheapest Claude model, for the data clerk only. */
+        /** The cheapest Claude model, for the data clerk and the second-pass judge only. */
         const val CLAUDE_CLERK = "claude-haiku-5-5"
 
         /** Set by the instrumentation runner (and tests) before the company first opens. */

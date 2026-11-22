@@ -4,8 +4,11 @@ import app.agency.core.metering.Usage
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
-/** What a call is for; it picks temperature and thinking on DeepSeek. Discussion mode calls use [CHAT]. */
-enum class Purpose { INTAKE, UTTERANCE, NUDGE, CHAT }
+/**
+ * What a call is for; it picks temperature and thinking on DeepSeek. Discussion mode calls use [CHAT]; [JUDGE] is the
+ * second-pass judge (arch 1.9b).
+ */
+enum class Purpose { INTAKE, UTTERANCE, NUDGE, CHAT, JUDGE }
 
 enum class Thinking { OFF, LOW }
 
