@@ -3,6 +3,8 @@ package app.agency.core.engine
 import app.agency.core.brain.TodayRecords
 import app.agency.core.model.SignKind
 import app.agency.core.model.TrainingKind
+import app.agency.core.schedule.SlotKey
+import app.agency.core.schedule.SlotKind
 
 /** One sticker of the day's 手帳 strip (plan v3 §17): one per done item. [zh] is the label under it. */
 enum class StickerKind(val zh: String) {
@@ -36,6 +38,26 @@ object Stickers {
         r.signs.firstOrNull { it.kind == SignKind.RIDE_START }?.let { add(Sticker(StickerKind.RIDE, it.id)) }
         r.signs.lastOrNull { it.kind == SignKind.OUT }?.let { add(Sticker(StickerKind.SIGN_OUT, it.id)) }
     }.sortedBy { it.kind.ordinal }
+
+    /** One sticker per done slot of today's plan, plus one per water report (water has no slot). */
+    fun fromSlots(states: List<SlotState>, r: TodayRecords): List<Sticker> = buildList {
+        states.filter { it.status == SlotStatus.DONE }.forEach { st ->
+            add(Sticker(of(st.key), st.key.name))
+        }
+        r.water.forEach { add(Sticker(StickerKind.WATER, it.id)) }
+    }.sortedBy { it.kind.ordinal }
+
+    fun of(key: SlotKey): StickerKind = when (key.kind) {
+        SlotKind.MEAL -> StickerKind.MEAL
+        SlotKind.RIDE -> StickerKind.RIDE
+        SlotKind.SIGN -> if (key == SlotKey.WAKE) StickerKind.SIGN_IN else StickerKind.SIGN_OUT
+        SlotKind.TRAINING -> when (key) {
+            SlotKey.CORE -> StickerKind.CORE
+            SlotKey.STRENGTH -> StickerKind.STRENGTH
+            SlotKey.WALK -> StickerKind.WALK
+            else -> StickerKind.STRETCH
+        }
+    }
 
     fun training(k: TrainingKind): StickerKind = when (k) {
         TrainingKind.CORE7 -> StickerKind.CORE

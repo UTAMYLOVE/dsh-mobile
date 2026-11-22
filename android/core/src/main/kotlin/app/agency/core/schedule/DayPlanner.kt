@@ -1,0 +1,89 @@
+package app.agency.core.schedule
+
+import app.agency.core.model.DayOverride
+import java.time.DayOfWeek
+import java.time.LocalDate
+
+/** Why today's training is lighter: only illness or injury, after his yes to the manager's proposal (agency-links §3b). */
+enum class Reduction(val zh: String) { SICK("生病"), INJURY("受傷") }
+
+/**
+ * Today's plan. [type] is the day's kind; [rest] says 「今天休息」 was declared (no delivery, no strength, no core; stretch
+ * allowed; 1700 unchanged). [cheatSlot] is the declared 休假餐; [soyMorning] the 「早上很餓」 swap. [reduction] is the accepted
+ * illness/injury change of today (no core and no strength; stretch stays, avoiding an injured part).
+ */
+data class DayPlan(
+    val day: LocalDate,
+    val type: DayType,
+    val rest: Boolean,
+    val slots: List<Slot>,
+    val cheatSlot: SlotKey? = null,
+    val soyMorning: Boolean = false,
+    val reduction: Reduction? = null,
+) {
+    fun slot(key: SlotKey): Slot? = slots.firstOrNull { it.key == key }
+
+    /** The first meal of the day: 午餐 on a class day, 第一餐 otherwise (the 早上豆漿 is not a meal slot to move). */
+    val firstMeal: SlotKey get() = if (type == DayType.CLASS) SlotKey.LUNCH else SlotKey.FIRST_MEAL
+    val delivery: Boolean get() = slot(SlotKey.RIDE_OUT) != null
+}
+
+/**
+ * Builds a day's plan from the stored sections (arch 1.5, plan v3 §4): pure. Class day: 08:30 起床簽到, 12:10 午餐 (蛋白質至少
+ * 45 克), 17:00 核心 (星期五 16:05), 17:15 晚餐, 18:00–19:00 出門, 21:00 雞胸加豆漿 on the run (mandatory), after 收工 肌力三輪
+ * (latest start 01:50) and 伸展, latest sign-out 02:30. No-class day: wake by 12:00, 13:00 第一餐, 16:20 快走 30 分鐘, 17:00 核心,
+ * 17:15 晚餐, delivery, 21:00, 肌力 and 伸展, sign-out by 04:00. A rest day keeps those times without delivery, strength and core.
+ */
+object DayPlanner {
+    /** A rest day's stretch (allowed, not owed) is shown at 22:00. */
+    private val REST_STRETCH = DayClock.minute("22:00")
+
+    fun build(
+        day: LocalDate,
+        specs: PlanSpecs = PlanSpecs(),
+        override: DayOverride? = null,
+        adjust: List<DayAdjust> = emptyList(),
+        reduction: Reduction? = null,
+    ): DayPlan {
+        val s = specs.schedule
+        val m = specs.meals
+        val t = specs.training
+        val type = Timetable.type(day, s)
+        val rest = override?.restDay == true
+        val soy = override?.soyMorning == true || adjust.any { it is DayAdjust.SoyMorning }
+        val cls = type == DayType.CLASS
+        val wake = DayClock.minute(if (cls) s.classWake else s.noClassWake)
+        val sleep = DayClock.minute(if (cls) s.classSleepLatest else s.noClassSleepLatest)
+        val strengthLatest = DayClock.minute(if (cls) s.strengthLatestClass else s.strengthLatestNoClass)
+        val first = if (cls) Slot(SlotKey.LUNCH, DayClock.minute(m.classLunch), note = "蛋白質至少 ${m.lunchProteinHintG} 克")
+        else Slot(SlotKey.FIRST_MEAL, DayClock.minute(m.noClassFirstMeal))
+        val slots = buildList {
+            add(Slot(SlotKey.WAKE, wake))
+            if (soy) add(Slot(SlotKey.MORNING_SOY, wake + m.soyAfterWakeMin, note = "高纖豆漿"))
+            add(first)
+            if (!cls) add(Slot(SlotKey.WALK, DayClock.minute(t.walkNoClass), note = "${t.walkMin} 分鐘"))
+            val core = DayClock.minute(if (day.dayOfWeek == DayOfWeek.FRIDAY) t.coreFriday else t.core)
+            if (!rest && reduction == null) add(Slot(SlotKey.CORE, core, note = "半船式、半仰臥起坐、抱膝、單車捲腹、進階抬腿、側棒式左右"))
+            add(Slot(SlotKey.DINNER, DayClock.minute(m.dinner)))
+            if (!rest) add(Slot(SlotKey.RIDE_OUT, DayClock.minute(s.rideOut), untilMinute = DayClock.minute(s.rideOutUntil)))
+            add(Slot(SlotKey.RIDE_MEAL, DayClock.minute(m.rideMeal), note = if (soy) "雞胸（豆漿早上喝過了）" else "雞胸加豆漿，一定要吃"))
+            if (!rest && reduction == null) {
+                add(Slot(SlotKey.STRENGTH, strengthLatest, afterRide = true, note = "${t.strengthRounds} 輪：伏地挺身 15 下、慢速深蹲 12 下、棒式 45 秒"))
+            }
+            val stretchNote = if (reduction == Reduction.INJURY) "${t.stretchMin} 分鐘，避開受傷的地方" else "${t.stretchMin} 分鐘"
+            // Rest day: stretch is allowed, not owed. Otherwise it follows the rounds (or, on a reduced day, stays as the minimum).
+            add(Slot(SlotKey.STRETCH, if (rest) REST_STRETCH else strengthLatest + 20, required = !rest, afterRide = !rest, note = stretchNote))
+            add(Slot(SlotKey.SIGN_OUT, sleep))
+        }
+        val moved = slots.map { sl -> adjust.filterIsInstance<DayAdjust.Move>().lastOrNull { it.key == sl.key }?.let { sl.copy(minute = it.minute) } ?: sl }
+        return DayPlan(
+            day = day,
+            type = type,
+            rest = rest,
+            slots = moved.sortedWith(compareBy({ it.minute }, { it.key.ordinal })),
+            cheatSlot = SlotKey.parse(override?.cheatSlot),
+            soyMorning = soy,
+            reduction = reduction,
+        )
+    }
+}

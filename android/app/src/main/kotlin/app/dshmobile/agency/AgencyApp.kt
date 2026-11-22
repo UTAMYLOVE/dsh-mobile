@@ -25,6 +25,7 @@ import app.agency.core.net.NetworkGate
 import app.agency.core.net.Origin
 import app.agency.core.net.Transport
 import app.agency.core.rules.CoachRules
+import app.agency.core.schedule.PlanStore
 import app.agency.core.store.AgencyStore
 import app.agency.core.time.AgencyClock
 import app.dshmobile.agency.data.AgencyDatabase
@@ -218,6 +219,7 @@ class AgencyApp(
         importer = imp
         if (agencyPrefs.getInt(AgencyPrefKeys.MIGRATED, 0) == 0 && legacyPresent()) _start.value = StartState.Importing
         importAndSeal(imp)
+        seedPlan(store)
         refreshDayStart(store)
         val brain = brain(store)
         startOnboarding(brain, imp)
@@ -237,6 +239,18 @@ class AgencyApp(
             throw e
         } catch (e: Exception) {
             errorLog.append(TAG, "onboarding not started (${e.javaClass.simpleName})")
+        }
+    }
+
+    /** Plan v3's sections on the first open (arch T11); a failure is logged and the defaults are used until the next open. */
+    private suspend fun seedPlan(store: AgencyStore) {
+        try {
+            val n = PlanStore(store).seedIfMissing(clock.millis())
+            if (n > 0) errorLog.append(TAG, "plan sections seeded=$n")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "plan not seeded (${e.javaClass.simpleName})")
         }
     }
 

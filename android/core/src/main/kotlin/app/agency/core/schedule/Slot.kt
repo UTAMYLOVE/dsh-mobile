@@ -1,0 +1,75 @@
+package app.agency.core.schedule
+
+import kotlinx.serialization.Serializable
+
+enum class SlotKind { SIGN, MEAL, TRAINING, RIDE }
+
+/** The slots of a day (arch 1.5 / plan v3 §4); [zh] is the label he reads. */
+enum class SlotKey(val zh: String, val kind: SlotKind) {
+    WAKE("起床簽到", SlotKind.SIGN),
+    MORNING_SOY("早上的豆漿", SlotKind.MEAL),
+    LUNCH("午餐", SlotKind.MEAL),
+    FIRST_MEAL("第一餐", SlotKind.MEAL),
+    WALK("快走", SlotKind.TRAINING),
+    CORE("核心七分鐘", SlotKind.TRAINING),
+    DINNER("晚餐", SlotKind.MEAL),
+    RIDE_OUT("出門跑單", SlotKind.RIDE),
+    RIDE_MEAL("跑單途中的雞胸", SlotKind.MEAL),
+    STRENGTH("肌力三輪", SlotKind.TRAINING),
+    STRETCH("伸展", SlotKind.TRAINING),
+    SIGN_OUT("簽退", SlotKind.SIGN),
+    ;
+
+    companion object {
+        fun parse(name: String?): SlotKey? = entries.firstOrNull { it.name == name }
+        val MEALS = entries.filter { it.kind == SlotKind.MEAL }
+    }
+}
+
+/**
+ * One slot of a day plan. [minute] is minutes from 00:00 of the coach day's date (may pass 24 × 60: 02:30 that night is
+ * 1590). [required] items become gaps when they are late; [afterRide] items are due when he gets home from the run (or at
+ * [minute], their latest start, whichever is first). [note] is a code-written hint (「蛋白質至少 45 克」).
+ */
+@Serializable
+data class Slot(
+    val key: SlotKey,
+    val minute: Int,
+    val required: Boolean = true,
+    val afterRide: Boolean = false,
+    val untilMinute: Int? = null,
+    val note: String? = null,
+) {
+    val label: String get() = key.zh
+    val time: String get() = DayClock.hhmm(minute)
+}
+
+/** What can be moved or placed in today's plan by a 今天微調 (links, T11b): never removal of a required item. */
+@Serializable
+sealed interface DayAdjust {
+    /** Move [key] to [minute] (L1: the first meal after a late wake). */
+    @Serializable data class Move(val key: SlotKey, val minute: Int) : DayAdjust
+
+    /** 「早上很餓」: the 豆漿 moves to the morning, the chicken breast stays at 21:00 (L4). */
+    @Serializable data object SoyMorning : DayAdjust
+}
+
+/** Minutes on the coach day. */
+object DayClock {
+    const val DAY_START_HOUR = 5
+
+    /** `HH:mm` → minutes from 00:00 of the coach day's date; hours before [dayStartHour] belong to the night after. */
+    fun minute(hhmm: String, dayStartHour: Int = DAY_START_HOUR): Int {
+        val (h, m) = hhmm.split(":").map { it.trim().toInt() }
+        require(h in 0..23 && m in 0..59) { "bad time" }
+        return (if (h < dayStartHour) h + 24 else h) * 60 + m
+    }
+
+    fun hhmm(minute: Int): String = "%02d:%02d".format((minute / 60) % 24, minute % 60)
+}
+
+/** A slot's minute on a coach day as an instant. */
+object RuleEngineTime {
+    fun at(day: java.time.LocalDate, minute: Int, zone: java.time.ZoneId): java.time.Instant =
+        day.atStartOfDay(zone).plusMinutes(minute.toLong()).toInstant()
+}

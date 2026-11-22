@@ -1,11 +1,15 @@
 package app.agency.core.brain
 
+import app.agency.core.brain.handlers.CheatDeclare
+import app.agency.core.brain.handlers.HungryMorning
 import app.agency.core.brain.handlers.IdolProfile
+import app.agency.core.brain.handlers.RestDay
 import app.agency.core.brain.handlers.Onboarding
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.agency.core.brain.handlers.OnboardingStep
 import app.agency.core.engine.IdolCard
 import app.agency.core.engine.IdolCardFacts
+import app.agency.core.engine.Stickers
 import app.agency.core.engine.ToneDecider
 import app.agency.core.engine.ToneInputs
 import app.agency.core.guard.Evidence
@@ -26,6 +30,7 @@ import app.agency.core.persona.PromptBuilder
 import app.agency.core.persona.PromptInput
 import app.agency.core.persona.Roles
 import app.agency.core.rules.FoodTable
+import app.agency.core.rules.RulesBook
 import app.agency.core.store.AgencyStore
 import app.agency.core.structured.Intake
 import app.agency.core.structured.Structured
@@ -71,6 +76,9 @@ class Brain(
     private val tools = ToolRegistry(readTools(store, snapshot))
     private val onboarding = Onboarding(store, clock, newId)
     private val idol = IdolProfile(store)
+    private val restDay = RestDay(store, snapshot.plans)
+    private val hungry = HungryMorning(store)
+    private val cheat = CheatDeclare(store, snapshot.plans, clock.zone)
 
     private val _busy = MutableStateFlow(false)
     /** True while a message is being answered. */
@@ -129,9 +137,11 @@ class Brain(
         val day = snapshot.today(profile)
         val status = onboarding.status()
         val missing = if (status.completed && status.open == null) status.missing.size else 0
+        val records = snapshot.records(day)
+        val slots = snapshot.slots(day, records, profile)
         return IdolCard.build(
-            profile, snapshot.rules(), snapshot.records(day), day, snapshot.currentWeightKg(day, profile), missing,
-            status.baseline?.photoFront,
+            profile, snapshot.rules(), records, day, snapshot.currentWeightKg(day, profile), missing,
+            status.baseline?.photoFront, Stickers.fromSlots(slots, records), slots,
         )
     }
 
@@ -143,7 +153,8 @@ class Brain(
         onboarding.answer(owner.text)?.let { return reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, BASELINE_KIND) }
         idol.answer(owner.text)?.let { return reply(RoleKey.MANAGER, it, WordedBy.TEMPLATE, PROFILE_KIND) }
         when (val route = Router.route(owner.text)) {
-            is Route.NotYet -> return reply(route.role, Router.NOT_YET, WordedBy.TEMPLATE, route.kind)
+            is Route.Command -> return command(route, owner)
+            Route.RulesLocked -> return reply(RoleKey.MANAGER, RulesBook.LOCKED, WordedBy.TEMPLATE, RULES_KIND)
             Route.Model -> Unit
         }
         val input = snapshot.facts(history)
@@ -159,7 +170,7 @@ class Brain(
             _lastFail.value = intake.fail
             return reply(RoleKey.MANAGER, Roles.template(RoleKey.MANAGER, tone) + failLine(intake.fail), WordedBy.TEMPLATE, kind)
         }
-        if (Router.isRecordKind(kind)) return reply(Router.roleOf(kind), Router.NOT_YET, WordedBy.TEMPLATE, kind)
+        if (Router.isRecordKind(kind)) return reply(Router.roleOf(kind), recordHint(kind), WordedBy.TEMPLATE, kind)
 
         val profile = input.profile
         val today = snapshot.today(profile)
@@ -189,6 +200,30 @@ class Brain(
         return reply(RoleKey.MANAGER, text, if (result.fromModel) WordedBy.MODEL else WordedBy.TEMPLATE, kind)
     }
 
+    /** A command word (code only, no model). */
+    private suspend fun command(route: Route.Command, owner: Message): Message {
+        val profile = snapshot.profile()
+        val today = snapshot.today(profile)
+        val text = when (route.kind) {
+            "rest_day" -> restDay.declare(today, owner.at)
+            "hungry_morning" -> hungry.declare(today, owner.at).first
+            "cheat_declare" -> cheat.declare(owner.text, today, clock.now(), snapshot.rules())
+            else -> Router.NOT_YET
+        }
+        return reply(route.role, text, WordedBy.TEMPLATE, route.kind)
+    }
+
+    /**
+     * A record kind the clerk found in words that are no command: the declarations only happen on their exact words (a guess
+     * never turns today into a rest day), so the line says them; the other kinds wait for their handlers.
+     */
+    private fun recordHint(kind: String): String = when (kind) {
+        "rest_day" -> "要換成休息日，就打「今天休息」。"
+        "hungry_morning" -> "早上很餓就打「早上很餓」，豆漿會挪到早上。"
+        "cheat_declare" -> CheatDeclare.FORMAT
+        else -> Router.NOT_YET
+    }
+
     private suspend fun reply(role: RoleKey, text: String, by: WordedBy, kind: String): Message {
         val m = Message(newId(), clock.millis(), Who.COMPANY, role = role, kind = kind, text = text, wordedBy = by)
         store.messages.insert(m)
@@ -209,6 +244,9 @@ class Brain(
 
         /** The kind of the manager's 藝名 lines. */
         const val PROFILE_KIND = "profile"
+
+        /** The kind of the fixed 公司規章 reply. */
+        const val RULES_KIND = "rules"
 
         /** The fixed line after the template when the provider gave no answer (code-written; no model). */
         fun failLine(fail: Fail): String = when (fail) {

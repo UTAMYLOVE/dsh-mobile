@@ -3,7 +3,13 @@ package app.agency.core.brain
 import app.agency.core.model.CompanyRules
 import app.agency.core.model.Message
 import app.agency.core.model.Profile
+import app.agency.core.engine.RuleEngine
+import app.agency.core.engine.SlotState
 import app.agency.core.rules.CoachRules
+import app.agency.core.schedule.DayAdjust
+import app.agency.core.schedule.DayPlan
+import app.agency.core.schedule.PlanStore
+import app.agency.core.schedule.Reduction
 import app.agency.core.store.AgencyStore
 import app.agency.core.time.AgencyClock
 import java.time.DayOfWeek
@@ -17,7 +23,24 @@ import java.time.temporal.TemporalAdjusters
  * profile, today's records, the daily summaries of the last [FactsBuilder.MAX_SUMMARIES] days and his latest weight. Days are
  * coach days (a day starts at `profile.dayStartHour`, 05:00 by default, in [clock]'s zone).
  */
-class SnapshotReader(private val store: AgencyStore, private val clock: AgencyClock) {
+class SnapshotReader(
+    private val store: AgencyStore,
+    private val clock: AgencyClock,
+    /** Today's 今天微調 and the accepted illness change (the nerve, T11b); none without it. */
+    private val todayChanges: suspend (LocalDate) -> Pair<List<DayAdjust>, Reduction?> = { emptyList<DayAdjust>() to null },
+) {
+    val plans = PlanStore(store)
+
+    /** [day]'s plan with its adjustments. */
+    suspend fun plan(day: LocalDate): DayPlan {
+        val (adjust, reduction) = todayChanges(day)
+        return plans.plan(day, adjust, reduction)
+    }
+
+    /** [day]'s slots with their status now (arch 1.5 `RuleEngine`). */
+    suspend fun slots(day: LocalDate, records: TodayRecords, profile: Profile): List<SlotState> =
+        RuleEngine.status(plan(day), records, clock.now(), clock.zone, profile.dayStartHour)
+
     suspend fun rules(): CompanyRules = store.rules.current() ?: CompanyRules()
     suspend fun profile(): Profile = store.profile.get() ?: Profile()
 
@@ -66,14 +89,16 @@ class SnapshotReader(private val store: AgencyStore, private val clock: AgencyCl
     suspend fun facts(history: List<Message>): FactsInput {
         val profile = profile()
         val today = today(profile)
+        val records = records(today)
         return FactsInput(
             rules = rules(),
             profile = profile,
             currentWeightKg = currentWeightKg(today, profile),
-            today = records(today),
+            today = records,
             summaries = summaries(today),
             history = history,
             zone = clock.zone,
+            slots = slots(today, records, profile).map { SlotFact(it.key.name.lowercase(), it.slot.label, it.slot.time, it.status.name.lowercase()) },
         )
     }
 

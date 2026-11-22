@@ -21,8 +21,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Tool 1 `get_today` (arch 1.4): today's numbers, every one computed by code. The slots and `riding` come with the day planner
- * (T11) and the riding buttons (T13); until then `slots` is empty and `riding` false. Record ids are what the model may cite.
+ * Tool 1 `get_today` (arch 1.4): today's numbers, every one computed by code, with today's slots from the day planner and their
+ * status (T11). `riding` comes with the riding buttons (T13). Record ids are what the model may cite.
  */
 class GetTodayTool(private val store: AgencyStore, private val snapshot: SnapshotReader) : AgencyTool {
     override val spec = ToolSpec(NAME, "今天的紀錄和剩下的額度（程式算好的數字）。", JsonSchema.obj())
@@ -39,7 +39,14 @@ class GetTodayTool(private val store: AgencyStore, private val snapshot: Snapsho
         return buildJsonObject {
             put("day", day.toString())
             put("day_type", dayType(day, override?.restDay == true))
-            put("slots", buildJsonArray { })
+            put("slots", buildJsonArray {
+                snapshot.slots(day, t, profile).forEach { st ->
+                    add(buildJsonObject {
+                        put("key", st.key.name.lowercase()); put("label", st.slot.label); put("time", st.slot.time)
+                        put("status", st.status.name.lowercase()); put("record_ids", buildJsonArray { st.recordIds.forEach { add(JsonPrimitive(it)) } })
+                    })
+                }
+            })
             put("meals", buildJsonArray {
                 t.meals.forEach { m ->
                     add(buildJsonObject {

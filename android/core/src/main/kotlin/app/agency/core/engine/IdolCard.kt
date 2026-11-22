@@ -28,7 +28,15 @@ data class IdolCardFacts(
     val breachesToday: Int,
     val baselineMissing: Int,
     val photoMediaId: String?,
-)
+    /** Today's plan with status (the card's schedule reads the day planner, arch T11). */
+    val slots: List<SlotState> = emptyList(),
+) {
+    /** What comes next: the first slot still open or later, in time order. */
+    val next: SlotState? get() = slots.firstOrNull { it.status == SlotStatus.OPEN || it.status == SlotStatus.LATER }
+
+    /** Required slots due and missing. */
+    val gaps: List<SlotState> get() = slots.filter { it.isGap }
+}
 
 object IdolCard {
     /** His number on the card: 「001」 until the profile says otherwise (one trainee). */
@@ -59,6 +67,7 @@ object IdolCard {
         baselineMissing: Int,
         photoMediaId: String?,
         stickers: List<Sticker> = Stickers.fromRecords(today),
+        slots: List<SlotState> = emptyList(),
     ): IdolCardFacts {
         val eaten = today.meals.sumOf { it.kcal }
         val protein = today.meals.sumOf { m -> m.items.sumOf { it.proteinG ?: 0.0 } }
@@ -76,6 +85,7 @@ object IdolCard {
             breachesToday = today.meals.sumOf { it.breaches.size },
             baselineMissing = baselineMissing,
             photoMediaId = photoMediaId,
+            slots = slots,
         )
     }
 }

@@ -69,6 +69,8 @@ object IdolTags {
     const val SETUP_SKIP = "ag-idol-setup-skip"
     const val COLOR = "ag-idol-color-"
     const val PHOTO = "ag-idol-photo"
+    const val NEXT = "ag-idol-next"
+    const val GAPS = "ag-idol-gaps"
 }
 
 /**
@@ -122,6 +124,10 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
         Box(Modifier.fillMaxWidth().height(6.dp).background(accent.fill).testTag(IdolTags.BAND))
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             StickerStrip(facts)
+            facts.next?.let { Text(stringResource(R.string.ag_card_next, it.slot.time, it.slot.label), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.NEXT)) }
+            if (facts.gaps.isNotEmpty()) {
+                Text(stringResource(R.string.ag_card_gaps, facts.gaps.joinToString("、") { it.slot.label }), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.GAPS))
+            }
             Text(
                 facts.nextGoalKg?.let { stringResource(R.string.ag_card_goal, CoachRules.kg(it)) } ?: stringResource(R.string.ag_card_goal_none),
                 color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.GOAL),

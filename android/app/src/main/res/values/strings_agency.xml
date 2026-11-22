@@ -59,6 +59,30 @@
     <string name="ag_trainee_no_colour">還沒選</string>
     <string name="ag_trainee_adjusted">這個顏色調深或調淺了一點，字才看得清楚。</string>
 
+    <!-- 公司規章 and 作息 (T11) -->
+    <string name="ag_set_rules">公司規章</string>
+    <string name="ag_set_schedule">作息</string>
+    <string name="ag_rules_locked_note">公司規章在對話裡誰都改不了，只有你自己在這裡改，要確認兩次。</string>
+    <string name="ag_rules_edit">修改</string>
+    <string name="ag_rules_cancel">取消</string>
+    <string name="ag_rules_quota">每天的熱量（大卡）</string>
+    <string name="ag_rules_protein">蛋白質（克）</string>
+    <string name="ag_rules_fat">脂肪（克）</string>
+    <string name="ag_rules_carbs">碳水（克）</string>
+    <string name="ag_rules_floor">最低熱量（大卡，不能低於 1200）</string>
+    <string name="ag_rules_cap">單餐上限（大卡）</string>
+    <string name="ag_rules_cheat">休假餐一週幾餐（零或一）</string>
+    <string name="ag_rules_zero">零卡飲料一週幾瓶</string>
+    <string name="ag_rules_goals">目標體重（公斤，用頓號分開，例如 75、68）</string>
+    <string name="ag_rules_bad_number">有一格不是數字，請改好再存。</string>
+    <string name="ag_rules_confirm_1">確定要改公司規章嗎？</string>
+    <string name="ag_rules_confirm_2">再確認一次：改了之後，每個角色都照新的規章，舊的版本會留著紀錄。</string>
+    <string name="ag_rules_yes">確定</string>
+    <string name="ag_rules_yes_really">確定修改</string>
+    <string name="ag_schedule_note">接下來七天的行程。要改時間，跟經紀人討論，她提出來你按好才會改。</string>
+    <string name="ag_card_next">下一項：%1$s %2$s</string>
+    <string name="ag_card_gaps">還沒回報：%1$s</string>
+
     <!-- War room -->
     <string name="ag_warroom_title">指揮室</string>
     <string name="ag_warroom_closed">指揮室整修中</string>

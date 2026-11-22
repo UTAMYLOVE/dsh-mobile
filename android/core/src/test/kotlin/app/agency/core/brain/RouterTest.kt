@@ -8,12 +8,19 @@ import org.junit.Test
 
 class RouterTest {
     @Test fun commandWordsAreRecordsOfTheirRole() {
-        assertEquals(Route.NotYet("water", RoleKey.BODY), Router.route("喝了半壺"))
-        assertEquals(Route.NotYet("sign_in", RoleKey.MANAGER), Router.route("簽到。"))
-        assertEquals(Route.NotYet("sign_out", RoleKey.MANAGER), Router.route("我要睡了"))
-        assertEquals(Route.NotYet("training", RoleKey.BODY), Router.route("核心完成"))
-        assertEquals(Route.NotYet("cheat_declare", RoleKey.MANAGER), Router.route("這週休假餐是明天晚餐"))
-        assertEquals(Route.NotYet("rest_day", RoleKey.MANAGER), Router.route(" 今天休息 "))
+        assertEquals(Route.Command("water", RoleKey.BODY), Router.route("喝了半壺"))
+        assertEquals(Route.Command("sign_in", RoleKey.MANAGER), Router.route("簽到。"))
+        assertEquals(Route.Command("sign_out", RoleKey.MANAGER), Router.route("我要睡了"))
+        assertEquals(Route.Command("training", RoleKey.BODY), Router.route("核心完成"))
+        assertEquals(Route.Command("cheat_declare", RoleKey.MANAGER), Router.route("這週休假餐是明天晚餐"))
+        assertEquals(Route.Command("rest_day", RoleKey.MANAGER), Router.route(" 今天休息 "))
+    }
+
+    @Test fun ridesAndRuleChanges() {
+        assertEquals(Route.Command("ride_start", RoleKey.MANAGER), Router.route("出門跑單"))
+        assertEquals(Route.Command("ride_end", RoleKey.MANAGER), Router.route("收工！"))
+        assertEquals(Route.RulesLocked, Router.route("每天熱量改成 2000 好不好"))
+        assertEquals(Route.Command("cheat_declare", RoleKey.MANAGER), Router.route("休假餐 星期四晚餐"))
     }
 
     @Test fun anythingElseGoesToTheModel() {

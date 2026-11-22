@@ -19,6 +19,7 @@ import app.agency.core.model.MealItem
 import app.agency.core.model.Profile
 import app.agency.core.model.WaterLog
 import app.agency.core.rules.CoachRules
+import app.agency.core.schedule.DayPlanner
 import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
@@ -98,7 +99,7 @@ class IdolCardScreenTest {
             val s = ready().store
             s.profile.put(Profile(stageName = null, joinDate = today().minusDays(9).toString(), onboardingDone = false))
             val d = today().toString()
-            s.meals.insert(Meal("m1", d, 1L, text = "便當", breaches = listOf("PROCESSED"), items = listOf(MealItem("便當", 1.0, 714, 48.0, null, null, false, KcalSource.TABLE))))
+            s.meals.insert(Meal("m1", d, 1L, slotKey = DayPlanner.build(today()).firstMeal.name, text = "便當", breaches = listOf("PROCESSED"), items = listOf(MealItem("便當", 1.0, 714, 48.0, null, null, false, KcalSource.TABLE))))
             s.water.insert(WaterLog("w1", d, 2L, 2))
         }
         type("藝名 小雨")

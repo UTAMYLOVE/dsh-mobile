@@ -1,20 +1,24 @@
 package app.agency.core.brain
 
 import app.agency.core.model.RoleKey
+import app.agency.core.rules.RulesBook
 
 /** Where one message of his goes. */
 sealed interface Route {
-    /** A record kind whose handler has not landed yet (T13-T19): the routed role answers [Router.NOT_YET]. */
-    data class NotYet(val kind: String, val role: RoleKey) : Route
+    /** An exact command word: its handler (code) answers, or [Router.NOT_YET] from the routed role while it has none yet. */
+    data class Command(val kind: String, val role: RoleKey) : Route
+
+    /** An attempt to change 公司規章 in chat: the fixed reply ([app.agency.core.rules.RulesBook.LOCKED]), nothing changes. */
+    data object RulesLocked : Route
 
     /** Not a command word: the data clerk (Intake) decides the kind, then chat goes to ChatLoop. */
     data object Model : Route
 }
 
 /**
- * The code fast paths of arch 1.3 step 1 and the role routing of 1.3, in code (no model). Stage 1's first cut has no handler
- * for any record yet, so every record kind, whether a command word here or a kind the clerk returns, gets [NOT_YET] from the
- * role it belongs to; chat, mood, unwell and discussion go to the manager's ChatLoop.
+ * The code fast paths of arch 1.3 step 1 and the role routing of 1.3, in code (no model). A command word goes to its handler
+ * (rest day, 休假餐, 「早上很餓」 since T11); a record kind without a handler yet gets [NOT_YET] from the role it belongs to; an
+ * attempt to change 公司規章 gets the fixed reply; chat, mood, unwell and discussion go to the manager's ChatLoop.
  */
 object Router {
     const val NOT_YET = "這個功能下一版開"
@@ -35,7 +39,8 @@ object Router {
         listOf("喝完一壺", "喝了一壺", "喝了半壺", "喝完半壺").forEach { put(it, "water") }
         listOf("簽到", "起床", "起床了").forEach { put(it, "sign_in") }
         listOf("簽退", "我要睡了", "要睡了").forEach { put(it, "sign_out") }
-        listOf("出門了", "出門跑單", "收工").forEach { put(it, "ride") }
+        listOf("出門了", "出門跑單", "出門").forEach { put(it, "ride_start") }
+        listOf("收工", "收工了", "跑完了").forEach { put(it, "ride_end") }
         listOf("核心開始", "核心完成", "伸展完成").forEach { put(it, "training") }
     }
 
@@ -46,8 +51,9 @@ object Router {
 
     fun route(text: String): Route {
         val t = TRIM.replace(text, "")
-        COMMANDS[t]?.let { return Route.NotYet(it, roleOf(it)) }
-        if (CHEAT_PREFIXES.any { t.startsWith(it) }) return Route.NotYet("cheat_declare", RoleKey.MANAGER)
+        COMMANDS[t]?.let { return Route.Command(it, roleOf(it)) }
+        if (CHEAT_PREFIXES.any { t.startsWith(it) }) return Route.Command("cheat_declare", RoleKey.MANAGER)
+        if (RulesBook.isChangeAttempt(t)) return Route.RulesLocked
         return Route.Model
     }
 

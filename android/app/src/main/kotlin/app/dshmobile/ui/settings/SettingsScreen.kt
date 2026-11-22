@@ -43,8 +43,8 @@ import app.dshmobile.ui.kit.SoftButton
 
 /** The pages of 設定 in T06; 公司規章, 作息, 練習生資料, 她記得的事, 入社資料 and 權限檢查 come with their tasks. */
 enum class SettingsPage(val title: Int) {
-    MODEL(R.string.ag_set_model), SPEND(R.string.ag_set_spend), TRAINEE(R.string.ag_set_trainee), LEGACY(R.string.ag_set_legacy),
-    LICENSES(R.string.ag_set_licenses),
+    MODEL(R.string.ag_set_model), SPEND(R.string.ag_set_spend), RULES(R.string.ag_set_rules), SCHEDULE(R.string.ag_set_schedule),
+    TRAINEE(R.string.ag_set_trainee), LEGACY(R.string.ag_set_legacy), LICENSES(R.string.ag_set_licenses),
 }
 
 object SettingsTags {
@@ -81,6 +81,8 @@ fun SettingsScreen(agency: AgencyApp, ready: StartState.Ready) {
             when (open) {
                 SettingsPage.MODEL -> ModelKeyPage(agency.settings, agency.keyVault, ready.brain)
                 SettingsPage.SPEND -> SpendPage(agency.costMeter)
+                SettingsPage.RULES -> RulesPage(ready)
+                SettingsPage.SCHEDULE -> SchedulePage(ready)
                 SettingsPage.TRAINEE -> TraineePage(agency, ready)
                 SettingsPage.LEGACY -> LegacyDataPage(agency)
                 SettingsPage.LICENSES -> Unit
