@@ -61,7 +61,7 @@ import app.dshmobile.R
 import app.dshmobile.config.AgentModels
 import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.config.displayName
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.security.AndroidKeyVault
 import app.dshmobile.system.PhantomState
 import app.dshmobile.ui.theme.Sakura

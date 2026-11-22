@@ -1,5 +1,8 @@
 package app.dshmobile.gateway
 
+import app.agency.core.metering.PriceTable
+import app.agency.core.metering.Provider
+import app.agency.core.metering.Usage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

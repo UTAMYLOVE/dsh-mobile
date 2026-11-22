@@ -66,7 +66,7 @@ import app.dshmobile.ui.library.LibraryScreen
 import app.dshmobile.ui.library.bookDefaultModel
 import app.dshmobile.ui.library.bookModels
 import app.dshmobile.ui.agents.rememberWarAgents
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.notify.Notifier
 import app.dshmobile.remote.MuxState
 import app.dshmobile.service.DshService

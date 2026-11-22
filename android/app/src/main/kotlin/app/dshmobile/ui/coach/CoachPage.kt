@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.sp
 import app.dshmobile.R
 import app.dshmobile.coach.CoachEngine
 import app.dshmobile.coach.CoachMessage
-import app.dshmobile.coach.CoachRules
+import app.agency.core.rules.CoachRules
 import app.dshmobile.coach.Speaker
 import app.dshmobile.coach.Strip
 import app.dshmobile.coach.AgencyRole

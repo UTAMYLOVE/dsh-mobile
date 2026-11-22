@@ -1,4 +1,4 @@
-package app.dshmobile.gateway
+package app.agency.core.metering
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

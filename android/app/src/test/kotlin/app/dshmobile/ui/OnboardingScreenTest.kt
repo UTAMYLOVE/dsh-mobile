@@ -18,7 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.R
 import app.dshmobile.gateway.InMemorySharedPreferences
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.security.KeyVault
 import app.dshmobile.system.OnboardingState
 import app.dshmobile.system.OnboardingState.Step

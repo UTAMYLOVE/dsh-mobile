@@ -1,5 +1,6 @@
 package app.dshmobile.coach
 
+import app.agency.core.rules.CoachRules
 import java.time.LocalDate
 
 /**
@@ -144,74 +145,4 @@ object CoachPrompt {
 
     /** The parse call's turns: the same window, then the owner's sentence. */
     fun parseTurns(messages: List<CoachMessage>, ownerText: String, keep: Int = HISTORY): List<Turn> = history(messages, keep) + Turn.user(ownerText.take(OWNER_CAP))
-}
-
-/** Numbers the way the owner writes them: Arabic (79.2) or Chinese (七十九點二, 兩百五十). */
-object CoachNumbers {
-    val ARABIC = Regex("\\d+(?:\\.\\d+)?")
-    private val CHINESE = Regex("[零〇一二兩三四五六七八九十百千萬]+(?:點[零〇一二兩三四五六七八九]+)?")
-    private val DIGIT = mapOf('零' to 0, '〇' to 0, '一' to 1, '二' to 2, '兩' to 2, '三' to 3, '四' to 4, '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9)
-
-    /** 七十九點二 → 79.2; null when [s] is not a Chinese number. */
-    fun chinese(s: String): Double? {
-        val parts = s.split('點')
-        var total = 0L
-        var section = 0L
-        var num = 0L
-        var any = false
-        var lastUnit = 1L
-        for (ch in parts[0]) {
-            val d = DIGIT[ch]
-            if (d != null) { num = d.toLong(); any = true; continue }
-            when (ch) {
-                '十' -> { section += (if (num == 0L) 1 else num) * 10; num = 0; any = true; lastUnit = 10 }
-                // 百五 = 150, 千二 = 1200: a 百 or 千 with no digit before it means one, as 十 does.
-                '百' -> { section += (if (num == 0L) 1 else num) * 100; num = 0; any = true; lastUnit = 100 }
-                '千' -> { section += (if (num == 0L) 1 else num) * 1000; num = 0; any = true; lastUnit = 1000 }
-                '萬' -> { total += (section + num) * 10000; section = 0; num = 0; lastUnit = 10000 }
-                else -> return null
-            }
-        }
-        if (!any) return null
-        // 兩百五 = 250, 一千二 = 1200: a bare digit right after 百/千/萬 counts in the next unit down.
-        val head = parts[0]
-        if (num > 0 && head.length >= 2 && head[head.length - 2] in "百千萬" && lastUnit >= 100) num *= lastUnit / 10
-        val whole = (total + section + num).toDouble()
-        if (parts.size < 2) return whole
-        val frac = parts[1].map { DIGIT[it] ?: return null }.joinToString("")
-        return "${whole.toLong()}.$frac".toDouble()
-    }
-
-    /** Every number in [text], Arabic or Chinese. */
-    fun all(text: String): List<Double> =
-        ARABIC.findAll(text).mapNotNull { it.value.toDoubleOrNull() }.toList() + CHINESE.findAll(text).mapNotNull { chinese(it.value) }.toList()
-
-    /** [v] (from the model) only if the owner wrote that same number himself; null otherwise. */
-    fun ownersOnly(v: Double?, ownerText: String): Double? = v?.takeIf { x -> all(ownerText).any { kotlin.math.abs(it - x) < 1e-6 } }
-}
-
-/**
- * The last word on a model sentence: it may not hold a number the code did not hand over (Arabic or Chinese), nor a Latin
- * letter (the owner reads only Traditional Chinese). Deadlines and reps (「10 分鐘」「3 組」) may carry their own numbers.
- */
-object NumberGuard {
-    private val NUMBER = CoachNumbers.ARABIC
-    private val UNIT_OK = Regex("^\\s*(分鐘|小時|點|秒|次|下|組)")
-    private val CHINESE_AMOUNT = Regex("[零〇一二兩三四五六七八九十百千萬半]+\\s*(大卡|卡|公斤|斤|克|天|餐|份)")
-    private val LATIN = Regex("[A-Za-zＡ-Ｚａ-ｚ]")
-    /** Everyday words, not amounts: 「三餐正常吃」「一天」「一份」 never hide an invented number. */
-    private val PLAIN_WORDS = Regex("(?<![零〇一二兩三四五六七八九十百千萬半])(三餐|一天|一份|一餐)")
-    private val SENTENCE = Regex("(?<=[。！？!?\\n])")
-    const val MAX_SENTENCES = 4
-
-    fun filter(modelText: String, facts: String, ownerText: String): String {
-        val allowed = (NUMBER.findAll(facts).map { it.value } + NUMBER.findAll(ownerText).map { it.value }).toSet()
-        val text = modelText.trim().replace("BMI", "身體質量指數")
-        val kept = SENTENCE.split(text).map { it.trim() }.filter { it.isNotEmpty() }.filter { s ->
-            !LATIN.containsMatchIn(s) &&
-                !CHINESE_AMOUNT.containsMatchIn(PLAIN_WORDS.replace(s, "")) &&
-                NUMBER.findAll(s).all { m -> m.value in allowed || UNIT_OK.containsMatchIn(s.substring(m.range.last + 1)) }
-        }
-        return kept.take(MAX_SENTENCES).joinToString("").trim()
-    }
 }

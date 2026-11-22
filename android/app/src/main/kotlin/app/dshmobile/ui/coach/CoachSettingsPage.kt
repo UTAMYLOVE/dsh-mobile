@@ -39,10 +39,10 @@ import androidx.compose.ui.unit.sp
 import app.dshmobile.R
 import app.dshmobile.coach.CoachProfile
 import app.dshmobile.coach.CoachProvider
-import app.dshmobile.coach.CoachRules
+import app.agency.core.rules.CoachRules
 import app.dshmobile.coach.CoachSettings
 import app.dshmobile.coach.CoachStore
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.security.KeyVault
 import app.dshmobile.ui.fog.FogPanel
 import app.dshmobile.ui.shell.LocalPagePadding

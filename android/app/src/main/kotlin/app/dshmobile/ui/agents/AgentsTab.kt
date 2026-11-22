@@ -30,9 +30,9 @@ import app.dshmobile.chat.SessionTree
 import app.dshmobile.chat.SessionTreeState
 import app.dshmobile.chat.ownCostUsd
 import app.dshmobile.chat.providerOf
-import app.dshmobile.gateway.PriceTable
-import app.dshmobile.gateway.Provider
-import app.dshmobile.gateway.Usage
+import app.agency.core.metering.PriceTable
+import app.agency.core.metering.Provider
+import app.agency.core.metering.Usage
 import app.dshmobile.ui.fog.FogButton
 import app.dshmobile.ui.fog.FogButtonKind
 import app.dshmobile.ui.fog.LocalEffects

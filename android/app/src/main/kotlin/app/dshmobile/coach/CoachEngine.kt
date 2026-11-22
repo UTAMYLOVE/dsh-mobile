@@ -1,5 +1,12 @@
 package app.dshmobile.coach
 
+import app.agency.core.guard.CoachNumbers
+import app.agency.core.guard.NumberGuard
+import app.agency.core.model.FoodEntry
+import app.agency.core.model.KcalSource
+import app.agency.core.model.MealItem
+import app.agency.core.rules.CoachRules
+import app.agency.core.rules.FoodTable
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId

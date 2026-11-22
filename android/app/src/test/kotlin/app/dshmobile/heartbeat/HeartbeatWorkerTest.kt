@@ -10,8 +10,8 @@ import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.dshmobile.gateway.MutableClock
 import app.dshmobile.gateway.NotifyRequest
-import app.dshmobile.gateway.PriceTable
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.PriceTable
+import app.agency.core.metering.Provider
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.notify.Notifier
 import app.dshmobile.runtime.DshClient

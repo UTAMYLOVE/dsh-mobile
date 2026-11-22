@@ -1,8 +1,8 @@
 package app.dshmobile.coach
 
 import app.dshmobile.gateway.CostMeter
-import app.dshmobile.gateway.Provider
-import app.dshmobile.gateway.UsageParser
+import app.agency.core.metering.Provider
+import app.agency.core.metering.UsageParser
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.security.KeyVault
 import java.io.IOException

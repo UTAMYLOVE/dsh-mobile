@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.dshmobile.R
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.security.KeyVault
 import app.dshmobile.system.OnboardingState
 import app.dshmobile.system.OnboardingState.Step

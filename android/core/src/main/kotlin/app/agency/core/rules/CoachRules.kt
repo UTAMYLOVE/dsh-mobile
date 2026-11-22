@@ -1,4 +1,4 @@
-package app.dshmobile.coach
+package app.agency.core.rules
 
 import java.math.BigDecimal
 import java.math.RoundingMode

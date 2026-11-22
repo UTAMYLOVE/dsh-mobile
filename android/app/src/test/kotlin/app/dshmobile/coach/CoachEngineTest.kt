@@ -1,5 +1,6 @@
 package app.dshmobile.coach
 
+import app.agency.core.rules.FoodTable
 import app.dshmobile.coach.CoachRig.Companion.item
 import app.dshmobile.coach.CoachRig.Companion.parsed
 import java.time.DayOfWeek

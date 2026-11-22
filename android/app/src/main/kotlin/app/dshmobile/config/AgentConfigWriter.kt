@@ -1,7 +1,7 @@
 package app.dshmobile.config
 
 import app.dshmobile.runtime.DshLayout
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.security.KeyVault
 import app.dshmobile.system.PhantomState
 import kotlinx.serialization.SerializationException

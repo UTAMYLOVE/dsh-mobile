@@ -1,5 +1,8 @@
 package app.dshmobile.coach
 
+import app.agency.core.model.FoodEntry
+import app.agency.core.model.KcalSource
+import app.agency.core.model.MealItem
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject

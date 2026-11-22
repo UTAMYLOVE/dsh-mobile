@@ -4,7 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.ProviderException

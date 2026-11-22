@@ -1,5 +1,10 @@
 package app.dshmobile.coach
 
+import app.agency.core.model.FoodEntry
+import app.agency.core.model.KcalSource
+import app.agency.core.model.MealItem
+import app.agency.core.rules.CoachRules
+import app.agency.core.rules.FoodTable
 import java.math.BigDecimal
 import java.math.RoundingMode
 

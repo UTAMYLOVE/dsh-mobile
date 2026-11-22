@@ -1,4 +1,4 @@
-package app.dshmobile.gateway
+package app.agency.core.metering
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement

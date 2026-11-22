@@ -1,26 +1,8 @@
 package app.dshmobile.coach
 
+import app.agency.core.model.FoodEntry
+import app.agency.core.model.MealItem
 import java.time.DayOfWeek
-
-/** Where an item's kcal came from: the package label, the food table, or an estimate (shown 標示／食物表／估算). */
-enum class KcalSource { LABEL, TABLE, ESTIMATE }
-
-data class MealItem(
-    val name: String,
-    val portion: Double,
-    val kcal: Int,
-    val proteinG: Double?,
-    val fatG: Double?,
-    val carbsG: Double?,
-    val fried: Boolean,
-    val source: KcalSource,
-    /** A table hit whose table entry is itself an estimate. */
-    val tableEstimated: Boolean = false,
-    /** The model's high end before the margin (estimates only). */
-    val estimateHigh: Int? = null,
-    /** A zero-calorie drink (公司規章: at most [AgencyRules.ZERO_CAL_PER_WEEK] a week). */
-    val zeroCal: Boolean = false,
-)
 
 data class Meal(
     val id: String,
@@ -42,19 +24,6 @@ data class Meal(
 }
 
 data class WeightEntry(val id: String, val at: Long, val day: String, val kg: Double, val waistCm: Double?)
-
-data class FoodEntry(
-    val name: String,
-    val aliases: List<String>,
-    val kcal: Int,
-    val proteinG: Double?,
-    val fatG: Double?,
-    val carbsG: Double?,
-    val fried: Boolean,
-    val estimated: Boolean,
-    val seeded: Boolean,
-    val addedAt: Long,
-)
 
 /** An estimated item waiting for the owner's label or portion before it may enter the food table. */
 data class PendingFood(val mealId: String, val itemIndex: Int, val name: String, val countedKcal: Int, val askedAt: Long)

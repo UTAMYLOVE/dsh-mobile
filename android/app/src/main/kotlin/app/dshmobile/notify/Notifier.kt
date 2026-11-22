@@ -11,7 +11,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import app.dshmobile.R
 import app.dshmobile.gateway.NotifyRequest
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.service.DshService
 import app.dshmobile.service.RunningWork
 import app.dshmobile.update.ReleaseInfo

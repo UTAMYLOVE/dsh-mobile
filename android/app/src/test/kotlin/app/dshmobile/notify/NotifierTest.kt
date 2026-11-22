@@ -8,7 +8,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import app.dshmobile.gateway.NotifyRequest
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.update.ReleaseInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

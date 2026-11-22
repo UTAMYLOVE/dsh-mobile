@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "dsh-mobile"
-include(":app")
+include(":app", ":core")

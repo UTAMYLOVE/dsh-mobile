@@ -66,9 +66,9 @@ class FakeModel {
     }
 
     /** Upstreams for the gateway. Built by hand: MockWebServer's own URL says `localhost`, which the app's cleartext rule refuses. */
-    fun upstreams(): Map<app.dshmobile.gateway.Provider, HttpUrl> = mapOf(
-        app.dshmobile.gateway.Provider.DEEPSEEK to "http://127.0.0.1:${server.port}/deepseek".toHttpUrl(),
-        app.dshmobile.gateway.Provider.ANTHROPIC to "http://127.0.0.1:${server.port}/anthropic".toHttpUrl(),
+    fun upstreams(): Map<app.agency.core.metering.Provider, HttpUrl> = mapOf(
+        app.agency.core.metering.Provider.DEEPSEEK to "http://127.0.0.1:${server.port}/deepseek".toHttpUrl(),
+        app.agency.core.metering.Provider.ANTHROPIC to "http://127.0.0.1:${server.port}/anthropic".toHttpUrl(),
     )
 
     /** The requests seen since [from] (an earlier `seen.size`). */

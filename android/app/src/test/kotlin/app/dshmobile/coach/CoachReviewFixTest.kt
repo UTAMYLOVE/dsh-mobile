@@ -1,5 +1,9 @@
 package app.dshmobile.coach
 
+import app.agency.core.guard.CoachNumbers
+import app.agency.core.guard.NumberGuard
+import app.agency.core.model.FoodEntry
+import app.agency.core.rules.FoodTable
 import app.dshmobile.coach.CoachRig.Companion.item
 import app.dshmobile.coach.CoachRig.Companion.parsed
 import java.io.File

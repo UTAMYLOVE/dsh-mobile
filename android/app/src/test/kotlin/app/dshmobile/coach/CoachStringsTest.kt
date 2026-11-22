@@ -1,5 +1,6 @@
 package app.dshmobile.coach
 
+import app.agency.core.rules.CoachRules
 import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test

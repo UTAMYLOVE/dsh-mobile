@@ -1,5 +1,7 @@
 package app.dshmobile.coach
 
+import app.agency.core.model.KcalSource
+import app.agency.core.model.MealItem
 import java.io.File
 import java.nio.file.Files
 import org.junit.After

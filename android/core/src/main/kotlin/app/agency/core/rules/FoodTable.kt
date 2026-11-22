@@ -1,5 +1,8 @@
-package app.dshmobile.coach
+package app.agency.core.rules
 
+import app.agency.core.model.FoodEntry
+import app.agency.core.model.KcalSource
+import app.agency.core.model.MealItem
 import java.text.Normalizer
 import kotlin.math.ceil
 

@@ -7,14 +7,14 @@ import android.net.ConnectivityManager
 import androidx.annotation.VisibleForTesting
 import androidx.work.Configuration
 import app.dshmobile.config.AgentConfigWriter
-import app.dshmobile.gateway.RateGuard
+import app.agency.core.metering.RateGuard
 import app.dshmobile.config.AppSkills
 import app.dshmobile.config.AgentPatchProvider
 import app.dshmobile.config.AgentSettingsStore
 import app.dshmobile.runtime.DshClient
 import app.dshmobile.gateway.CostMeter
-import app.dshmobile.gateway.PriceTable
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.PriceTable
+import app.agency.core.metering.Provider
 import app.dshmobile.heartbeat.HeartbeatDeps
 import app.dshmobile.heartbeat.HeartbeatScheduler
 import app.dshmobile.heartbeat.HeartbeatWorker

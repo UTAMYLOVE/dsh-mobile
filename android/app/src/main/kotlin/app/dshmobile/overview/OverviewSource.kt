@@ -2,7 +2,7 @@ package app.dshmobile.overview
 
 import app.dshmobile.chat.SessionRow
 import app.dshmobile.gateway.CostMeter
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine

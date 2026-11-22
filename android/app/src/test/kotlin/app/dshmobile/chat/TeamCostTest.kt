@@ -1,8 +1,8 @@
 package app.dshmobile.chat
 
-import app.dshmobile.gateway.PriceTable
-import app.dshmobile.gateway.Provider
-import app.dshmobile.gateway.Usage
+import app.agency.core.metering.PriceTable
+import app.agency.core.metering.Provider
+import app.agency.core.metering.Usage
 import app.dshmobile.remote.SessionSummary
 import java.time.Instant
 import kotlinx.serialization.json.Json

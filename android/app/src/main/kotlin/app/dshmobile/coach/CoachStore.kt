@@ -1,5 +1,6 @@
 package app.dshmobile.coach
 
+import app.agency.core.rules.FoodTable
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

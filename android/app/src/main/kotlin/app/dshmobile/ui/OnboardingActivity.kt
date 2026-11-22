@@ -7,7 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import app.dshmobile.DshMobileApp
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.system.OnboardingState
 import app.dshmobile.system.OnboardingState.Step
 import app.dshmobile.system.PhantomProcessDetector

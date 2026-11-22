@@ -1,5 +1,6 @@
-package app.dshmobile.coach
+package app.agency.core.rules
 
+import app.agency.core.model.KcalSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

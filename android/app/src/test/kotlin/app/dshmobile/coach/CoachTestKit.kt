@@ -2,7 +2,7 @@ package app.dshmobile.coach
 
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.dshmobile.gateway.MutableClock
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.security.KeyVault
 import java.io.File
 import java.nio.file.Files

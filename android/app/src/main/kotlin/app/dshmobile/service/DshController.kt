@@ -2,9 +2,9 @@ package app.dshmobile.service
 
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.LocalGateway
-import app.dshmobile.gateway.RateGuard
+import app.agency.core.metering.RateGuard
 import app.dshmobile.gateway.NotifyRequest
-import app.dshmobile.gateway.Provider
+import app.agency.core.metering.Provider
 import app.dshmobile.log.ErrorLog
 import app.dshmobile.runtime.AppPaths
 import app.dshmobile.runtime.DshLaunchLine

@@ -5,6 +5,7 @@ import java.security.MessageDigest
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 abstract class StageRootfsAsset : DefaultTask() {
@@ -153,6 +154,8 @@ android {
 }
 
 dependencies {
+    // The agency brain: pure Kotlin/JVM, no Android (android/core).
+    implementation(project(":core"))
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.commons.compress)
     implementation(libs.androidsvg)

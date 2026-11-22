@@ -4,9 +4,9 @@ import app.dshmobile.chat.SessionRow
 import app.dshmobile.gateway.CostMeter
 import app.dshmobile.gateway.InMemorySharedPreferences
 import app.dshmobile.gateway.MutableClock
-import app.dshmobile.gateway.PriceTable
-import app.dshmobile.gateway.Provider
-import app.dshmobile.gateway.Usage
+import app.agency.core.metering.PriceTable
+import app.agency.core.metering.Provider
+import app.agency.core.metering.Usage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first

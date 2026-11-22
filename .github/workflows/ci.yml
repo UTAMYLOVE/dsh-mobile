@@ -35,7 +35,7 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :app:testDebugUnitTest --no-daemon
+      - run: ./gradlew :core:test :app:testDebugUnitTest --no-daemon
 
   plugins:
     runs-on: ubuntu-latest

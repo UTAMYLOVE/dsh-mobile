@@ -7,7 +7,7 @@ import app.dshmobile.chat.teamCostUsd
 import app.dshmobile.chat.replyLine
 import app.dshmobile.chat.shortTokens
 import app.dshmobile.chat.teamUsage
-import app.dshmobile.gateway.PriceTable
+import app.agency.core.metering.PriceTable
 import java.util.Locale
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box

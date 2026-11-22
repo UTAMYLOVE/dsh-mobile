@@ -1,6 +1,6 @@
 package app.dshmobile.chat
 
-import app.dshmobile.gateway.PriceTable
+import app.agency.core.metering.PriceTable
 import java.time.Instant
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -135,8 +135,8 @@ class ReplyStatsTest {
         assertTrue(replyLine(r, null), replyLine(r, null).contains("入 2M"))
         val deepseek = ReplyStats("deepseek-official", "deepseek-flash", 1_000_000, 0, 0, null, 0, null, 1)
         assertNotNull("deepseek-official is DeepSeek", replyCostUsd(PriceTable(), deepseek, Instant.parse("2026-11-08T12:00:00Z")))
-        assertEquals(app.dshmobile.gateway.Provider.DEEPSEEK, providerOf("deepseek-official"))
-        assertEquals(app.dshmobile.gateway.Provider.ANTHROPIC, providerOf("anthropic"))
+        assertEquals(app.agency.core.metering.Provider.DEEPSEEK, providerOf("deepseek-official"))
+        assertEquals(app.agency.core.metering.Provider.ANTHROPIC, providerOf("anthropic"))
         assertNull(providerOf("openai"))
     }
 
