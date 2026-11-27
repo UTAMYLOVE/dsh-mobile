@@ -312,8 +312,12 @@ class NerveTest {
     @Test fun l8RidingSoundsOnceAndADeliveryDayRemindsToDrinkBefore() {
         val nv = nerve()
         emit(nv, Signal.DayStarted("day:$monday", t("08:00"), monday.toString()))
-        val pre = of("L8").single { it.kind == EffectKind.NOTIFY }
+        val pre = of("L8").single { it.kind == EffectKind.NOTIFY && (effect(it) as Effect.Notify).key == "preride" }
         assertEquals(t("17:40"), pre.dueAt)
+        // 收工時間: 15 minutes before the block's latest start (01:40 on a Monday), a warning that reaches him on the run.
+        val home = of("L8").single { it.kind == EffectKind.NOTIFY && (effect(it) as Effect.Notify).key == "ride-home" }
+        assertEquals(t("01:25"), home.dueAt)
+        assertEquals(NotifyKind.WARNING, (effect(home) as Effect.Notify).kind)
         emit(nv, Signal.RideStart("ride", t("18:05")))
         val st = runBlocking { nv.state(monday) }
         assertTrue(st.riding)

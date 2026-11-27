@@ -218,9 +218,26 @@ object Links {
     object L8Riding : Link {
         override val feature get() = app.agency.core.schedule.Feature.RIDE
         override val id = "L8"
-        override val zh = "跑單：提醒只響一聲，出門前喝水"
+        override val zh = "跑單：提醒只響一聲，出門前喝水，收工時間到了提醒"
         override val dailyCap = 3
         const val BEFORE_MIN = 20
+
+        /** The 收工 reminder comes this long before the block's latest start (it follows the bedtime, 睡覺時間往前調). */
+        const val HOME_BEFORE_MIN = 15
+
+        /**
+         * 收工時間 (owner 2026-11-26): on a delivery day, before the training block must start, a warning (it reaches him on the
+         * run) to head home: the block's latest start and the latest sign-out, from today's plan. Not posted once he is home.
+         */
+        fun homeReminder(state: DayState, ctx: LinkContext): Effect.Notify? {
+            val core = state.plan.slot(SlotKey.CORE) ?: state.plan.slot(SlotKey.STRETCH) ?: return null
+            val sleep = state.plan.slot(SlotKey.SIGN_OUT) ?: return null
+            val at = core.minute - HOME_BEFORE_MIN
+            return Effect.Notify(
+                "ride-home", "收工時間到了：${hhmm(core.minute)} 前回家開始訓練，最晚 ${sleep.time} 簽退。單少也不要拖，睡眠不能少。", NotifyKind.WARNING,
+                at = RuleEngineTime.at(state.plan.day, at, ctx.zone).toEpochMilli(), unlessHome = true,
+            )
+        }
 
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
             is Signal.RideStart -> if (DayFlag.RIDING_ONE_SOUND in state.flags) emptyList() else listOf(
@@ -228,12 +245,13 @@ object Links {
             )
             // Skipped when the day's water is in by then (T17: nothing left to drink before the run).
             is Signal.DayStarted -> state.plan.slot(SlotKey.RIDE_OUT)?.let { out ->
-                listOf(
+                listOfNotNull(
                     Effect.Notify(
                         "preride", "快出門了：出門前先喝水，路上只能小口喝。", NotifyKind.REMINDER,
                         at = RuleEngineTime.at(state.plan.day, out.minute - BEFORE_MIN, ctx.zone).toEpochMilli(),
                         unlessWaterHalves = WaterPlan.target(state.day, ctx.specs.water, ctx.joinDate),
                     ),
+                    homeReminder(state, ctx),
                 )
             } ?: emptyList()
             else -> emptyList()
@@ -530,8 +548,8 @@ object Links {
     object L19Review : Link {
         override val feature get() = app.agency.core.schedule.Feature.SIGN
         override val id = "L19"
-        override val zh = "睡前簽退：檢討卡，明天要改的變提案"
-        override val dailyCap = 2
+        override val zh = "睡前簽退：檢討卡，明天要改的變提案；超過最晚時間簽退記違規"
+        override val dailyCap = 3
 
         fun card(r: Signal.ReviewDone): String = buildString {
             append("今天的檢討卡\n")
@@ -546,7 +564,18 @@ object Links {
 
         fun change(fix: String) = "明天起床簽到時，我提醒你：$fix"
 
+        /** A sign-out after the latest time (owner 2026-11-26 「超過時間才簽退算違規」). */
+        const val LATE = "late_sign_out"
+
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
+            is Signal.SignedOut -> if (signal.late) {
+                listOf(
+                    Effect.Record("violation", LATE),
+                    Effect.Say("記一次違規：超過最晚簽退的時間（${state.plan.slot(SlotKey.SIGN_OUT)?.time ?: ""}）。今天第 ${state.breaches} 次，會算進評鑑。"),
+                )
+            } else {
+                emptyList()
+            }
             is Signal.ReviewDone -> listOf(
                 Effect.Say(card(signal)),
                 Effect.Record("review", "done=${signal.done.size} missed=${signal.missed.size}"),

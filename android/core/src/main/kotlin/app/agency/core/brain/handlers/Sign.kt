@@ -86,7 +86,7 @@ class Sign(
         val late = latest?.let { SignPolicy.lateSignOut(Instant.ofEpochMilli(at), it) } == true
         val log = SignLog(newId(), day, at, SignKind.OUT, onTime = !late)
         store.signs.insert(log)
-        return Done(if (late) "簽退了，比最晚的時間晚了。明天早點睡。" else "簽退了。", Signal.SignedOut(log.id, at))
+        return Done(if (late) "簽退了，比最晚的時間晚了。明天早點睡。" else "簽退了。", Signal.SignedOut(log.id, at, late = late))
     }
 
     companion object {

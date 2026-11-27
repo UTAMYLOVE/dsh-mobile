@@ -38,8 +38,9 @@ sealed interface Signal {
     @Serializable @SerialName("woke_up")
     data class WokeUp(override val id: String, override val at: Long, override val source: String = "sign") : Signal
 
+    /** [late]: after the latest sign-out of the day (owner 2026-11-26: only then it is a breach of the rules). */
     @Serializable @SerialName("signed_out")
-    data class SignedOut(override val id: String, override val at: Long, override val source: String = "sign") : Signal
+    data class SignedOut(override val id: String, override val at: Long, override val source: String = "sign", val late: Boolean = false) : Signal
 
     /** He said he is ill or hurt; [word] is the code-matched word (「發燒」), never his message. */
     @Serializable @SerialName("unwell")

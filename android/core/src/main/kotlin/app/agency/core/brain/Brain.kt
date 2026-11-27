@@ -233,7 +233,9 @@ class Brain(
         val days = (0L..6L).map { monday.plusDays(it) }.filter { !it.isBefore(sinceDay) }.map { d ->
             val records = snapshot.records(d)
             val cards = store.nerve.effects(d.toString()).count { it.link == Links.L11Completion.id && it.because == Links.L11Completion.PHOTOCARD }
-            app.agency.core.engine.WeekReport.Day(d, snapshot.slots(d, records, profile), records.meals.sumOf { it.breaches.size }, cards)
+            // A breach: a meal against the rules, or a sign-out after the latest time.
+            val late = records.signs.count { it.kind == app.agency.core.model.SignKind.OUT && it.onTime == false }
+            app.agency.core.engine.WeekReport.Day(d, snapshot.slots(d, records, profile), records.meals.sumOf { it.breaches.size } + late, cards)
         }
         val signals = store.nerve.signals(monday.minusDays(WEEKS_LOOKBACK_DAYS).toString(), sunday.toString())
         val real = signals.any { it.type == "real_task_done" && it.day >= monday.toString() }
@@ -308,7 +310,12 @@ class Brain(
         // An older chase that was never posted, anything left from an earlier day, and a reminder that was due before the
         // reminders started, is not posted any more.
         // A water reminder whose water is in by now has nothing to say (L8, L10).
-        val drunk = due.filter { e -> (Nerve.decodeEffect(e.json) as? Effect.Notify)?.unlessWaterHalves?.let { state.waterHalves >= it } == true }
+        val drunk = due.filter { e ->
+            val n = Nerve.decodeEffect(e.json) as? Effect.Notify
+            n?.unlessWaterHalves?.let { state.waterHalves >= it } == true ||
+                // The 收工 reminder once he is home.
+                (n?.unlessHome == true && state.rideEndAt != null && (state.rideStartAt == null || state.rideEndAt >= state.rideStartAt))
+        }
         val stale = due.filter { it.link == Links.L12Chase.id || it.day != day.toString() || (it.dueAt ?: it.at) < since.toEpochMilli() } + drunk
         stale.forEach { store.nerve.setStatus(it.id, EffectStatus.EXPIRED, now.toEpochMilli()) }
         if (!quiet) {
@@ -866,7 +873,7 @@ class Brain(
         val signal = Signal.ReviewDone(
             "review:$d", clock.millis(), out?.reviewGood.orEmpty(), out?.reviewFix ?: ReviewDesk.clean(fixText),
             slots.filter { it.status == SlotStatus.DONE }.map { it.key }, slots.filter { it.status != SlotStatus.DONE && it.key != SlotKey.SIGN_OUT }.map { it.key },
-            records.meals.sumOf { it.breaches.size }, plan.reduction?.zh,
+            records.meals.sumOf { it.breaches.size } + records.signs.count { it.kind == app.agency.core.model.SignKind.OUT && it.onTime == false }, plan.reduction?.zh,
         )
         val said = nerve.emit(signal).messages
         val card = said.firstOrNull()?.text.orEmpty()

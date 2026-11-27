@@ -112,7 +112,7 @@ object DayStateBuilder {
         today.forEach { s ->
             st = when (s) {
                 is Signal.WokeUp -> if (st.wokeAt == null) st.copy(wokeAt = s.at) else st
-                is Signal.SignedOut -> st.copy(signedOutAt = s.at)
+                is Signal.SignedOut -> st.copy(signedOutAt = s.at, breaches = st.breaches + if (s.late) 1 else 0)
                 is Signal.Unwell -> when (s.kind) {
                     IllKind.UNKNOWN -> st.copy(illAsked = true)
                     else -> st.copy(ill = st.ill ?: s.kind)

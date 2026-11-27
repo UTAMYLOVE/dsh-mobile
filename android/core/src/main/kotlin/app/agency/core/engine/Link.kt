@@ -56,6 +56,8 @@ sealed interface Effect {
         val soundOnce: Boolean = false,
         /** Not posted when by then he has had this many half bottles of water (L8, L10: nothing to remind). */
         val unlessWaterHalves: Int? = null,
+        /** Not posted once he is home from the run (the 收工 reminder). */
+        val unlessHome: Boolean = false,
     ) : Effect
 
     /**

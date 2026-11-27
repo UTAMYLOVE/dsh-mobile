@@ -66,6 +66,18 @@ object DayPlanner {
         else -> mapOf(SlotKey.CORE to strengthLatest - 10, SlotKey.STRENGTH to strengthLatest, SlotKey.STRETCH to strengthLatest + 20)
     }
 
+    /**
+     * How many minutes earlier bed is on [day] (睡覺時間往前調): [ScheduleSpec.sleepStepMin] for each week from the day its
+     * rollout week opened (that week included); 0 before it opens or when the day is not known.
+     */
+    fun bedtimeShift(day: LocalDate, specs: PlanSpecs): Int {
+        if (!specs.open(Feature.EARLIER_BEDTIME)) return 0
+        val from = specs.rollout.openedDay(specs.rollout.weekOf(Feature.EARLIER_BEDTIME)) ?: return 0
+        if (day.isBefore(from)) return 0
+        val weeks = java.time.temporal.ChronoUnit.DAYS.between(from, day) / 7 + 1
+        return (weeks * specs.schedule.sleepStepMin).toInt()
+    }
+
     /** The 21:00 portion and its swaps (owner 2026-11-26), one 雞胸 a day at most. */
     const val RIDE_MEAL_NOTE = "雞胸加豆漿，一定要吃；可以換成福樂蛋白飲加茶葉蛋、義美高蛋白奶加茶葉蛋或低脂鮮奶（雞胸一天最多一包）"
 
@@ -87,8 +99,10 @@ object DayPlanner {
         val soy = override?.soyMorning == true || adjust.any { it is DayAdjust.SoyMorning }
         val cls = type == DayType.CLASS
         val wake = DayClock.minute(if (cls) s.classWake else s.noClassWake)
-        val sleep = DayClock.minute(if (cls) s.classSleepLatest else s.noClassSleepLatest)
-        val strengthLatest = DayClock.minute(if (cls) s.strengthLatestClass else s.strengthLatestNoClass)
+        val baseSleep = DayClock.minute(if (cls) s.classSleepLatest else s.noClassSleepLatest)
+        // 睡覺時間往前調: earlier each week from its rollout week, never past the target; the block moves with it.
+        val sleep = maxOf(DayClock.minute(if (cls) s.classSleepTarget else s.noClassSleepTarget), baseSleep - bedtimeShift(day, specs)).coerceAtMost(baseSleep)
+        val strengthLatest = DayClock.minute(if (cls) s.strengthLatestClass else s.strengthLatestNoClass) - (baseSleep - sleep)
         val first = if (cls) Slot(SlotKey.LUNCH, DayClock.minute(m.classLunch), note = "蛋白質至少 ${m.lunchProteinHintG} 克")
         else Slot(SlotKey.FIRST_MEAL, DayClock.minute(m.noClassFirstMeal))
         val slots = buildList {

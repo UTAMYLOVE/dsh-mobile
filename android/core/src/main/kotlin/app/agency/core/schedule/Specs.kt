@@ -23,6 +23,13 @@ data class ScheduleSpec(
     val strengthLatestClass: String = "01:50",
     val strengthLatestNoClass: String = "03:20",
     val restDaysPerWeek: Int = 1,
+    /**
+     * 睡覺時間往前調 (owner 2026-11-26, from its rollout week): the latest sign-out moves [sleepStepMin] minutes earlier each
+     * week, down to these targets; the training block and the 收工 reminder follow it.
+     */
+    val classSleepTarget: String = "01:30",
+    val noClassSleepTarget: String = "02:30",
+    val sleepStepMin: Int = 15,
 )
 
 @Serializable
