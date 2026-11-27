@@ -494,4 +494,26 @@
     <string name="ag_imp_batch">%1$d/%2$d %3$s：%4$d 筆，略過 %5$d 筆</string>
     <string name="ag_imp_undone">（已復原）</string>
     <string name="ag_imp_undo">整批復原</string>
+    <string name="ag_set_backup">加密備份</string>
+    <string name="ag_bk_export_title">匯出備份檔</string>
+    <string name="ag_bk_intro">把全部紀錄和照片用你設的密碼加密成一個檔案，自己存好（換手機時用）。金鑰不在備份裡，換手機後要在「模型與金鑰」重新輸入。密碼忘了就打不開，小葵姐也救不回來。</string>
+    <string name="ag_bk_password">備份密碼（至少八個字）</string>
+    <string name="ag_bk_again">再輸入一次密碼</string>
+    <string name="ag_bk_export">匯出備份檔</string>
+    <string name="ag_bk_weak">密碼至少要八個字。</string>
+    <string name="ag_bk_mismatch">兩次輸入的密碼不一樣。</string>
+    <string name="ag_bk_exported">備份檔存好了。</string>
+    <string name="ag_bk_failed">沒有做好，再試一次。</string>
+    <string name="ag_bk_file_name">小雨娛樂備份-%1$s</string>
+    <string name="ag_bk_import_title">匯回備份檔</string>
+    <string name="ag_bk_import_intro">選備份檔、輸入當時的密碼，先檢查內容；確認之後，手機裡現在的紀錄和照片會全部換成備份裡的。</string>
+    <string name="ag_bk_pick">選備份檔</string>
+    <string name="ag_bk_check">檢查備份</string>
+    <string name="ag_bk_wrong">密碼不對，或檔案壞了。</string>
+    <string name="ag_bk_other">這不是這個版本能讀的備份檔。</string>
+    <string name="ag_bk_summary">%1$d/%2$d/%3$d 的備份：訊息 %4$d 則、餐點 %5$d 筆、記帳 %6$d 筆、備忘錄 %7$d 則、照片和錄音 %8$d 個。</string>
+    <string name="ag_bk_restore">用這個備份覆蓋</string>
+    <string name="ag_bk_restore_sure">現在手機裡的資料會全部被換掉，不能復原。確定嗎？</string>
+    <string name="ag_bk_restore_yes">確定覆蓋</string>
+    <string name="ag_bk_restored">匯回好了，公司重新打開中。</string>
 </resources>

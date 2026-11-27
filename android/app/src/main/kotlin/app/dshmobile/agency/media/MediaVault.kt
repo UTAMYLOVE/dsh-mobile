@@ -187,6 +187,9 @@ class MediaVault internal constructor(
 
     fun has(id: String): Boolean = fileOf(id).isFile
 
+    /** The ids of every sealed file (the backup's restore removes the ones its records no longer name). */
+    fun ids(): List<String> = dir.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".bin") }.map { it.name.removeSuffix(".bin") }.filter { ID.matches(it) }
+
     fun delete(id: String): Boolean = fileOf(id).delete()
 
     private fun fileOf(id: String): File {

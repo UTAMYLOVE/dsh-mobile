@@ -999,6 +999,80 @@ class AgencyApp(
         )
     }
 
+    /** The backup of everything (加密備份), or null before the company is open. */
+    private fun backup(): app.dshmobile.agency.backup.Backup? {
+        val d = db ?: return null
+        val v = vault ?: return null
+        return app.dshmobile.agency.backup.Backup({ d.openHelper.writableDatabase }, v)
+    }
+
+    /** 匯出備份檔: everything, sealed with [password], into [out] (closed afterwards). The keys are never in it. */
+    suspend fun exportBackup(out: () -> java.io.OutputStream?, password: CharArray): Result<app.dshmobile.agency.backup.BackupSummary> = scope.async {
+        try {
+            val b = backup() ?: return@async Result.failure(IllegalStateException("not open"))
+            val stream = out() ?: return@async Result.failure(java.io.IOException("no file"))
+            Result.success(b.export(stream, password, clock.millis())).also { errorLog.append(TAG, "backup exported rows=${it.getOrNull()?.rows?.values?.sum()}") }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "backup not exported (${e.javaClass.simpleName})")
+            Result.failure(e)
+        } finally {
+            password.fill(' ')
+        }
+    }.await()
+
+    /** 匯回 step one: reads and checks the whole file, changes nothing; what it holds. */
+    suspend fun backupSummary(input: () -> java.io.InputStream?, password: CharArray): Result<app.dshmobile.agency.backup.BackupSummary> = scope.async {
+        try {
+            val b = backup() ?: return@async Result.failure(IllegalStateException("not open"))
+            val stream = input() ?: return@async Result.failure(java.io.IOException("no file"))
+            stream.use { Result.success(b.summary(it, password)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "backup not read (${e.javaClass.simpleName})")
+            Result.failure(e)
+        } finally {
+            password.fill(' ')
+        }
+    }.await()
+
+    /**
+     * 匯回 step two, after his two confirmations: every record and photo is replaced by the backup's, then the company opens
+     * again on them. His keys stay as they are on this phone (a new phone asks for them in 設定).
+     */
+    suspend fun restoreBackup(input: () -> java.io.InputStream?, password: CharArray): Result<app.dshmobile.agency.backup.BackupSummary> = scope.async {
+        val r = try {
+            val b = backup() ?: return@async Result.failure(IllegalStateException("not open"))
+            val stream = input() ?: return@async Result.failure(java.io.IOException("no file"))
+            stream.use { Result.success(b.restore(it, password)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "backup not restored (${e.javaClass.simpleName})")
+            Result.failure(e)
+        } finally {
+            password.fill(' ')
+        }
+        if (r.isSuccess) {
+            errorLog.append(TAG, "backup restored")
+            reopen()
+        }
+        r
+    }.await()
+
+    /** Closes the database and opens the company again (after a restore: a new brain reads the restored records). */
+    private suspend fun reopen() {
+        db?.close()
+        db = null
+        vault = null
+        importer = null
+        _start.value = StartState.Opening
+        job = null
+        start()
+    }
+
     /** Test only: closes the database and forgets the start, so the next [start] opens again (the e2e suite shares a process). */
     @VisibleForTesting
     suspend fun stopForTest() {

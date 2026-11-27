@@ -48,6 +48,7 @@ enum class SettingsPage(val title: Int) {
     MODEL(R.string.ag_set_model), SPEND(R.string.ag_set_spend), RULES(R.string.ag_set_rules), SCHEDULE(R.string.ag_set_schedule),
     TRAINEE(R.string.ag_set_trainee), MEMORY(R.string.ag_set_memory), PERMISSIONS(R.string.ag_set_permissions), LEGACY(R.string.ag_set_legacy),
     AREA(R.string.ag_set_area), ROLLOUT(R.string.ag_set_rollout), SAMSUNG(R.string.ag_set_samsung), IMPORT(R.string.ag_set_import),
+    BACKUP(R.string.ag_set_backup),
     LICENSES(R.string.ag_set_licenses),
 }
 
@@ -97,6 +98,7 @@ fun SettingsScreen(agency: AgencyApp, ready: StartState.Ready) {
                 SettingsPage.ROLLOUT -> RolloutPage(ready)
                 SettingsPage.SAMSUNG -> SamsungPage()
                 SettingsPage.IMPORT -> ImportPage(ready)
+                SettingsPage.BACKUP -> BackupPage(agency)
                 SettingsPage.LICENSES -> Unit
             }
         }
