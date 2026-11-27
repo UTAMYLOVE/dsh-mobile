@@ -187,3 +187,31 @@ interface DayLogDao<E> : WriteDao<E> {
     @Upsert suspend fun audit(row: AuditLogEntity)
     @Query("SELECT * FROM audit_log ORDER BY at, id") suspend fun audits(): List<AuditLogEntity>
 }
+
+@Dao interface MemoDao {
+    @Upsert suspend fun upsert(row: app.dshmobile.agency.data.entities.MemoEntity)
+    @Query("SELECT * FROM memo WHERE id = :id") suspend fun get(id: String): app.dshmobile.agency.data.entities.MemoEntity?
+    @Query("SELECT * FROM memo WHERE :deleted OR deleted_at IS NULL ORDER BY at, id") suspend fun all(deleted: Boolean): List<app.dshmobile.agency.data.entities.MemoEntity>
+    @Query("DELETE FROM memo WHERE id = :id") suspend fun remove(id: String): Int
+}
+
+@Dao interface LedgerDao : DayLogDao<app.dshmobile.agency.data.entities.LedgerEntryEntity> {
+    @Query("SELECT * FROM ledger_entry WHERE id = :id") override suspend fun get(id: String): app.dshmobile.agency.data.entities.LedgerEntryEntity?
+    @Query("SELECT * FROM ledger_entry WHERE day = :day ORDER BY at, id") override suspend fun onDay(day: String): List<app.dshmobile.agency.data.entities.LedgerEntryEntity>
+    @Query("SELECT * FROM ledger_entry WHERE day BETWEEN :fromDay AND :toDay ORDER BY at, id")
+    override suspend fun between(fromDay: String, toDay: String): List<app.dshmobile.agency.data.entities.LedgerEntryEntity>
+    @Query("DELETE FROM ledger_entry WHERE id = :id") override suspend fun delete(id: String): Int
+    @Query("SELECT COUNT(*) FROM ledger_entry") override suspend fun count(): Int
+}
+
+@Dao interface ImportDao {
+    @Upsert suspend fun upsert(row: app.dshmobile.agency.data.entities.ImportBatchEntity)
+    @Query("SELECT * FROM import_batch WHERE id = :id") suspend fun get(id: String): app.dshmobile.agency.data.entities.ImportBatchEntity?
+    @Query("SELECT * FROM import_batch ORDER BY at DESC, id DESC") suspend fun all(): List<app.dshmobile.agency.data.entities.ImportBatchEntity>
+}
+
+@Dao interface PhotoReadDao {
+    @Upsert suspend fun upsert(row: app.dshmobile.agency.data.entities.PhotoReadEntity)
+    @Query("SELECT * FROM photo_read WHERE id = :id") suspend fun get(id: String): app.dshmobile.agency.data.entities.PhotoReadEntity?
+    @Query("SELECT * FROM photo_read ORDER BY at, id") suspend fun all(): List<app.dshmobile.agency.data.entities.PhotoReadEntity>
+}

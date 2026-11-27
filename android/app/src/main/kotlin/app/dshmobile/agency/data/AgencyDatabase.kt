@@ -70,10 +70,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
  * The agency's records (arch 1.2): Room over SQLCipher, file `noBackupFilesDir/agency/agency.db`. Schemas are in `schemas/`:
  * v1 (T02), v2 adds the nerve's `signal` and `nerve_effect` (T11b, [MIGRATION_1_2]), v3 the 「沒送出」 mark on `message` and the
  * manager's `thinking` (T12, [MIGRATION_2_3]), v4 理論課's `lesson` and `quiz` (T19c, [MIGRATION_3_4]), v5 `delivery_income`
- * (batch A, [MIGRATION_4_5]).
+ * (batch A, [MIGRATION_4_5]), v6 `memo`, `ledger_entry`, `import_batch`, `photo_read` and `meal.late_at` (batch B,
+ * [MIGRATION_5_6]).
  */
 @Database(
-    version = 5,
+    version = 6,
     exportSchema = true,
     entities = [
         ProfileEntity::class, CompanyRulesEntity::class, CompanyRulesHistoryEntity::class, PlanSectionEntity::class,
@@ -84,6 +85,8 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         MemoryEventEntity::class, NudgeEntity::class, MigrationLogEntity::class, AuditLogEntity::class, SignalEntity::class,
         NerveEffectEntity::class, ThinkingEntity::class, app.dshmobile.agency.data.entities.LessonEntity::class,
         app.dshmobile.agency.data.entities.QuizEntity::class, app.dshmobile.agency.data.entities.DeliveryIncomeEntity::class,
+        app.dshmobile.agency.data.entities.MemoEntity::class, app.dshmobile.agency.data.entities.LedgerEntryEntity::class,
+        app.dshmobile.agency.data.entities.ImportBatchEntity::class, app.dshmobile.agency.data.entities.PhotoReadEntity::class,
     ],
 )
 abstract class AgencyDatabase : RoomDatabase() {
@@ -110,6 +113,10 @@ abstract class AgencyDatabase : RoomDatabase() {
     abstract fun thinking(): ThinkingDao
     abstract fun lessons(): app.dshmobile.agency.data.dao.LessonDao
     abstract fun income(): app.dshmobile.agency.data.dao.IncomeDao
+    abstract fun memos(): app.dshmobile.agency.data.dao.MemoDao
+    abstract fun ledger(): app.dshmobile.agency.data.dao.LedgerDao
+    abstract fun imports(): app.dshmobile.agency.data.dao.ImportDao
+    abstract fun photoReads(): app.dshmobile.agency.data.dao.PhotoReadDao
 
     companion object {
         /** v1 → v2 (T11b): the nerve's two tables; nothing else changes, every v1 row stays. */
@@ -169,7 +176,24 @@ abstract class AgencyDatabase : RoomDatabase() {
             "CREATE TABLE IF NOT EXISTS `delivery_income` (`day` TEXT NOT NULL, `amount` INTEGER NOT NULL, `at` INTEGER NOT NULL, PRIMARY KEY(`day`))",
         )
 
-        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        /** v5 → v6 (batch B): 備忘錄, 記帳, file imports, photo readings, and 補交's time on a meal; every v5 row stays. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                MIGRATION_5_6_SQL.forEach(db::execSQL)
+            }
+        }
+
+        /** Copied from `schemas/…/6.json` (Room checks the result against it on open). */
+        val MIGRATION_5_6_SQL = listOf(
+            "ALTER TABLE `meal` ADD COLUMN `late_at` INTEGER",
+            "CREATE TABLE IF NOT EXISTS `memo` (`id` TEXT NOT NULL, `at` INTEGER NOT NULL, `text` TEXT NOT NULL, `due_at` INTEGER, `reminded_at` INTEGER, `done_at` INTEGER, `deleted_at` INTEGER, `batch_id` TEXT, PRIMARY KEY(`id`))",
+            "CREATE TABLE IF NOT EXISTS `ledger_entry` (`id` TEXT NOT NULL, `day` TEXT NOT NULL, `at` INTEGER NOT NULL, `amount` INTEGER NOT NULL, `item` TEXT NOT NULL, `category` TEXT, `bucket` TEXT NOT NULL, `source` TEXT NOT NULL, `batch_id` TEXT, PRIMARY KEY(`id`))",
+            "CREATE INDEX IF NOT EXISTS `index_ledger_entry_day` ON `ledger_entry` (`day`)",
+            "CREATE TABLE IF NOT EXISTS `import_batch` (`id` TEXT NOT NULL, `at` INTEGER NOT NULL, `target` TEXT NOT NULL, `source_key` TEXT NOT NULL, `mapping` TEXT NOT NULL, `ids` TEXT NOT NULL, `skipped` INTEGER NOT NULL, `undone_at` INTEGER, PRIMARY KEY(`id`))",
+            "CREATE TABLE IF NOT EXISTS `photo_read` (`id` TEXT NOT NULL, `at` INTEGER NOT NULL, `media_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `json` TEXT NOT NULL, `status` TEXT NOT NULL, `decided_at` INTEGER, PRIMARY KEY(`id`))",
+        )
+
+        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 
         fun file(context: Context) = File(context.noBackupFilesDir, "agency/agency.db")
 

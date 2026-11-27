@@ -442,4 +442,41 @@ abstract class AgencyStoreContract {
         assertEquals(1, n)
         assertEquals(1, water.count())
     }
+
+    @Test fun memosKeepHisWordsAndHideDeletedOnes() = test {
+        val a = app.agency.core.model.Memo("memo-1", 10, "買軟尺", dueAt = 99)
+        val b = app.agency.core.model.Memo("memo-2", 11, "繳電話費")
+        memos.upsert(b)
+        memos.upsert(a)
+        assertEquals(listOf("買軟尺", "繳電話費"), memos.all().map { it.text })
+        memos.upsert(b.copy(deletedAt = 12))
+        assertEquals(listOf("memo-1"), memos.all().map { it.id })
+        assertEquals(listOf("memo-1", "memo-2"), memos.all(deleted = true).map { it.id })
+        memos.upsert(a.copy(doneAt = 13, remindedAt = 14))
+        assertEquals(a.copy(doneAt = 13, remindedAt = 14), memos.get("memo-1"))
+        assertTrue(memos.remove("memo-2"))
+        assertNull(memos.get("memo-2"))
+    }
+
+    @Test fun ledgerImportsAndPhotoReadsRoundTrip() = test {
+        val e = app.agency.core.model.LedgerEntry("l-1", "2026-12-01", 5, 120, "便當", "餐費", app.agency.core.model.LedgerBucket.LIFE, "import", "b-1")
+        assertTrue(ledger.insert(e))
+        assertFalse(ledger.insert(e.copy(amount = 1)))
+        assertEquals(listOf(e), ledger.between("2026-12-01", "2026-12-31"))
+        val b = app.agency.core.model.ImportBatch("b-1", 6, app.agency.core.model.ImportTarget.LEDGER, "貼上", "{}", listOf("l-1"), 2)
+        imports.upsert(b)
+        imports.upsert(b.copy(id = "b-2", at = 7))
+        assertEquals(listOf("b-2", "b-1"), imports.all().map { it.id })
+        imports.upsert(b.copy(undoneAt = 9))
+        assertEquals(9L, imports.get("b-1")!!.undoneAt)
+        val r = app.agency.core.model.PhotoRead("r-1", 8, "m-1", app.agency.core.model.PhotoReadKind.MENU, "{\"rows\":[]}")
+        photoReads.upsert(r)
+        photoReads.upsert(r.copy(status = app.agency.core.model.PhotoReadStatus.CONFIRMED, decidedAt = 9))
+        assertEquals(listOf(r.copy(status = app.agency.core.model.PhotoReadStatus.CONFIRMED, decidedAt = 9)), photoReads.all())
+    }
+
+    @Test fun aLateMealKeepsItsCaptureTime() = test {
+        meals.insert(meal("late", "2026-11-23", 5, item("蛋", 70)).copy(lateAt = 3))
+        assertEquals(3L, meals.get("late")!!.lateAt)
+    }
 }

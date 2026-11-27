@@ -26,6 +26,10 @@ data class MessageRefs(
     val recommended: Int? = null,
     val memory: List<String> = emptyList(),
     val proposals: List<String> = emptyList(),
+    /** The photo reading (T15b) this line shows as a confirm card. */
+    val photoRead: String? = null,
+    /** The memo (T12b) this line saved or reminded of. */
+    val memo: String? = null,
 )
 
 /**

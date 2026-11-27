@@ -310,4 +310,29 @@ class RoomAgencyStore(private val db: AgencyDatabase) : AgencyStore {
         override suspend fun quiz(id: String): app.agency.core.model.Quiz? = dao.quiz(id)?.toModel()
         override suspend fun quizzes(lessonId: String): List<app.agency.core.model.Quiz> = dao.quizzes(lessonId).map { it.toModel() }
     }
+
+    override val memos = object : app.agency.core.store.MemoRepo {
+        private val dao = db.memos()
+        override suspend fun upsert(memo: app.agency.core.model.Memo) = dao.upsert(app.dshmobile.agency.data.entities.MemoEntity.of(memo))
+        override suspend fun get(id: String): app.agency.core.model.Memo? = dao.get(id)?.toModel()
+        override suspend fun all(deleted: Boolean): List<app.agency.core.model.Memo> = dao.all(deleted).map { it.toModel() }
+        override suspend fun remove(id: String): Boolean = dao.remove(id) > 0
+    }
+
+    override val ledger: DayLogRepo<app.agency.core.model.LedgerEntry> =
+        RoomDayLog(db.ledger(), app.dshmobile.agency.data.entities.LedgerEntryEntity::of) { it.toModel() }
+
+    override val imports = object : app.agency.core.store.ImportRepo {
+        private val dao = db.imports()
+        override suspend fun upsert(batch: app.agency.core.model.ImportBatch) = dao.upsert(app.dshmobile.agency.data.entities.ImportBatchEntity.of(batch))
+        override suspend fun get(id: String): app.agency.core.model.ImportBatch? = dao.get(id)?.toModel()
+        override suspend fun all(): List<app.agency.core.model.ImportBatch> = dao.all().map { it.toModel() }
+    }
+
+    override val photoReads = object : app.agency.core.store.PhotoReadRepo {
+        private val dao = db.photoReads()
+        override suspend fun upsert(read: app.agency.core.model.PhotoRead) = dao.upsert(app.dshmobile.agency.data.entities.PhotoReadEntity.of(read))
+        override suspend fun get(id: String): app.agency.core.model.PhotoRead? = dao.get(id)?.toModel()
+        override suspend fun all(): List<app.agency.core.model.PhotoRead> = dao.all().map { it.toModel() }
+    }
 }

@@ -223,8 +223,8 @@ class AgencyDaoTest {
         private fun t(key: String, columns: String) = t(listOf(key), columns)
         private fun t(key: List<String>, columns: String) = Table(columns.split(",").map { it.trim() }.toSet(), key)
 
-        /** Columns later schemas added to a v1 table (v3, T12). */
-        val ADDED = mapOf("message" to setOf("unsent"))
+        /** Columns later schemas added to a v1 table (v3, T12; v6, batch B). */
+        val ADDED = mapOf("message" to setOf("unsent"), "meal" to setOf("late_at"))
 
         /** Arch 1.2, every table with its columns and primary key (plus `id` on the one-row tables). */
         val TABLES = mapOf(

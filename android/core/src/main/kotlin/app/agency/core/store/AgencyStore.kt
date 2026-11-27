@@ -68,6 +68,10 @@ interface AgencyStore {
     val thinking: ThinkingRepo
     val lessons: LessonRepo
     val income: IncomeRepo
+    val memos: MemoRepo
+    val ledger: DayLogRepo<app.agency.core.model.LedgerEntry>
+    val imports: ImportRepo
+    val photoReads: PhotoReadRepo
 
     /** Runs [block] atomically: if it throws, nothing it wrote stays. Calls may nest (the outermost one commits). */
     suspend fun <T> transaction(block: suspend () -> T): T
@@ -288,4 +292,30 @@ interface JournalRepo {
     suspend fun migrations(): List<MigrationLog>
     suspend fun audit(log: AuditLog)
     suspend fun audits(): List<AuditLog>
+}
+
+/** 備忘錄 (T12b, schema v6). */
+interface MemoRepo {
+    suspend fun upsert(memo: app.agency.core.model.Memo)
+    suspend fun get(id: String): app.agency.core.model.Memo?
+
+    /** Every memo not deleted, oldest first ([deleted] true: the deleted ones too). */
+    suspend fun all(deleted: Boolean = false): List<app.agency.core.model.Memo>
+
+    /** Removes the row for good (only an import's undo does this; his delete is a mark). */
+    suspend fun remove(id: String): Boolean
+}
+
+/** File imports (T15c, schema v6), newest first. */
+interface ImportRepo {
+    suspend fun upsert(batch: app.agency.core.model.ImportBatch)
+    suspend fun get(id: String): app.agency.core.model.ImportBatch?
+    suspend fun all(): List<app.agency.core.model.ImportBatch>
+}
+
+/** What the image model read from a photo, waiting for his confirm (T15b, schema v6). */
+interface PhotoReadRepo {
+    suspend fun upsert(read: app.agency.core.model.PhotoRead)
+    suspend fun get(id: String): app.agency.core.model.PhotoRead?
+    suspend fun all(): List<app.agency.core.model.PhotoRead>
 }

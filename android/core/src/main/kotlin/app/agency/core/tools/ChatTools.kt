@@ -501,4 +501,5 @@ fun chatTools(
     GetTodayTool(store, snapshot, riding), QueryRecordsTool(store, snapshot), LookupFoodTool(store), ComputeTool(snapshot),
     SearchPlacesTool(store, snapshot, search, clock, newId, ctx), GetPlanTool(store, snapshot), ProposeChangeTool(store, snapshot, clock, newId, ctx),
     ProposeMealOrderTool(store, snapshot, clock, newId, ctx), SavePlaceTool(store, clock, newId, ctx), RememberTool(memory, ctx),
+    ReadMemosTool(store, clock.zone),
 )

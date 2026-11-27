@@ -24,6 +24,8 @@ data class Meal(
     val photoMediaId: String? = null,
     val orderId: String? = null,
     val legacy: Boolean = false,
+    /** 補交 (T15c): a photo picked from the gallery later than the meal; its capture time (null: handed in on time). */
+    val lateAt: Long? = null,
 ) : DayRecord {
     val kcal: Int get() = items.sumOf { it.kcal }
 }
@@ -154,7 +156,8 @@ data class Baseline(
 }
 
 enum class MediaKind { PHOTO, AUDIO }
-enum class MediaPurpose { MEAL, BASELINE, LABEL, WATER, AVATAR, LESSON }
+/** [MENU], [RECEIPT] and [BODY] (T15b/T15c) are the photos the image-capable model may read; recordings never leave the phone. */
+enum class MediaPurpose { MEAL, BASELINE, LABEL, WATER, AVATAR, LESSON, MENU, RECEIPT, BODY }
 
 /** A media file's record; the encrypted bytes live in the vault as `<id>.bin`. [bytes] and [sha256] are of the plaintext. */
 data class Media(

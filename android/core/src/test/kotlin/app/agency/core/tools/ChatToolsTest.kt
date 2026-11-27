@@ -54,7 +54,7 @@ class ChatToolsTest {
 
     @Test fun allTenAreStrictAndInTheirFixedOrder() {
         assertEquals(
-            listOf("get_today", "query_records", "lookup_food", "compute", "search_places", "get_plan", "propose_change", "propose_meal_order", "save_place", "remember"),
+            listOf("get_today", "query_records", "lookup_food", "compute", "search_places", "get_plan", "propose_change", "propose_meal_order", "save_place", "remember", "read_memos"),
             registry.specs.map { it.name },
         )
         fun strict(o: JsonObject) {

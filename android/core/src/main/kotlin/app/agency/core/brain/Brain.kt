@@ -143,6 +143,7 @@ class Brain(
     private val water = WaterDesk(store, snapshot, clock, newId)
     private val training = app.agency.core.brain.handlers.TrainingDesk(store, snapshot, clock, newId)
     private val income = app.agency.core.brain.handlers.IncomeDesk(store)
+    private val memoDesk = app.agency.core.brain.handlers.MemoDesk(store, clock.zone, newId)
     private val lessons = app.agency.core.brain.handlers.LessonDesk(store, clock, newId, structured, search) { snapshot.today(snapshot.profile()) }
 
     private val _busy = MutableStateFlow(false)
@@ -302,8 +303,25 @@ class Brain(
     private suspend fun tickLocked(): Tick {
         dayStarted()
         val profile = snapshot.profile()
+        // 備忘錄 reminders he asked for (T12b): at their time, once, signed out or not.
+        val memoPosts = memoPosts(profile)
         // Reminders start once 入社建檔 is walked through (it is step 0: the welcome is not buried under reminders).
-        if (!profile.onboardingDone) return Tick(emptyList(), gapsCleared = true, next = null)
+        if (!profile.onboardingDone) return Tick(memoPosts, gapsCleared = true, next = memoDesk.next(clock.millis())?.let { Fire(it, app.agency.core.engine.FireKind.NOTE) })
+        return tickReminders(profile).let { it.copy(posts = memoPosts + it.posts) }
+    }
+
+    private suspend fun memoPosts(profile: app.agency.core.model.Profile): List<Post> {
+        val now = clock.millis()
+        val riding = nerve.state(snapshot.today(profile)).riding
+        return memoDesk.due(now, riding).mapIndexed { i, (memo, p) ->
+            val (n, m) = Nudger.record(p, now + i, RoleKey.MANAGER, newMessage = true)
+            store.nudges.insert(n)
+            m?.let { store.messages.insert(it.copy(kind = app.agency.core.brain.handlers.MemoDesk.KIND, refs = MessageRefs(memo = memo.id))) }
+            p
+        }
+    }
+
+    private suspend fun tickReminders(profile: app.agency.core.model.Profile): Tick {
         val now = clock.now()
         nerve.emit(Signal.RemindersOn(Signal.REMINDERS_ON, now.toEpochMilli()))
         val since = remindersSince() ?: now
@@ -408,6 +426,11 @@ class Brain(
     suspend fun nextFire(): Fire? = mutex.withLock { nextFireLocked() }
 
     private suspend fun nextFireLocked(): Fire? {
+        val memo = memoDesk.next(clock.millis())?.let { Fire(it, app.agency.core.engine.FireKind.NOTE) }
+        return listOfNotNull(memo, nextReminderFire()).minWithOrNull(compareBy({ it.at }, { it.kind.ordinal }))
+    }
+
+    private suspend fun nextReminderFire(): Fire? {
         val profile = snapshot.profile()
         if (!profile.onboardingDone) return null
         val day = snapshot.today(profile)
@@ -633,6 +656,13 @@ class Brain(
         app.agency.core.engine.ConditionPolicy.parse(owner.text)?.let { score ->
             val d = today0.toString()
             if (store.signs.onDay(d).any { it.kind == app.agency.core.model.SignKind.IN } && store.conditions.get(d) == null) return conditionLines(score, null, null, null, owner.at)
+        }
+        // 「幫我記…」「提醒我…」 (T12b): his words kept by code, a time read by code; no model.
+        app.agency.core.brain.handlers.MemoWords.parse(owner.text, Instant.ofEpochMilli(owner.at), clock.zone, profile0.dayStartHour)?.let { p ->
+            val (memo, line) = memoDesk.save(p, owner.at)
+            val m = Message(newId(), clock.millis(), Who.COMPANY, role = RoleKey.MANAGER, kind = app.agency.core.brain.handlers.MemoDesk.KIND, text = line, refs = MessageRefs(memo = memo.id), wordedBy = WordedBy.TEMPLATE)
+            store.messages.insert(m)
+            return listOf(m)
         }
         body(owner)?.let { return it }
         if (Router.clean(owner.text) in Discussion.END_WORDS) {
@@ -1141,6 +1171,12 @@ class Brain(
     }
 
     /** Today's items waiting for their label (the card's 補標示). */
+    /** 備忘錄 (T12b): the page's rows (not deleted), and his check-off, delete and 復原. */
+    suspend fun memos(): List<app.agency.core.model.Memo> = memoDesk.list()
+    suspend fun checkMemo(id: String, done: Boolean): Boolean = mutex.withLock { memoDesk.check(id, done, clock.millis()).also { if (it) bump() } }
+    suspend fun deleteMemo(id: String): Boolean = mutex.withLock { memoDesk.delete(id, clock.millis()).also { if (it) bump() } }
+    suspend fun restoreMemo(id: String): Boolean = mutex.withLock { memoDesk.restore(id).also { if (it) bump() } }
+
     suspend fun pendingLabels(): List<app.agency.core.model.PendingLabel> = meals.pendingToday()
 
     /** A command word (code only, no model): its line, then what the links said about its signal. */

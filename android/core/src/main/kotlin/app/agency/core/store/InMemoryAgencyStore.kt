@@ -73,6 +73,10 @@ class InMemoryAgencyStore : AgencyStore {
         val lessons: MutableMap<String, Lesson> = mutableMapOf(),
         val quizzes: MutableMap<String, Quiz> = mutableMapOf(),
         val income: MutableMap<String, app.agency.core.model.DeliveryIncome> = mutableMapOf(),
+        val memos: MutableMap<String, app.agency.core.model.Memo> = mutableMapOf(),
+        val ledger: MutableMap<String, app.agency.core.model.LedgerEntry> = mutableMapOf(),
+        val imports: MutableMap<String, app.agency.core.model.ImportBatch> = mutableMapOf(),
+        val photoReads: MutableMap<String, app.agency.core.model.PhotoRead> = mutableMapOf(),
     ) {
         /** The records are immutable, so copying the containers is a full snapshot. */
         fun snapshot() = Tables(
@@ -82,7 +86,8 @@ class InMemoryAgencyStore : AgencyStore {
             baselines.toMutableMap(), media.toMutableMap(), messages.toMutableMap(), proposals.toMutableMap(),
             memoryItems.toMutableMap(), memoryEvents.toMutableMap(), nudges.toMutableMap(), migrations.toMutableList(),
             audits.toMutableList(), signals.toMutableMap(), effects.toMutableMap(), thinking.toMutableMap(), lessons.toMutableMap(),
-            quizzes.toMutableMap(), income.toMutableMap(),
+            quizzes.toMutableMap(), income.toMutableMap(), memos.toMutableMap(), ledger.toMutableMap(), imports.toMutableMap(),
+            photoReads.toMutableMap(),
         )
     }
 
@@ -327,5 +332,28 @@ class InMemoryAgencyStore : AgencyStore {
         override suspend fun quiz(id: String): Quiz? = locked { quizzes[id] }
         override suspend fun quizzes(lessonId: String): List<Quiz> =
             locked { quizzes.values.filter { it.lessonId == lessonId }.sortedWith(compareBy({ it.createdAt }, { it.id })) }
+    }
+
+    override val memos = object : MemoRepo {
+        override suspend fun upsert(memo: app.agency.core.model.Memo) = locked { memos[memo.id] = memo }
+        override suspend fun get(id: String): app.agency.core.model.Memo? = locked { memos[id] }
+        override suspend fun all(deleted: Boolean): List<app.agency.core.model.Memo> =
+            locked { memos.values.filter { deleted || it.deletedAt == null }.sortedWith(compareBy({ it.at }, { it.id })) }
+        override suspend fun remove(id: String): Boolean = locked { memos.remove(id) != null }
+    }
+
+    override val ledger: DayLogRepo<app.agency.core.model.LedgerEntry> = DayLog { ledger }
+
+    override val imports = object : ImportRepo {
+        override suspend fun upsert(batch: app.agency.core.model.ImportBatch) = locked { imports[batch.id] = batch }
+        override suspend fun get(id: String): app.agency.core.model.ImportBatch? = locked { imports[id] }
+        override suspend fun all(): List<app.agency.core.model.ImportBatch> =
+            locked { imports.values.sortedWith(compareByDescending<app.agency.core.model.ImportBatch> { it.at }.thenByDescending { it.id }) }
+    }
+
+    override val photoReads = object : PhotoReadRepo {
+        override suspend fun upsert(read: app.agency.core.model.PhotoRead) = locked { photoReads[read.id] = read }
+        override suspend fun get(id: String): app.agency.core.model.PhotoRead? = locked { photoReads[id] }
+        override suspend fun all(): List<app.agency.core.model.PhotoRead> = locked { photoReads.values.sortedWith(compareBy({ it.at }, { it.id })) }
     }
 }

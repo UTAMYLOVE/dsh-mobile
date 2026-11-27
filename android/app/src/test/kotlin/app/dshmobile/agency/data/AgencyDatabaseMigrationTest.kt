@@ -84,7 +84,7 @@ class AgencyDatabaseMigrationTest {
             assertTrue(store.nerve.insertSignal(StoredSignal("sig", "2026-11-22", 1, "woke_up", "{}")))
             assertTrue(store.nerve.insertEffect(NerveEffect("e", "2026-11-22", 2, "L1", "sig", EffectKind.ADJUST, "{}", "因為…所以…", EffectStatus.ACTIVE)))
             assertEquals(1, store.nerve.effects("2026-11-22").size)
-            assertEquals(5, db.openHelper.readableDatabase.version) // on to the newest (v5)
+            assertEquals(6, db.openHelper.readableDatabase.version) // on to the newest (v6)
         } finally {
             db.close()
         }
@@ -144,7 +144,7 @@ class AgencyDatabaseMigrationTest {
             assertTrue(store.messages.get("m1")!!.unsent)
             store.thinking.put(app.agency.core.model.StoredThinking("m2", 6, "DEEPSEEK", "OPENAI", "想一下"))
             assertEquals("想一下", store.thinking.of(listOf("m2")).single().payload)
-            assertEquals(5, db.openHelper.readableDatabase.version) // on to the newest (v5)
+            assertEquals(6, db.openHelper.readableDatabase.version) // on to the newest (v6)
         } finally {
             db.close()
         }
@@ -190,7 +190,7 @@ class AgencyDatabaseMigrationTest {
             assertEquals(l, store.lessons.get("l1"))
             store.lessons.putQuiz(app.agency.core.model.Quiz("q1", "l1", app.agency.core.model.QuizKind.MAIN, 10, emptyList(), shown = 0))
             assertEquals(listOf("q1"), store.lessons.quizzes("l1").map { it.id })
-            assertEquals(5, db.openHelper.readableDatabase.version) // on to the newest (v5)
+            assertEquals(6, db.openHelper.readableDatabase.version) // on to the newest (v6)
         } finally {
             db.close()
         }
@@ -253,7 +253,7 @@ class AgencyDatabaseMigrationTest {
             store.income.put(app.agency.core.model.DeliveryIncome("2026-12-07", 900, 1))
             store.income.put(app.agency.core.model.DeliveryIncome("2026-12-07", 1000, 2)) // a second report replaces the first
             assertEquals(listOf(1000), store.income.between("2026-12-07", "2026-12-13").map { it.amount })
-            assertEquals(5, db.openHelper.readableDatabase.version)
+            assertEquals(6, db.openHelper.readableDatabase.version) // on to the newest (v6)
         } finally {
             db.close()
         }
@@ -278,6 +278,75 @@ class AgencyDatabaseMigrationTest {
         try {
             db.openHelper.writableDatabase
             fail("v4 must not open as v5 without its migration")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message, e.message!!.contains("migration", ignoreCase = true))
+        } finally {
+            db.close()
+        }
+        assertTrue(file.exists() && file.length() >= before)
+    }
+
+    /** The v5 file as batch A left it: a line, a meal and a day's income. */
+    private fun writeV5() {
+        val db = create(5)
+        db.execSQL("INSERT INTO message (id, at, who, role, kind, mode, text, refs, worded_by, legacy, unsent) VALUES ('m1', 5, 'OWNER', NULL, NULL, 'NORMAL', '午安', '{}', NULL, 0, 0)")
+        db.execSQL(
+            "INSERT INTO meal (id, day, slot_key, at, text, cheat, breaches, verified, photo_media_id, order_id, legacy) " +
+                "VALUES ('meal1', '2026-12-01', 'LUNCH', 7, '雞腿便當', 0, '[]', 0, NULL, NULL, 0)",
+        )
+        db.execSQL("INSERT INTO delivery_income (day, amount, at) VALUES ('2026-12-01', 900, 8)")
+        db.close()
+    }
+
+    @Test fun aVersionFiveFileMigratesToSixAndTheNotebookTablesWork() = runBlocking {
+        writeV5()
+        val db = AgencyDatabase.build(context, file.path, FrameworkSQLiteOpenHelperFactory())
+        try {
+            val store = RoomAgencyStore(db)
+            assertEquals(listOf("午安"), store.messages.recent(10).map { it.text })
+            val meal = store.meals.get("meal1")!!
+            assertEquals("雞腿便當", meal.text)
+            assertEquals(null, meal.lateAt) // every old meal was handed in on time
+            assertEquals(900, store.income.get("2026-12-01")!!.amount)
+            store.memos.upsert(app.agency.core.model.Memo("memo1", 9, "買軟尺"))
+            assertEquals(listOf("買軟尺"), store.memos.all().map { it.text })
+            assertTrue(store.ledger.insert(app.agency.core.model.LedgerEntry("l1", "2026-12-01", 9, 120, "便當")))
+            store.imports.upsert(app.agency.core.model.ImportBatch("b1", 9, app.agency.core.model.ImportTarget.LEDGER, "貼上", "{}", listOf("l1"), 0))
+            store.photoReads.upsert(app.agency.core.model.PhotoRead("r1", 9, "m1", app.agency.core.model.PhotoReadKind.MENU, "{}"))
+            store.meals.upsert(meal.copy(lateAt = 6))
+            assertEquals(6L, store.meals.get("meal1")!!.lateAt)
+            assertEquals(6, db.openHelper.readableDatabase.version)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun theMigrationToSixIsWhatTheV6SchemaSays() {
+        val v6 = schema(6).getJSONArray("entities").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.associateBy { it.getString("tableName") }
+        val v5 = schema(5).getJSONArray("entities").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.associateBy { it.getString("tableName") }
+        val added = listOf("memo", "ledger_entry", "import_batch", "photo_read")
+        assertEquals(added.toSet(), v6.keys - v5.keys)
+        val expected = mutableListOf("ALTER TABLE `meal` ADD COLUMN `late_at` INTEGER")
+        added.forEach { t ->
+            val e = v6.getValue(t)
+            expected += e.getString("createSql").replace("\${TABLE_NAME}", t)
+            val idx = e.optJSONArray("indices")
+            if (idx != null) for (j in 0 until idx.length()) expected += idx.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", t)
+        }
+        assertEquals(expected, AgencyDatabase.MIGRATION_5_6_SQL)
+        // Every other v5 table is unchanged; the meal gained only the one column at its end.
+        v5.forEach { (t, x) -> if (t != "meal") assertEquals(t, x.getString("createSql"), v6.getValue(t).getString("createSql")) }
+        assertEquals(v5.getValue("meal").getString("createSql").replace(", PRIMARY KEY(`id`))", ", `late_at` INTEGER, PRIMARY KEY(`id`))"), v6.getValue("meal").getString("createSql"))
+    }
+
+    @Test fun withoutTheMigrationAVersionFiveFileDoesNotOpenAndIsKept() {
+        writeV5()
+        val before = file.length()
+        val db = Room.databaseBuilder(context, AgencyDatabase::class.java, file.path).openHelperFactory(FrameworkSQLiteOpenHelperFactory())
+            .addMigrations(AgencyDatabase.MIGRATION_1_2, AgencyDatabase.MIGRATION_2_3, AgencyDatabase.MIGRATION_3_4, AgencyDatabase.MIGRATION_4_5).build()
+        try {
+            db.openHelper.writableDatabase
+            fail("v5 must not open as v6 without its migration")
         } catch (e: IllegalStateException) {
             assertTrue(e.message, e.message!!.contains("migration", ignoreCase = true))
         } finally {

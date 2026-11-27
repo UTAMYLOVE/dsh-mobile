@@ -31,11 +31,13 @@ data class MealEntity(
     @ColumnInfo(name = "photo_media_id") val photoMediaId: String?,
     @ColumnInfo(name = "order_id") val orderId: String?,
     val legacy: Boolean,
+    /** v6 (T15c): 補交's capture time. */
+    @ColumnInfo(name = "late_at") val lateAt: Long? = null,
 ) {
     companion object {
         fun of(m: Meal) = MealEntity(
             m.id, m.day, m.slotKey, m.at, m.text, m.cheat, JsonCols.strings(m.breaches), m.verified, m.photoMediaId, m.orderId,
-            m.legacy,
+            m.legacy, m.lateAt,
         )
     }
 }
@@ -78,7 +80,7 @@ data class MealWithItems(
 ) {
     fun toModel() = Meal(
         meal.id, meal.day, meal.at, meal.slotKey, meal.text, items.sortedBy { it.idx }.map { it.toModel() }, meal.cheat,
-        JsonCols.strings(meal.breaches), meal.verified, meal.photoMediaId, meal.orderId, meal.legacy,
+        JsonCols.strings(meal.breaches), meal.verified, meal.photoMediaId, meal.orderId, meal.legacy, meal.lateAt,
     )
 }
 

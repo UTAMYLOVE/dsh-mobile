@@ -434,4 +434,9 @@
     <string name="ag_lesson_points_instead">寫重點代替</string>
     <string name="ag_lesson_retries">重考 %1$d 題</string>
     <string name="ag_lesson_review_score">複習考 %1$d／3</string>
+    <string name="ag_memo_title">備忘錄</string>
+    <string name="ag_memo_empty">還沒有備忘錄。跟小葵姐說「幫我記…」或「提醒我…」就會存在這裡。</string>
+    <string name="ag_memo_due">%1$d/%2$d %3$02d:%4$02d 提醒</string>
+    <string name="ag_memo_delete">刪除</string>
+    <string name="ag_memo_undo">復原剛剛刪掉的</string>
 </resources>
