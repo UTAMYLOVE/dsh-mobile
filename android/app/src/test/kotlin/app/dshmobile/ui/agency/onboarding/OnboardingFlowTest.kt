@@ -113,8 +113,14 @@ class OnboardingFlowTest {
         rule.waitForText("已完成 1／7 項")
         assertEquals("已完成", status(OnboardingStep.BODY))
         for (step in OnboardingStep.PHOTOS) {
-            tap(OnboardingTags.TAKE_PHOTO)
-            val got = runCatching { rule.waitUntil(20_000) { join()?.let { BaselineSteps.has(it, step) } == true } }
+            // A tap while the cards above still settle (the body card folds after its save) is tried again.
+            var got = runCatching<Unit> { error("not tried") }
+            repeat(3) {
+                if (got.isSuccess) return@repeat
+                rule.waitForIdle()
+                tap(OnboardingTags.TAKE_PHOTO)
+                got = runCatching { rule.waitUntil(8_000) { join()?.let { BaselineSteps.has(it, step) } == true } }
+            }
             assertTrue("notice=${app.agency.mediaNotice.value} log=${app.errorLog.file().takeIf { it.isFile }?.readText()?.takeLast(600)}", got.isSuccess)
         }
         tap(OnboardingTags.REC_START)
