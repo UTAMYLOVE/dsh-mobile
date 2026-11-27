@@ -13,8 +13,10 @@ import kotlin.math.roundToInt
  */
 data class Accent(val fill: Color, val onFill: Color, val adjusted: Boolean = false) {
     companion object {
-        /** No 代表色 yet: the Sakura pink as it always was. */
-        val DEFAULT = Accent(Sakura.Primary, Sakura.Text)
+        private val cache = java.util.concurrent.ConcurrentHashMap<Palette, Accent>()
+
+        /** No 代表色 yet: the bright pink, made readable with the palette's text (WCAG AA). */
+        val DEFAULT: Accent get() = Sakura.palette.let { p -> cache.getOrPut(p) { MemberColour.accentOf(p.primary).copy(adjusted = false) } }
     }
 }
 

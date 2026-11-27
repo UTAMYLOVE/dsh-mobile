@@ -61,7 +61,7 @@ class RulesPageTest {
 
     private fun open(page: SettingsPage) {
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + page.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + page.name).performScrollTo().performClick()
     }
 
     private fun setField(tag: String, value: String) {

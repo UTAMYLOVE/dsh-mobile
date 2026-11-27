@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
@@ -74,7 +75,15 @@ object AgencyTags {
 }
 
 enum class AgencyTab(val label: Int) {
-    COMPANY(R.string.ag_tab_company), LESSONS(R.string.ag_tab_lessons), WAR_ROOM(R.string.ag_tab_warroom), SETTINGS(R.string.ag_tab_settings),
+    COMPANY(R.string.ag_tab_company), LESSONS(R.string.ag_tab_lessons), WAR_ROOM(R.string.ag_tab_warroom), SETTINGS(R.string.ag_tab_settings);
+
+    /** The line icon of the tab (home, book, star, sliders). */
+    val icon: androidx.compose.ui.graphics.vector.ImageVector get() = when (this) {
+        COMPANY -> app.dshmobile.ui.kit.Icons.Home
+        LESSONS -> app.dshmobile.ui.kit.Icons.Book
+        WAR_ROOM -> app.dshmobile.ui.kit.Icons.Star
+        SETTINGS -> app.dshmobile.ui.kit.Icons.Sliders
+    }
 }
 
 /** The start screens until the company is open, then the four tabs (公司, 理論課 since T19c, 指揮室, 設定). */
@@ -82,7 +91,7 @@ enum class AgencyTab(val label: Int) {
 fun AgencyRoot(agency: AgencyApp, actions: AgencyActions = AgencyActions()) {
     // Defensive (main on the phone already; not under the Compose test rule). Keep it: AgencyMainThreadTest fails without it.
     val start by agency.start.collectOnMain()
-    Box(Modifier.fillMaxSize().background(Sakura.Background)) {
+    Box(Modifier.fillMaxSize().background(Sakura.Page)) {
         when (val s = start) {
             StartState.Opening -> Plate(AgencyTags.OPENING, stringResource(R.string.ag_opening), null, busy = true)
             StartState.Importing -> Plate(AgencyTags.IMPORTING, stringResource(R.string.ag_importing), stringResource(R.string.ag_importing_hint), busy = true)
@@ -118,21 +127,42 @@ fun AgencyNav(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions
     val colour by produceState<String?>(null, revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.store.profile.get()?.memberColor }.getOrNull() } }
     }
-    SakuraTheme(MemberColour.accent(colour)) { Tabs(agency, ready, actions, tab) { tab = it } }
+    // 入社建檔 (redesign 03): its own page, opened by itself the first time (once a session, until it is finished) and from
+    // 入社資料 later; the tabs hide while it is open.
+    val status by produceState<app.agency.core.brain.handlers.OnboardingStatus?>(null, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.onboardingStatus() }.getOrNull() } }
+    }
+    var onboardingOpen by rememberSaveable { mutableStateOf(false) }
+    var autoShown by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(status?.due) {
+        if (status?.due == true && !autoShown && agency.autoOnboarding) {
+            autoShown = true
+            onboardingOpen = true
+        }
+    }
+    SakuraTheme(colour?.let { MemberColour.accent(it) }) {
+        if (onboardingOpen) {
+            Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                app.dshmobile.ui.agency.onboarding.OnboardingScreen(agency, ready, actions) { onboardingOpen = false }
+            }
+        } else {
+            Tabs(agency, ready, actions, tab, onTab = { tab = it }, onOnboarding = { onboardingOpen = true })
+        }
+    }
 }
 
 @Composable
-private fun Tabs(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions, tab: AgencyTab, onTab: (AgencyTab) -> Unit) {
+private fun Tabs(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions, tab: AgencyTab, onTab: (AgencyTab) -> Unit, onOnboarding: () -> Unit) {
     Scaffold(
-        containerColor = Sakura.Background,
+        containerColor = Sakura.Page,
         bottomBar = {
-            NavigationBar(containerColor = Sakura.White) {
+            NavigationBar(containerColor = Sakura.White, tonalElevation = 0.dp, modifier = Modifier.height(72.dp)) {
                 AgencyTab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t,
                         onClick = { onTab(t) },
-                        icon = { Dot(tab == t) },
-                        label = { Text(stringResource(t.label), fontSize = 13.sp) },
+                        icon = { app.dshmobile.ui.kit.LineIcon(t.icon, tint = if (tab == t) Sakura.Text else Sakura.TextSecondary) },
+                        label = { Text(stringResource(t.label), fontSize = 12.sp, fontWeight = if (tab == t) androidx.compose.ui.text.font.FontWeight.Bold else null) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedTextColor = Sakura.Text, unselectedTextColor = Sakura.TextSecondary, indicatorColor = Sakura.Background,
                         ),
@@ -144,18 +174,11 @@ private fun Tabs(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActi
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (tab) {
-                AgencyTab.COMPANY -> HomeScreen(agency, ready, actions)
+                AgencyTab.COMPANY -> HomeScreen(agency, ready, actions, onLessons = { onTab(AgencyTab.LESSONS) }, onOnboarding = onOnboarding, onWarRoom = { onTab(AgencyTab.WAR_ROOM) })
                 AgencyTab.LESSONS -> app.dshmobile.ui.agency.lessons.LessonsScreen(agency, ready, actions)
                 AgencyTab.WAR_ROOM -> app.dshmobile.ui.warroom.WarRoomScreen(ready, { agency.costMeter.todayUsd() }, { agency.costMeter.hardCapUsd })
-                AgencyTab.SETTINGS -> SettingsScreen(agency, ready)
+                AgencyTab.SETTINGS -> SettingsScreen(agency, ready, onOnboarding)
             }
         }
     }
 }
-
-@Composable
-private fun Dot(on: Boolean) {
-    val shape = androidx.compose.foundation.shape.CircleShape
-    Box(Modifier.padding(4.dp).background(if (on) LocalAccent.current.fill else Sakura.MilkTea, shape).padding(5.dp))
-}
-

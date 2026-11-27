@@ -53,7 +53,7 @@ class LegacyDataPageTest {
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
         rule.waitForTag(AgencyTags.HOME, 20_000)
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performScrollTo().performClick()
         rule.waitForTag(LegacyTags.STATUS)
     }
 

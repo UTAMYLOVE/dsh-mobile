@@ -38,6 +38,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.style.TextOverflow
+import app.dshmobile.ui.kit.Icons
+import app.dshmobile.ui.kit.LineIcon
+import app.dshmobile.ui.kit.ProgressBar
+import app.dshmobile.ui.kit.Type
 import app.agency.core.brain.handlers.OnboardingStatus
 import app.agency.core.engine.IdolCardFacts
 import app.agency.core.engine.WaterPlan
@@ -84,161 +96,220 @@ object IdolTags {
 }
 
 /**
- * 練習生證 as an idol profile card (plan v3 §17, arch T10). Folded it is one line (「小雨娛樂 ・ 入社第 N 天 ・ 今日違規 N ・ 剩
- * R 大卡」, plus 「・ 入社資料缺 N 項」 while items are missing: review A4); it opens by itself once 入社建檔 is walked through
- * and 補交 or 藝名/代表色 is still to do, and a tap folds or opens it (kept across rotation). TalkBack hears 已展開／已收起.
- * 入社資料 (缺 N 項, 補交, the file) stays on its own row under the card, folded or not.
+ * 練習生證 folded to one line (redesign 01/02): the photo with a ring of his colour, a colour dot and his stage name, 「練習生 C
+ * ・ 入社第 N 天」 (plus 「・ 貼紙 N 張」 once 簽到 is open), and the round button that opens the idol card ([IdolCardSheet]). No
+ * calories, breaches or missing items here: those live where they are open (今天 card, 入社建檔 banner).
  */
 @Composable
-fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: OnboardingStatus?, onSaved: () -> Unit = {}, rowsMax: Dp = OPEN_ROWS_MAX) {
+fun IdolLine(agency: AgencyApp, facts: IdolCardFacts, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    val accent = LocalAccent.current
+    val label = stringResource(R.string.ag_card_unfold)
+    val folded = stringResource(R.string.ag_card_folded_state)
+    val shape = RoundedCornerShape(32.dp)
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+            .shadow(4.dp, shape, ambientColor = Sakura.RoseBrown.copy(alpha = .1f), spotColor = Sakura.RoseBrown.copy(alpha = .1f))
+            .background(Sakura.White, shape).background(Sakura.idol(accent), shape).border(1.dp, Sakura.Gold.copy(alpha = .8f), shape)
+            .clickable(onClickLabel = label, onClick = onOpen)
+            .semantics { stateDescription = folded; onClick(label = label) { onOpen(); true } }
+            .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+            .testTag(IdolTags.CARD),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Photo(agency, facts, 44.dp)
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.size(10.dp).background(accent.fill, CircleShape))
+                Text(facts.stageName ?: stringResource(R.string.ag_card_no_name), style = Type.Label, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag(IdolTags.NAME))
+            }
+            Text(metaLine(facts), style = Type.Support, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag(IdolTags.FOLDED))
+        }
+        Box(Modifier.size(44.dp).background(Sakura.Background, CircleShape), contentAlignment = Alignment.Center) { LineIcon(Icons.Down) }
+    }
+}
+
+/** The line under his name: grade and day, and the stickers once 簽到 is open (F1: nothing of a feature not open). */
+@Composable
+internal fun metaLine(f: IdolCardFacts): String {
+    val base = f.joinDay?.let { stringResource(R.string.ag_idol_meta, f.level, it.toInt()) } ?: stringResource(R.string.ag_idol_meta_no_day, f.level)
+    return if (app.agency.core.schedule.Feature.SIGN in f.open) base + " " + stringResource(R.string.ag_idol_stickers, f.stickers.size) else base
+}
+
+/**
+ * 練習生證展開 (redesign 05): the idol profile card over the home screen — a striped band of his colour with 「小雨娛樂 ・ 練習生
+ * 第 001 號」, the polaroid with aqua tape, his stage name, 等級 / 入社 / 代表色 / 這週, today's stickers, 五項評分 (after the first
+ * 月評), 各科等級 and 下一個目標 (only when he set targets). 小卡牆 and 入社資料 at the bottom; 藝名 and 代表色 inside when due.
+ */
+@Composable
+fun IdolCardSheet(
+    agency: AgencyApp, facts: IdolCardFacts, onboarding: OnboardingStatus?, scores: List<Pair<String, Int>>,
+    onClose: () -> Unit, onWall: () -> Unit, onFile: () -> Unit, onSaved: () -> Unit = {},
+) {
     val settingsRevision by agency.settings.revision.collectOnMain()
     val setupSkipped = remember(settingsRevision) { agency.settings.idolSetupSkipped }
     val setupDue = onboarding?.completed == true && (facts.stageName == null || facts.memberColor == null) && !setupSkipped
-    // Opens by itself only once 入社建檔 was walked through and something is still to do on the card (補交, 藝名/代表色); while
-    // a question is open the 入社建檔 panel below the conversation has the buttons, and the conversation keeps its room.
-    val autoOpen = onboarding != null && onboarding.completed && onboarding.open == null && (onboarding.missing.isNotEmpty() || setupDue)
-    var chosen by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    val open = chosen ?: autoOpen
     val accent = LocalAccent.current
-    val shape = RoundedCornerShape(22.dp)
-    val stateText = stringResource(if (open) R.string.ag_card_open_state else R.string.ag_card_folded_state)
-    val toggleLabel = stringResource(if (open) R.string.ag_card_fold else R.string.ag_card_unfold)
+    val open = facts.open
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).background(Sakura.White, shape).border(1.dp, accent.fill, shape)
-            .testTag(IdolTags.CARD),
+        Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Sakura.Background, Sakura.Page))),
     ) {
-        val header = Modifier.fillMaxWidth().clickable(onClickLabel = toggleLabel) { chosen = !open }
-            .semantics { stateDescription = stateText; onClick(label = toggleLabel) { chosen = !open; true } }
-        if (!open) {
-            Text(
-                foldedLine(facts), color = Sakura.Text, fontSize = 14.sp,
-                modifier = header.padding(horizontal = 16.dp, vertical = 10.dp).testTag(IdolTags.FOLDED),
-            )
-            return@Column
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            val close = stringResource(R.string.ag_idol_close)
+            androidx.compose.material3.IconButton(onClick = onClose, modifier = Modifier.semantics { contentDescription = close }) { LineIcon(Icons.Up) }
+            Text(close, style = Type.Support)
         }
-        Row(header.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Photo(agency, facts)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
-                    facts.stageName ?: stringResource(R.string.ag_card_no_name), color = Sakura.Text, fontSize = 20.sp, fontWeight = FontWeight.Medium,
-                    modifier = Modifier.testTag(IdolTags.NAME),
-                )
-                Text(stringResource(R.string.ag_card_number, facts.company, facts.traineeNo), color = Sakura.TextSecondary, fontSize = 13.sp, modifier = Modifier.testTag(IdolTags.NUMBER))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Pill(stringResource(R.string.ag_card_level, facts.level))
-                    facts.joinDay?.let { Pill(stringResource(R.string.ag_join_day, it)) }
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp).testTag(AgencyTags.CARD_AREA),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            val shape = RoundedCornerShape(28.dp)
+            Column(
+                Modifier.fillMaxWidth().shadow(6.dp, shape, ambientColor = Sakura.RoseBrown.copy(alpha = .12f), spotColor = Sakura.RoseBrown.copy(alpha = .12f))
+                    .background(Sakura.White, shape).border(1.dp, Sakura.Gold, shape).testTag(IdolTags.CARD + "-open"),
+            ) {
+                // The striped band of his colour (pink → lilac when he has none), with the company and his number.
+                Box(
+                    Modifier.fillMaxWidth().height(64.dp).background(
+                        androidx.compose.ui.graphics.Brush.linearGradient(listOf(accent.fill, Sakura.Lilac)), RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    ).testTag(IdolTags.BAND),
+                    contentAlignment = Alignment.TopEnd,
+                ) {
+                    Text(
+                        stringResource(R.string.ag_idol_chip, facts.company, facts.traineeNo), style = Type.Caption.copy(color = Sakura.Text),
+                        modifier = Modifier.padding(12.dp).background(Sakura.White.copy(alpha = .85f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 3.dp)
+                            .testTag(IdolTags.NUMBER),
+                    )
+                }
+                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Box(Modifier.rotate(-2f)) {
+                        Box(Modifier.size(width = 120.dp, height = 156.dp).background(Sakura.White).border(1.dp, Sakura.MilkTea).padding(6.dp).padding(bottom = 18.dp)) {
+                            Polaroid(agency, facts)
+                        }
+                        Box(Modifier.align(Alignment.TopCenter).offset(y = (-6).dp).size(width = 48.dp, height = 14.dp).background(Sakura.Aqua.copy(alpha = .7f)))
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(facts.stageName ?: stringResource(R.string.ag_card_no_name), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Sakura.Text)
+                        KeyValue(stringResource(R.string.ag_idol_grade), stringResource(R.string.ag_idol_trainee, facts.level))
+                        facts.joinDay?.let { KeyValue(stringResource(R.string.ag_idol_join), stringResource(R.string.ag_idol_join_value, it.toInt())) }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(stringResource(R.string.ag_idol_colour), style = Type.Support, modifier = Modifier.width(56.dp))
+                            if (facts.memberColor != null) ColourDot(facts.memberColor)
+                            Text(MemberColour.PRESETS.firstOrNull { it.second.equals(facts.memberColor, true) }?.first ?: if (facts.memberColor == null) stringResource(R.string.ag_idol_colour_none) else "", style = Type.Body)
+                        }
+                        facts.theme?.let { KeyValue(stringResource(R.string.ag_idol_week), it, Modifier.testTag(IdolTags.THEME)) }
+                    }
+                }
+                facts.special?.let { Text(it, style = Type.Body.copy(color = Sakura.RoseBrown), modifier = Modifier.padding(horizontal = 16.dp).testTag(IdolTags.SPECIAL)) }
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (app.agency.core.schedule.Feature.SIGN in open) {
+                        Dashed()
+                        Text(stringResource(R.string.ag_idol_stickers_title), style = Type.Label)
+                        StickerStrip(facts)
+                    }
+                    if (scores.isNotEmpty() && app.agency.core.schedule.Feature.MONTHLY_EVAL in open) {
+                        Dashed()
+                        Text(stringResource(R.string.ag_idol_scores_title), style = Type.Label)
+                        scores.forEach { (name, v) ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(name, style = Type.Support, modifier = Modifier.width(72.dp))
+                                Box(Modifier.weight(1f)) { ProgressBar(v / 5f) }
+                                Text("$v", style = Type.Label)
+                            }
+                        }
+                    }
+                    if (facts.levels.isNotEmpty()) {
+                        Dashed()
+                        Text(stringResource(R.string.ag_idol_levels_title), style = Type.Label)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.testTag(IdolTags.LEVELS)) {
+                            facts.levels.forEach { (sub, l) -> Pill("$sub $l") }
+                        }
+                    }
+                    // 下一個目標 only when he set targets (F2: no target is not 「都到了」).
+                    facts.nextGoalKg?.takeIf { facts.goalsSet }?.let { g ->
+                        Dashed()
+                        Text(stringResource(R.string.ag_idol_goal_title), style = Type.Label)
+                        Text(
+                            facts.goalGapKg?.let { stringResource(R.string.ag_idol_goal_value, CoachRules.kg(g), CoachRules.kg(it)) } ?: stringResource(R.string.ag_card_goal, CoachRules.kg(g)),
+                            style = Type.Body, modifier = Modifier.testTag(IdolTags.GOAL),
+                        )
+                    }
                 }
             }
-        }
-        // The 代表色 band (the accent, readable text on it guaranteed by MemberColour).
-        Box(Modifier.fillMaxWidth().height(6.dp).background(accent.fill).testTag(IdolTags.BAND))
-        // The open card never takes the whole screen: its rows scroll inside it, the conversation and the composer stay.
-        Column(
-            Modifier.heightIn(max = rowsMax).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            StickerStrip(facts)
-            facts.next?.let { Text(stringResource(R.string.ag_card_next, it.slot.time, it.slot.label), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.NEXT)) }
-            if (facts.gaps.isNotEmpty()) {
-                Text(stringResource(R.string.ag_card_gaps, facts.gaps.joinToString("、") { it.slot.label }), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.GAPS))
+            if (setupDue) {
+                app.dshmobile.ui.kit.Card { IdolSetup(agency, facts, onSaved = onSaved, onSkip = { agency.settings.idolSetupSkipped = true; onSaved() }) }
             }
-            if (facts.waterTargetHalves > 0) {
-                Text(
-                    stringResource(R.string.ag_card_water, WaterPlan.bottles(facts.waterHalves), WaterPlan.bottles(facts.waterTargetHalves)),
-                    color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.WATER),
-                )
-            }
-            // 外送 (owner 2026-11-26): the week's total against his target.
-            facts.incomeWeek?.let { total ->
-                val text = facts.incomeTarget?.let { stringResource(R.string.ag_card_income, total, it) } ?: stringResource(R.string.ag_card_income_no_target, total)
-                Text(text, color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.INCOME))
-            }
-            // 特別日 and 主題週 (新鮮感).
-            facts.special?.let { Text(it, color = Sakura.RoseBrown, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.SPECIAL)) }
-            facts.theme?.let { Text(stringResource(R.string.ag_card_theme, it), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.THEME)) }
-            // 每科等級 (T19e).
-            if (facts.levels.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.ag_card_levels, facts.levels.joinToString("、") { (s, l) -> "$s $l" }), color = Sakura.Text, fontSize = 14.sp,
-                    modifier = Modifier.testTag(IdolTags.LEVELS),
-                )
-            }
-            if (facts.photocards > 0) {
-                Text(stringResource(R.string.ag_card_photocards, facts.photocards), color = Sakura.Text, fontSize = 14.sp)
-            }
-            if (facts.unverified.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.ag_card_unverified, facts.unverified.joinToString("、")), color = Sakura.Text, fontSize = 14.sp,
-                    modifier = Modifier.testTag(IdolTags.UNVERIFIED),
-                )
-            }
-            Text(
-                facts.nextGoalKg?.let { stringResource(R.string.ag_card_goal, CoachRules.kg(it)) } ?: stringResource(R.string.ag_card_goal_none),
-                color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.GOAL),
-            )
-            Text(leftLine(facts), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.LEFT))
-            Text(stringResource(R.string.ag_card_breaches, facts.breachesToday), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.BREACHES))
-        }
-        // The setup stays in view (outside the scrolling rows).
-        if (setupDue) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp)) {
-                IdolSetup(agency, facts, onSaved = onSaved, onSkip = { agency.settings.idolSetupSkipped = true; onSaved() })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (app.agency.core.schedule.Feature.CORE in open) SoftButton(stringResource(R.string.ag_idol_wall, facts.photocards), onClick = onWall, modifier = Modifier.weight(1f))
+                SoftButton(stringResource(R.string.ag_ob_file), onClick = onFile, modifier = Modifier.weight(1f).testTag(app.dshmobile.ui.agency.onboarding.OnboardingTags.FILE))
             }
         }
     }
 }
 
-/** The most the open card's rows take before they scroll (less on a small screen: [IdolCardView]'s rowsMax). */
-val OPEN_ROWS_MAX = 260.dp
-
-/** The folded line (review A4). */
 @Composable
-internal fun foldedLine(f: IdolCardFacts): String {
-    val parts = mutableListOf(f.company)
-    f.joinDay?.let { parts += stringResource(R.string.ag_join_day, it) }
-    parts += stringResource(R.string.ag_card_breaches, f.breachesToday)
-    parts += if (f.kcalLeft >= 0) stringResource(R.string.ag_card_left_short, f.kcalLeft) else stringResource(R.string.ag_card_over_short, -f.kcalLeft)
-    if (f.baselineMissing > 0) parts += stringResource(R.string.ag_ob_missing, f.baselineMissing)
-    return parts.joinToString(" ・ ")
+private fun KeyValue(key: String, value: String, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Text(key, style = Type.Support, modifier = Modifier.width(56.dp))
+        Text(value, style = Type.Body)
+    }
 }
 
 @Composable
-private fun leftLine(f: IdolCardFacts): String =
-    if (f.kcalLeft >= 0) stringResource(R.string.ag_card_left, f.kcalLeft, f.proteinLeftG) else stringResource(R.string.ag_card_over, -f.kcalLeft, f.proteinLeftG)
+private fun Dashed() {
+    val c = Sakura.MilkTea
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(1.dp)) {
+        drawLine(c, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(size.width, 0f), strokeWidth = 2f,
+            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 8f)))
+    }
+}
 
 @Composable
-private fun Photo(agency: AgencyApp, f: IdolCardFacts) {
+private fun Polaroid(agency: AgencyApp, f: IdolCardFacts) {
+    if (f.photoMediaId != null) {
+        Thumb(f.photoMediaId, agency.mediaVault(), Modifier.fillMaxSize())
+    } else {
+        Box(Modifier.fillMaxSize().background(Sakura.Background), contentAlignment = Alignment.Center) {
+            Text((f.stageName ?: f.company).take(1), fontSize = 40.sp, color = Sakura.Text)
+        }
+    }
+}
+
+@Composable
+private fun Photo(agency: AgencyApp, f: IdolCardFacts, size: androidx.compose.ui.unit.Dp) {
     val accent = LocalAccent.current
     val desc = stringResource(R.string.ag_card_photo)
     Box(
-        Modifier.size(64.dp).background(accent.fill, CircleShape).padding(3.dp).semantics { contentDescription = desc }.testTag(IdolTags.PHOTO),
+        Modifier.size(size).border(2.5.dp, accent.fill, CircleShape).padding(3.dp).semantics { contentDescription = desc }.testTag(IdolTags.PHOTO),
         contentAlignment = Alignment.Center,
     ) {
         if (f.photoMediaId != null) {
-            Thumb(f.photoMediaId, agency.mediaVault(), Modifier.size(58.dp).background(Sakura.White, CircleShape))
+            Thumb(f.photoMediaId, agency.mediaVault(), Modifier.fillMaxSize().clip(CircleShape))
         } else {
-            Text((f.stageName ?: f.company).take(1), color = accent.onFill, fontSize = 24.sp)
+            Box(Modifier.fillMaxSize().background(Sakura.Background, CircleShape), contentAlignment = Alignment.Center) {
+                Text((f.stageName ?: f.company).take(1), color = Sakura.Text, fontSize = 18.sp)
+            }
         }
     }
 }
 
-/** Today's 手帳 stickers: one per done item; none yet says so. */
+/** Today's 手帳 stickers: one per done item, tilted and in turn blush, aqua and milk tea; none yet says so. */
 @Composable
 private fun StickerStrip(f: IdolCardFacts) {
-    val accent = LocalAccent.current
     if (f.stickers.isEmpty()) {
-        Text(stringResource(R.string.ag_card_no_stickers), color = Sakura.TextSecondary, fontSize = 13.sp, modifier = Modifier.testTag(IdolTags.STICKERS))
+        Text(stringResource(R.string.ag_card_no_stickers), style = Type.Support, modifier = Modifier.testTag(IdolTags.STICKERS))
         return
     }
     val desc = stringResource(R.string.ag_card_stickers_desc, f.stickers.size)
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).semantics { contentDescription = desc }.testTag(IdolTags.STICKERS),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    val tones = listOf(Sakura.Background, Sakura.AquaSoft, Sakura.MilkTeaSoft, Sakura.LilacSoft)
+    FlowRow(
+        Modifier.fillMaxWidth().semantics { contentDescription = desc }.testTag(IdolTags.STICKERS),
+        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         f.stickers.forEachIndexed { i, s ->
             Text(
-                "★ " + s.kind.zh, color = accent.onFill, fontSize = 12.sp,
-                modifier = Modifier.background(accent.fill, RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 4.dp).testTag(IdolTags.STICKER + i),
+                "★ " + s.kind.zh, color = Sakura.Text, fontSize = 13.sp,
+                modifier = Modifier.rotate(if (i % 2 == 0) -3f else 2.5f).background(tones[i % tones.size], RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp).testTag(IdolTags.STICKER + i),
             )
         }
     }

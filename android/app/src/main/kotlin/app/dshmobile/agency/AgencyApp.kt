@@ -94,6 +94,8 @@ class TestOverrides(
     val systemCamera: Boolean = false,
     /** The company's clock (the emulator's whole-day test moves through an invented day); the phone's own clock when null. */
     val clock: AgencyClock? = null,
+    /** 入社建檔 opens by itself on a fresh install (a screen test of something else turns it off). */
+    val autoOnboarding: Boolean = true,
 )
 
 /** A line about a photo or the recording that could not be kept (shown on the 入社建檔 panel until the next try). */
@@ -157,6 +159,9 @@ class AgencyApp(
     val settings = AgencySettings(agencyPrefs)
     val notifier = AgencyNotifier(context)
     val scheduler = AlarmScheduler(context)
+
+    /** Whether 入社建檔's page opens by itself while it was never finished (always on the phone). */
+    val autoOnboarding: Boolean get() = testOverrides?.autoOnboarding ?: true
     /** Anything thrown outside the start's own catches is logged and ends on a try-again screen, never a crash at start. */
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->

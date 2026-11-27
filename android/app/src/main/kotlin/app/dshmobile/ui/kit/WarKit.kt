@@ -41,22 +41,22 @@ import androidx.compose.ui.unit.sp
  * The old fonts went with the old screens; numbers use the system font with tabular figures.
  */
 object War {
-    val ink = Sakura.Text
-    val ink2 = Sakura.TextSecondary
-    val faint = Color(0xFFA98F90)
-    val aqua = Sakura.Aqua
-    val pink = Sakura.Primary
-    val milk = Sakura.MilkTea
-    val rose = Sakura.RoseBrown
-    val white = Color.White
-    val line = Sakura.Primary.copy(alpha = .65f)
-    val glass = Brush.verticalGradient(listOf(Color.White.copy(alpha = .74f), Color.White.copy(alpha = .52f)))
+    val ink get() = Sakura.Text
+    val ink2 get() = Sakura.TextSecondary
+    val faint get() = Sakura.TextSecondary.copy(alpha = .7f)
+    val aqua get() = Sakura.Aqua
+    val pink get() = Sakura.Primary
+    val milk get() = Sakura.MilkTea
+    val rose get() = Sakura.RoseBrown
+    val white get() = Sakura.White
+    val line get() = Sakura.Primary.copy(alpha = .65f)
+    val glass get() = Brush.verticalGradient(listOf(Sakura.White.copy(alpha = .74f), Sakura.White.copy(alpha = .52f)))
     val shape = RoundedCornerShape(12.dp)
 
-    val lab = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.sp, letterSpacing = .1.em, color = ink2)
-    val mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = ink)
-    val ttl = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.5.sp, fontWeight = FontWeight.Bold, letterSpacing = .1.em, color = ink)
-    val zh = TextStyle(fontWeight = FontWeight.Bold, color = ink)
+    val lab get() = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.sp, letterSpacing = .1.em, color = ink2)
+    val mono get() = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = ink)
+    val ttl get() = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.5.sp, fontWeight = FontWeight.Bold, letterSpacing = .1.em, color = ink)
+    val zh get() = TextStyle(fontWeight = FontWeight.Bold, color = ink)
     /** Tabular figures, so changing numbers do not jump. */
     private const val TABULAR = "tnum"
     fun num(size: TextUnit, color: Color = ink) = TextStyle(fontWeight = FontWeight.Bold, fontSize = size, color = color, fontFeatureSettings = TABULAR)

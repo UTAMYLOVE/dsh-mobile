@@ -1,6 +1,7 @@
 package app.dshmobile.agency
 
 import android.content.Context
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -77,9 +78,9 @@ class FirstStartImportTest {
         val state = File(app.filesDir, "coach/state.json").readBytes()
         launch()
         rule.waitForTag(AgencyTags.HOME, 20_000)
-        // The old conversation, with the role labels of the company's lines.
+        // The old conversation, the company's lines under her name.
         rule.waitForText("要看包裝上的標示，拍給我。")
-        assertTrue(rule.onAllNodesWithText("【", substring = true).fetchSemanticsNodes().isNotEmpty())
+        assertTrue(rule.onAllNodesWithText("小葵姐").fetchSemanticsNodes().isNotEmpty() || rule.onAllNodesWithText("體態老師").fetchSemanticsNodes().isNotEmpty())
         runBlocking {
             // His 11 lines, then 入社建檔's welcome (v0.8.3 had no 入社建檔; T07 asks it on the first open).
             assertEquals(12, ready().store.messages.count())
@@ -96,7 +97,7 @@ class FirstStartImportTest {
 
         // 設定 › 舊資料: done, and how many of each.
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performScrollTo().performClick()
         rule.waitForText("搬完了")
         rule.onNodeWithTag(LegacyTags.COUNT + ImportKind.MESSAGES.name).assertIsDisplayed()
         rule.onNodeWithText("對話 11 筆").assertIsDisplayed()
@@ -132,7 +133,7 @@ class FirstStartImportTest {
 
         // 設定 › 舊資料 reads the outcome row: partial, with 再試一次 (the same files stay partial).
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performScrollTo().performClick()
         rule.waitForTag(LegacyTags.RETRY)
         rule.onNodeWithTag(LegacyTags.RETRY).performClick()
         rule.waitForTag(LegacyTags.RETRY)
@@ -163,7 +164,7 @@ class FirstStartImportTest {
         }
         // 舊資料 lists them by kind and order (his file names are Latin), each with 分享.
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performScrollTo().performClick()
         rule.waitForText("照片 2")
         rule.onNodeWithText("錄音 1").assertExists()
         rule.onNodeWithTag(LegacyTags.SHARE + names[2]).assertExists()
@@ -198,7 +199,7 @@ class FirstStartImportTest {
         runBlocking { assertEquals(0, ready().store.messages.count()) }
 
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performScrollTo().performClick()
         rule.waitForTag(LegacyTags.RETRY)
         rule.onNodeWithTag(LegacyTags.RETRY).performClick()
         rule.waitForText("搬完了", 20_000)

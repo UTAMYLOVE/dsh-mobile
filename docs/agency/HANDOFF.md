@@ -29,18 +29,39 @@ Ask him for it at the start; never commit its contents here.
   merged onto it with `integ-ci.sh`). Batches A, B and C and the final test-and-fix rounds are pushed.
 - Android app in `android/` (Kotlin + Compose). Pure-Kotlin rules/brain in the `:core` module.
 - Green check: `cd android && ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon`.
-  Last local result: core 639, app 292, all passing.
+  Last local result (0.9.1): core and app unit tests all passing (see the 0.9.1 report for counts).
 - Emulator e2e (CI job `e2e`, `AgencyE2eTest` e01–e15 + `ReminderE2eTest` e07–e09): every rollout week open
   (`RolloutSpec.ALL_OPEN`), notification and microphone permissions granted before each test, a failing test prints the
   company's last lines. e15 is the whole-day scenario across the features on a test clock (`TestOverrides.clock`,
-  `E2eClock`); the same day runs on Robolectric (`ui/agency/WholeDayScreenTest`, the emulator's 320×640 screen).
-- Home screen layout: the trainee card area (at most half the screen) and the panels under the conversation (at most the
-  room less 160 dp) scroll; the composer is always on screen. The conversation scrolls to its newest line on the next frame.
+  `E2eClock`); the same day runs on Robolectric (`ui/agency/WholeDayScreenTest`, the emulator's 320×640 screen). e13 runs on
+  a fixed clock, waits for the company's reply before a tap and retries a tap that landed while the layout moved (`tapUntil`).
+  On a fresh install 入社建檔's page opens by itself: `open()` leaves it with 返回 unless the test keeps it (e01, e06).
+  Robolectric screen tests turn that off (`TestOverrides.autoOnboarding`, false in `AgencyTestKit.overrides`).
+- 0.9.1 redesign (owner's mockups, `ui/kit` tokens): one palette in `kit/SakuraTheme.kt` (`Palette.Light`/`Palette.Dark`,
+  bright pink + lilac + thin gold lines; his 代表色 replaces the pink and is darkened or lightened for WCAG AA), type scale
+  `kit/Type.kt`, line icons `ui/art/Icons.kt` (package `ui.kit`). Home = one-line trainee card (`IdolLine`, the idol card
+  opens over the screen: `IdolCardSheet`), the 今天 card (`ui/agency/today/TodayCard.kt`: week 1 the lesson row and one
+  「… 第 N 週開放」 line; later 完成 N／M 項, next-up with one button, tiles that carry the old buttons' tags), the
+  conversation (avatar and name only on the first line of a run), quick chips and the composer. Pickers and proposals stay
+  above the 今天 card in `AgencyTags.PANELS` (at most 45% of the room, scrolling). 入社建檔 is its own page
+  (`ui/agency/onboarding/OnboardingScreen.kt`, five cards, saved at once, 完成建檔 posts her one line); the chat no longer asks
+  the items. 花費 moved from the war room to 設定 › 花費上限; the war room has a 這一週 card.
 - Public repository: no example or test number matches his body (examples use 身高 186 體重 94, targets 91、84); the code
-  ships no target weights (`CompanyRules.goalsKg` is empty until he sets 設定 › 規章). The strength program's prescribed reps
-  and the safety floors (52 kg, 65 kg) are rules, not measurements, and stay.
+  ships no target weights (`CompanyRules.goalsKg` is empty until he sets 設定 › 規章); the old importer's default goals and the
+  legacy fixtures use invented values. With no target set the card shows no goal line and a weigh-in says it is not set
+  (a different line from 「都到了」). The strength program's prescribed reps and the safety floors (52 kg, 65 kg) are rules, not
+  measurements, and stay. Still open: the daily intake and the timetable defaults (see the 0.9.1 report).
 - Database: Room schema version 6.
-- CI runs on push (GitHub Actions); the emulator e2e job gates the release (`release.yml`, tag `v0.9.0+18`).
+- CI runs on push (GitHub Actions); the emulator e2e job gates the release (`release.yml`; 0.9.0 was tag `v0.9.0+18`,
+  this round is 0.9.1, versionCode 19).
+- Logic and safety fixes of 0.9.1: a sign-out after the day boundary (before 12:00, before today's sign-in) closes last
+  night late; no sign-out at all is a breach; a rollout week opened mid-week never rewrites earlier days
+  (`RolloutSpec.openOn`); on a delivery day the training block waits for 收工 at any hour; the alarm handler always arms the
+  next alarm (a safety one in a `finally`) and the wording call no longer holds the brain lock; older backups are migrated
+  through Room's exported schemas (packaged as assets) before a restore; real-person tasks start with a meal with a friend.
+  The guard bans skipping the 21:00 portion, drink-only meals, training cuts without code's illness (`Evidence.reduceOk`),
+  shaming and attachment phrases; the second-pass judge never fails open (no answer = template), has insult and
+  training-cut classes, and also reads gentle turns, nudges on breach or over-quota days and the 月評 basis.
 
 ## Built so far (batches, all committed)
 
@@ -85,8 +106,11 @@ Ask him for it at the start; never commit its contents here.
    used for them); monthly evaluation's dance score has no model look at the video beyond two still frames; the singing
    screen draws the PNG without note labels; no in-app editor for the reference melody; the weekly/monthly hand-ins and the
    singing screen never ran on a real phone (MediaCodec decode, camera video).
-2. Done: CI + emulator whole-day scenario, release dry run (unsigned APK). Left: he runs the tag command from the final
-   report once CI is green, then tests on his phone (steps in the final report); a whole-branch code review was not done.
+2. Done: CI + emulator whole-day scenario, release dry run (unsigned APK), the whole-branch logic and safety reviews and
+   their fixes (0.9.1). Left: he runs the tag command from the 0.9.1 report once CI is green, then tests on his phone.
+3. The screens the mockups restyle only lightly so far: 理論課 (hero card, stepper), 訓練計時 (ring), settings sub-pages;
+   they use the new tokens through the kit. The intake and timetable defaults still match his plan (needs his choice of
+   neutral examples and a broad test update).
 
 ## Usage budget
 

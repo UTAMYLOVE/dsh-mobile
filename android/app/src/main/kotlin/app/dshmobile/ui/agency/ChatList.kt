@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +45,14 @@ import app.agency.core.model.Who
 import app.dshmobile.R
 import app.dshmobile.ui.kit.Chip
 import app.dshmobile.ui.kit.Sakura
+import app.dshmobile.ui.kit.LocalAccent
+import app.dshmobile.ui.kit.Type
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 
 /**
  * What a bubble can do besides showing its text (T12): 重送, a 討論 chip, 撤銷 under a memory line; and (T15) the meal card
@@ -77,8 +85,8 @@ object ChatTags {
 }
 
 /**
- * The one conversation, oldest at the top and kept scrolled to the newest. Every company line shows its role above it
- * (【經紀人】 or 【體態管理老師】), imported ones too; his lines sit on the right. A line of his that did not get through says
+ * The one conversation, oldest at the top and kept scrolled to the newest (redesign §四): her lines on the left in white, his on
+ * the right in his colour; her face and name only on the first line of a run, the time under the last. A line of his that did not get through says
  * 「沒送出」 with 「重送」 beside it; her newest 討論 question has its options as chips (the recommended one marked); what she
  * remembered from a reply sits under it in grey with 撤銷. [memory] holds the memory events by id.
  */
@@ -112,71 +120,121 @@ fun ChatList(
     LazyColumn(
         modifier.fillMaxWidth().testTag(AgencyTags.CHAT),
         state = state,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (hasOlder) {
             item(key = "older") {
                 TextButton(onClick = onOlder, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ag_older), color = Sakura.TextSecondary) }
             }
         }
-        items(messages, key = { it.id }) { Bubble(it, it.id == asking, memory, actions, busy, meals) }
+        itemsIndexed(messages, key = { _, m -> m.id }) { i, m ->
+            val prev = messages.getOrNull(i - 1)
+            val next = messages.getOrNull(i + 1)
+            Bubble(m, m.id == asking, memory, actions, busy, meals, first = !sameGroup(prev, m), last = !sameGroup(m, next))
+        }
+    }
+}
+
+/** Two lines are one group: the same speaker (and role) within [GROUP_MS]. */
+private fun sameGroup(a: Message?, b: Message?): Boolean =
+    a != null && b != null && a.who == b.who && a.role == b.role && b.at - a.at in 0..GROUP_MS
+
+private const val GROUP_MS = 3 * 60_000L
+
+@Composable
+private fun Bubble(m: Message, chips: Boolean, memory: Map<String, MemoryEvent>, actions: ChatActions, busy: Boolean, meals: MealView, first: Boolean, last: Boolean) {
+    val mine = m.who == Who.OWNER
+    val company = m.who == Who.COMPANY
+    Row(Modifier.fillMaxWidth().padding(top = if (first) 6.dp else 0.dp).testTag(AgencyTags.BUBBLE + m.id), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+        if (company) {
+            // Her face and name only on the first line of a group (redesign §四); the later ones line up under it.
+            if (first) Avatar(m.role) else Spacer(Modifier.width(AVATAR))
+            Spacer(Modifier.width(8.dp))
+        }
+        Column(Modifier.weight(1f, fill = false), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+            if (company && first) Text(whoName(m.role), style = Type.Caption, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+            val shape = when {
+                mine -> RoundedCornerShape(topStart = 18.dp, topEnd = if (first) 6.dp else 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+                else -> RoundedCornerShape(topStart = if (first) 6.dp else 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+            }
+            val accent = LocalAccent.current
+            val color = when (m.who) {
+                Who.OWNER -> accent.fill.copy(alpha = if (m.unsent) .45f else 1f)
+                Who.COMPANY -> Sakura.White
+                Who.SYSTEM -> Sakura.MilkTeaSoft
+            }
+            BoxWithConstraints {
+                val max = if (mine) maxWidth * 0.86f else maxWidth
+                Text(
+                    m.text, style = Type.Chat.copy(color = if (mine) accent.onFill else Sakura.Text),
+                    modifier = Modifier.widthIn(max = max).background(color, shape).padding(horizontal = 14.dp, vertical = 10.dp),
+                )
+            }
+            if (mine && m.unsent) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.ag_unsent), color = Sakura.RoseBrown, fontSize = 12.sp, modifier = Modifier.testTag(ChatTags.UNSENT + m.id))
+                    TextButton(onClick = { actions.onResend(m.id) }, enabled = !busy, modifier = Modifier.testTag(ChatTags.RESEND + m.id)) {
+                        Text(stringResource(R.string.ag_resend), color = Sakura.Text, fontSize = 13.sp)
+                    }
+                }
+            }
+            if (chips) {
+                val recommended = stringResource(R.string.ag_recommended)
+                Row(
+                    Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    m.refs.options.forEachIndexed { i, o ->
+                        val marked = i == m.refs.recommended
+                        Chip(
+                            o, onClick = { if (!busy) actions.onOption(o) }, marked = marked,
+                            modifier = Modifier.testTag(ChatTags.OPTION + i).let { if (marked) it.semantics { contentDescription = "$o，$recommended" } else it },
+                        )
+                    }
+                }
+            }
+            m.refs.memory.mapNotNull { memory[it] }.forEach { e -> MemoryLine(m.role, e, actions.onUndo) }
+            if (company) {
+                m.refs.records.mapNotNull { meals.meals[it] }.forEach { meal ->
+                    MealCard(meal, meals.pending.filter { it.mealId == meal.id }, meals.vault, actions.meal, busy)
+                }
+                m.refs.results.mapNotNull { meals.results[it] }.forEach { r -> SearchResultCard(r, actions.meal.onLink, actions.meal.onSavePlace, busy) }
+                m.refs.photoRead?.let { meals.reads[it] }?.let { r -> app.dshmobile.ui.agency.meal.PhotoReadCard(r, actions.meal, busy) }
+            }
+            if (last) {
+                Text(
+                    java.time.Instant.ofEpochMilli(m.at).atZone(app.agency.core.time.AgencyClock.TAIPEI).toLocalTime().let { t -> String.format(java.util.Locale.ROOT, "%02d:%02d", t.hour, t.minute) },
+                    style = Type.Caption, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+private val AVATAR = 34.dp
+
+/** 「葵」 on blush for her, 「體」 on aqua for the body teacher (redesign §四). */
+@Composable
+private fun Avatar(role: RoleKey?) {
+    val (letter, tone) = when (role) {
+        RoleKey.BODY -> stringResource(R.string.ag_avatar_body) to Sakura.AquaSoft
+        RoleKey.MANAGER -> stringResource(R.string.ag_avatar_manager) to Sakura.Background
+        null -> stringResource(R.string.ag_avatar_company) to Sakura.LilacSoft
+    }
+    Box(Modifier.size(AVATAR).background(tone, CircleShape).border(1.dp, Sakura.Gold.copy(alpha = .7f), CircleShape), contentAlignment = Alignment.Center) {
+        Text(letter, color = Sakura.Text, fontSize = 15.sp)
     }
 }
 
 @Composable
-private fun Bubble(m: Message, chips: Boolean, memory: Map<String, MemoryEvent>, actions: ChatActions, busy: Boolean, meals: MealView) {
-    val mine = m.who == Who.OWNER
-    Column(
-        Modifier.fillMaxWidth().testTag(AgencyTags.BUBBLE + m.id),
-        horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
-    ) {
-        if (m.who == Who.COMPANY) {
-            Text(roleLabel(m.role), color = Sakura.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp, bottom = 2.dp))
-        }
-        val shape = RoundedCornerShape(18.dp)
-        val color = when (m.who) {
-            Who.OWNER -> Sakura.Primary.copy(alpha = if (m.unsent) .3f else .55f)
-            Who.COMPANY -> Sakura.White
-            Who.SYSTEM -> Sakura.MilkTea.copy(alpha = .5f)
-        }
-        Text(
-            m.text, color = Sakura.Text, fontSize = 15.sp, lineHeight = 21.sp,
-            modifier = Modifier.widthIn(max = 300.dp).background(color, shape).padding(horizontal = 14.dp, vertical = 9.dp),
-        )
-        if (mine && m.unsent) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.ag_unsent), color = Sakura.RoseBrown, fontSize = 12.sp, modifier = Modifier.testTag(ChatTags.UNSENT + m.id))
-                TextButton(onClick = { actions.onResend(m.id) }, enabled = !busy, modifier = Modifier.testTag(ChatTags.RESEND + m.id)) {
-                    Text(stringResource(R.string.ag_resend), color = Sakura.Text, fontSize = 13.sp)
-                }
-            }
-        }
-        if (chips) {
-            val recommended = stringResource(R.string.ag_recommended)
-            Row(
-                Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                m.refs.options.forEachIndexed { i, o ->
-                    val marked = i == m.refs.recommended
-                    Chip(
-                        o, onClick = { if (!busy) actions.onOption(o) }, marked = marked,
-                        modifier = Modifier.testTag(ChatTags.OPTION + i).let { if (marked) it.semantics { contentDescription = "$o，$recommended" } else it },
-                    )
-                }
-            }
-        }
-        m.refs.memory.mapNotNull { memory[it] }.forEach { e -> MemoryLine(m.role, e, actions.onUndo) }
-        if (m.who == Who.COMPANY) {
-            m.refs.records.mapNotNull { meals.meals[it] }.forEach { meal ->
-                MealCard(meal, meals.pending.filter { it.mealId == meal.id }, meals.vault, actions.meal, busy)
-            }
-            m.refs.results.mapNotNull { meals.results[it] }.forEach { r -> SearchResultCard(r, actions.meal.onLink, actions.meal.onSavePlace, busy) }
-            m.refs.photoRead?.let { meals.reads[it] }?.let { r -> app.dshmobile.ui.agency.meal.PhotoReadCard(r, actions.meal, busy) }
-        }
-    }
-}
+private fun whoName(role: RoleKey?): String = stringResource(
+    when (role) {
+        RoleKey.MANAGER -> R.string.ag_who_manager
+        RoleKey.BODY -> R.string.ag_who_body
+        null -> R.string.ag_who_company
+    },
+)
 
 @Composable
 private fun MemoryLine(role: RoleKey?, e: MemoryEvent, onUndo: (String) -> Unit) {
@@ -197,12 +255,3 @@ private fun MemoryLine(role: RoleKey?, e: MemoryEvent, onUndo: (String) -> Unit)
         }
     }
 }
-
-@Composable
-private fun roleLabel(role: RoleKey?): String = stringResource(
-    when (role) {
-        RoleKey.MANAGER -> R.string.ag_role_manager
-        RoleKey.BODY -> R.string.ag_role_body
-        null -> R.string.ag_role_company
-    },
-)

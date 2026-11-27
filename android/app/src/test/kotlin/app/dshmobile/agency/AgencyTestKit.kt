@@ -10,6 +10,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import app.agency.core.metering.Provider
@@ -55,7 +56,9 @@ class AgencyTestKit(private val dir: File) {
         modelBase: HttpUrl? = null,
         rollout: app.agency.core.schedule.RolloutSpec = app.agency.core.schedule.RolloutSpec.ALL_OPEN,
         systemCamera: Boolean = true,
+        autoOnboarding: Boolean = false,
     ) = TestOverrides(
+        autoOnboarding = autoOnboarding,
         modelBase = modelBase,
         rollout = rollout,
         systemCamera = systemCamera,
@@ -165,7 +168,15 @@ class AgencyTestKit(private val dir: File) {
             onNodeWithTag(tag, useUnmergedTree = true).performClick()
         }
 
+        /** [text] on screen; a line further up the conversation is scrolled to (the chat shows only what fits). */
         fun ComposeTestRule.waitForText(text: String, timeoutMs: Long = 10_000) =
-            waitUntil(timeoutMs) { onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMs) {
+                if (onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()) return@waitUntil true
+                runCatching {
+                    onNodeWithTag(app.dshmobile.ui.agency.AgencyTags.CHAT)
+                        .performScrollToNode(androidx.compose.ui.test.hasText(text, substring = true))
+                }
+                onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
     }
 }

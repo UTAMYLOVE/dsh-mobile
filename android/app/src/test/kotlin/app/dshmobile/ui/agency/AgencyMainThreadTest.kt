@@ -128,7 +128,7 @@ class AgencyMainThreadTest {
 
     private fun openSettings(page: SettingsPage) {
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + page.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + page.name).performScrollTo().performClick()
     }
 
     /** Runs [block] on a plain background thread (no looper), as the brain and the meter do from IO. */
@@ -155,7 +155,7 @@ class AgencyMainThreadTest {
         rule.waitForTag(ModelKeyTags.REJECTED)
 
         rule.onNodeWithTag(SettingsTags.BACK).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.SPEND.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.SPEND.name).performScrollTo().performClick()
         rule.waitForTag(SpendTags.SUGGEST)
         offThread { app.costMeter.hardCapUsd = 2.0 }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(SpendTags.SUGGEST).fetchSemanticsNodes().isEmpty() }

@@ -46,8 +46,29 @@ enum class OnboardingStep(val zh: String) {
     }
 }
 
-/** What 入社建檔 shows: the open question, what is still missing (skipped items included), and whether it was walked through. */
-data class OnboardingStatus(val open: OnboardingStep?, val missing: List<OnboardingStep>, val completed: Boolean, val baseline: Baseline?)
+/**
+ * What 入社建檔 shows: the open question (an older chat-driven one only), what is still missing (skipped items included), whether
+ * it was finished, the baseline, and [due]: never finished and the company not started (the form opens by itself).
+ */
+data class OnboardingStatus(
+    val open: OnboardingStep?,
+    val missing: List<OnboardingStep>,
+    val completed: Boolean,
+    val baseline: Baseline?,
+    val due: Boolean = false,
+) {
+    /** Skipped and still not handed in. */
+    val skipped: Set<OnboardingStep> get() = baseline?.let { b -> BaselineSteps.skipped(b).filter { !BaselineSteps.has(b, it) }.toSet() }.orEmpty()
+
+    /** Handed in. */
+    val done: Set<OnboardingStep> get() = OnboardingStep.entries.filter { baseline != null && BaselineSteps.has(baseline, it) }.toSet()
+
+    /** Neither handed in nor skipped (「還差：…」 lists these with the skipped ones). */
+    val todo: List<OnboardingStep> get() = OnboardingStep.entries.filter { it !in done && it !in skipped }
+
+    /** 完成建檔 may be pressed: every item handed in or skipped. */
+    val canFinish: Boolean get() = todo.isEmpty()
+}
 
 /** Reads a [Baseline] by step (pure). */
 object BaselineSteps {
@@ -176,23 +197,68 @@ class Onboarding(
     suspend fun status(): OnboardingStatus {
         val b = join()
         val open = b?.let(BaselineSteps::open)
-        return OnboardingStatus(open, BaselineSteps.missing(b), b?.completedAt != null, b)
+        val profileDone = store.profile.get()?.onboardingDone == true
+        return OnboardingStatus(open, BaselineSteps.missing(b), b?.completedAt != null, b, due = b?.completedAt == null && !profileDone)
     }
 
     /**
-     * On the first open: when 入社建檔 was never walked through and no question is open, the manager welcomes him and asks the
-     * first item still missing. Imported items are not asked again; an imported question still open is left as it is.
+     * On the first open: when 入社建檔 was never started, the manager's one welcome line (the items themselves are a form on
+     * their own screen now, not questions in the conversation). An imported 入社建檔 gets no welcome.
      */
     suspend fun startIfDue(): String? {
-        val b = join()
-        if (b?.completedAt != null || b?.let(BaselineSteps::open) != null) return null
+        if (join() != null) return null
         val profile = store.profile.get() ?: Profile()
         if (profile.onboardingDone) return null
-        val base = b ?: Baseline(Baseline.JOIN)
-        val skipped = BaselineSteps.skipped(base)
-        val next = OnboardingStep.entries.firstOrNull { !BaselineSteps.has(base, it) && it !in skipped }
-        return (listOf(welcome(profile)) + advanceTo(base, next, profile)).joinToString("\n")
+        store.baselines.upsert(Baseline(Baseline.JOIN))
+        return welcome(profile)
     }
+
+    /** 入社建檔's form (03): 身高體重 typed on the card. Saved at once; nothing is said in the conversation. */
+    suspend fun formBody(heightCm: Double, weightKg: Double): Baseline? {
+        val h = heightCm.takeIf { it in 120.0..230.0 } ?: return null
+        val w = weightKg.takeIf { it in 30.0..250.0 } ?: return null
+        val profile = store.profile.get() ?: Profile()
+        val latest = latestWeight()
+        return store.transaction {
+            if (h != profile.heightCm) store.profile.put(profile.copy(heightCm = h))
+            if (latest == null || abs(latest - w) > 1e-9) store.weights.insert(WeightLog(newId(), coachDay(profile).toString(), clock.millis(), w))
+            val b = join() ?: Baseline(Baseline.JOIN)
+            unskipped(b.copy(heightCm = h, weightKg = w), OnboardingStep.BODY).also { store.baselines.upsert(it) }
+        }
+    }
+
+    /** The form's 伏地挺身 count. */
+    suspend fun formPushups(n: Int): Baseline? {
+        if (n !in 0..500) return null
+        val b = join() ?: Baseline(Baseline.JOIN)
+        return unskipped(b.copy(pushupsMax = n), OnboardingStep.PUSHUPS).also { store.baselines.upsert(it) }
+    }
+
+    /** The form's 棒式 seconds (its stopwatch). */
+    suspend fun formPlank(seconds: Int): Baseline? {
+        if (seconds !in 5..1800) return null
+        val b = join() ?: Baseline(Baseline.JOIN)
+        return unskipped(b.copy(plankMaxSec = seconds), OnboardingStep.PLANK).also { store.baselines.upsert(it) }
+    }
+
+    /** The form's 跳過 on one item (it can still be handed in later; 「還差：…」 keeps listing it). */
+    suspend fun formSkip(step: OnboardingStep): Baseline {
+        val b = join() ?: Baseline(Baseline.JOIN)
+        return b.copy(skipped = b.skipped.filter { OnboardingStep.parse(it) != step } + step.name).also { store.baselines.upsert(it) }
+    }
+
+    /**
+     * 完成建檔: every item handed in or skipped; the company starts (reminders, the day's plan) and the manager says one line in
+     * the conversation — what is still missing by name, and 藝名／代表色 once. Null when items are neither done nor skipped.
+     */
+    suspend fun formFinish(): String? {
+        val b = join() ?: Baseline(Baseline.JOIN)
+        val status = OnboardingStatus(null, BaselineSteps.missing(b), b.completedAt != null, b)
+        if (!status.canFinish) return null
+        return advanceTo(b.copy(step = null), null, store.profile.get() ?: Profile()).joinToString("\n")
+    }
+
+    private fun unskipped(b: Baseline, step: OnboardingStep): Baseline = b.copy(skipped = b.skipped.filter { OnboardingStep.parse(it) != step })
 
     /** 補交: every missing item is asked again (the skipped ones included), from the first; null when nothing is missing. */
     suspend fun reopen(): String? {
@@ -240,7 +306,8 @@ class Onboarding(
             if (BaselineSteps.open(b) == step) {
                 advance(got, step, saved)
             } else {
-                store.baselines.upsert(finishIfDone(got))
+                // The form (or a 補交 later): saved; 完成建檔 is his own tap.
+                store.baselines.upsert(got)
                 saved
             }
         }
@@ -297,18 +364,15 @@ class Onboarding(
         val missing = BaselineSteps.missing(done)
         return listOfNotNull(
             if (missing.isEmpty()) {
-                "入社建檔完成。這是以後每次評鑑的比較基準，從今天開始照公司規章走。"
+                "資料收好了，入社建檔完成。這是以後每次評鑑的比較基準，明天開始照公司規章上課。"
             } else {
-                "入社建檔先到這裡，還缺：${missing.joinToString("、") { it.zh }}。之後按練習生證上的「補交」。"
+                "資料收好了，還差：${missing.joinToString("、") { it.zh }}。之後到練習生證的「入社資料」補。"
             },
             // The addendum (arch T10): 藝名 and 代表色, asked once after 入社建檔; skippable on the card.
             IdolProfile.ASK.takeIf { profile.stageName.isNullOrBlank() || profile.memberColor.isNullOrBlank() },
         )
     }
 
-    /** A 補交 from the card that hands in the last missing item finishes 入社建檔 too. */
-    private fun finishIfDone(b: Baseline): Baseline =
-        if (b.completedAt == null && BaselineSteps.open(b) == null && BaselineSteps.missing(b).isEmpty()) b.copy(completedAt = clock.millis()) else b
 
     private suspend fun latestWeight(): Double? =
         store.weights.between(MIN_DAY, MAX_DAY).maxWithOrNull(compareBy({ it.at }, { it.id }))?.kg
@@ -321,7 +385,7 @@ class Onboarding(
             ?.let { ChronoUnit.DAYS.between(it, coachDay(p)) + 1 }?.takeIf { it >= 1 }
         val dayPart = day?.let { "今天是入社第 $it 天。" } ?: ""
         return "歡迎加入$company。你是公司唯一的練習生，等級練習生 ${p.level}。$dayPart" +
-            "入社第一件事：建檔。這是以後每次評鑑的比較基準。一次問一項，現在不做就回「跳過」，之後再補交。"
+            "入社第一件事：建檔。畫面上一項一項填，做好的會自動存，不想做的可以先跳過。填完我們再聊。"
     }
 
     private suspend fun question(step: OnboardingStep, p: Profile): String = when (step) {

@@ -637,12 +637,26 @@ class Brain(
     }
 
     /** A 入社建檔 photo or the recording, already sealed in the vault; [media] is written with its link. */
-    suspend fun handInBaseline(step: OnboardingStep, media: Media): Message = mutex.withLock {
-        baselineLine(onboarding.handIn(step, media))
+    suspend fun handInBaseline(step: OnboardingStep, media: Media): Message? = mutex.withLock {
+        val wasOpen = onboarding.status().open == step
+        val line = onboarding.handIn(step, media)
+        // On the form nothing is said (her line comes at 完成建檔); an older open question still answers in the conversation.
+        if (wasOpen) baselineLine(line) else null.also { bump() }
     }
 
     /** What 入社建檔 shows on the card (the open question, what is missing). */
     suspend fun onboardingStatus(): OnboardingStatus = onboarding.status()
+
+    /** 入社建檔's form (03): each answer saved at once, silently; 完成建檔 posts her one line. */
+    suspend fun onboardingBody(heightCm: Double, weightKg: Double): Boolean = mutex.withLock { (onboarding.formBody(heightCm, weightKg) != null).also { bump() } }
+
+    suspend fun onboardingPushups(n: Int): Boolean = mutex.withLock { (onboarding.formPushups(n) != null).also { bump() } }
+
+    suspend fun onboardingPlank(seconds: Int): Boolean = mutex.withLock { (onboarding.formPlank(seconds) != null).also { bump() } }
+
+    suspend fun onboardingSkip(step: OnboardingStep) = mutex.withLock { onboarding.formSkip(step); bump() }
+
+    suspend fun finishOnboarding(): Message? = mutex.withLock { onboarding.formFinish()?.let { baselineLine(it) } }
 
     /** 藝名 and 代表色 from the card or 設定 › 練習生資料 (null leaves a field as it is); the problem with the name, or null. */
     suspend fun setIdol(stageName: String?, memberColor: String?): String? = mutex.withLock {
@@ -672,6 +686,12 @@ class Brain(
                 special = app.agency.core.engine.Scenes.special(day, profile.joinDate),
                 theme = app.agency.core.engine.Themes.of(day).takeIf { r.open(app.agency.core.schedule.Feature.THEME_WEEK) }?.let { "${it.name}：${it.task}" }, open = app.agency.core.schedule.Feature.entries.filter(r::open).toSet(),
                 incomeWeek = w?.total, incomeTarget = w?.target,
+                // What is not open this week is not on the card at all (F1).
+                waterTargetHalves = if (r.open(app.agency.core.schedule.Feature.WATER)) c.waterTargetHalves else 0,
+                baselineMissingNames = if (status.completed) status.missing.map { it.zh } else emptyList(),
+                lateSignOut = r.open(app.agency.core.schedule.Feature.SIGN) && lateSignOutDay() != null,
+                nextWeek = (r.week + 1).takeIf { it <= app.agency.core.schedule.RolloutSpec.LAST && r.opensIn(it).isNotEmpty() },
+                nextWeekFeatures = r.opensIn(r.week + 1).take(3).map { it.zh },
             )
         }
     }
@@ -1201,6 +1221,29 @@ class Brain(
             out += nerve.emit(Signal.MonthInterview("interview:${handIn.month}", clock.millis())).messages
         }
         out.also { bump() }
+    }
+
+    /** 指揮室's 這一週 (redesign 07): this Mon–Sun week so far — the share of due required items done, breaches, the real task. */
+    data class WeekSoFar(val week: Int, val pct: Int, val breaches: Int, val realTask: Boolean, val onTarget: Boolean)
+
+    suspend fun weekSoFar(): WeekSoFar {
+        val profile = snapshot.profile()
+        val today = snapshot.today(profile)
+        val since = remindersSince()?.let { snapshot.dayOf(it, profile) } ?: today
+        var due = 0
+        var done = 0
+        var d = maxOf(snapshot.weekStart(today), since)
+        while (!d.isAfter(today)) {
+            val states = snapshot.slots(d, snapshot.records(d), profile).filter { it.slot.required && it.status != SlotStatus.LATER }
+            due += states.size
+            done += states.count { it.status == SlotStatus.DONE }
+            d = d.plusDays(1)
+        }
+        val state = nerve.state(today)
+        val pct = if (due == 0) 100 else done * 100 / due
+        val r = rollout()
+        val real = state.realTaskThisWeek || !r.open(app.agency.core.schedule.Feature.REAL_TASK)
+        return WeekSoFar(r.week, pct, state.weekBreaches, state.realTaskThisWeek, app.agency.core.engine.WeekReport.onTarget(done, maxOf(due, 1), state.weekBreaches, real))
     }
 
     /** The month of [day] so far (from the reminders' start): the share of due required items done, and the breaches. */

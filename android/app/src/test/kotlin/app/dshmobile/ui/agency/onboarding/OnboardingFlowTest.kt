@@ -3,7 +3,10 @@ package app.dshmobile.ui.agency.onboarding
 import android.content.Context
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -40,9 +43,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * 入社建檔 on the screen (arch T07), Robolectric with the test camera and a fake microphone: the panel walks the seven items
- * in order, photos and the recording reach only the vault, skips leave 「入社資料缺 N 項」 with 補交, and an open question
- * survives a restart. Every picture, sound and number is invented.
+ * 入社建檔 as its own page (redesign 03), Robolectric with the test camera and a fake microphone: it opens by itself on a
+ * fresh install, every card saves at once (nothing asked in the conversation), photos and the recording reach only the vault,
+ * 「還差：…」 names what is missing, 完成建檔 waits until every item is done or skipped, and the page survives a restart.
+ * Every picture, sound and number is invented.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w360dp-h900dp-mdpi")
@@ -70,7 +74,8 @@ class OnboardingFlowTest {
             )
         }
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
-        rule.waitForTag(AgencyTags.HOME)
+        // It opens by itself on a fresh install (no tabs while it is open).
+        rule.waitForTag(OnboardingTags.SCREEN)
     }
 
     @After fun tearDown() {
@@ -82,44 +87,62 @@ class OnboardingFlowTest {
 
     private fun ready() = app.agency.start.value as StartState.Ready
     private fun join(): Baseline? = runBlocking { ready().store.baselines.get(Baseline.JOIN) }
-    private fun waitStep(step: OnboardingStep) = rule.waitForTag(OnboardingTags.STEP + step.name)
     private fun vault() = MediaVault(File(tmp, "media")) { error("unused") }
-
-    private fun type(text: String) {
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput(text)
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+    private fun tap(tag: String) {
+        rule.waitForTag(tag)
+        runCatching { rule.onNodeWithTag(tag).performScrollTo() } // the footer does not scroll
+        rule.onNodeWithTag(tag).performClick()
     }
 
-    @Test fun theWholeFileCanBeHandedInAndOpenedAgain() {
+    private fun body(h: String, w: String) {
+        rule.onNodeWithTag(OnboardingTags.HEIGHT).performScrollTo().performTextInput(h)
+        rule.onNodeWithTag(OnboardingTags.WEIGHT).performScrollTo().performTextInput(w)
+        tap(OnboardingTags.BODY_SAVE)
+        rule.waitUntil(5_000) { join()?.heightCm != null }
+    }
+
+    private fun status(step: OnboardingStep): String =
+        rule.onNodeWithTag(OnboardingTags.STATUS + step.name).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString("")
+
+    @Test fun theWholeFileIsFilledOnItsOwnPageAndOpensAgain() {
         launch()
-        rule.waitForText("入社第一件事：建檔")
-        waitStep(OnboardingStep.BODY)
-        type("身高 186 體重 94")
+        val said = runBlocking { ready().store.messages.count() }
+        rule.waitForText("已完成 0／7 項")
+        body("186", "94")
+        rule.waitForText("已完成 1／7 項")
+        assertEquals("已完成", status(OnboardingStep.BODY))
         for (step in OnboardingStep.PHOTOS) {
-            waitStep(step)
-            rule.onNodeWithTag(OnboardingTags.TAKE_PHOTO).performClick()
+            tap(OnboardingTags.TAKE_PHOTO)
+            val got = runCatching { rule.waitUntil(5_000) { join()?.let { BaselineSteps.has(it, step) } == true } }
+            assertTrue("notice=${app.agency.mediaNotice.value} log=${app.errorLog.file().takeIf { it.isFile }?.readText()?.takeLast(600)}", got.isSuccess)
         }
-        waitStep(OnboardingStep.RECORDING)
-        rule.onNodeWithTag(OnboardingTags.REC_START).performClick()
+        tap(OnboardingTags.REC_START)
         rule.waitForTag(OnboardingTags.REC_STOP)
-        rule.onNodeWithTag(OnboardingTags.REC_STOP).performClick()
+        tap(OnboardingTags.REC_STOP)
         rule.waitForTag(OnboardingTags.REC_PLAY)
-        rule.onNodeWithTag(OnboardingTags.REC_PLAY).performClick()
+        tap(OnboardingTags.REC_PLAY)
         assertEquals(listOf(2048), played) // played back from the plaintext before handing in
-        rule.onNodeWithTag(OnboardingTags.REC_HAND_IN).performClick()
-        waitStep(OnboardingStep.PUSHUPS)
-        type("伏地挺身 30 下")
-        waitStep(OnboardingStep.PLANK)
-        type("棒式 120 秒")
-        // The line is written (the conversation may already show the day's later lines below it).
-        rule.waitUntil(10_000) { runBlocking { ready().store.messages.recent(20) }.any { it.text.contains("入社建檔完成") } }
+        tap(OnboardingTags.REC_HAND_IN)
+        rule.waitUntil(5_000) { join()?.recording != null }
+        rule.onNodeWithTag(OnboardingTags.PUSH_FIELD).performScrollTo().performTextInput("30")
+        tap(OnboardingTags.PUSH_SAVE)
+        rule.waitUntil(5_000) { join()?.pushupsMax == 30 }
+        // The footer names what is left; 完成建檔 waits for it.
+        rule.waitForText("還差：棒式")
+        rule.onNodeWithTag(OnboardingTags.FINISH).assertIsNotEnabled()
+        // Nothing was said in the conversation while he filled it in.
+        assertEquals(said, runBlocking { ready().store.messages.count() })
+        tap(OnboardingTags.SKIP + OnboardingStep.PLANK.name)
+        rule.waitUntil(5_000) { OnboardingStep.PLANK.name in join()!!.skipped }
+        rule.waitForText("已跳過")
+        tap(OnboardingTags.FINISH)
+        rule.waitForTag(AgencyTags.HOME)
+        rule.waitUntil(10_000) { runBlocking { ready().store.messages.recent(20) }.any { it.text.startsWith("資料收好了，還差：棒式。") } }
 
         val b = join()!!
-        assertNull(b.step)
         assertNotNull(b.completedAt)
         assertEquals(listOf(186.0, 94.0), listOf(b.heightCm, b.weightKg))
         assertEquals(30, b.pushupsMax)
-        assertEquals(120, b.plankMaxSec)
         val media = runBlocking { ready().store.media.all() }.associateBy { it.id }
         assertEquals(4, media.size)
         // The photos reached the vault only, as JPEG (re-encoded by the downsizing).
@@ -132,17 +155,22 @@ class OnboardingFlowTest {
         }
         assertEquals(MediaKind.AUDIO, media.getValue(b.recording!!).kind)
         assertArrayEquals(ByteArray(2048) { 9 }, decrypt(b.recording!!))
-        // No plaintext anywhere: the camera and recorder caches are empty, the vault files are not the bytes.
         assertTrue(MediaVault.cameraDir(app).list().orEmpty().isEmpty())
         assertTrue(File(app.cacheDir, "record").list().orEmpty().isEmpty())
         File(tmp, "media").listFiles()!!.forEach { f -> assertFalse(f.readBytes().copyOfRange(0, 64).contentEquals(shot.copyOfRange(0, 64))) }
 
-        // 入社資料 opens what was handed in, and the recording plays again from the vault.
-        rule.onNodeWithTag(OnboardingTags.FILE).performClick()
+        // Home says what is still missing by name, and 去補 opens the same page (read mode) with the recording to play.
+        rule.waitForTag(OnboardingTags.BANNER)
+        rule.waitForText("入社建檔 還差：棒式")
+        tap(OnboardingTags.HAND_IN_LATER)
         rule.waitForTag(OnboardingTags.FILE_DIALOG)
-        rule.waitForText("伏地挺身 30 下")
-        rule.onNodeWithTag(OnboardingTags.FILE_PLAY).performClick()
-        // The vault is read on an IO thread and the speaker started on the main one: let the main looper run until it has.
+        OnboardingStep.PHOTOS.forEach { step ->
+            val tag = OnboardingTags.THUMB + BaselineSteps.mediaOf(b, step)!!
+            val found = runCatching { rule.waitUntil(10_000) { rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() } }
+            assertTrue("no $tag; thumbs: " + rule.onAllNodes(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.TestTag), useUnmergedTree = true)
+                .fetchSemanticsNodes().map { it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag] }.filter { it.startsWith("ob-") }, found.isSuccess)
+        }
+        tap(OnboardingTags.FILE_PLAY)
         val until = System.currentTimeMillis() + 5_000
         while (played.size < 2 && System.currentTimeMillis() < until) {
             rule.waitForIdle()
@@ -153,48 +181,41 @@ class OnboardingFlowTest {
 
     private fun decrypt(id: String): ByteArray = (app.agency.mediaVault() ?: vault()).get(id)
 
-    @Test fun skippedItemsShowAsMissingAndCanBeHandedInLater() {
+    @Test fun skippedItemsAreListedByNameAndFinishOpensTheCompany() {
         launch()
-        waitStep(OnboardingStep.BODY)
-        repeat(OnboardingStep.entries.size) {
-            rule.onNodeWithTag(OnboardingTags.SKIP).performClick()
-            rule.waitUntil(5_000) { ready().brain.busy.value.not() }
+        OnboardingStep.entries.filter { it !in OnboardingStep.PHOTOS.drop(1) }.forEach { step ->
+            tap(OnboardingTags.SKIP + step.name)
+            rule.waitUntil(5_000) { step.name in join()!!.skipped }
         }
-        rule.waitForTag(OnboardingTags.MISSING)
-        rule.waitForText("入社資料缺 7 項")
-        rule.onNodeWithTag(OnboardingTags.HAND_IN_LATER).performClick()
-        waitStep(OnboardingStep.BODY)
-        assertTrue(join()!!.skipped.isEmpty())
+        rule.waitForText("還差：身高體重、正面照、側面照、背面照、清唱錄音、伏地挺身、棒式")
+        tap(OnboardingTags.FINISH)
+        rule.waitForTag(AgencyTags.HOME)
+        assertTrue(runBlocking { ready().store.profile.get() }!!.onboardingDone)
+        rule.waitForText("入社建檔 還差：")
     }
 
-    @Test fun anOpenQuestionSurvivesARestart() {
+    @Test fun leavingKeepsWhatWasDoneAndItDoesNotOpenAgainUntilTheNextStart() {
         launch()
-        waitStep(OnboardingStep.BODY)
-        type("身高 186 體重 94")
-        waitStep(OnboardingStep.PHOTO_FRONT)
+        body("186", "94")
+        tap(OnboardingTags.LATER)
+        rule.waitForTag(AgencyTags.HOME)
+        assertFalse(runBlocking { ready().store.profile.get() }?.onboardingDone == true)
         scenario!!.close()
         runBlocking { app.agency.stopForTest() }
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
-        rule.waitForTag(AgencyTags.HOME)
-        waitStep(OnboardingStep.PHOTO_FRONT)
+        rule.waitForTag(OnboardingTags.SCREEN)
+        rule.waitForText("已完成 1／7 項")
         // The welcome was said once only.
         val welcomes = runBlocking { ready().store.messages.recent(50) }.count { it.text.contains("入社第一件事") }
         assertEquals(1, welcomes)
     }
 
-    @Test fun thePlankStopwatchAnswersInHisWords() {
+    @Test fun thePlankStopwatchKeepsAShortHoldOut() {
         launch()
-        waitStep(OnboardingStep.BODY)
-        type("身高 186 體重 94")
-        repeat(5) {
-            rule.onNodeWithTag(OnboardingTags.SKIP).performClick()
-            rule.waitUntil(5_000) { ready().brain.busy.value.not() }
-        }
-        waitStep(OnboardingStep.PLANK)
-        rule.onNodeWithTag(OnboardingTags.PLANK_START).performClick()
+        tap(OnboardingTags.PLANK_START)
         // Stopped at once: a hold under five seconds is not offered to hand in, the stopwatch starts over.
-        rule.onNodeWithTag(OnboardingTags.PLANK_STOP).performClick()
-        rule.onNodeWithTag(OnboardingTags.PLANK_START).performClick()
-        assertEquals(OnboardingStep.PLANK, join()!!.let(BaselineSteps::open))
+        tap(OnboardingTags.PLANK_STOP)
+        rule.onNodeWithTag(OnboardingTags.PLANK_START).assertExists()
+        assertNull(join()!!.plankMaxSec)
     }
 }

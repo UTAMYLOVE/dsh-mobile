@@ -41,8 +41,10 @@ import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.ImportNotice
 import app.dshmobile.agency.StartState
 import app.agency.core.brain.handlers.OnboardingStatus
-import app.dshmobile.ui.agency.onboarding.BaselineBadges
-import app.dshmobile.ui.agency.onboarding.OnboardingFlow
+import app.dshmobile.ui.agency.today.QuickChips
+import app.dshmobile.ui.agency.today.TodayActions
+import app.dshmobile.ui.agency.today.TodayCard
+import app.dshmobile.ui.agency.today.TodayList
 import app.dshmobile.ui.kit.PinkButton
 import app.dshmobile.ui.kit.Sakura
 import app.dshmobile.ui.kit.SoftButton
@@ -69,11 +71,15 @@ import app.dshmobile.ui.agency.sign.SignTags
 import app.dshmobile.ui.agency.training.TrainingTags
 
 /**
- * 公司: the 練習生證 (arch T10), the import notice once, the one conversation (imported lines with their role labels) and the
- * composer.
+ * 公司 (redesign 01/02), conversation first: the 練習生證 folded to one line (its idol card opens over the screen), the 今天 card
+ * (with the pickers and proposals above it, at most [PANEL_SHARE] of the room, scrolling), the conversation in all the room left,
+ * the quick chips and the composer.
  */
 @Composable
-fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions = AgencyActions()) {
+fun HomeScreen(
+    agency: AgencyApp, ready: StartState.Ready, actions: AgencyActions = AgencyActions(),
+    onLessons: () -> Unit = {}, onOnboarding: () -> Unit = {}, onWarRoom: () -> Unit = {},
+) {
     // collectOnMain / onMain below are defensive: on the phone these already run on the main thread; under the Compose test
     // rule they would not. Keep them (AgencyMainThreadTest fails without each).
     val revision by ready.brain.revision.collectOnMain()
@@ -190,71 +196,95 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
     val moodDue by produceState(false, revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.moodDue() }.getOrDefault(false) } }
     }
-    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+    val lessonBoard by produceState<app.agency.core.brain.handlers.LessonBoard?>(null, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.lessonBoard() }.getOrNull() } }
+    }
+    val scores by produceState<List<Pair<String, Int>>>(emptyList(), revision) {
+        onMain {
+            value = withContext(Dispatchers.IO) {
+                runCatching { ready.brain.months().lastOrNull()?.scores.orEmpty().map { it.item.zh to it.score } }.getOrDefault(emptyList())
+            }
+        }
+    }
+    var sheet by rememberSaveable { mutableStateOf(false) }
+    var list by remember { mutableStateOf(false) }
+    var draft by rememberSaveable { mutableStateOf("") }
+    val c = card
+    if (sheet && c != null) {
+        IdolCardSheet(
+            agency, c, onboarding, scores, onClose = { sheet = false }, onWall = { sheet = false; onWarRoom() },
+            onFile = { sheet = false; onOnboarding() }, onSaved = { cardRevision++ },
+        )
+        return
+    }
+    fun openTraining(kind: TrainingKind, moves: Boolean) {
+        scope.launch {
+            training = withContext(Dispatchers.IO) {
+                runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, if (moves) ready.brain.strengthMoves() else emptyList()) } }.getOrNull()
+            }
+        }
+    }
+    val todayActions = TodayActions(
+        say = agency::send,
+        mealPhoto = actions.takeMealPhoto,
+        mealMore = { actions.pick(app.dshmobile.agency.media.PhotoTarget.Meal) },
+        training = { key ->
+            when (key) {
+                SlotKey.CORE -> openTraining(TrainingKind.CORE7, true)
+                SlotKey.STRENGTH -> openTraining(TrainingKind.STRENGTH, true)
+                SlotKey.CARDIO -> openTraining(TrainingKind.CARDIO, true)
+                else -> openTraining(TrainingKind.STRETCH, true)
+            }
+        },
+        walk = agency::walkDone,
+        practice = { key ->
+            val item = app.agency.core.engine.Practice.of(key)
+            when (item?.handIn) {
+                app.agency.core.engine.HandIn.TIMER -> openTraining(item.kind, false)
+                app.agency.core.engine.HandIn.TAP -> agency.practiceTap(item.kind)
+                app.agency.core.engine.HandIn.PHOTO -> actions.photo(if (key == SlotKey.SURPRISE_CHECK) app.dshmobile.agency.media.PhotoTarget.Check else app.dshmobile.agency.media.PhotoTarget.Body)
+                app.agency.core.engine.HandIn.EVAL -> eval = key
+                null -> Unit
+            }
+        },
+        singing = { singing = true },
+        lessons = onLessons,
+    )
+    BoxWithConstraints(Modifier.fillMaxSize().background(Sakura.Page).imePadding()) {
     val room = maxHeight
     Column(Modifier.fillMaxSize().testTag(AgencyTags.HOME)) {
-        // The open card's rows take about [CARD_SHARE] of the screen and scroll inside it; with 補交 and 藝名 open too the whole card
-        // takes at most [CARD_AREA_SHARE] and scrolls: the conversation and the composer keep their room on a small phone too.
-        card?.let { c ->
-            Column(Modifier.fillMaxWidth().heightIn(max = room * CARD_AREA_SHARE).verticalScroll(rememberScrollState()).testTag(AgencyTags.CARD_AREA)) {
-                IdolCardView(agency, c, onboarding, onSaved = { cardRevision++ }, rowsMax = (room * CARD_SHARE - CARD_HEAD).coerceIn(CARD_ROWS_MIN, OPEN_ROWS_MAX))
+        c?.let { IdolLine(agency, it, onOpen = { sheet = true }) }
+        // The pickers, proposals and the 今天 card share at most [PANEL_SHARE] of the room and scroll; the conversation keeps the
+        // rest (never less than 40%), the chips and the composer are always on screen.
+        Column(Modifier.fillMaxWidth().heightIn(max = room * PANEL_SHARE).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
+            notice?.let { NoticeBar(it, agency::dismissNotice) }
+            MediaLine(agency)
+            ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
+            labelling?.let { p ->
+                LabelForm(p, onSave = { kcal, protein -> labelling = null; agency.label(p.mealId, p.itemIdx, kcal, protein) }, onClose = { labelling = null })
+            }
+            if (onboarding?.completed == true) {
+                if (conditionDue) ConditionPicker { score, sleep, energy, ill -> agency.condition(score, sleep, energy, ill) }
+                reviewOpen?.let { open -> key(open) { BedtimeReviewSheet(open) { good, fix -> agency.review(good, fix) } } }
+                if (moodDue) app.dshmobile.ui.agency.sign.MoodPicker(agency::mood)
+            }
+            // 入社建檔 still missing items (by name, F3), after it was finished: one row to go and hand them in.
+            onboarding?.takeIf { it.completed && it.missing.isNotEmpty() }?.let { st ->
+                OnboardingBanner(st.missing.map { app.dshmobile.ui.agency.onboarding.short(it) }, onOnboarding)
+            }
+            c?.let {
+                TodayCard(it, lessonBoard, busy, todayActions, onList = { list = true }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
             }
         }
-        onboarding?.let { status ->
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 4.dp)) { BaselineBadges(agency, status) }
-        }
-        notice?.let { NoticeBar(it, agency::dismissNotice) }
-        // The conversation and the panels under it share what is left after the card and the composer: the composer is never
-        // squeezed out (with every rollout week open the buttons and pickers are taller than a small phone), and the panels leave
-        // the conversation at least [CHAT_MIN] (or [PANEL_SHARE] of the room on a small screen) and scroll beyond it.
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val cap = (maxHeight - CHAT_MIN).coerceAtLeast(maxHeight * PANEL_SHARE)
-            Column(Modifier.fillMaxSize()) {
-                ChatList(
-                    messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f),
-                    memory = memory, actions = chatActions, busy = busy, meals = mealView,
-                )
-                Column(Modifier.fillMaxWidth().heightIn(max = cap).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
-                    ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
-                    onboarding?.let { OnboardingFlow(agency, it, actions) }
-                    // The quick buttons come with the reminders, after 入社建檔 (the 入社建檔 panel has the room until then).
-                    labelling?.let { p ->
-                        LabelForm(p, onSave = { kcal, protein -> labelling = null; agency.label(p.mealId, p.itemIdx, kcal, protein) }, onClose = { labelling = null })
-                    }
-                    if (onboarding?.completed == true) {
-                        if (conditionDue) ConditionPicker { score, sleep, energy, ill -> agency.condition(score, sleep, energy, ill) }
-                        reviewOpen?.let { open -> key(open) { BedtimeReviewSheet(open) { good, fix -> agency.review(good, fix) } } }
-                        if (moodDue) app.dshmobile.ui.agency.sign.MoodPicker(agency::mood)
-                        MediaLine(agency)
-                        QuickButtons(card, busy, onPhoto = actions.takeMealPhoto, onTarget = actions.photo, onPick = actions.pick) { agency.send(it) }
-                        TrainingButtons(card, busy, onWalk = agency::walkDone) { kind ->
-                            scope.launch {
-                                val open = withContext(Dispatchers.IO) {
-                                    runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, ready.brain.strengthMoves()) } }.getOrNull()
-                                }
-                                training = open
-                            }
-                        }
-                        PracticeButtons(
-                            card, busy,
-                            onTimer = { kind ->
-                                scope.launch {
-                                    training = withContext(Dispatchers.IO) { runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, emptyList()) } }.getOrNull() }
-                                }
-                            },
-                            onTap = agency::practiceTap,
-                            onCheck = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Check) },
-                            onBody = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Body) },
-                            onEval = { eval = it },
-                            onSinging = { singing = true },
-                        )
-                    }
-                }
-            }
-        }
-        Composer(busy = busy, onSend = agency::send)
+        ChatList(
+            messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f),
+            memory = memory, actions = chatActions, busy = busy, meals = mealView,
+        )
+        QuickChips(c, busy, onSay = agency::send, onPrefill = { draft = it }, onPhoto = actions.photo, onPick = actions.pick)
+        Composer(busy = busy, onSend = agency::send, text = draft, onText = { draft = it })
     }
     }
+    if (list && c != null) TodayList(c) { list = false }
     viewing?.let { m ->
         PhotoViewer(
             m, agency.mediaVault(),
@@ -264,6 +294,20 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             },
             onClose = { viewing = null },
         )
+    }
+}
+
+/** 「入社建檔 還差：…」 with 去補 (it opens the 入社建檔 page). */
+@Composable
+private fun OnboardingBanner(missing: List<String>, onGo: () -> Unit) {
+    app.dshmobile.ui.kit.Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).testTag(app.dshmobile.ui.agency.onboarding.OnboardingTags.BANNER), padding = 12.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.ag_ob_banner, missing.joinToString("、")), style = app.dshmobile.ui.kit.Type.Support,
+                modifier = Modifier.weight(1f).testTag(app.dshmobile.ui.agency.onboarding.OnboardingTags.MISSING),
+            )
+            SoftButton(stringResource(R.string.ag_ob_banner_go), onClick = onGo, size = app.dshmobile.ui.kit.ButtonSize.Small, modifier = Modifier.testTag(app.dshmobile.ui.agency.onboarding.OnboardingTags.HAND_IN_LATER))
+        }
     }
 }
 
@@ -285,156 +329,15 @@ private fun MediaLine(agency: AgencyApp) {
 
 private const val PAGE = 500
 
-/** The least room the conversation keeps above the panels. */
-private val CHAT_MIN = 160.dp
-
-/** On a small screen the panels below the conversation may take at least this share of the room (they scroll beyond it). */
-private const val PANEL_SHARE = 0.4f
-
-/** About the most of the screen the open trainee card may take (its rows scroll beyond it). */
-private const val CARD_SHARE = 0.35f
-
-/** The most of the screen the whole card (with 補交 and 藝名) takes before it scrolls. */
-private const val CARD_AREA_SHARE = 0.5f
-
-/** The open card's photo, name and band above its rows. */
-private val CARD_HEAD = 100.dp
-
-/** The least room the open card's rows keep. */
-private val CARD_ROWS_MIN = 60.dp
-
-/**
- * The quick buttons: 拍這餐 (T15: the camera for the meal being reported), 喝完一壺 / 喝了半壺 (T17), 出門跑單 / 收工 (arch T13: the same words he may
- * type; riding makes reminders sound once) and 「這裡有問題」 (T12: 討論 with the manager). The row scrolls sideways.
- */
-@Composable
-private fun QuickButtons(
-    card: IdolCardFacts?,
-    busy: Boolean,
-    onPhoto: () -> Unit,
-    onTarget: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
-    onPick: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
-    onSay: (String) -> Unit,
-) {
-    val start = stringResource(R.string.ag_ride_start)
-    val end = stringResource(R.string.ag_ride_end)
-    val slots = card?.slots.orEmpty()
-    fun done(key: SlotKey) = slots.firstOrNull { it.key == key }?.status == SlotStatus.DONE
-    // 分週上線: a button of a feature not open yet is not shown.
-    fun open(f: app.agency.core.schedule.Feature) = card?.open?.contains(f) ?: true
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // 簽到 until he has, then 簽退 (T19): the same words he may type.
-        if (open(app.agency.core.schedule.Feature.SIGN) && !done(SlotKey.WAKE)) {
-            val w = stringResource(R.string.ag_sign_in)
-            PinkButton(w, onClick = { onSay(w) }, enabled = !busy, modifier = Modifier.testTag(SignTags.SIGN_IN))
-        }
-        if (open(app.agency.core.schedule.Feature.MEALS)) {
-            PinkButton(stringResource(R.string.ag_meal_photo), onClick = onPhoto, enabled = !busy, modifier = Modifier.testTag(MealTags.PHOTO))
-            // T15c: a meal photo from the gallery (its capture time picks the meal; late is 補交).
-            SoftButton(stringResource(R.string.ag_pick_meal), onClick = { onPick(app.dshmobile.agency.media.PhotoTarget.Meal) }, enabled = !busy, modifier = Modifier.testTag(MealTags.PICK))
-            // T15b: a menu or a receipt for the image model to read (a list he confirms).
-            SoftButton(stringResource(R.string.ag_photo_menu), onClick = { onTarget(app.dshmobile.agency.media.PhotoTarget.Menu) }, enabled = !busy, modifier = Modifier.testTag(MealTags.MENU))
-            SoftButton(stringResource(R.string.ag_photo_receipt), onClick = { onTarget(app.dshmobile.agency.media.PhotoTarget.Receipt) }, enabled = !busy, modifier = Modifier.testTag(MealTags.RECEIPT))
-        }
-        // 身體照 (T15b): the teacher's words on a body photo.
-        SoftButton(stringResource(R.string.ag_photo_body), onClick = { onTarget(app.dshmobile.agency.media.PhotoTarget.Body) }, enabled = !busy, modifier = Modifier.testTag(MealTags.BODY))
-        // 喝水 (T17): the same words he may type.
-        if (open(app.agency.core.schedule.Feature.WATER)) {
-            val full = stringResource(R.string.ag_water_full)
-            val half = stringResource(R.string.ag_water_half)
-            SoftButton(full, onClick = { onSay(full) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.WATER_FULL))
-            SoftButton(half, onClick = { onSay(half) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.WATER_HALF))
-        }
-        if (open(app.agency.core.schedule.Feature.RIDE)) {
-            SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
-            SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
-        }
-        SoftButton(stringResource(R.string.ag_discuss), onClick = { onSay(Discussion.OPEN_WORD) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.DISCUSS))
-        if (open(app.agency.core.schedule.Feature.SIGN) && done(SlotKey.WAKE) && !done(SlotKey.SIGN_OUT)) {
-            val o = stringResource(R.string.ag_sign_out)
-            SoftButton(o, onClick = { onSay(o) }, enabled = !busy, modifier = Modifier.testTag(SignTags.SIGN_OUT))
-        }
-    }
-}
+/** The most of the room the pickers, proposals and the 今天 card take before they scroll (the conversation keeps the rest). */
+private const val PANEL_SHARE = 0.45f
 
 /** A guided timer to show: its routine and, for the rounds, the moves the report asks about. */
 private data class TrainingOpen(val kind: TrainingKind, val steps: List<RoutineStep>, val moves: List<StrengthMove>)
 
-/**
- * The training buttons (T18), only for what today's plan still owes: 核心 (the 7 minutes), 肌力 (the rounds), 體能 (its three
- * days), 伸展 and 快走完成 on a no-class day. Each timer reports by itself when it is done.
- */
-@Composable
-private fun TrainingButtons(card: IdolCardFacts?, busy: Boolean, onWalk: () -> Unit, onOpen: (TrainingKind) -> Unit) {
-    val slots = card?.slots.orEmpty()
-    fun open(key: SlotKey) = slots.firstOrNull { it.key == key }?.let { it.status != SlotStatus.DONE } == true
-    val items = buildList {
-        if (open(SlotKey.CORE)) add(Triple(R.string.ag_train_core_button, TrainingTags.CORE) { onOpen(TrainingKind.CORE7) })
-        if (open(SlotKey.STRENGTH)) add(Triple(R.string.ag_train_strength_button, TrainingTags.STRENGTH) { onOpen(TrainingKind.STRENGTH) })
-        if (open(SlotKey.CARDIO)) add(Triple(R.string.ag_train_cardio_button, TrainingTags.CARDIO) { onOpen(TrainingKind.CARDIO) })
-        if (open(SlotKey.STRETCH)) add(Triple(R.string.ag_train_stretch_button, TrainingTags.STRETCH) { onOpen(TrainingKind.STRETCH) })
-        if (open(SlotKey.WALK)) add(Triple(R.string.ag_train_walk_button, TrainingTags.WALK, onWalk))
-    }
-    if (items.isEmpty()) return
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items.forEach { (label, tag, onClick) -> SoftButton(stringResource(label), onClick = onClick, enabled = !busy, modifier = Modifier.testTag(tag)) }
-    }
-}
-
 /** Test tags of the practice buttons: [PRACTICE] + the slot name. */
 object PracticeTags {
     const val PRACTICE = "ag-practice-"
-}
-
-/**
- * The practice buttons (rollout weeks 3 and 4), only for what today's plan still owes: each timed item opens its guided timer,
- * a tap item records at once, 突擊檢查 and 全身對比照 open the camera, the evaluations their hand-in screen.
- */
-@Composable
-private fun PracticeButtons(
-    card: IdolCardFacts?,
-    busy: Boolean,
-    onTimer: (TrainingKind) -> Unit,
-    onTap: (TrainingKind) -> Unit,
-    onCheck: () -> Unit,
-    onBody: () -> Unit,
-    onEval: (SlotKey) -> Unit,
-    onSinging: () -> Unit = {},
-) {
-    // 唱歌分析 opens with the vocal practice (rollout week 3: 聲樂基本功).
-    if (card?.open?.contains(app.agency.core.schedule.Feature.VOCAL_BASICS) == true) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
-            SoftButton(stringResource(R.string.ag_sing_open), onClick = onSinging, enabled = !busy, modifier = Modifier.testTag(PracticeTags.PRACTICE + "SINGING"))
-        }
-    }
-    val owed = card?.slots.orEmpty().filter { it.key.kind == app.agency.core.schedule.SlotKind.PRACTICE && it.status != SlotStatus.DONE && it.status != SlotStatus.MISSED && (it.key != SlotKey.SURPRISE_CHECK || it.status == SlotStatus.OPEN) }
-    if (owed.isEmpty()) return
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        owed.map { it.key }.distinct().forEach { key ->
-            val item = app.agency.core.engine.Practice.of(key) ?: return@forEach
-            val click: () -> Unit = when (item.handIn) {
-                app.agency.core.engine.HandIn.TIMER -> ({ onTimer(item.kind) })
-                app.agency.core.engine.HandIn.TAP -> ({ onTap(item.kind) })
-                app.agency.core.engine.HandIn.PHOTO -> if (key == SlotKey.SURPRISE_CHECK) onCheck else onBody
-                app.agency.core.engine.HandIn.EVAL -> ({ onEval(key) })
-            }
-            val important = key == SlotKey.SURPRISE_CHECK || item.handIn == app.agency.core.engine.HandIn.EVAL
-            if (important) {
-                PinkButton(key.zh, onClick = click, enabled = !busy, modifier = Modifier.testTag(PracticeTags.PRACTICE + key.name))
-            } else {
-                SoftButton(key.zh, onClick = click, enabled = !busy, modifier = Modifier.testTag(PracticeTags.PRACTICE + key.name))
-            }
-        }
-    }
 }
 
 @Composable

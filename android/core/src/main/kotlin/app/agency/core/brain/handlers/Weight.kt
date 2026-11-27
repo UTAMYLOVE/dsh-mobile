@@ -35,11 +35,17 @@ class WeightDesk(
         val height = profile.heightCm ?: store.baselines.get(Baseline.JOIN)?.heightCm
         if (height != null) sb.append("身體質量指數 ${CoachRules.bmi(kg, height)}，${CoachRules.zone(kg, height).zh}。")
         val goal = IdolCard.nextGoal(rules, kg)
-        if (goal != null) {
-            sb.append("下一個目標 ${CoachRules.kg(goal)} 公斤，還差 ${BigDecimal(kg - goal).setScale(1, RoundingMode.HALF_UP).toPlainString()} 公斤。")
-        } else {
-            sb.append("階段目標都到了。")
+        when {
+            goal != null -> sb.append("下一個目標 ${CoachRules.kg(goal)} 公斤，還差 ${BigDecimal(kg - goal).setScale(1, RoundingMode.HALF_UP).toPlainString()} 公斤。")
+            // No target set is not 「reached」 (F2): two states, two lines.
+            rules.goalsKg.none { it >= IdolCard.GOAL_FLOOR_KG } -> sb.append(NO_GOALS)
+            else -> sb.append(GOALS_REACHED)
         }
         return MealOutcome(null, listOf(sb.toString()), listOf(Signal.WeightLogged("weight:$id", now, kg)))
+    }
+
+    companion object {
+        const val NO_GOALS = "目標體重還沒設定，要設的話到 設定 › 公司規章 填。"
+        const val GOALS_REACHED = "階段目標都到了，等重新評估。"
     }
 }

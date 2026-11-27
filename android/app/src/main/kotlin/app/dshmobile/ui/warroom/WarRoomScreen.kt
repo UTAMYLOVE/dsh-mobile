@@ -51,12 +51,13 @@ object WarTags {
     const val ROLE = "ag-war-role-"
     const val RIBBON = "ag-war-ribbon"
     const val LINKS = "ag-war-links"
+    const val WEEK = "ag-war-week"
 }
 
 /**
  * 指揮室 (T20): a pink backstage 手帳, not a control panel — washi tape on top, today's sticker sheet (one sticker per item done,
  * an empty frame for each still owed, 違規 written plainly), the role cards of 小葵姐 and the body teacher with what each is
- * doing now, the spend ribbon (today against his cap), then 今天的連動, the memos and the photocard wall. No clock with
+ * doing now (這一週 first; the spend moved to 設定), then 今天的連動, the memos and the photocard wall. No clock with
  * seconds, no monospace, no radar.
  */
 @Composable
@@ -67,20 +68,25 @@ fun WarRoomScreen(ready: StartState.Ready, todayUsd: () -> Double, capUsd: () ->
     val card by produceState<IdolCardFacts?>(null, revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.card() }.getOrNull() } }
     }
+    val week by produceState<app.agency.core.brain.Brain.WeekSoFar?>(null, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.weekSoFar() }.getOrNull() } }
+    }
     Column(
-        Modifier.fillMaxSize().background(Sakura.Background).verticalScroll(rememberScrollState()).padding(16.dp).testTag(AgencyTags.WAR_ROOM),
+        Modifier.fillMaxSize().background(Sakura.Page).verticalScroll(rememberScrollState()).padding(16.dp).testTag(AgencyTags.WAR_ROOM),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Washi()
-        Text(stringResource(R.string.ag_war_title), color = Sakura.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.ag_war_title), style = app.dshmobile.ui.kit.Type.Title)
         card?.let { c ->
-            StickerSheet(c)
+            week?.let { w -> WeekCard(w, c.open) }
+            // Stickers and breaches come with 簽到 and 三餐 (分週上線: nothing of a feature not open).
+            if (app.agency.core.schedule.Feature.SIGN in c.open) StickerSheet(c)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 RoleCard("葵", stringResource(R.string.ag_war_manager), RoleActivity.manager(c, busy, fail != null), Sakura.Primary, Modifier.weight(1f), Roles.MANAGER.id)
                 RoleCard("體", stringResource(R.string.ag_war_body), RoleActivity.body(c, busy, fail != null), Sakura.Aqua, Modifier.weight(1f), app.agency.core.model.RoleKey.BODY.name)
             }
         }
-        SpendRibbon(todayUsd(), capUsd())
+        // 花費 moved to 設定 › 花費上限 (redesign 07/08): the war room shows no money.
         Box(Modifier.testTag(WarTags.LINKS)) { TodayLinksCard(ready) }
         StaffCard()
         MemoCard(ready)
@@ -88,14 +94,45 @@ fun WarRoomScreen(ready: StartState.Ready, todayUsd: () -> Double, capUsd: () ->
     }
 }
 
+/** 這一週 (redesign 07): 目前算過關／還沒過關, and 做到 %, 違規 and 真人任務, each only when its feature is open. */
+@Composable
+private fun WeekCard(w: app.agency.core.brain.Brain.WeekSoFar, open: Set<app.agency.core.schedule.Feature>) {
+    val sign = app.agency.core.schedule.Feature.SIGN in open || app.agency.core.schedule.Feature.MEALS in open
+    app.dshmobile.ui.kit.IdolSurface(Modifier.testTag(WarTags.WEEK)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.ag_week_card) + " ・ " + stringResource(R.string.ag_week_title, w.week), style = app.dshmobile.ui.kit.Type.Label, modifier = Modifier.weight(1f))
+            if (sign) app.dshmobile.ui.kit.StatusPill(if (w.onTarget) app.dshmobile.ui.kit.Status.Done else app.dshmobile.ui.kit.Status.Pink, stringResource(if (w.onTarget) R.string.ag_week_on else R.string.ag_week_off))
+        }
+        if (sign) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatBox(stringResource(R.string.ag_week_done), "${w.pct}%", Modifier.weight(1f))
+                StatBox(stringResource(R.string.ag_week_breaches), "${w.breaches}", Modifier.weight(1f))
+                if (app.agency.core.schedule.Feature.REAL_TASK in open) {
+                    StatBox(stringResource(R.string.ag_week_real), stringResource(if (w.realTask) R.string.ag_week_real_yes else R.string.ag_week_real_no), Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatBox(label: String, value: String, modifier: Modifier) {
+    Column(modifier.background(Sakura.White.copy(alpha = .8f), RoundedCornerShape(14.dp)).padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = app.dshmobile.ui.kit.Type.Heading)
+        Text(label, style = app.dshmobile.ui.kit.Type.Caption)
+    }
+}
+
 /** A strip of pink washi tape (striped), the 手帳 look. */
 @Composable
 private fun Washi() {
+    val washiA = Sakura.Primary.copy(alpha = .35f)
+    val washiB = Sakura.Lilac.copy(alpha = .35f)
     Canvas(Modifier.fillMaxWidth().height(14.dp).rotate(-1.5f)) {
-        drawRect(Color(0xFFF8C8D4))
+        drawRect(washiA)
         var x = 0f
         while (x < size.width) {
-            drawRect(Color(0xFFFFE4EC), topLeft = androidx.compose.ui.geometry.Offset(x, 0f), size = androidx.compose.ui.geometry.Size(10.dp.toPx(), size.height))
+            drawRect(washiB, topLeft = androidx.compose.ui.geometry.Offset(x, 0f), size = androidx.compose.ui.geometry.Size(10.dp.toPx(), size.height))
             x += 22.dp.toPx()
         }
     }
@@ -115,7 +152,7 @@ private fun StickerSheet(c: IdolCardFacts) {
             c.stickers.forEachIndexed { i, s ->
                 Text(
                     "✿ ${s.kind.zh}", color = Sakura.Text, fontSize = 13.sp,
-                    modifier = Modifier.rotate(if (i % 2 == 0) -3f else 3f).background(Color(0xFFFFD6E2), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
+                    modifier = Modifier.rotate(if (i % 2 == 0) -3f else 3f).background(Sakura.Background, RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
                         .testTag(WarTags.STICKER + i),
                 )
             }
@@ -123,7 +160,7 @@ private fun StickerSheet(c: IdolCardFacts) {
                 Box(Modifier.size(width = 52.dp, height = 26.dp).border(1.dp, Sakura.Primary.copy(alpha = .5f), RoundedCornerShape(12.dp)).testTag(WarTags.FRAME))
             }
         }
-        if (c.breachesToday > 0) Text(stringResource(R.string.ag_war_breaches, c.breachesToday), color = Sakura.RoseBrown, fontSize = 14.sp)
+        if (c.breachesToday > 0 && app.agency.core.schedule.Feature.MEALS in c.open) Text(stringResource(R.string.ag_war_breaches, c.breachesToday), color = Sakura.RoseBrown, fontSize = 14.sp)
     }
 }
 
@@ -153,7 +190,7 @@ private fun SpendRibbon(usd: Double, cap: Double?) {
             color = Sakura.Text, fontSize = 14.sp,
         )
         share?.let { s ->
-            Box(Modifier.fillMaxWidth().height(12.dp).background(Color(0xFFFFE4EC), RoundedCornerShape(6.dp))) {
+            Box(Modifier.fillMaxWidth().height(12.dp).background(Sakura.Background, RoundedCornerShape(6.dp))) {
                 Box(Modifier.fillMaxWidth(s).height(12.dp).background(Sakura.Primary, RoundedCornerShape(6.dp)))
             }
         }

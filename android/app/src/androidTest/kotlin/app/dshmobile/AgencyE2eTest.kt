@@ -50,6 +50,7 @@ import app.dshmobile.ui.agency.AgencyTags
 import app.dshmobile.ui.agency.lessons.LessonTags
 import app.dshmobile.ui.agency.AgencyTab
 import app.dshmobile.ui.agency.onboarding.OnboardingTags
+import app.agency.core.brain.handlers.BaselineSteps
 import app.agency.core.brain.handlers.OnboardingStep
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -139,12 +140,24 @@ class AgencyE2eTest {
     private val states = java.util.Collections.synchronizedList(mutableListOf<StartState>())
     private var watch: kotlinx.coroutines.Job? = null
 
-    private fun open() {
+    /**
+     * Opens the company. On a fresh install 入社建檔's page opens by itself (redesign 03); unless [keepOnboarding], the test leaves
+     * it with 返回 (as he may) and goes on from the home screen.
+     */
+    private fun open(keepOnboarding: Boolean = false) {
         watch = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             app.agency.start.collect { states += it }
         }
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
-        rule.waitUntil(60_000) { rule.onAllNodesWithTag(AgencyTags.HOME).fetchSemanticsNodes().isNotEmpty() }
+        fun shown(tag: String) = rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+        rule.waitUntil(60_000) { shown(AgencyTags.HOME) || shown(OnboardingTags.SCREEN) }
+        if (keepOnboarding) return
+        // The page may open a moment after home (its status is read off the main thread).
+        runCatching { rule.waitUntil(3_000) { shown(OnboardingTags.SCREEN) } }
+        if (shown(OnboardingTags.SCREEN)) {
+            rule.onNodeWithTag(OnboardingTags.BACK).performClick()
+            rule.waitUntil(30_000) { shown(AgencyTags.HOME) }
+        }
     }
 
     private fun ready() = app.agency.start.value as StartState.Ready
@@ -224,18 +237,19 @@ class AgencyE2eTest {
     }
 
     @Test fun e01_freshInstallOpensTheCompany() {
-        open()
-        // The card loads after the screen (its numbers are read off the main thread).
-        rule.waitUntil(30_000) { rule.onAllNodesWithTag(AgencyTags.TRAINEE).fetchSemanticsNodes().isNotEmpty() }
+        open(keepOnboarding = true)
+        // 入社建檔's page opens by itself on the first open (redesign 03), its cards all there; the manager's one welcome line.
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + OnboardingStep.BODY.name).fetchSemanticsNodes().isNotEmpty() }
         assertTrue(states.toString(), states.none { it == StartState.Importing })
         assertEquals(AgencyPrefKeys.MIGRATED_DONE, prefs(AgencyPrefKeys.NAME).getInt(AgencyPrefKeys.MIGRATED, 0))
-        // 入社建檔 starts on the first open (T07): the manager's welcome and first question, written by code.
         runBlocking {
             val all = ready().store.messages.recent(10)
             assertEquals(1, all.size)
             assertEquals(Brain.BASELINE_KIND, all.single().kind)
         }
-        rule.onNodeWithTag(OnboardingTags.STEP + OnboardingStep.BODY.name).assertExists()
+        // He may leave it: the company's home with the card (read off the main thread).
+        rule.onNodeWithTag(OnboardingTags.BACK).performClick()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(AgencyTags.TRAINEE).fetchSemanticsNodes().isNotEmpty() }
         assertTrue(fake.seen.isEmpty())
     }
 
@@ -426,20 +440,26 @@ class AgencyE2eTest {
      * handed in through the 入社建檔 panel, sealed with the phone's Keystore key, and can be opened again from 入社資料.
      */
     @Test fun e06_baselinePhotosAndRecordingWithTheCameraSeam() {
-        open()
+        open(keepOnboarding = true)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + OnboardingStep.BODY.name).fetchSemanticsNodes().isNotEmpty() }
-        say("身高 186 體重 94")
+        fun join() = runBlocking { ready().store.baselines.get(Baseline.JOIN) }
+        // The numbers on their card (nothing is asked in the conversation any more).
+        reveal(OnboardingTags.HEIGHT)
+        rule.onNodeWithTag(OnboardingTags.HEIGHT).performTextInput("186")
+        reveal(OnboardingTags.WEIGHT)
+        rule.onNodeWithTag(OnboardingTags.WEIGHT).performTextInput("94")
+        tap(OnboardingTags.BODY_SAVE)
+        rule.waitUntil(30_000) { join()?.heightCm != null }
         for (step in OnboardingStep.PHOTOS) {
-            rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + step.name).fetchSemanticsNodes().isNotEmpty() }
             tap(OnboardingTags.TAKE_PHOTO)
+            rule.waitUntil(30_000) { join()?.let { BaselineSteps.has(it, step) } == true }
         }
-        rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.REC_START).fetchSemanticsNodes().isNotEmpty() }
         tap(OnboardingTags.REC_START)
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.REC_STOP).fetchSemanticsNodes().isNotEmpty() }
         tap(OnboardingTags.REC_STOP)
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.REC_HAND_IN).fetchSemanticsNodes().isNotEmpty() }
         tap(OnboardingTags.REC_HAND_IN)
-        rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + OnboardingStep.PUSHUPS.name).fetchSemanticsNodes().isNotEmpty() }
+        rule.waitUntil(30_000) { join()?.recording != null }
         val vault = MediaVault.forApp(context)
         val b = runBlocking { ready().store.baselines.get(Baseline.JOIN)!! }
         val photos = listOf(b.photoFront!!, b.photoSide!!, b.photoBack!!)
@@ -459,10 +479,11 @@ class AgencyE2eTest {
         }
         assertTrue(MediaVault.cameraDir(context).list().orEmpty().isEmpty())
         assertTrue(File(context.cacheDir, "record").list().orEmpty().isEmpty())
-        // 入社資料 shows the three photos again (decrypted into memory).
-        tap(OnboardingTags.FILE)
+        // The page shows the three photos (decrypted into memory) and the recording to play again.
         photos.forEach { id -> rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.THUMB + id).fetchSemanticsNodes().isNotEmpty() } }
-        rule.onNodeWithTag(OnboardingTags.FILE_PLAY).assertExists()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.FILE_PLAY).fetchSemanticsNodes().isNotEmpty() }
+        // Nothing was said in the conversation while he handed them in: the welcome only.
+        assertEquals(1, runBlocking { ready().store.messages.count() })
         assertTrue(fake.seen.isEmpty())
     }
 

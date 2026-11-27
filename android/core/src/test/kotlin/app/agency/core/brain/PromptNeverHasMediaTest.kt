@@ -41,20 +41,21 @@ class PromptNeverHasMediaTest {
         runBlocking {
             store.profile.put(Profile(heightCm = 184.0, startWeightKg = 96.0))
             brain.startOnboardingIfDue()
-            brain.onText("對")
+            brain.onboardingBody(184.0, 96.0)
             brain.handInBaseline(OnboardingStep.PHOTO_FRONT, media(ids[0], MediaKind.PHOTO))
             brain.handInBaseline(OnboardingStep.PHOTO_SIDE, media(ids[1], MediaKind.PHOTO))
             brain.handInBaseline(OnboardingStep.PHOTO_BACK, media(ids[2], MediaKind.PHOTO))
             brain.handInBaseline(OnboardingStep.RECORDING, media(ids[3], MediaKind.AUDIO))
-            brain.onText("伏地挺身 30 下")
-            brain.onText("棒式 120 秒")
+            brain.onboardingPushups(30)
+            brain.onboardingPlank(120)
+            brain.finishOnboarding()
             assertTrue(llm.requests.isEmpty())
             brain.onText("姐姐我建檔完了")
         }
         assertTrue(llm.requests.size >= 2)
         val sent = llm.requests.joinToString("\n") { it.toString() }
-        // The numbers he gave are in the conversation the model reads …
-        assertTrue(sent.contains("伏地挺身 30 下"))
+        // His words are in the conversation the model reads …
+        assertTrue(sent.contains("姐姐我建檔完了"))
         // … the photos and the recording are not, in any form.
         (ids + listOf(sha, "image/jpeg", "audio/mp4", ".bin", ".jpg", ".m4a", "4321")).forEach { assertFalse(it, sent.contains(it)) }
         assertEquals(4, runBlocking { store.media.count() })

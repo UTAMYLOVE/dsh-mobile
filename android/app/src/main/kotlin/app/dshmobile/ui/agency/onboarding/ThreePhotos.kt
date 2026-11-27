@@ -30,7 +30,6 @@ import app.agency.core.model.Baseline
 import app.dshmobile.R
 import app.dshmobile.agency.media.MediaVault
 import app.dshmobile.ui.agency.onMain
-import app.dshmobile.ui.kit.PinkButton
 import app.dshmobile.ui.kit.Sakura
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,27 +43,6 @@ fun photoLabel(step: OnboardingStep): String = stringResource(
         else -> R.string.ag_ob_back
     },
 )
-
-/**
- * 全身照 正面 → 側面 → 背面 (arch T07): the three slots (the ones handed in show their thumbnail), the hint to use the same spot
- * and light, and 拍照 for the open one, which opens the system camera.
- */
-@Composable
-fun ThreePhotos(open: OnboardingStep, baseline: Baseline?, vault: MediaVault?, onTake: (OnboardingStep) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OnboardingStep.PHOTOS.forEach { step ->
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Thumb(baseline?.let { BaselineSteps.mediaOf(it, step) }, vault, Modifier.fillMaxWidth().aspectRatio(.75f))
-                Text(
-                    photoLabel(step) + if (baseline != null && BaselineSteps.has(baseline, step)) " ・ " + stringResource(R.string.ag_ob_done_mark) else "",
-                    color = if (step == open) Sakura.Text else Sakura.TextSecondary, fontSize = 13.sp,
-                )
-            }
-        }
-    }
-    Text(stringResource(R.string.ag_ob_photo_hint), color = Sakura.TextSecondary, fontSize = 13.sp)
-    PinkButton(stringResource(R.string.ag_ob_take_photo) + "（" + photoLabel(open) + "）", onClick = { onTake(open) }, modifier = Modifier.testTag(OnboardingTags.TAKE_PHOTO))
-}
 
 /** A photo from the vault, decrypted into memory only and shown small; an empty box when there is none. */
 @Composable

@@ -25,7 +25,7 @@ class MemberColourTest {
     }
 
     @Test fun aMiddleColourThatReadsBadlyIsMovedInLightnessOnly() {
-        for (hex in listOf("#808080", "#DC9FB4", "#E0457B", "#3D9970")) {
+        for (hex in listOf("#808080", "#FF5FA2", "#E0457B", "#3D9970")) {
             val picked = MemberColour.parse(hex)!!
             assertTrue("$hex fails as it is", MemberColour.contrast(picked, Sakura.Text) < 4.5 && MemberColour.contrast(picked, Color.White) < 4.5)
             val a = MemberColour.accentOf(picked)
@@ -50,7 +50,9 @@ class MemberColourTest {
         assertEquals(Accent.DEFAULT, MemberColour.accent(null))
         assertEquals(Accent.DEFAULT, MemberColour.accent("粉紅"))
         assertNull(MemberColour.parse("#12345"))
-        assertEquals(Sakura.Primary, Accent.DEFAULT.fill)
+        // The bright pink, made readable (WCAG AA) by moving its lightness only a little.
+        assertTrue(readable(Accent.DEFAULT))
+        assertTrue(MemberColour.lightnessShift(Sakura.Primary, Accent.DEFAULT.fill) < 0.1)
     }
 
     @Test fun oklabRoundTrips() {

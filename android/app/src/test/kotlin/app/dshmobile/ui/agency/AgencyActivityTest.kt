@@ -1,7 +1,9 @@
 package app.dshmobile.ui.agency
 
 import android.content.Context
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -81,22 +83,23 @@ class AgencyActivityTest {
         // The card loads after the screen (its numbers are read off the main thread).
         rule.waitForTag(AgencyTags.TRAINEE)
         rule.onNodeWithTag(AgencyTags.TRAINEE).assertIsDisplayed()
-        // 入社建檔 starts on the first open (T07): the manager's welcome and first question, written by code.
+        // 入社建檔 starts on the first open (T07): the manager's one welcome line, written by code, her name over it (no 【】 label).
         rule.waitForText("入社第一件事：建檔")
-        rule.onNodeWithText("【小葵姐】").assertIsDisplayed()
+        rule.onNodeWithText("小葵姐").assertIsDisplayed()
+        assertTrue(rule.onAllNodesWithText("【", substring = true).fetchSemanticsNodes().isEmpty())
 
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.WAR_ROOM.name).performClick()
         rule.onNodeWithText("後台手帳").assertIsDisplayed()
 
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.MODEL.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.MODEL.name).performScrollTo().performClick()
         rule.onNodeWithTag(ModelKeyTags.KEY_STATUS).assertIsDisplayed()
         rule.onNodeWithText("還沒有金鑰").assertIsDisplayed()
         rule.onNodeWithTag(SettingsTags.BACK).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.SPEND.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.SPEND.name).performScrollTo().performClick()
         rule.onNodeWithText("還沒有設每日上限，建議每天 1 美元。").assertIsDisplayed()
         rule.onNodeWithTag(SettingsTags.BACK).performClick()
-        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performClick()
+        rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.LEGACY.name).performScrollTo().performClick()
         rule.waitForText("沒有舊資料要搬。")
 
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.COMPANY.name).performClick()
@@ -118,7 +121,8 @@ class AgencyActivityTest {
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
         rule.waitForText("現在去喝水。")
-        rule.onNodeWithText("【小葵姐】").assertIsDisplayed()
+        // Her name once over her run of lines (redesign §四).
+        assertTrue(rule.onAllNodesWithText("小葵姐").fetchSemanticsNodes().isNotEmpty())
         assertTrue(rule.onAllNodesWithTextCount("1234") == 0)
         val stored = runBlocking { (app.agency.start.value as StartState.Ready).store.messages.recent(10) }
         // The welcome of 入社建檔 first; 「姐姐在嗎」 is no answer to its question, so it goes to the manager's loop.
@@ -170,7 +174,7 @@ class AgencyActivityTest {
     @Test fun anUnexpectedThrowAtStartIsATryAgainScreen() {
         AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys())
         AgencyApp.testOverrides = kit.overrides().let { o ->
-            TestOverrides(o.modelBase, o.openDatabase, { error("invented") }, o.store)
+            TestOverrides(o.modelBase, o.openDatabase, { error("invented") }, o.store, autoOnboarding = false)
         }
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
         rule.waitForTag(AgencyTags.UNAVAILABLE)

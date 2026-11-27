@@ -48,6 +48,17 @@ data class IdolCardFacts(
     /** 特別日 (入社第 30、100 天, a holiday): its line; the 主題週 of this week (when open). */
     val special: String? = null,
     val theme: String? = null,
+    /** He set target weights (設定 › 公司規章): with none, the card shows no goal line at all (not 「都到了」, F2). */
+    val goalsSet: Boolean = false,
+    /** Missing 入社建檔 items by name (「還差：…」, F3), skipped ones included. */
+    val baselineMissingNames: List<String> = emptyList(),
+    /** Last night's sign-out is still owed (after the day boundary, S1): 簽退 shows for it. */
+    val lateSignOut: Boolean = false,
+    /** How far he is from [nextGoalKg] (current weight minus the goal), when both are known. */
+    val goalGapKg: Double? = null,
+    /** 分週上線: the next week and the first features it opens (「… 第 N 週開放」), null in the last week. */
+    val nextWeek: Int? = null,
+    val nextWeekFeatures: List<String> = emptyList(),
 ) {
     /** What comes next: the first slot still open or later, in time order. */
     val next: SlotState? get() = slots.firstOrNull { it.status == SlotStatus.OPEN || it.status == SlotStatus.LATER }
@@ -103,6 +114,8 @@ object IdolCard {
             joinDay = joinDay(profile, todayDay),
             stickers = stickers,
             nextGoalKg = nextGoal(rules, currentKg),
+            goalsSet = rules.goalsKg.any { it >= GOAL_FLOOR_KG },
+            goalGapKg = nextGoal(rules, currentKg)?.let { g -> currentKg?.let { it - g } },
             kcalLeft = CoachRules.remainingKcal(rules.quotaKcal, eaten),
             proteinLeftG = CoachRules.remainingProtein(rules.proteinG, protein),
             breachesToday = today.meals.sumOf { it.breaches.size },

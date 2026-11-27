@@ -4,10 +4,15 @@ import android.content.Context
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.onAllNodesWithText
+import app.agency.core.schedule.RolloutSpec
+import app.dshmobile.ui.agency.today.TodayTags
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import org.junit.Assert.assertFalse
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
@@ -89,14 +94,17 @@ class IdolCardScreenTest {
         s.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 186.0, weightKg = 96.0, completedAt = 1L))
     }
 
-    @Test fun theOpenCardShowsTheIdolFileAndFoldsToOneLine() {
+    private fun open() {
+        rule.onNodeWithTag(AgencyTags.TRAINEE).performClick()
+        waitTag(AgencyTags.CARD_AREA)
+    }
+
+    private fun text(tag: String) = rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().config[SemanticsProperties.Text].joinToString("")
+
+    @Test fun theLineIsOneRowAndTheIdolCardOpensOverTheScreen() {
         launch()
-        // While 入社建檔 asks, the card stays folded (the 入社建檔 panel has the buttons; the conversation keeps its room).
         waitTag(IdolTags.FOLDED)
-        rule.onNodeWithTag(IdolTags.FOLDED).assert(state("已收起"))
-        rule.onNodeWithTag(IdolTags.FOLDED).performClick()
-        waitTag(IdolTags.NAME)
-        rule.onNodeWithTag(AgencyTags.TRAINEE).assertExists()
+        rule.onNodeWithTag(AgencyTags.TRAINEE).assert(state("已收起"))
         runBlocking {
             val s = ready().store
             s.profile.put(Profile(stageName = null, joinDate = today().minusDays(9).toString(), onboardingDone = false))
@@ -108,37 +116,64 @@ class IdolCardScreenTest {
         type("藝名 小雨")
         rule.waitForText("記下：藝名「小雨」。")
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithText("小雨", useUnmergedTree = true).assertExists() }.isSuccess }
-        rule.onNodeWithTag(IdolTags.NUMBER, useUnmergedTree = true).assert(SemanticsMatcher.expectValue(SemanticsProperties.Text, listOf(androidx.compose.ui.text.AnnotatedString("小雨娛樂 ・ 練習生 第 001 號"))))
-        rule.onNodeWithText("等級 練習生 C", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("入社第 10 天", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("今天還剩 986 大卡、蛋白質還差 92 克", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("今日違規 1", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("下一個目標 91 公斤", useUnmergedTree = true).assertExists()
-        assertEquals(2, rule.onAllNodesWithTag(IdolTags.STICKER + "0", useUnmergedTree = true).fetchSemanticsNodes().size + rule.onAllNodesWithTag(IdolTags.STICKER + "1", useUnmergedTree = true).fetchSemanticsNodes().size)
-        rule.onNodeWithTag(IdolTags.BAND, useUnmergedTree = true).assertExists()
+        // The line: name, grade, day and the stickers; no calories, breaches or missing items (F1, F3).
+        rule.waitUntil(10_000) { text(IdolTags.FOLDED).startsWith("練習生 C ・ 入社第 10 天 ・ 貼紙") }
+        listOf("大卡", "違規", "缺").forEach { assertFalse(it, text(IdolTags.FOLDED).contains(it)) }
 
-        // Fold by a tap: one line, and TalkBack hears the state.
-        rule.onNodeWithTag(IdolTags.NAME, useUnmergedTree = true).performClick()
-        rule.waitForTag(IdolTags.FOLDED)
-        rule.onNodeWithTag(IdolTags.FOLDED).assert(state("已收起"))
-        rule.onNodeWithText("小雨娛樂 ・ 入社第 10 天 ・ 今日違規 1 ・ 剩 986 大卡").assertExists()
-        rule.onNodeWithTag(IdolTags.FOLDED).performClick()
-        waitTag(IdolTags.NAME)
+        open()
+        rule.onNodeWithTag(IdolTags.NUMBER, useUnmergedTree = true).assert(SemanticsMatcher.expectValue(SemanticsProperties.Text, listOf(androidx.compose.ui.text.AnnotatedString("小雨娛樂 ・ 練習生 第 001 號"))))
+        rule.onNodeWithText("練習生 C", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("第 10 天", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag(IdolTags.GOAL, useUnmergedTree = true).assertExists()
+        assertTrue(text(IdolTags.GOAL).startsWith("下一個目標 91 公斤") || text(IdolTags.GOAL).startsWith("91 公斤"))
+        rule.onNodeWithTag(IdolTags.BAND, useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag(IdolTags.STICKERS, useUnmergedTree = true).assertExists()
+        // Folds back to the line.
+        rule.onNodeWithContentDescription("收起").performClick()
+        waitTag(AgencyTags.HOME)
+        rule.onNodeWithTag(AgencyTags.TRAINEE).assertExists()
     }
 
-    @Test fun theFoldedLineSaysWhatIsMissingAndTheSetupAsksForNameAndColour() {
+    @Test fun withNoTargetSetThereIsNoGoalLineAtAll() {
+        launch()
+        waitTag(IdolTags.FOLDED)
+        seedFinished(Profile(joinDate = today().toString(), stageName = "小雨", memberColor = MemberColour.PRESETS[0].second))
+        runBlocking { ready().brain.setIdol("小雨", null) }
+        open()
+        rule.onNodeWithTag(IdolTags.NUMBER, useUnmergedTree = true).assertExists()
+        assertTrue(rule.onAllNodesWithTag(IdolTags.GOAL, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(rule.onAllNodesWithText("目標都到了", substring = true, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test fun inWeekOneTheLineAndTheCardShowNothingThatIsNotOpenYet() {
+        AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys())
+        AgencyApp.testOverrides = kit.overrides(rollout = RolloutSpec.SEED)
+        scenario = ActivityScenario.launch(AgencyActivity::class.java)
+        rule.waitForTag(AgencyTags.HOME)
+        waitTag(IdolTags.FOLDED)
+        seedFinished(Profile(joinDate = today().minusDays(2).toString(), stageName = "小雨", memberColor = MemberColour.PRESETS[0].second))
+        runBlocking { ready().brain.setIdol("小雨", null) }
+        rule.waitUntil(10_000) { text(IdolTags.FOLDED) == "練習生 C ・ 入社第 3 天" }
+        // The 今天 card: the lesson row and one 「… 第 2 週開放」 line; no water, meals or breaches anywhere.
+        waitTag(TodayTags.HINT)
+        assertTrue(text(TodayTags.HINT).endsWith("第 2 週開放"))
+        listOf("大卡", "違規", "喝完一壺", "出門跑單", "拍這餐").forEach { w ->
+            assertTrue(w, rule.onAllNodesWithText(w, substring = true, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+        }
+        open()
+        assertTrue(rule.onAllNodesWithTag(IdolTags.STICKERS, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test fun theSetupAsksForNameAndColourInsideTheCard() {
         launch()
         rule.waitForTag(IdolTags.CARD)
         seedFinished(Profile(joinDate = today().toString()))
         runBlocking { ready().brain.setIdol("小雨", null) } // bumps the revision
-        // Done but six items missing: open by itself, with 補交; the setup asks for the colour.
+        open()
         waitTag(IdolTags.SETUP)
         rule.tapTag(IdolTags.COLOR + "6")
         rule.waitUntil(10_000) { runBlocking { ready().store.profile.get()?.memberColor } == MemberColour.PRESETS[6].second }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(IdolTags.SETUP, useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
-        rule.onNodeWithTag(IdolTags.NAME, useUnmergedTree = true).performClick()
-        rule.waitForTag(IdolTags.FOLDED)
-        rule.onNodeWithText("小雨娛樂 ・ 入社第 1 天 ・ 今日違規 0 ・ 剩 1700 大卡 ・ 入社資料缺 6 項").assertExists()
     }
 
     @Test fun notNowHidesTheSetupForGood() {
@@ -146,11 +181,11 @@ class IdolCardScreenTest {
         rule.waitForTag(IdolTags.CARD)
         seedFinished(Profile())
         runBlocking { ready().brain.setIdol(null, null) }
+        open()
         waitTag(IdolTags.SETUP)
         rule.tapTag(IdolTags.SETUP_SKIP)
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(IdolTags.SETUP, useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
         assertTrue(app.agency.settings.idolSetupSkipped)
         rule.onNodeWithText("還沒有藝名", useUnmergedTree = true).assertExists()
-        rule.onNode(state("已展開")).assertExists()
     }
 }

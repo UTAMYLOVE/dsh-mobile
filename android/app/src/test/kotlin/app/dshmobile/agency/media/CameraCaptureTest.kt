@@ -10,6 +10,7 @@ import android.provider.MediaStore
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -75,18 +76,16 @@ class CameraCaptureTest {
 
     private fun openOnTheFrontPhoto() {
         AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys())
-        AgencyApp.testOverrides = kit.overrides()
+        AgencyApp.testOverrides = kit.overrides(autoOnboarding = true)
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
-        rule.waitForTag(AgencyTags.HOME)
+        // 入社建檔's page opens by itself; the photos card is on it with the body card.
         rule.waitForTag(OnboardingTags.STEP + OnboardingStep.BODY.name)
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("身高 186 體重 94")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
         rule.waitForTag(OnboardingTags.STEP + OnboardingStep.PHOTO_FRONT.name)
     }
 
     /** Taps 拍照 and returns the camera intent and the file it writes into. */
     private fun takePhoto(): Pair<org.robolectric.shadows.ShadowActivity.IntentForResult, File> {
-        rule.onNodeWithTag(OnboardingTags.TAKE_PHOTO).performClick()
+        rule.onNodeWithTag(OnboardingTags.TAKE_PHOTO).performScrollTo().performClick()
         var started: org.robolectric.shadows.ShadowActivity.IntentForResult? = null
         scenario!!.onActivity { started = shadowOf(it).nextStartedActivityForResult }
         assertNotNull("notice=${app.agency.mediaNotice.value} pending=${app.agency.camera.pending()} log=${app.errorLog.file().takeIf { it.isFile }?.readText()?.takeLast(400)}", started)
@@ -104,7 +103,7 @@ class CameraCaptureTest {
         val (started, file) = takePhoto()
         file.writeBytes(bigJpeg())
         scenario!!.onActivity { shadowOf(it).receiveResult(started.intent, Activity.RESULT_OK, null) }
-        rule.waitForTag(OnboardingTags.STEP + OnboardingStep.PHOTO_SIDE.name)
+        rule.waitUntil(10_000) { join()?.photoFront != null }
         val id = join()!!.photoFront!!
         val plain = app.agency.mediaVault()!!.get(id)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -122,7 +121,6 @@ class CameraCaptureTest {
         val (started, file) = takePhoto()
         scenario!!.onActivity { shadowOf(it).receiveResult(started.intent, Activity.RESULT_CANCELED, null) }
         rule.waitUntil(5_000) { !file.exists() }
-        assertEquals(OnboardingStep.PHOTO_FRONT, BaselineSteps.open(join()!!))
         assertNull(join()!!.photoFront)
         assertEquals(0, runBlocking { ready().store.media.count() })
         assertNull(app.agency.camera.pending())
@@ -137,7 +135,7 @@ class CameraCaptureTest {
         scenario!!.close()
         runBlocking { app.agency.stopForTest() }
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
-        rule.waitForTag(AgencyTags.HOME)
+        rule.waitForTag(OnboardingTags.SCREEN)
         assertTrue(file.exists())
         assertEquals(listOf(file.name), MediaVault.cameraDir(app).list()!!.toList())
         // The camera's answer arrives for the new activity: it still finds the pending capture.

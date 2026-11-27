@@ -76,7 +76,7 @@ class WholeDayScreenTest {
     private fun open() {
         AgencyTestKit.swap(app, "keyVault", AgencyTestKit.MemoryKeys(Provider.DEEPSEEK to "sk-e2e-fake-key-0123456789"))
         val o = kit.overrides(modelBase = fake.base)
-        AgencyApp.testOverrides = TestOverrides(o.modelBase, o.openDatabase, o.mediaVault, o.store, camera = { f -> f.writeBytes(shot); true }, rollout = o.rollout, clock = AgencyClock.of(clock))
+        AgencyApp.testOverrides = TestOverrides(o.modelBase, o.openDatabase, o.mediaVault, o.store, camera = { f -> f.writeBytes(shot); true }, rollout = o.rollout, clock = AgencyClock.of(clock), autoOnboarding = false)
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
         rule.waitForTag(AgencyTags.HOME, 30_000)
     }
