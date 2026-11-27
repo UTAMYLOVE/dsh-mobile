@@ -26,6 +26,12 @@ data class RoleCard(
     val forbidden: List<String>,
     val pushToRealPeople: Boolean,
     val enabledFromStage: Int,
+    /** Her own name, when she has one (the manager: 小葵); [intro] is who she is to him, as the prompt states it. */
+    val name: String? = null,
+    val intro: String? = null,
 ) {
+    /** What the screens call her: her name with the job (「經紀人 小葵」), or the job. */
+    val title: String get() = name?.let { "$zh $it" } ?: zh
+
     fun enabledIn(stage: Int): Boolean = stage >= enabledFromStage
 }

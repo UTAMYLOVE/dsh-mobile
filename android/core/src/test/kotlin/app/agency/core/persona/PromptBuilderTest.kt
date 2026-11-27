@@ -42,9 +42,24 @@ class PromptBuilderTest {
         assertTrue(s.contains("醫療診斷"))
     }
 
+    /** Owner 2026-11-26: the manager is 小葵 (夏葵, 해나), he calls her 小葵姐, she calls him 小雨; her way of talking. */
+    @Test fun theManagerIsXiaoKuiWithHerWayOfTalking() {
+        val s = PromptBuilder.system(input())
+        assertTrue(s.contains("【你的角色：經紀人小葵】"))
+        assertTrue(s.contains("你是經紀人小葵（台灣名夏葵、韓文名해나）。他叫你「小葵姐」，你叫他「小雨」。"))
+        listOf("他分享心情時，先說「辛苦了」", "不評論他上課睡覺或學費", "只對他能控制的事施壓", "不確定他的狀況先問", "想睡就不准騎車跑單").forEach {
+            assertTrue(it, s.contains(it))
+        }
+        // The body teacher has no name of her own.
+        assertTrue(PromptBuilder.system(input().copy(role = Roles.BODY)).contains("【你的角色：體態管理老師】"))
+        assertEquals("經紀人 小葵", Roles.MANAGER.title)
+        // No figure of his is in her card (the prompt's numbers come only from the rules and the facts).
+        assertTrue(Roles.MANAGER.voice.none { it.contains("公斤") || Regex("[0-9]{2,}").containsMatchIn(it) })
+    }
+
     @Test fun theSectionsComeInTheFixedOrder() {
         val s = PromptBuilder.system(input(tone = Tone.GENTLE))
-        val marks = listOf("【公司】", "【公司規章", "【你的角色：經紀人】", "【模式：一般】", "【這一次的語氣：放軟】", "【你記得的事", "【資料：")
+        val marks = listOf("【公司】", "【公司規章", "【你的角色：經紀人小葵】", "【模式：一般】", "【這一次的語氣：放軟】", "【你記得的事", "【資料：")
         val at = marks.map { s.indexOf(it) }
         assertTrue(at.toString(), at.all { it >= 0 } && at == at.sorted())
         // The stable prefix (base, rules, role, mode) is the same whatever the tone, memory or facts.

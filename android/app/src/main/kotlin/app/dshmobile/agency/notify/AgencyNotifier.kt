@@ -128,8 +128,9 @@ class AgencyNotifier(private val context: Context) {
         const val ID_COST = 7101
         const val ID_RATE = 7102
         const val ID_GAPS = 7201
-        const val SCHEDULE_TITLE = "行程提醒"
-        const val RIDING_TITLE = "騎車中"
+        /** Every reminder is hers (owner 2026-11-26: the manager is 小葵, he calls her 小葵姐). */
+        const val SCHEDULE_TITLE = "小葵姐・行程提醒"
+        const val RIDING_TITLE = "小葵姐・騎車中"
         const val RATE_TITLE = "請求太頻繁"
         const val RATE_TEXT = "一分鐘內打給模型的次數太多，先停一下，以免白白耗掉額度。"
         private const val RATE_NOTICE_GAP_MS = 60_000L

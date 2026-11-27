@@ -24,12 +24,12 @@
     <string name="ag_notice_partial">有些舊紀錄讀不出來；讀得到的都搬好了，舊資料都還留著。</string>
     <string name="ag_notice_failed">搬資料沒有成功，舊資料都還在。下次打開會再試一次。</string>
     <string name="ag_notice_ok">知道了</string>
-    <string name="ag_role_manager">【經紀人】</string>
+    <string name="ag_role_manager">【小葵姐】</string>
     <string name="ag_role_body">【體態管理老師】</string>
     <string name="ag_role_company">【公司】</string>
-    <string name="ag_role_manager_plain">經紀人</string>
+    <string name="ag_role_manager_plain">小葵姐</string>
     <string name="ag_role_body_plain">體態管理老師</string>
-    <string name="ag_empty_chat">還沒有對話。有事就跟經紀人說。</string>
+    <string name="ag_empty_chat">還沒有對話。有事就跟小葵姐說。</string>
     <string name="ag_older">看更早的對話</string>
     <string name="ag_composer_hint">跟公司說…</string>
     <string name="ag_send">送出</string>
@@ -82,7 +82,7 @@
     <string name="ag_rules_confirm_2">再確認一次：改了之後，每個角色都照新的規章，舊的版本會留著紀錄。</string>
     <string name="ag_rules_yes">確定</string>
     <string name="ag_rules_yes_really">確定修改</string>
-    <string name="ag_schedule_note">接下來七天的行程。要改時間，跟經紀人討論，她提出來你按好才會改。</string>
+    <string name="ag_schedule_note">接下來七天的行程。要改時間，跟小葵姐討論，她提出來你按好才會改。</string>
     <string name="ag_card_next">下一項：%1$s %2$s</string>
     <string name="ag_card_gaps">還沒回報：%1$s</string>
 
@@ -103,6 +103,10 @@
     <!-- War room -->
     <string name="ag_warroom_title">指揮室</string>
     <string name="ag_warroom_closed">指揮室整修中</string>
+    <string name="ag_staff_title">公司成員</string>
+    <string name="ag_staff_manager">經紀人 小葵：台灣名夏葵、韓文名해나。你叫她小葵姐，她叫你小雨。</string>
+    <string name="ag_staff_on_duty">在職</string>
+    <string name="ag_staff_later">還沒到任</string>
     <!-- 今天的連動 (T11b) -->
     <string name="ag_links_title">今天的連動</string>
     <string name="ag_links_empty">今天還沒有因為什麼事改了安排。</string>
@@ -115,7 +119,7 @@
     <string name="ag_links_accepted">你說好了</string>
     <string name="ag_links_rejected">你說不要</string>
     <string name="ag_links_expired">沒回答，照原本的表</string>
-    <string name="ag_links_said">經紀人說了</string>
+    <string name="ag_links_said">小葵姐說了</string>
 
     <!-- Settings -->
     <string name="ag_back">返回</string>
@@ -264,13 +268,13 @@
     <string name="ag_proposal_yes">好</string>
     <string name="ag_proposal_no">不要</string>
     <string name="ag_set_memory">她記得的事</string>
-    <string name="ag_mem_intro">經紀人只記你親口說過、以後用得到的事。每一條都可以刪掉，每一次改動都可以撤銷。</string>
+    <string name="ag_mem_intro">小葵姐只記你親口說過、以後用得到的事。每一條都可以刪掉，每一次改動都可以撤銷。</string>
     <string name="ag_mem_none">還沒有。</string>
     <string name="ag_mem_delete">刪掉</string>
     <string name="ag_mem_history">改動紀錄</string>
     <string name="ag_mem_history_none">還沒有改動。</string>
     <string name="ag_mem_by_you">你</string>
-    <string name="ag_mem_by_her">經紀人</string>
+    <string name="ag_mem_by_her">小葵姐</string>
     <string name="ag_mem_due">（%1$s）</string>
     <!-- 每餐拍照 (T15) -->
     <string name="ag_meal_photo">拍這餐</string>
@@ -321,7 +325,7 @@
     <string name="ag_train_walk_button">快走完成</string>
     <string name="ag_train_cardio_button">體能</string>
     <string name="ag_train_cardio">體能十分鐘</string>
-    <string name="ag_train_pain">痠可以繼續；刺痛或關節痛算受傷，馬上停下來，跟經紀人說。</string>
+    <string name="ag_train_pain">痠可以繼續；刺痛或關節痛算受傷，馬上停下來，跟小葵姐說。</string>
     <string name="ag_train_core">核心七分鐘</string>
     <string name="ag_train_strength">肌力</string>
     <string name="ag_train_stretch">伸展</string>
@@ -363,7 +367,7 @@
     <string name="ag_review_fix">明天要改的一件事</string>
     <string name="ag_review_send">交出</string>
     <!-- 理論課 (T19c) -->
-    <string name="ag_lesson_said">經紀人說</string>
+    <string name="ag_lesson_said">小葵姐說</string>
     <string name="ag_lesson_today_title">今天的理論課（通過 %1$d／%2$d 支）</string>
     <string name="ag_lesson_not_started">還沒有課程清單。先找影片，按好的才會排進每天的行程。</string>
     <string name="ag_lesson_locked">前一支通過才開</string>

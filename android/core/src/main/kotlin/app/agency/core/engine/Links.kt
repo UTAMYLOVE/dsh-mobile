@@ -103,7 +103,7 @@ object Links {
     /** L3: ill or low → the manager speaks gently today (只提醒); training stays as planned unless L2 applies. */
     object L3Gentle : Link {
         override val id = "L3"
-        override val zh = "生病或心情低落：經紀人放軟口氣"
+        override val zh = "生病或心情低落：小葵姐放軟口氣"
         override val dailyCap = 2
 
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
@@ -357,7 +357,7 @@ object Links {
      */
     object L13Violation : Link {
         override val id = "L13"
-        override val zh = "違規：記進評鑑，經紀人指出"
+        override val zh = "違規：記進評鑑，小葵姐指出"
         override val dailyCap = 10
 
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {

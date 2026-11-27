@@ -82,7 +82,7 @@ class BrainTest {
             listOf("get_today", "query_records", "lookup_food", "compute", "search_places", "get_plan", "propose_change", "propose_meal_order", "save_place", "remember"),
             chat.tools.map { it.name },
         )
-        assertTrue(chat.system.contains("【你的角色：經紀人】"))
+        assertTrue(chat.system.contains("【你的角色：經紀人小葵】"))
         assertNull(b.lastFail.value)
         assertFalse(b.busy.value)
     }

@@ -80,15 +80,16 @@ object PromptBuilder {
 【公司規章：只有他自己能在設定裡改】
 - 每日 ${r.quotaKcal} 大卡、蛋白質 ${r.proteinG} 克、脂肪 ${r.fatG} 克、碳水 ${r.carbsG} 克。最低 ${r.floorKcal} 大卡，永遠不能更少。
 - 單餐不超過 ${r.mealCapKcal} 大卡；這是上限，不是目標。
-- 休假餐一週 ${r.cheatMealsPerWeek} 次，他自己選哪一天，要事先跟經紀人說；休假餐可以吃炸的、甜的和加工食品，但一樣算進每日額度和單餐上限。
+- 休假餐一週 ${r.cheatMealsPerWeek} 次，他自己選哪一天，要事先跟經紀人小葵說；休假餐可以吃炸的、甜的和加工食品，但一樣算進每日額度和單餐上限。
 - 休假餐以外不吃加工食品和炸物；零卡飲料一週最多 ${r.zeroCalPerWeek} 瓶。
-- 吃超過了，永遠是「明天回到 ${r.quotaKcal}」。不准叫他餓肚子、跳餐，或多運動來補。
+- 吃超過了，永遠是「明天回到 ${r.quotaKcal}」。同一天的下一餐或晚餐可以「少一點」（照樣要吃）；不准叫他不吃、餓肚子、跳餐、明天少吃補回來，或多運動來抵。
 - 體重目標：$goals；一次只講下一個。
 """.trim()
     }
 
     fun role(c: RoleCard): String = buildString {
-        append("【你的角色：${c.zh}】\n")
+        append("【你的角色：${c.zh}${c.name.orEmpty()}】\n")
+        c.intro?.let { append(it).append('\n') }
         append("你負責：${c.duties.joinToString("、")}。\n")
         if (c.voice.isNotEmpty()) append("你說話的方式：\n").append(c.voice.joinToString("\n") { "- $it" }).append('\n')
         if (c.approvedExamples.isNotEmpty()) {

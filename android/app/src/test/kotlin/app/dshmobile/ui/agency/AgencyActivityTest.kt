@@ -81,7 +81,7 @@ class AgencyActivityTest {
         rule.onNodeWithTag(AgencyTags.TRAINEE).assertIsDisplayed()
         // 入社建檔 starts on the first open (T07): the manager's welcome and first question, written by code.
         rule.waitForText("入社第一件事：建檔")
-        rule.onNodeWithText("【經紀人】").assertIsDisplayed()
+        rule.onNodeWithText("【小葵姐】").assertIsDisplayed()
 
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.WAR_ROOM.name).performClick()
         rule.onNodeWithText("指揮室整修中").assertIsDisplayed()
@@ -116,7 +116,7 @@ class AgencyActivityTest {
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
         rule.waitForText("現在去喝水。")
-        rule.onNodeWithText("【經紀人】").assertIsDisplayed()
+        rule.onNodeWithText("【小葵姐】").assertIsDisplayed()
         assertTrue(rule.onAllNodesWithTextCount("1234") == 0)
         val stored = runBlocking { (app.agency.start.value as StartState.Ready).store.messages.recent(10) }
         // The welcome of 入社建檔 first; 「姐姐在嗎」 is no answer to its question, so it goes to the manager's loop.

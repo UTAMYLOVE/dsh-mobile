@@ -174,7 +174,7 @@ class ChatT12ScreenTest {
         text = "記住了。"
         memory = JSONArray().put(JSONObject().put("op", "add").put("block", "likes").put("item_id", JSONObject.NULL).put("text", "他不吃香菜").put("quote", "我不吃香菜"))
         type("我不吃香菜")
-        rule.waitForText("經紀人記下：他不吃香菜", 30_000)
+        rule.waitForText("小葵姐記下：他不吃香菜", 30_000)
         val ev = runBlocking { ready().store.memory.events() }.single()
         rule.onNodeWithTag(ChatTags.UNDO + ev.id).performClick()
         rule.waitUntil(10_000) { runBlocking { ready().store.memory.items() }.isEmpty() }
@@ -191,7 +191,7 @@ class ChatT12ScreenTest {
         text = "記住了。"
         memory = JSONArray().put(JSONObject().put("op", "add").put("block", "likes").put("item_id", JSONObject.NULL).put("text", "他不吃香菜").put("quote", "我不吃香菜"))
         type("我不吃香菜")
-        rule.waitForText("經紀人記下：他不吃香菜", 30_000)
+        rule.waitForText("小葵姐記下：他不吃香菜", 30_000)
         val item = runBlocking { ready().store.memory.items() }.single()
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
         rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.MEMORY.name).performScrollTo().performClick()
