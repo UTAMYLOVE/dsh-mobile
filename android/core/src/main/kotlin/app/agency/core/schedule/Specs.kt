@@ -75,19 +75,23 @@ data class WaterSpec(
     val stepWeeks: Int = 2,
 )
 
-/** The four sections together. */
+/** The sections together; [rollout] is 上線週數 (a store never seeded has none: everything open, [RolloutSpec.ALL_OPEN]). */
 data class PlanSpecs(
     val schedule: ScheduleSpec = ScheduleSpec(),
     val meals: MealSpec = MealSpec(),
     val training: TrainingSpec = TrainingSpec(),
     val water: WaterSpec = WaterSpec(),
+    val rollout: RolloutSpec = RolloutSpec.ALL_OPEN,
 ) {
     fun json(key: PlanSectionKey): String = when (key) {
         PlanSectionKey.SCHEDULE -> JSON.encodeToString(ScheduleSpec.serializer(), schedule)
         PlanSectionKey.MEALS -> JSON.encodeToString(MealSpec.serializer(), meals)
         PlanSectionKey.TRAINING -> JSON.encodeToString(TrainingSpec.serializer(), training)
         PlanSectionKey.WATER -> JSON.encodeToString(WaterSpec.serializer(), water)
+        PlanSectionKey.ROLLOUT -> JSON.encodeToString(RolloutSpec.serializer(), rollout)
     }
+
+    fun open(f: Feature): Boolean = rollout.open(f)
 
     companion object {
         val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -100,6 +104,9 @@ data class PlanSpecs(
                 read(PlanSectionKey.MEALS, MealSpec()) { JSON.decodeFromString(MealSpec.serializer(), it) },
                 read(PlanSectionKey.TRAINING, TrainingSpec()) { JSON.decodeFromString(TrainingSpec.serializer(), it) },
                 read(PlanSectionKey.WATER, WaterSpec()) { JSON.decodeFromString(WaterSpec.serializer(), it) },
+                // Missing: never seeded (everything open); unreadable: week 1 (the safe side).
+                sections[PlanSectionKey.ROLLOUT]?.let { j -> runCatching { JSON.decodeFromString(RolloutSpec.serializer(), j) }.getOrDefault(RolloutSpec.SEED) }
+                    ?: RolloutSpec.ALL_OPEN,
             )
         }
     }

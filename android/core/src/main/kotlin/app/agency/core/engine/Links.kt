@@ -24,7 +24,7 @@ object Links {
     fun all(): List<Link> = listOf(
         L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd, L10Water,
         L11Completion, L12Chase, L13Violation, L14Discuss, L15Progression, L16Spend, L17Grooming, L18NoClassDay, L19Review, L20Week,
-        L21WeightStop, L22TiredRiding, L23WeightTrend, L24Lessons,
+        L21WeightStop, L22TiredRiding, L23WeightTrend, L24Lessons, L25Rollout,
     ) + Pending.all
 
     /** Minutes of [at] from 00:00 of the coach day's date (after midnight is past 24 × 60, like a slot's minute). */
@@ -35,6 +35,7 @@ object Links {
 
     /** L1: woke ≥ 60 minutes late → the first meal follows (at most to 3 h before the next meal); sleep time stays. */
     object L1WakeLate : Link {
+        override val feature get() = app.agency.core.schedule.Feature.SIGN
         override val id = "L1"
         override val zh = "起床晚了，第一餐跟著順延"
         override val dailyCap = 1
@@ -134,6 +135,7 @@ object Links {
 
     /** L4: 「早上很餓」 → the 豆漿 to the morning; the chicken breast stays at 21:00. */
     object L4HungryMorning : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MEALS
         override val id = "L4"
         override val zh = "早上很餓：豆漿換到早上"
         override val dailyCap = 1
@@ -152,6 +154,7 @@ object Links {
      * skipped meal, and nothing when the day is already over (then it is 「明天回到 1700」, not less food).
      */
     object L5NextMeal : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MEALS
         override val id = "L5"
         override val zh = "每餐熱量：下一餐跟著調整（不低於 1200）"
         override val dailyCap = 6
@@ -173,6 +176,7 @@ object Links {
 
     /** L6: by dinner (or after L9) the day is under the floor → eat enough (never less). */
     object L6Floor : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MEALS
         override val id = "L6"
         override val zh = "到晚餐還不到最低熱量：提醒吃夠"
         override val dailyCap = 2
@@ -195,6 +199,7 @@ object Links {
      * judge still reads the day's replies. Recorded here.
      */
     object L7CheatMeal : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MEALS
         override val id = "L7"
         override val zh = "休假餐：那一餐的禁止食物不算違規，熱量照算"
         override val dailyCap = 2
@@ -211,6 +216,7 @@ object Links {
      * before leaving (little while riding).
      */
     object L8Riding : Link {
+        override val feature get() = app.agency.core.schedule.Feature.RIDE
         override val id = "L8"
         override val zh = "跑單：提醒只響一聲，出門前喝水"
         override val dailyCap = 3
@@ -240,6 +246,7 @@ object Links {
      * (owner: he cannot drink much while riding). The reminder is not posted when the water is in by then. Only reminds.
      */
     object L10Water : Link {
+        override val feature get() = app.agency.core.schedule.Feature.WATER
         override val id = "L10"
         override val zh = "喝水落後：下午加一次提醒，跑單前不灌"
         override val dailyCap = 1
@@ -271,6 +278,7 @@ object Links {
 
     /** L9: home from the run with the 21:00 portion eaten → no 宵夜 tonight, then L6 checks the floor. */
     object L9RideEnd : Link {
+        override val feature get() = app.agency.core.schedule.Feature.RIDE
         override val id = "L9"
         override val zh = "收工且吃了 21:00 那份：宵夜取消，再看最低熱量"
         override val dailyCap = 1
@@ -290,6 +298,7 @@ object Links {
      * [DayState.sweetToday]). Only records: nothing changes in the plan.
      */
     object L11Completion : Link {
+        override val feature get() = app.agency.core.schedule.Feature.CORE
         override val id = "L11"
         override val zh = "核心或肌力當天第一次完成：撒嬌一次、照片牆加一張"
         override val dailyCap = 1
@@ -356,6 +365,7 @@ object Links {
      * 「明天少吃補回來」. A breach on the day turns the second-pass judge on for every reply of it (the day's `breachToday`).
      */
     object L13Violation : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MEALS
         override val id = "L13"
         override val zh = "違規：記進評鑑，小葵姐指出"
         override val dailyCap = 10
@@ -396,6 +406,7 @@ object Links {
      * one at a time, in order (背包划船 → 臀橋 → 第四輪). Never while one waits, never past the last step; his yes applies it.
      */
     object L15Progression : Link {
+        override val feature get() = app.agency.core.schedule.Feature.STRENGTH
         override val id = "L15"
         override val zh = "肌力一週都輕鬆：提案升級（一次一項）"
         override val dailyCap = 1
@@ -429,6 +440,7 @@ object Links {
      * 記帳 and its buckets are stage 6, so there is no balance to warn about yet.
      */
     object L16Spend : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MEALS
         override val id = "L16"
         override val zh = "花費：外食從生活費扣，形象用品從娛樂費扣"
         override val dailyCap = 30
@@ -443,6 +455,7 @@ object Links {
 
     /** L17: grooming cycles → reminders in today's free time (shave at sign-in). */
     object L17Grooming : Link {
+        override val feature get() = app.agency.core.schedule.Feature.GROOMING
         override val id = "L17"
         override val zh = "儀容到期：排進空檔提醒"
         override val dailyCap = 2
@@ -515,6 +528,7 @@ object Links {
      * then [Signal.WokeUp] here). Nothing not done is to be made up tomorrow.
      */
     object L19Review : Link {
+        override val feature get() = app.agency.core.schedule.Feature.SIGN
         override val id = "L19"
         override val zh = "睡前簽退：檢討卡，明天要改的變提案"
         override val dailyCap = 2
@@ -574,13 +588,18 @@ object Links {
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
             is Signal.WeekEnded -> {
                 val next = java.time.LocalDate.parse(signal.monday).plusDays(7)
-                listOf(
+                listOfNotNull(
                     Effect.Say(summary(signal)),
                     Effect.Record("week", "${signal.monday} ${signal.done}/${signal.due} breaches=${signal.breaches} real=${signal.realTask} target=${signal.onTarget}"),
-                    Effect.Say(RealTasks.line(next)),
+                    // The real-person task opens with its week (分週上線).
+                    Effect.Say(RealTasks.line(next)).takeIf { ctx.specs.open(app.agency.core.schedule.Feature.REAL_TASK) },
                 )
             }
-            is Signal.RemindersOn -> listOf(Effect.Say(RealTasks.line(state.day.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))))
+            is Signal.RemindersOn -> if (ctx.specs.open(app.agency.core.schedule.Feature.REAL_TASK)) {
+                listOf(Effect.Say(RealTasks.line(state.day.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))))
+            } else {
+                emptyList()
+            }
             is Signal.RealTaskDone -> listOf(Effect.Record("real_task", state.day.toString()))
             else -> emptyList()
         }
@@ -610,6 +629,7 @@ object Links {
      * at once.
      */
     object L22TiredRiding : Link {
+        override val feature get() = app.agency.core.schedule.Feature.RIDE
         override val id = "L22"
         override val zh = "疲勞騎車：提醒少跑、早收工"
         override val dailyCap = 4
@@ -645,6 +665,7 @@ object Links {
      * change it in 設定 (rules are never changed by a link).
      */
     object L23WeightTrend : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MEALS
         override val id = "L23"
         override val zh = "體重掉太快：提案調高熱量"
         override val dailyCap = 1
@@ -690,6 +711,7 @@ object Links {
      * taken, a 實作 handed in → recorded for the month-end evaluation (stage 4).
      */
     object L24Lessons : Link {
+        override val feature get() = app.agency.core.schedule.Feature.LESSONS
         override val id = "L24"
         override val zh = "理論課：複習考提醒、清單快沒了提醒、分數和實作記進評鑑"
         override val dailyCap = 40
@@ -717,6 +739,29 @@ object Links {
             is Signal.LessonReviewed -> listOf(Effect.Record(REVIEW, "${signal.category} ${signal.score}/3"))
             is Signal.PracticalHandedIn -> listOf(Effect.Record(PRACTICAL, "${signal.category} 交了"))
             else -> emptyList()
+        }
+    }
+
+    /**
+     * L25 (分週上線, owner 2026-11-27): a week on target → the card for the next rollout week (what it opens); his 好 opens it
+     * ([Nerve.decide]), 不要 keeps this week. Never past the last week; he can also set the week in 設定.
+     */
+    object L25Rollout : Link {
+        override val id = "L25"
+        override val zh = "一週達標：開下一週（你說好才開）"
+        override val dailyCap = 2
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.WeekEnded || !signal.onTarget) return emptyList()
+            val r = ctx.specs.rollout
+            if (r.week >= app.agency.core.schedule.RolloutSpec.LAST) return emptyList()
+            val next = r.week + 1
+            val opens = r.opensIn(next).joinToString("、") { it.zh }
+            val change = "第 $next 週開始，新開放：$opens。"
+            return listOf(
+                Effect.Say("這週達標了。第 $next 週要開放：$opens。你說「好」就開始；還沒準備好就說「不要」，這週再穩一週。"),
+                Effect.Proposal(todayOnly = false, change = change, because = "因為上一週達標（該做的 ${WeekReport.TARGET_PCT}% 以上、沒有違規），所以提案開下一週：$change", rolloutWeek = next),
+            )
         }
     }
 

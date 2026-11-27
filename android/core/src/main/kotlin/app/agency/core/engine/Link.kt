@@ -40,6 +40,8 @@ sealed interface Effect {
         val progression: Int? = null,
         /** L19: what he said to fix tomorrow; his yes has the manager remind him of it at tomorrow's sign-in. */
         val fixTomorrow: String? = null,
+        /** L25 (分週上線): the rollout week his yes opens (after a week on target). */
+        val rolloutWeek: Int? = null,
     ) : Effect
 
     @Serializable @SerialName("notify")
@@ -84,5 +86,8 @@ interface Link {
     val id: String
     val zh: String
     val dailyCap: Int
+
+    /** The rollout feature it belongs to (分週上線): a link of a feature not open yet answers nothing. Null: always on. */
+    val feature: app.agency.core.schedule.Feature? get() = null
     fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect>
 }

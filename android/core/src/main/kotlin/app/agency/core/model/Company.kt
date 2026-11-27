@@ -40,7 +40,8 @@ data class CompanyRules(
 )
 
 /** The four parts of his plan that a confirmed proposal (or he, in 設定) may change. */
-enum class PlanSectionKey { SCHEDULE, MEALS, TRAINING, WATER }
+/** [ROLLOUT] is 上線週數 (owner 2026-11-27): the week he is in and what each week opens ([app.agency.core.schedule.RolloutSpec]). */
+enum class PlanSectionKey { SCHEDULE, MEALS, TRAINING, WATER, ROLLOUT }
 
 /**
  * One plan section as stored: [json] is the serialised typed spec of that section. [changedBy] is `OWNER_SETTINGS`,

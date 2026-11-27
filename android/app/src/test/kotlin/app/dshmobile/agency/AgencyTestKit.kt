@@ -43,8 +43,10 @@ class AgencyTestKit(private val dir: File) {
     /** While true, the vault's data key is lost: every seal fails (an import with baseline files then rolls back). */
     @Volatile var vaultLocked = false
 
-    fun overrides(modelBase: HttpUrl? = null) = TestOverrides(
+    /** Everything open by default (the tests of the features); a rollout test passes its own week. */
+    fun overrides(modelBase: HttpUrl? = null, rollout: app.agency.core.schedule.RolloutSpec = app.agency.core.schedule.RolloutSpec.ALL_OPEN) = TestOverrides(
         modelBase = modelBase,
+        rollout = rollout,
         openDatabase = { ctx ->
             opens++
             failures.removeFirstOrNull()?.let { throw it }

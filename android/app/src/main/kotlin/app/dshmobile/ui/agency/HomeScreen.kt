@@ -231,25 +231,33 @@ private fun QuickButtons(card: IdolCardFacts?, busy: Boolean, onPhoto: () -> Uni
     val end = stringResource(R.string.ag_ride_end)
     val slots = card?.slots.orEmpty()
     fun done(key: SlotKey) = slots.firstOrNull { it.key == key }?.status == SlotStatus.DONE
+    // 分週上線: a button of a feature not open yet is not shown.
+    fun open(f: app.agency.core.schedule.Feature) = card?.open?.contains(f) ?: true
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // 簽到 until he has, then 簽退 (T19): the same words he may type.
-        if (!done(SlotKey.WAKE)) {
+        if (open(app.agency.core.schedule.Feature.SIGN) && !done(SlotKey.WAKE)) {
             val w = stringResource(R.string.ag_sign_in)
             PinkButton(w, onClick = { onSay(w) }, enabled = !busy, modifier = Modifier.testTag(SignTags.SIGN_IN))
         }
-        PinkButton(stringResource(R.string.ag_meal_photo), onClick = onPhoto, enabled = !busy, modifier = Modifier.testTag(MealTags.PHOTO))
+        if (open(app.agency.core.schedule.Feature.MEALS)) {
+            PinkButton(stringResource(R.string.ag_meal_photo), onClick = onPhoto, enabled = !busy, modifier = Modifier.testTag(MealTags.PHOTO))
+        }
         // 喝水 (T17): the same words he may type.
-        val full = stringResource(R.string.ag_water_full)
-        val half = stringResource(R.string.ag_water_half)
-        SoftButton(full, onClick = { onSay(full) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.WATER_FULL))
-        SoftButton(half, onClick = { onSay(half) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.WATER_HALF))
-        SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
-        SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
+        if (open(app.agency.core.schedule.Feature.WATER)) {
+            val full = stringResource(R.string.ag_water_full)
+            val half = stringResource(R.string.ag_water_half)
+            SoftButton(full, onClick = { onSay(full) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.WATER_FULL))
+            SoftButton(half, onClick = { onSay(half) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.WATER_HALF))
+        }
+        if (open(app.agency.core.schedule.Feature.RIDE)) {
+            SoftButton(start, onClick = { onSay(start) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_START))
+            SoftButton(end, onClick = { onSay(end) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.RIDE_END))
+        }
         SoftButton(stringResource(R.string.ag_discuss), onClick = { onSay(Discussion.OPEN_WORD) }, enabled = !busy, modifier = Modifier.testTag(AgencyTags.DISCUSS))
-        if (done(SlotKey.WAKE) && !done(SlotKey.SIGN_OUT)) {
+        if (open(app.agency.core.schedule.Feature.SIGN) && done(SlotKey.WAKE) && !done(SlotKey.SIGN_OUT)) {
             val o = stringResource(R.string.ag_sign_out)
             SoftButton(o, onClick = { onSay(o) }, enabled = !busy, modifier = Modifier.testTag(SignTags.SIGN_OUT))
         }

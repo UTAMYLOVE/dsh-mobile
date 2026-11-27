@@ -105,7 +105,7 @@ class RulesPageTest {
 
     @Test fun thePlanIsSeededOnOpenAndTheScheduleShowsSevenDays() {
         launch()
-        rule.waitUntil(10_000) { runBlocking { store().rules.sections() }.size == 4 }
+        rule.waitUntil(10_000) { runBlocking { store().rules.sections() }.size == PlanSectionKey.entries.size }
         assertEquals(PlanSectionKey.entries.toList(), runBlocking { store().rules.sections() }.map { it.section })
         open(SettingsPage.SCHEDULE)
         rule.waitForTag(SCHEDULE_DAY + "6")

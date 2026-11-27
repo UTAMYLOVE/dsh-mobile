@@ -88,6 +88,8 @@ class TestOverrides(
     val recorder: (() -> RecorderEngine)? = null,
     /** Stands in for the speaker. */
     val player: (() -> PlayerEngine)? = null,
+    /** The rollout week a test starts in (分週上線; a new install starts in week 1). */
+    val rollout: app.agency.core.schedule.RolloutSpec? = null,
 )
 
 /** A line about a photo or the recording that could not be kept (shown on the 入社建檔 panel until the next try). */
@@ -299,7 +301,7 @@ class AgencyApp(
     /** Plan v3's sections on the first open (arch T11); a failure is logged and the defaults are used until the next open. */
     private suspend fun seedPlan(store: AgencyStore) {
         try {
-            val n = PlanStore(store).seedIfMissing(clock.millis())
+            val n = PlanStore(store).seedIfMissing(clock.millis(), overrides?.rollout ?: app.agency.core.schedule.RolloutSpec.SEED)
             if (n > 0) errorLog.append(TAG, "plan sections seeded=$n")
         } catch (e: CancellationException) {
             throw e

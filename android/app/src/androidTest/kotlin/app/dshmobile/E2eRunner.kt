@@ -1,5 +1,6 @@
 package app.dshmobile
 
+import app.agency.core.schedule.RolloutSpec
 import android.app.Application
 import androidx.test.runner.AndroidJUnitRunner
 import app.dshmobile.agency.AgencyApp
@@ -40,7 +41,7 @@ class E2eRunner : AndroidJUnitRunner() {
         val model = FakeModel()
         thread(name = "e2e-fake-model-start") { model.start() }.join() // binding a socket on the main thread is not allowed
         FakeModel.instance = model
-        AgencyApp.testOverrides = TestOverrides(modelBase = model.base, camera = ::drawShot, recorder = { FakeMic(app) })
+        AgencyApp.testOverrides = TestOverrides(modelBase = model.base, camera = ::drawShot, recorder = { FakeMic(app) }, rollout = RolloutSpec.ALL_OPEN)
         super.callApplicationOnCreate(app)
     }
 }

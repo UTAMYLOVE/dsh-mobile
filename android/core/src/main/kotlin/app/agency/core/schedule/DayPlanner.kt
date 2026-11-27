@@ -82,6 +82,8 @@ object DayPlanner {
         val t = specs.training
         val type = Timetable.type(day, s)
         val rest = override?.restDay == true
+        // 分週上線 (owner 2026-11-27): a day without the run open is planned like a day without a run.
+        val noRun = rest || !specs.open(Feature.RIDE)
         val soy = override?.soyMorning == true || adjust.any { it is DayAdjust.SoyMorning }
         val cls = type == DayType.CLASS
         val wake = DayClock.minute(if (cls) s.classWake else s.noClassWake)
@@ -96,7 +98,7 @@ object DayPlanner {
             if (!cls) add(Slot(SlotKey.WALK, DayClock.minute(t.walkNoClass), note = "${t.walkMin} 分鐘"))
             val noRide = DayClock.minute(t.noRideTrainingAt)
             val cardio = day.dayOfWeek.value in t.cardioDays
-            val block = block(rest, noRide, strengthLatest, cardio)
+            val block = block(noRun, noRide, strengthLatest, cardio)
             add(Slot(SlotKey.DINNER, DayClock.minute(m.dinner)))
             if (!rest) add(Slot(SlotKey.RIDE_OUT, DayClock.minute(s.rideOut), untilMinute = DayClock.minute(s.rideOutUntil)))
             add(Slot(SlotKey.RIDE_MEAL, DayClock.minute(m.rideMeal), note = if (soy) "雞胸（豆漿早上喝過了）" else RIDE_MEAL_NOTE))
@@ -104,13 +106,13 @@ object DayPlanner {
             // in the no-run block otherwise; core, rounds, cardio (its days), then the stretch.
             val after = t.strengthAfterRideMin
             if (reduction == null) {
-                add(Slot(SlotKey.CORE, block.getValue(SlotKey.CORE), afterRide = !rest, afterRideMin = after, note = CORE_NOTE))
-                add(Slot(SlotKey.STRENGTH, block.getValue(SlotKey.STRENGTH), afterRide = !rest, afterRideMin = after + 10, note = app.agency.core.engine.Progression.note(t)))
-                if (cardio) add(Slot(SlotKey.CARDIO, block.getValue(SlotKey.CARDIO), afterRide = !rest, afterRideMin = after + 35, note = "${t.cardioMin} 分鐘：$CARDIO_NOTE"))
+                add(Slot(SlotKey.CORE, block.getValue(SlotKey.CORE), afterRide = !noRun, afterRideMin = after, note = CORE_NOTE))
+                add(Slot(SlotKey.STRENGTH, block.getValue(SlotKey.STRENGTH), afterRide = !noRun, afterRideMin = after + 10, note = app.agency.core.engine.Progression.note(t)))
+                if (cardio) add(Slot(SlotKey.CARDIO, block.getValue(SlotKey.CARDIO), afterRide = !noRun, afterRideMin = after + 35, note = "${t.cardioMin} 分鐘：$CARDIO_NOTE"))
             }
             val stretchNote = if (reduction == Reduction.INJURY) "${t.stretchMin} 分鐘，避開受傷的地方" else "${t.stretchMin} 分鐘"
             // It closes the block (on a reduced day it stays as the minimum).
-            add(Slot(SlotKey.STRETCH, block.getValue(SlotKey.STRETCH), afterRide = !rest, afterRideMin = after + if (cardio) 50 else 35, note = stretchNote))
+            add(Slot(SlotKey.STRETCH, block.getValue(SlotKey.STRETCH), afterRide = !noRun, afterRideMin = after + if (cardio) 50 else 35, note = stretchNote))
             add(Slot(SlotKey.SIGN_OUT, sleep))
             // 理論課 (T19c): class days in class (Friday's classes end at 16:00), no-class days before the walk; rest days too.
             if (lessons.lessons > 0) {
@@ -126,7 +128,7 @@ object DayPlanner {
                 add(Slot(SlotKey.LESSON_REVIEW, DayClock.minute(at), required = false, note = "兩天前的課，三題"))
             }
         }
-        val moved = slots.map { sl -> adjust.filterIsInstance<DayAdjust.Move>().lastOrNull { it.key == sl.key }?.let { sl.copy(minute = it.minute) } ?: sl }
+        val moved = slots.filter { specs.open(it.key.feature()) }.map { sl -> adjust.filterIsInstance<DayAdjust.Move>().lastOrNull { it.key == sl.key }?.let { sl.copy(minute = it.minute) } ?: sl }
         return DayPlan(
             day = day,
             type = type,

@@ -37,6 +37,9 @@ data class IdolCardFacts(
     val waterTargetHalves: Int = 0,
     /** Polaroids on the photocard wall (L11, one a day for the first core or strength done). */
     val photocards: Int = 0,
+    /** 分週上線: the rollout week and what is open (the screens hide the rest). */
+    val rolloutWeek: Int = app.agency.core.schedule.RolloutSpec.LAST,
+    val open: Set<app.agency.core.schedule.Feature> = app.agency.core.schedule.Feature.entries.toSet(),
 ) {
     /** What comes next: the first slot still open or later, in time order. */
     val next: SlotState? get() = slots.firstOrNull { it.status == SlotStatus.OPEN || it.status == SlotStatus.LATER }

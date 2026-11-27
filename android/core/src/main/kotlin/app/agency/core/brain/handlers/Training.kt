@@ -8,6 +8,7 @@ import app.agency.core.model.TrainingKind
 import app.agency.core.model.TrainingLog
 import app.agency.core.schedule.DayPlan
 import app.agency.core.schedule.SlotKey
+import app.agency.core.schedule.feature
 import app.agency.core.store.AgencyStore
 import app.agency.core.structured.IntakeTraining
 import app.agency.core.time.AgencyClock
@@ -51,6 +52,8 @@ class TrainingDesk(
      */
     private suspend fun notToday(plan: DayPlan, key: SlotKey, what: String): String? = when {
         plan.slot(key) != null -> if (key in BLOCK && beforeHome(plan)) BEFORE_RIDE else null
+        // 分週上線: not open yet.
+        !snapshot.plans.specs().rollout.open(key.feature()) -> snapshot.plans.specs().rollout.closedLine(key.feature())
         plan.reduction != null -> "今天只改這一天：${what}停一天，伸展照做就好。不用補做。"
         key == SlotKey.WALK -> "今天沒有排快走（上課日走路上學就算）。"
         else -> "今天沒有排$what。"
@@ -163,6 +166,7 @@ class TrainingDesk(
     /** The stretch (any day: a sick day's is the minimum). */
     suspend fun stretch(fromTimer: Boolean, seconds: Int?): MealOutcome {
         val plan = plan()
+        if (plan.slot(SlotKey.STRETCH) == null) notToday(plan, SlotKey.STRETCH, "伸展")?.let { return MealOutcome(null, listOf(it)) }
         if (done(plan, TrainingKind.STRETCH)) return MealOutcome(null, listOf("今天的伸展已經記過了。"))
         val ok = verified(fromTimer, seconds, plan.stretchMin * 60)
         val detail = buildJsonObject {

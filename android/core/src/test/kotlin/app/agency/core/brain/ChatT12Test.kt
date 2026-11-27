@@ -55,7 +55,7 @@ class ChatT12Test {
     init {
         runBlocking {
             store.profile.put(Profile(onboardingDone = false))
-            PlanStore(store).seedIfMissing(0)
+            PlanStore(store).seedIfMissing(0, app.agency.core.schedule.RolloutSpec.ALL_OPEN)
         }
     }
 

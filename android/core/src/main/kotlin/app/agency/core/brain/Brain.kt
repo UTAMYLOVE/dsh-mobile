@@ -456,7 +456,7 @@ class Brain(
         proposals.expire()
         val today = snapshot.today(snapshot.profile()).toString()
         // L23's and L15's wait until he answers (they change no day); the others are today's.
-        val lasting = setOf(Links.L23WeightTrend.id, Links.L15Progression.id)
+        val lasting = setOf(Links.L23WeightTrend.id, Links.L15Progression.id, Links.L25Rollout.id)
         val links = nerve.pending().filter { it.day == today || it.link in lasting }.mapNotNull { it.proposalId }.toSet()
         return store.proposals.withStatus(ProposalStatus.PENDING).filter { it.kind !in ProposalApplier.NERVE_KINDS || it.id in links }
     }
@@ -523,7 +523,38 @@ class Brain(
         return IdolCard.build(
             profile, snapshot.rules(), records, day, snapshot.currentWeightKg(day, profile), missing,
             status.baseline?.photoFront, Stickers.fromSlots(slots, records), slots, water.target(day, profile.joinDate),
-        ).copy(photocards = photocards().size)
+        ).let { c ->
+            val r = rollout()
+            c.copy(photocards = photocards().size, rolloutWeek = r.week, open = app.agency.core.schedule.Feature.entries.filter(r::open).toSet())
+        }
+    }
+
+    /** 上線週數 (分週上線): the week he is in and what each week opens. */
+    suspend fun rollout(): app.agency.core.schedule.RolloutSpec = snapshot.plans.specs().rollout
+
+    /**
+     * 設定 › 上線週數: he sets the week himself (1 to the last), written as the next version of the section; a week reached
+     * here opens today. Returns the stored setting.
+     */
+    suspend fun setRolloutWeek(week: Int): app.agency.core.schedule.RolloutSpec = mutex.withLock {
+        val now = clock.millis()
+        val next = rollout().at(week, snapshot.today(snapshot.profile()))
+        store.rules.putSection(
+            app.agency.core.model.PlanSectionKey.ROLLOUT, app.agency.core.schedule.PlanSpecs.JSON.encodeToString(app.agency.core.schedule.RolloutSpec.serializer(), next),
+            app.agency.core.model.PlanSection.BY_OWNER_SETTINGS, now,
+        )
+        bump()
+        next
+    }
+
+    /** The line for a feature not open yet (分週上線), or null when it is open. */
+    private suspend fun closed(f: app.agency.core.schedule.Feature?): String? = f?.let { rollout().takeUnless { r -> r.open(it) }?.closedLine(it) }
+
+    private fun trainingFeature(kind: app.agency.core.model.TrainingKind?): app.agency.core.schedule.Feature = when (kind) {
+        app.agency.core.model.TrainingKind.STRENGTH, app.agency.core.model.TrainingKind.STRETCH -> app.agency.core.schedule.Feature.STRENGTH
+        app.agency.core.model.TrainingKind.WALK -> app.agency.core.schedule.Feature.WALK
+        app.agency.core.model.TrainingKind.CARDIO -> app.agency.core.schedule.Feature.CARDIO
+        else -> app.agency.core.schedule.Feature.CORE
     }
 
     private suspend fun baselineLine(text: String): Message =
@@ -724,6 +755,15 @@ class Brain(
      * kinds without a handler yet.
      */
     private suspend fun recorded(owner: Message, parsed: Intake, kind: String): List<Message>? {
+        // 分週上線: a record of a feature not open yet is not taken (never planned, chased or counted).
+        val feature = when (kind) {
+            "meal", "craving", "label" -> app.agency.core.schedule.Feature.MEALS
+            "water" -> app.agency.core.schedule.Feature.WATER
+            "training" -> trainingFeature(app.agency.core.brain.handlers.TrainingWords.kind(owner.text) ?: parsed.training?.kind?.let(app.agency.core.brain.handlers.TrainingWords::ofIntake))
+            "condition" -> app.agency.core.schedule.Feature.SIGN
+            else -> null
+        }
+        closed(feature)?.let { return said(MealOutcome(null, listOf(it)), kind) }
         val ill = nerve.state(snapshot.today(snapshot.profile())).ill != null
         val outcome: MealOutcome = when (kind) {
             "meal" -> meals.record(owner.text, parsed.items, ill).let { m ->
@@ -915,6 +955,7 @@ class Brain(
 
     /** 拍這餐 (T15): the sealed photo of a meal ([media] is written here with its link); the body teacher's line. */
     suspend fun attachMealPhoto(media: Media): Message = mutex.withLock {
+        closed(app.agency.core.schedule.Feature.MEALS)?.let { return@withLock said(MealOutcome(null, listOf(it)), MEAL_PHOTO_KIND).first().also { bump() } }
         said(meals.attachPhoto(media), MEAL_PHOTO_KIND).first().also { bump() }
     }
 
@@ -1039,6 +1080,18 @@ class Brain(
 
     /** A command word (code only, no model): its line, then what the links said about its signal. */
     private suspend fun command(route: Route.Command, owner: Message): List<Message> {
+        // 分週上線: a command of a feature not open yet says when it opens, nothing else.
+        val feature = when {
+            route.kind == "water" -> app.agency.core.schedule.Feature.WATER
+            route.kind == "training" -> trainingFeature(app.agency.core.brain.handlers.TrainingWords.kind(owner.text))
+            route.kind == "rest_day" || route.kind == "ride_start" || route.kind == "ride_end" -> app.agency.core.schedule.Feature.RIDE
+            route.kind == "hungry_morning" || route.kind == "cheat_declare" -> app.agency.core.schedule.Feature.MEALS
+            route.kind == "sign_in" || route.kind == "sign_out" -> app.agency.core.schedule.Feature.SIGN
+            route.kind == Router.REAL_TASK -> app.agency.core.schedule.Feature.REAL_TASK
+            route.kind.startsWith(Router.GROOMING) -> app.agency.core.schedule.Feature.GROOMING
+            else -> null
+        }
+        closed(feature)?.let { return listOf(reply(route.role, it, WordedBy.TEMPLATE, route.kind)) }
         // 「喝完一壺」「喝了半壺」 (T17): the body teacher's line, like any record.
         if (route.kind == "water") {
             val riding = nerve.state(snapshot.today(snapshot.profile())).riding

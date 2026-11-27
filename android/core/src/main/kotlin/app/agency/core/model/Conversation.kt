@@ -67,7 +67,7 @@ data class StoredThinking(
  * illness change, a hint to go to 設定, the next strength step, the bedtime review's 「明天要改」 as tomorrow's reminder.
  * [WAKE_EARLIER] is the sign policy's 「提早 10 分鐘起床」 (a schedule change like [PLAN_CHANGE]).
  */
-enum class ProposalKind { PLAN_CHANGE, MEAL_ORDER, SAVE_PLACE, PROGRESSION, WAKE_EARLIER, TODAY_CHANGE, RULES_SUGGESTION, TOMORROW_FIX }
+enum class ProposalKind { PLAN_CHANGE, MEAL_ORDER, SAVE_PLACE, PROGRESSION, WAKE_EARLIER, TODAY_CHANGE, RULES_SUGGESTION, TOMORROW_FIX, ROLLOUT_NEXT }
 enum class ProposalStatus { PENDING, ACCEPTED, REJECTED, EXPIRED }
 
 /** A change the company suggests; code applies it only after his tap or exact 「好」. [diffJson] is the typed diff. */

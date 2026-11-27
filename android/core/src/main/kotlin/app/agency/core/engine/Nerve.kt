@@ -91,6 +91,8 @@ class Nerve(
         for (link in links) {
             val answered = store.nerve.effects(day.toString()).filter { it.link == link.id }.map { it.signalId }.toSet()
             if (answered.size >= link.dailyCap) continue
+            // 分週上線: a link of a feature not open yet answers nothing.
+            if (link.feature?.let { !ctx.specs.open(it) } == true) continue
             val effects = link.fire(signal, state, ctx)
             for (e in effects) {
                 val row = { kind: EffectKind, status: EffectStatus, because: String, proposal: String?, due: Long? ->
@@ -106,6 +108,7 @@ class Nerve(
                         val pid = newId()
                         val kind = when {
                             e.progression != null -> ProposalKind.PROGRESSION
+                            e.rolloutWeek != null -> ProposalKind.ROLLOUT_NEXT
                             e.fixTomorrow != null -> ProposalKind.TOMORROW_FIX
                             e.todayOnly -> ProposalKind.TODAY_CHANGE
                             else -> ProposalKind.RULES_SUGGESTION
@@ -201,6 +204,7 @@ class Nerve(
             return "好，只改今天：${p.change}不用明天補做，好好休息。"
         }
         p.progression?.let { next -> return progress(e, next, now) }
+        p.rolloutWeek?.let { w -> return openWeek(e, w, now) }
         p.fixTomorrow?.let { fix ->
             mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
             emit(Signal.FixPlanned("fix:${e.id}", now, LocalDate.parse(e.day).plusDays(1).toString(), fix), 1, e.signalId)
@@ -229,6 +233,22 @@ class Nerve(
         e.proposalId?.let { id -> store.proposals.get(id)?.let { store.proposals.upsert(it.copy(appliedVersion = written.version)) } }
         val rules = store.rules.current() ?: CompanyRules()
         return "好，下一次肌力開始：${Progression.note(t)}。加量的日子蛋白質一定要吃夠 ${rules.proteinG} 克。"
+    }
+
+    /** His yes to the next rollout week (L25): only from the week before it (another change since makes it lapse). */
+    private suspend fun openWeek(e: NerveEffect, w: Int, now: Long): String {
+        val r = plans.specs().rollout
+        if (r.week != w - 1) {
+            mark(e, EffectStatus.EXPIRED, ProposalStatus.EXPIRED, now)
+            return "上線週數在這之後改過了，這張卡對不上，沒有改。"
+        }
+        val next = r.next(dayOf(now, dayStartHour()))
+        store.rules.putSection(
+            app.agency.core.model.PlanSectionKey.ROLLOUT, PlanSpecs.JSON.encodeToString(app.agency.core.schedule.RolloutSpec.serializer(), next),
+            e.proposalId ?: e.id, now,
+        )
+        mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
+        return "好，第 ${next.week} 週開始。新開放：${next.opensIn(next.week).joinToString("、") { it.zh }}。"
     }
 
     private suspend fun mark(e: NerveEffect, status: EffectStatus, ps: ProposalStatus, at: Long) {

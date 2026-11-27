@@ -8,9 +8,10 @@ import java.time.LocalDate
 /** The plan sections in the store: seeded with plan v3's defaults on the first open, read back as [PlanSpecs]. */
 class PlanStore(private val store: AgencyStore, private val zone: java.time.ZoneId = app.agency.core.time.AgencyClock.TAIPEI) {
     /** Writes the default of every section that has none yet (version 1, by [PlanSection.BY_MIGRATION]); returns how many. */
-    suspend fun seedIfMissing(at: Long): Int {
+    suspend fun seedIfMissing(at: Long, rollout: RolloutSpec = RolloutSpec.SEED): Int {
         val have = store.rules.sections().map { it.section }.toSet()
-        val defaults = PlanSpecs()
+        // A new install starts in week 1 of the rollout (owner 2026-11-27): only lessons.
+        val defaults = PlanSpecs(rollout = rollout)
         var n = 0
         store.transaction {
             PlanSectionKey.entries.filter { it !in have }.forEach {

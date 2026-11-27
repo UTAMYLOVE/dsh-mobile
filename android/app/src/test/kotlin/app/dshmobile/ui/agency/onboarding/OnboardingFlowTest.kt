@@ -66,7 +66,7 @@ class OnboardingFlowTest {
         AgencyApp.testOverrides = kit.overrides().let { o ->
             TestOverrides(
                 o.modelBase, o.openDatabase, o.mediaVault, o.store,
-                camera = { f -> f.writeBytes(shot); true }, recorder = { mic }, player = { speaker },
+                camera = { f -> f.writeBytes(shot); true }, recorder = { mic }, player = { speaker }, rollout = o.rollout,
             )
         }
         scenario = ActivityScenario.launch(AgencyActivity::class.java)

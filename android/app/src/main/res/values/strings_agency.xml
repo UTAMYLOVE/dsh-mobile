@@ -303,6 +303,16 @@
     <string name="ag_result_save">存成常去店家</string>
     <string name="ag_result_estimate">熱量都是估算，拍菜單或標示才算數。</string>
     <string name="ag_set_area">附近搜尋</string>
+    <string name="ag_set_rollout">上線週數</string>
+    <string name="ag_rollout_now">現在是第 %1$d 週</string>
+    <string name="ag_rollout_note">功能一週一週打開。這週達標（該做的九成以上、沒有違規、真人任務做到），小葵姐會給你一張卡，你按好就開下一週。也可以在這裡自己調。還沒打開的不排、不催、不算違規。</string>
+    <string name="ag_rollout_week">第 %1$d 週：%2$s（%3$s）</string>
+    <string name="ag_rollout_open">已開放</string>
+    <string name="ag_rollout_closed">還沒開放</string>
+    <string name="ag_rollout_earlier">退回上一週</string>
+    <string name="ag_rollout_later">開下一週</string>
+    <string name="ag_rollout_ask">確定改成第 %1$d 週嗎？</string>
+    <string name="ag_rollout_confirm">確定</string>
     <string name="ag_area_intro">附近搜尋只送你填的大概地區和菜名，不用手機定位，不送門牌。店家只會是真的搜尋結果。</string>
     <string name="ag_area_field">大概的地區（例如大安區）</string>
     <string name="ag_area_saved">存好了。</string>

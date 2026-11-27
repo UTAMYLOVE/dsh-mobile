@@ -126,13 +126,13 @@ class ProposalApplier(
 
     companion object {
         /** The kinds the nerve owns (their answer goes through [Nerve.decide]). */
-        val NERVE_KINDS = setOf(ProposalKind.TODAY_CHANGE, ProposalKind.RULES_SUGGESTION, ProposalKind.PROGRESSION, ProposalKind.TOMORROW_FIX)
+        val NERVE_KINDS = setOf(ProposalKind.TODAY_CHANGE, ProposalKind.RULES_SUGGESTION, ProposalKind.PROGRESSION, ProposalKind.TOMORROW_FIX, ProposalKind.ROLLOUT_NEXT)
 
         val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
         private val SECTION_ZH = mapOf(
             PlanSectionKey.SCHEDULE.name to "作息", PlanSectionKey.MEALS.name to "吃飯時間", PlanSectionKey.TRAINING.name to "訓練時間",
-            PlanSectionKey.WATER.name to "喝水",
+            PlanSectionKey.WATER.name to "喝水", PlanSectionKey.ROLLOUT.name to "上線週數",
         )
 
         /** The 差異卡 of [p], from its typed diff (code-written; an unreadable diff shows its reason only). */
@@ -161,6 +161,10 @@ class ProposalApplier(
                 ProposalKind.PROGRESSION -> {
                     val e = Nerve.decodeEffect(p.diffJson) as Effect.Proposal
                     ProposalView(p.id, p.kind, "肌力升級（一次加一樣）", listOf(DiffLine("肌力", "照現在的", e.change)), e.because)
+                }
+                ProposalKind.ROLLOUT_NEXT -> {
+                    val e = Nerve.decodeEffect(p.diffJson) as Effect.Proposal
+                    ProposalView(p.id, p.kind, "開下一週", listOf(DiffLine("上線週數", "第 ${(e.rolloutWeek ?: 2) - 1} 週", e.change)), e.because)
                 }
                 ProposalKind.TOMORROW_FIX -> {
                     val e = Nerve.decodeEffect(p.diffJson) as Effect.Proposal
