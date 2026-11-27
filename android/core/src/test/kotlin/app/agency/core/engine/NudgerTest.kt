@@ -57,14 +57,16 @@ class NudgerTest {
         // Then the phone was off all day: at 18:30 five items are missing, one notification says so.
         val tk = tick(b, "18:30")
         val gap = tk.posts.single { it.key == Nudger.GAP_KEY }
-        assertEquals("還缺：起床簽到、午餐、晚餐。還有 1 項。", gap.text)
-        assertEquals(listOf(SlotKey.WAKE, SlotKey.LUNCH, SlotKey.DINNER, SlotKey.RIDE_OUT), gap.gapKeys)
+        // The run is due by 19:00 (the latest departure), not yet missing at 18:30.
+        assertEquals("還缺：起床簽到、午餐、晚餐。", gap.text)
+        assertEquals(listOf(SlotKey.WAKE, SlotKey.LUNCH, SlotKey.DINNER), gap.gapKeys)
         assertTrue(gap.alert)
         assertEquals(PostChannel.SCHEDULE, gap.channel)
         assertEquals(1, runBlocking { store.nudges.between(0, Long.MAX_VALUE) }.count { it.gapKeys.isNotEmpty() })
         // The water reminder before the ride (17:40) is past and goes out with it.
         assertTrue(tk.posts.any { it.key == "preride" })
-        assertEquals(Fire(t("19:00"), FireKind.CHASE), tk.next)
+        // 19:00: the chase and the latest departure fall together (the slot fire first).
+        assertEquals(Fire(t("19:00"), FireKind.SLOT), tk.next)
     }
 
     @Test fun aGapIsChasedEvery30MinutesUntilItIsReported() {

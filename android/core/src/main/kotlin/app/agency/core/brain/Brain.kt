@@ -579,6 +579,8 @@ class Brain(
             return said.ifEmpty { listOf(reply(RoleKey.MANAGER, "知道了，先照顧身體。今天的調整已經提過了，在指揮室的今天的連動按好或不要。", WordedBy.TEMPLATE, Nerve.KIND)) }
         }
         if (BodyWords.asksLess(owner.text)) return nerve.emit(Signal.ReduceAsked(newId(), owner.at)).messages.ifEmpty { null }
+        // Sleepy on a delivery day before he is home: no riding (L22); otherwise it goes on to the manager.
+        if (BodyWords.sleepy(owner.text)) nerve.emit(Signal.Sleepy(newId(), owner.at)).messages.takeIf { it.isNotEmpty() }?.let { return it }
         if (BodyWords.moodLow(owner.text)) nerve.emit(Signal.MoodLow(newId(), owner.at))
         return null
     }

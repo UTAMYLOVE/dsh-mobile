@@ -65,6 +65,10 @@ sealed interface Signal {
     @Serializable @SerialName("ride_start")
     data class RideStart(override val id: String, override val at: Long, override val source: String = "command") : Signal
 
+    /** He said he is sleepy (code-matched words): no riding while sleepy (L22). */
+    @Serializable @SerialName("sleepy")
+    data class Sleepy(override val id: String, override val at: Long, override val source: String = "chat") : Signal
+
     @Serializable @SerialName("ride_end")
     data class RideEnd(override val id: String, override val at: Long, override val source: String = "command") : Signal
 

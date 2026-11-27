@@ -37,7 +37,8 @@ object RuleEngine {
         val cardio = r.training.filter { it.kind == TrainingKind.CARDIO }.minByOrNull { it.at }
         val cardioPlanned = plan.slot(SlotKey.CARDIO) != null
         return plan.slots.map { sl ->
-            val latest = instant(plan.day, sl.minute, zone)
+            // A window slot (the run: 18:00–19:00) is due at its end: by 19:00 he is out, or the chase starts (owner 2026-11-27).
+            val latest = instant(plan.day, sl.untilMinute ?: sl.minute, zone)
             val due = when {
                 // The stretch closes the block: due a while after its last item (the rounds, or the cardio on its days).
                 sl.key == SlotKey.STRETCH && cardioPlanned && cardio != null -> Instant.ofEpochMilli(cardio.at).plusSeconds(15L * 60)

@@ -327,9 +327,16 @@ object Links {
         override val dailyCap = 500
         const val SHOWN = 3
 
+        /** The latest departure passed without 「出門跑單」 (owner 2026-11-27): the chase says what to do before leaving. */
+        const val RIDE_LATE = "最晚出門的時間到了：擦防曬、水喝完，出門前按「出門跑單」。想睡就不准騎車，先跟我說。"
+
         fun text(keys: List<SlotKey>, index: Int): String {
             val names = keys.map { it.zh }
-            val head = if (index == 0 && keys.size == 1) "${names[0]}時間到了，做完回報。" else "還缺：${names.take(SHOWN).joinToString("、")}。"
+            val head = when {
+                keys == listOf(SlotKey.RIDE_OUT) -> RIDE_LATE
+                index == 0 && keys.size == 1 -> "${names[0]}時間到了，做完回報。"
+                else -> "還缺：${names.take(SHOWN).joinToString("、")}。"
+            }
             val more = if (names.size > SHOWN) "還有 ${names.size - SHOWN} 項。" else ""
             return head + more
         }
@@ -597,15 +604,26 @@ object Links {
             }
     }
 
-    /** L22: out to ride after < 6 h sleep or > 16 h awake → warn (fewer orders, finish early); training stays as planned. */
+    /**
+     * L22: out to ride after < 6 h sleep or > 16 h awake → warn (fewer orders, finish early); training stays as planned. And
+     * (owner 2026-11-27 「想睡就不准騎車跑單」) when he says he is sleepy on a delivery day before he is home: no riding, a warning
+     * at once.
+     */
     object L22TiredRiding : Link {
         override val id = "L22"
         override val zh = "疲勞騎車：提醒少跑、早收工"
-        override val dailyCap = 1
+        override val dailyCap = 4
         const val MIN_SLEEP_H = 6.0
         const val MAX_AWAKE_H = 16.0
 
+        const val SLEEPY = "想睡就不准騎車跑單。現在停到安全的地方休息，清醒了再騎；還是想睡就收工回家。"
+
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal is Signal.Sleepy) {
+                val home = state.rideEndAt != null && (state.rideStartAt == null || state.rideEndAt >= state.rideStartAt)
+                if (!state.plan.delivery || home || state.signedOutAt != null) return emptyList()
+                return listOf(Effect.Notify("sleepy-ride", SLEEPY, NotifyKind.WARNING), Effect.Say(SLEEPY))
+            }
             if (signal !is Signal.RideStart) return emptyList()
             val sleep = state.sleepHours
             val awake = state.awakeHours(Instant.ofEpochMilli(signal.at))
@@ -614,7 +632,7 @@ object Links {
                 awake != null && awake > MAX_AWAKE_H -> "已經醒了 ${oneDecimal(awake)} 小時"
                 else -> return emptyList()
             }
-            val text = "疲勞騎車很危險：$why。今天少跑幾單、早點收工。訓練照表。"
+            val text = "疲勞騎車很危險：$why。今天少跑幾單、早點收工；騎到想睡就不准再騎，停下來休息或收工。訓練照表。"
             return listOf(Effect.Notify("tired-ride", text, NotifyKind.WARNING), Effect.Say(text))
         }
 

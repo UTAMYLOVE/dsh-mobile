@@ -48,6 +48,11 @@ object BodyWords {
     /** The word was a sharp or joint pain: stop now. */
     fun isPain(word: String): Boolean = word in PAIN
 
+    private val SLEEPY = listOf("好睏", "很睏", "超睏", "睏死", "好想睡", "很想睡", "想睡覺", "想睡", "愛睏", "打瞌睡", "眼睛快閉上", "快睡著")
+
+    /** He is sleepy (「好睏」「想睡」; not 「我要睡了」, the sign-out). */
+    fun sleepy(text: String): Boolean = found(text, SLEEPY) != null
+
     fun moodLow(text: String): Boolean = found(text, MOOD) != null
 
     /** He asks to do less training. */
