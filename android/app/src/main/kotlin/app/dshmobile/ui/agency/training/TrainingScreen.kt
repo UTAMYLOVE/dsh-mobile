@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -132,7 +134,7 @@ fun TrainingScreen(
         },
     )
     Column(
-        Modifier.fillMaxSize().background(Sakura.Background).verticalScroll(rememberScrollState()).padding(20.dp).testTag(TrainingTags.SCREEN),
+        Modifier.fillMaxSize().background(Sakura.Page).verticalScroll(rememberScrollState()).padding(20.dp).testTag(TrainingTags.SCREEN),
         verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(title, color = Sakura.Text, fontSize = 22.sp, fontWeight = FontWeight.Medium)
@@ -174,32 +176,63 @@ private fun Running(runner: RoutineRunner, frame: Int, onPause: () -> Unit, onRe
     frame.let { }
     val step = runner.current
     val total = runner.steps.size
+    // The step bar (redesign 06): one segment a step, done deep pink, the current one pink.
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        repeat(total) { i ->
+            val c = when {
+                i < runner.index -> Sakura.PrimaryDeep
+                i == runner.index -> LocalAccent.current.fill
+                else -> Sakura.MilkTeaSoft
+            }
+            androidx.compose.foundation.layout.Box(Modifier.weight(1f).height(6.dp).background(c, RoundedCornerShape(3.dp)))
+        }
+    }
     Text(
         stringResource(R.string.ag_train_progress, runner.index + 1, total) + (step.round?.let { "　" + stringResource(R.string.ag_train_round, it) }.orEmpty()),
-        color = Sakura.TextSecondary, fontSize = 14.sp,
+        style = app.dshmobile.ui.kit.Type.Caption,
     )
-    MovePictogram(step.icon, LocalAccent.current.fill, size = 140.dp)
-    Text(step.name, color = Sakura.Text, fontSize = 26.sp, fontWeight = FontWeight.Medium, modifier = Modifier.testTag(TrainingTags.STEP))
     val amount = if (step.seconds != null) stringResource(R.string.ag_train_seconds_left, runner.remainingSeconds) else step.amount
-    Text(amount, color = Sakura.Text, fontSize = 40.sp, modifier = Modifier.testTag(TrainingTags.TIME))
-    Text(step.how, color = Sakura.TextSecondary, fontSize = 15.sp)
+    // The ring: what is left of a timed step (a counted one shows its number).
+    val fraction = step.seconds?.takeIf { it > 0 }?.let { runner.remainingSeconds.toFloat() / it } ?: 1f
+    val track = Sakura.MilkTeaSoft
+    val ring = Sakura.PrimaryDeep
+    androidx.compose.foundation.layout.Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val w = size.minDimension * 0.07f
+            val inset = w / 2
+            val arc = androidx.compose.ui.geometry.Size(size.width - w, size.height - w)
+            drawArc(track, 0f, 360f, false, topLeft = androidx.compose.ui.geometry.Offset(inset, inset), size = arc, style = androidx.compose.ui.graphics.drawscope.Stroke(w))
+            drawArc(ring, -90f, 360f * fraction, false, topLeft = androidx.compose.ui.geometry.Offset(inset, inset), size = arc,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+        Text(amount, color = Sakura.Text, fontSize = 34.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag(TrainingTags.TIME))
+    }
+    Text(step.name, color = Sakura.Text, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag(TrainingTags.STEP))
+    app.dshmobile.ui.kit.Card {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            MovePictogram(step.icon, LocalAccent.current.fill, size = 72.dp)
+            Text(step.how, style = app.dshmobile.ui.kit.Type.Support.copy(color = Sakura.Text), modifier = Modifier.weight(1f))
+        }
+    }
     val upcoming = runner.upcoming
     Text(
         upcoming?.let { stringResource(R.string.ag_train_up_next, it.name + " " + it.amount) } ?: stringResource(R.string.ag_train_last),
-        color = Sakura.Text, fontSize = 15.sp, modifier = Modifier.testTag(TrainingTags.UP_NEXT),
+        style = app.dshmobile.ui.kit.Type.Body, modifier = Modifier.background(Sakura.Background, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 8.dp).testTag(TrainingTags.UP_NEXT),
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        val nextLabel = if (step.reps != null) R.string.ag_train_done_reps else R.string.ag_train_next
-        PinkButton(stringResource(nextLabel), onClick = onNext, modifier = Modifier.testTag(TrainingTags.NEXT))
+    // Big buttons a sweaty hand can hit (56 dp).
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (step.seconds != null) {
             if (runner.paused) {
-                SoftButton(stringResource(R.string.ag_train_resume), onClick = onResume, modifier = Modifier.testTag(TrainingTags.RESUME))
+                SoftButton(stringResource(R.string.ag_train_resume), onClick = onResume, modifier = Modifier.weight(1f).testTag(TrainingTags.RESUME), size = app.dshmobile.ui.kit.ButtonSize.Large)
             } else {
-                SoftButton(stringResource(R.string.ag_train_pause), onClick = onPause, modifier = Modifier.testTag(TrainingTags.PAUSE))
+                SoftButton(stringResource(R.string.ag_train_pause), onClick = onPause, modifier = Modifier.weight(1f).testTag(TrainingTags.PAUSE), size = app.dshmobile.ui.kit.ButtonSize.Large)
             }
         }
+        val nextLabel = if (step.reps != null) R.string.ag_train_done_reps else R.string.ag_train_next
+        PinkButton(stringResource(nextLabel), onClick = onNext, modifier = Modifier.weight(1f).testTag(TrainingTags.NEXT), size = app.dshmobile.ui.kit.ButtonSize.Large)
     }
-    SoftButton(stringResource(R.string.ag_train_quit_unfinished), onClick = onClose, modifier = Modifier.testTag(TrainingTags.QUIT))
+    Text(stringResource(R.string.ag_train_pain), style = app.dshmobile.ui.kit.Type.Support.copy(color = Sakura.RoseBrown))
+    app.dshmobile.ui.kit.GhostButton(stringResource(R.string.ag_train_quit_unfinished), onClick = onClose, modifier = Modifier.testTag(TrainingTags.QUIT))
 }
 
 /** The last round of the rounds: reps (the plank: seconds) of each move, and how many more he could have done. */

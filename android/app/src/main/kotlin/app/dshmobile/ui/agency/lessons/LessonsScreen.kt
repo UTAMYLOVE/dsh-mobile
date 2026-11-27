@@ -1,6 +1,7 @@
 package app.dshmobile.ui.agency.lessons
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -101,10 +102,13 @@ fun LessonsScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAct
         scope.launch { agency.openLesson(id)?.let { url -> onMain { actions.openLink(url) } } }
     }
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag(LessonTags.SCREEN),
+        Modifier.fillMaxSize().background(Sakura.Page).verticalScroll(rememberScrollState()).padding(16.dp).testTag(LessonTags.SCREEN),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        last?.let { Panel(title = stringResource(R.string.ag_lesson_said)) { Text(it, color = Sakura.Text, fontSize = 15.sp, modifier = Modifier.testTag(LessonTags.LAST)) } }
+        // Title and the day's line (redesign 04); her last lesson line sits under it, small.
+        Text(stringResource(R.string.ag_tab_lessons), style = app.dshmobile.ui.kit.Type.Title)
+        board?.let { Text(stringResource(R.string.ag_lesson_head, it.passedToday, LessonPlan.DAILY), style = app.dshmobile.ui.kit.Type.Support) }
+        last?.let { Text(it, style = app.dshmobile.ui.kit.Type.Caption, modifier = Modifier.testTag(LessonTags.LAST)) }
         val b = board ?: return@Column
         Today(b, agency, actions, busy, ::go)
         if (b.reviews.isNotEmpty()) Reviews(b, agency, busy)
@@ -137,7 +141,8 @@ fun LessonsScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAct
 
 @Composable
 private fun Today(b: LessonBoard, agency: AgencyApp, actions: AgencyActions, busy: Boolean, go: (String) -> Unit) {
-    Panel(title = stringResource(R.string.ag_lesson_today_title, b.passedToday, LessonPlan.DAILY), modifier = Modifier.testTag(LessonTags.TODAY)) {
+    app.dshmobile.ui.kit.IdolSurface(Modifier.testTag(LessonTags.TODAY)) {
+        Text(stringResource(R.string.ag_lesson_today_title, b.passedToday, LessonPlan.DAILY), style = app.dshmobile.ui.kit.Type.Heading)
         if (!b.started) Text(stringResource(R.string.ag_lesson_not_started), color = Sakura.TextSecondary, fontSize = 14.sp)
         b.today.forEach { l ->
             Text(

@@ -687,4 +687,5 @@
     <string name="ag_set_group_phone">手機與資料</string>
     <string name="ag_set_group_more">舊資料與授權</string>
     <string name="ag_set_samsung_warn">三星手機要把電池設成不受限制，提醒才不會被關掉。按這裡看怎麼設。</string>
+    <string name="ag_lesson_head">今天通過 %1$d／%2$d 支 ・ 看完考 3 題，對 2 題就過</string>
 </resources>
