@@ -76,6 +76,8 @@ class TodayLinksCardTest {
         val e = runBlocking { store().nerve.effects(today()) }.single { it.link == "L4" }
         rule.onNodeWithTag(LinkTags.CANCEL + e.id).performScrollTo().performClick()
         rule.waitUntil(10_000) { runBlocking { store().nerve.effect(e.id) }?.status == EffectStatus.CANCELLED }
+        // The day's change is undone right after the effect's status (the same cancel, written next).
+        rule.waitUntil(10_000) { runBlocking { store().days.get(today()) }?.soyMorning == false }
         assertFalse(runBlocking { store().days.get(today()) }!!.soyMorning)
         rule.waitForText("已取消")
     }
