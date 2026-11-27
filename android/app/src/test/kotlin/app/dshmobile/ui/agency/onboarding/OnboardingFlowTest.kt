@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
@@ -135,6 +136,7 @@ class OnboardingFlowTest {
         tap(OnboardingTags.SKIP + OnboardingStep.PLANK.name)
         rule.waitUntil(5_000) { OnboardingStep.PLANK.name in join()!!.skipped }
         rule.waitForText("已跳過")
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(OnboardingTags.FINISH).assertIsEnabled() }.isSuccess }
         tap(OnboardingTags.FINISH)
         rule.waitForTag(AgencyTags.HOME)
         rule.waitUntil(10_000) { runBlocking { ready().store.messages.recent(20) }.any { it.text.startsWith("資料收好了，還差：棒式。") } }
@@ -188,6 +190,7 @@ class OnboardingFlowTest {
             rule.waitUntil(5_000) { step.name in join()!!.skipped }
         }
         rule.waitForText("還差：身高體重、正面照、側面照、背面照、清唱錄音、伏地挺身、棒式")
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(OnboardingTags.FINISH).assertIsEnabled() }.isSuccess }
         tap(OnboardingTags.FINISH)
         rule.waitForTag(AgencyTags.HOME)
         assertTrue(runBlocking { ready().store.profile.get() }!!.onboardingDone)
