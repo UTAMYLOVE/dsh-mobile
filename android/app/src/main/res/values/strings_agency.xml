@@ -439,4 +439,20 @@
     <string name="ag_memo_due">%1$d/%2$d %3$02d:%4$02d 提醒</string>
     <string name="ag_memo_delete">刪除</string>
     <string name="ag_memo_undo">復原剛剛刪掉的</string>
+    <string name="ag_cam_shoot">拍照</string>
+    <string name="ag_cam_flip">換鏡頭</string>
+    <string name="ag_cam_close">取消</string>
+    <string name="ag_cam_body_hint">站在入社那天同一個位置，全身入鏡，手機放同一個高度。</string>
+    <string name="ag_media_no_camera_permission">沒有相機權限，這次不能拍。可以用「從相簿選」，或到手機設定打開相機權限。</string>
+    <string name="ag_photo_menu">拍菜單</string>
+    <string name="ag_photo_receipt">拍收據</string>
+    <string name="ag_photo_body">身體照</string>
+    <string name="ag_read_confirm">確認</string>
+    <string name="ag_read_drop">不要</string>
+    <string name="ag_read_kcal">大卡</string>
+    <string name="ag_read_yuan">元</string>
+    <string name="ag_read_fun">娛樂費（形象用品）</string>
+    <string name="ag_read_confirmed">已確認，照確認的算。</string>
+    <string name="ag_read_dropped">沒有採用。</string>
+    <string name="ag_meal_late">補交・%1$02d:%2$02d 拍的</string>
 </resources>

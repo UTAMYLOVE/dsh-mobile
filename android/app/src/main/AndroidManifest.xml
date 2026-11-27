@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 清唱錄音 (入社建檔, T07): asked at that step only. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The in-app camera (T15b): asked the first time a photo is taken; the shot goes into the encrypted vault only. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- Slot reminders and the 30-minute chase on time (T13, arch 1.6): granted at install for an alarm-type app. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 

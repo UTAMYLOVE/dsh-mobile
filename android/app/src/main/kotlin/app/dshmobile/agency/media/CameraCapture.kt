@@ -33,8 +33,8 @@ class CameraCapture(
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
     /** A waiting capture: for a 入社建檔 [step], a 理論課 實作 ([lessonId], T19c), or (both null) for a meal (拍這餐). */
-    data class Pending(val step: OnboardingStep?, val file: File, val lessonId: String? = null) {
-        val meal: Boolean get() = step == null && lessonId == null
+    data class Pending(val step: OnboardingStep?, val file: File, val lessonId: String? = null, val purpose: MediaPurpose? = null) {
+        val meal: Boolean get() = step == null && lessonId == null && purpose == null
     }
 
     /**
@@ -42,6 +42,12 @@ class CameraCapture(
      * writes it with its link).
      */
     data class Captured(val step: OnboardingStep?, val media: Media, val lessonId: String? = null)
+
+    /** 菜單, 收據 or 身體照 (T15b) through the system camera, when the in-app camera cannot run. */
+    fun beginFor(purpose: MediaPurpose): Intent {
+        require(purpose in READ_PURPOSES) { "not a photo the model reads" }
+        return start(OTHER + purpose.name)
+    }
 
     /** Prepares the file and returns the camera intent for a 入社建檔 photo; the pending capture is saved first. */
     fun begin(step: OnboardingStep): Intent {
@@ -77,6 +83,7 @@ class CameraCapture(
         val what = v.substringBefore(SEP)
         val name = v.substringAfter(SEP, "")
         if (!NAME.matches(name)) return null
+        if (what.startsWith(OTHER)) return MediaPurpose.entries.firstOrNull { it.name == what.removePrefix(OTHER) && it in READ_PURPOSES }?.let { Pending(null, File(cameraDir, name), purpose = it) }
         if (what.startsWith(LESSON)) return what.removePrefix(LESSON).takeIf { ID.matches(it) }?.let { Pending(null, File(cameraDir, name), it) }
         val step = if (what == MEAL) null else OnboardingStep.parse(what)?.takeIf { it in OnboardingStep.PHOTOS } ?: return null
         return Pending(step, File(cameraDir, name))
@@ -98,6 +105,7 @@ class CameraCapture(
             val sealed = vault.put(id, bytes)
             bytes.fill(0)
             val purpose = when {
+                p.purpose != null -> p.purpose
                 p.lessonId != null -> MediaPurpose.LESSON
                 p.meal -> MediaPurpose.MEAL
                 else -> MediaPurpose.BASELINE
@@ -119,6 +127,8 @@ class CameraCapture(
         const val KEY = "pending_capture"
         const val MEAL = "MEAL"
         const val LESSON = "LESSON~"
+        const val OTHER = "PHOTO~"
+        val READ_PURPOSES = setOf(MediaPurpose.MENU, MediaPurpose.RECEIPT, MediaPurpose.BODY)
         private val ID = Regex("[A-Za-z0-9-]{1,64}")
         const val MIME = "image/jpeg"
         const val MAX_PX = 1600

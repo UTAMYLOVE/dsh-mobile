@@ -11,6 +11,8 @@ import app.dshmobile.agency.notify.AgencyNotifier
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import app.agency.core.brain.handlers.OnboardingStep
@@ -31,6 +33,14 @@ class AgencyActivity : ComponentActivity() {
         agency.onCameraResult(r.resultCode == Activity.RESULT_OK)
     }
 
+    /** The camera permission (T15b), asked the first time the in-app camera is needed; [waiting] is the photo it is for. */
+    private var waiting: app.dshmobile.agency.media.PhotoTarget? = null
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val t = waiting ?: return@registerForActivityResult
+        waiting = null
+        if (granted) agency.openCamera(t) else agency.cameraDenied()
+    }
+
     /** Reminders need notifications (asked at run time); asked once, 設定 › 權限檢查 shows it afterwards. */
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -43,8 +53,20 @@ class AgencyActivity : ComponentActivity() {
             SakuraTheme {
                 AgencyRoot(
                     agency,
-                    AgencyActions(takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto, openLink = ::openLink, takeLessonPhoto = ::takeLessonPhoto),
+                    AgencyActions(
+                        takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto, openLink = ::openLink,
+                        takeLessonPhoto = ::takeLessonPhoto, photo = ::photo,
+                    ),
                 )
+                // The in-app camera over everything while it is open (T15b).
+                val target by agency.inAppCamera.collectAsState()
+                target?.let { t ->
+                    androidx.activity.compose.BackHandler { agency.closeCamera() }
+                    app.dshmobile.ui.agency.camera.InAppCamera(
+                        t, onShot = { bytes, rotation -> agency.onFrame(t, bytes, rotation) },
+                        onFail = { agency.closeCamera(); systemCamera(t) }, onClose = agency::closeCamera,
+                    )
+                }
             }
         }
         if (savedInstanceState == null) fromNotification(intent)
@@ -68,22 +90,36 @@ class AgencyActivity : ComponentActivity() {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)) }
     }
 
-    private fun takeMealPhoto() {
-        val intent = agency.mealPhotoIntent() ?: return
+    private fun takeMealPhoto() = photo(app.dshmobile.agency.media.PhotoTarget.Meal)
+
+    /** A 理論課 實作 photo (T19c). */
+    private fun takeLessonPhoto(lessonId: String) = photo(app.dshmobile.agency.media.PhotoTarget.Lesson(lessonId))
+
+    /**
+     * A photo for [target] (T15b): the app's own camera, after the camera permission (asked the first time it is needed); a
+     * test camera seam keeps the system-camera round trip.
+     */
+    private fun photo(target: app.dshmobile.agency.media.PhotoTarget) {
+        if (agency.hasCameraSeam()) return systemCamera(target)
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) return agency.openCamera(target)
+        waiting = target
         try {
-            camera.launch(intent)
-        } catch (_: ActivityNotFoundException) {
-            agency.cameraMissing()
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        } catch (_: Exception) {
+            waiting = null
+            agency.cameraDenied()
         }
     }
 
-    /** A 理論課 實作 photo (T19c): the same camera round trip, for the lesson. */
-    private fun takeLessonPhoto(lessonId: String) {
-        val intent = agency.lessonPhotoIntent(lessonId) ?: return
+    /** The system camera app: the fallback when the in-app camera cannot run here. */
+    private fun systemCamera(target: app.dshmobile.agency.media.PhotoTarget) {
+        val intent = agency.systemCameraIntent(target) ?: return
         try {
             camera.launch(intent)
         } catch (_: ActivityNotFoundException) {
             agency.cameraMissing()
+        } catch (_: SecurityException) {
+            agency.cameraDenied()
         }
     }
 
@@ -95,14 +131,7 @@ class AgencyActivity : ComponentActivity() {
         runCatching { notifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
     }
 
-    private fun takePhoto(step: OnboardingStep) {
-        val intent = agency.photoIntent(step) ?: return
-        try {
-            camera.launch(intent)
-        } catch (_: ActivityNotFoundException) {
-            agency.cameraMissing()
-        }
-    }
+    private fun takePhoto(step: OnboardingStep) = photo(app.dshmobile.agency.media.PhotoTarget.Baseline(step))
 }
 
 private const val ASKED_NOTIFICATIONS = "asked_notifications"
@@ -122,4 +151,6 @@ class AgencyActions(
     val openLink: (String) -> Unit = {},
     /** A 理論課 實作 photo (T19c). */
     val takeLessonPhoto: (String) -> Unit = {},
+    /** Any photo by its target (T15b: 拍菜單, 拍收據, 身體照 too): the in-app camera. */
+    val photo: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
 )

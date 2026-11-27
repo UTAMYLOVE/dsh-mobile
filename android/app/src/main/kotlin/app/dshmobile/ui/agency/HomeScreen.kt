@@ -103,11 +103,13 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             value = withContext(Dispatchers.IO) {
                 val ids = messages.flatMap { it.refs.records }.distinct()
                 val results = messages.flatMap { it.refs.results }.distinct()
+                val reads = messages.mapNotNull { it.refs.photoRead }.distinct()
                 MealView(
                     ids.mapNotNull { id -> runCatching { ready.store.meals.get(id) }.getOrNull() }.associateBy { it.id },
                     runCatching { ready.brain.pendingLabels() }.getOrDefault(emptyList()),
                     agency.mediaVault(),
                     results.mapNotNull { id -> runCatching { ready.store.places.result(id) }.getOrNull() }.associateBy { it.id },
+                    reads.mapNotNull { id -> runCatching { ready.brain.photoRead(id) }.getOrNull() }.associateBy { it.id },
                 )
             }
         }
@@ -122,6 +124,7 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             meal = MealActions(
                 onPhoto = actions.takeMealPhoto, onOpen = { viewing = it }, onLabel = { labelling = it }, onLink = actions.openLink,
                 onSavePlace = { id -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.proposeSavePlace(id) } } } },
+                onConfirmRead = agency::confirmPhoto, onDropRead = agency::dropPhoto,
             ),
         )
     }
@@ -180,7 +183,7 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             if (conditionDue) ConditionPicker { score, sleep, energy, ill -> agency.condition(score, sleep, energy, ill) }
             reviewOpen?.let { open -> key(open) { BedtimeReviewSheet(open) { good, fix -> agency.review(good, fix) } } }
             MediaLine(agency)
-            QuickButtons(card, busy, onPhoto = actions.takeMealPhoto) { agency.send(it) }
+            QuickButtons(card, busy, onPhoto = actions.takeMealPhoto, onTarget = actions.photo) { agency.send(it) }
             TrainingButtons(card, busy, onWalk = agency::walkDone) { kind ->
                 scope.launch {
                     val open = withContext(Dispatchers.IO) {
@@ -214,6 +217,7 @@ private fun MediaLine(agency: AgencyApp) {
             app.dshmobile.agency.MediaNotice.NO_CAMERA -> R.string.ag_media_no_camera
             app.dshmobile.agency.MediaNotice.LOCKED -> R.string.ag_media_locked
             app.dshmobile.agency.MediaNotice.NOT_SAVED -> R.string.ag_media_not_saved
+            app.dshmobile.agency.MediaNotice.NO_CAMERA_PERMISSION -> R.string.ag_media_no_camera_permission
         },
     )
     Text(text, color = Sakura.RoseBrown, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp).testTag(AgencyTags.MEDIA_NOTICE))
@@ -226,7 +230,13 @@ private const val PAGE = 500
  * type; riding makes reminders sound once) and 「這裡有問題」 (T12: 討論 with the manager). The row scrolls sideways.
  */
 @Composable
-private fun QuickButtons(card: IdolCardFacts?, busy: Boolean, onPhoto: () -> Unit, onSay: (String) -> Unit) {
+private fun QuickButtons(
+    card: IdolCardFacts?,
+    busy: Boolean,
+    onPhoto: () -> Unit,
+    onTarget: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
+    onSay: (String) -> Unit,
+) {
     val start = stringResource(R.string.ag_ride_start)
     val end = stringResource(R.string.ag_ride_end)
     val slots = card?.slots.orEmpty()
@@ -244,7 +254,12 @@ private fun QuickButtons(card: IdolCardFacts?, busy: Boolean, onPhoto: () -> Uni
         }
         if (open(app.agency.core.schedule.Feature.MEALS)) {
             PinkButton(stringResource(R.string.ag_meal_photo), onClick = onPhoto, enabled = !busy, modifier = Modifier.testTag(MealTags.PHOTO))
+            // T15b: a menu or a receipt for the image model to read (a list he confirms).
+            SoftButton(stringResource(R.string.ag_photo_menu), onClick = { onTarget(app.dshmobile.agency.media.PhotoTarget.Menu) }, enabled = !busy, modifier = Modifier.testTag(MealTags.MENU))
+            SoftButton(stringResource(R.string.ag_photo_receipt), onClick = { onTarget(app.dshmobile.agency.media.PhotoTarget.Receipt) }, enabled = !busy, modifier = Modifier.testTag(MealTags.RECEIPT))
         }
+        // 身體照 (T15b): the teacher's words on a body photo.
+        SoftButton(stringResource(R.string.ag_photo_body), onClick = { onTarget(app.dshmobile.agency.media.PhotoTarget.Body) }, enabled = !busy, modifier = Modifier.testTag(MealTags.BODY))
         // 喝水 (T17): the same words he may type.
         if (open(app.agency.core.schedule.Feature.WATER)) {
             val full = stringResource(R.string.ag_water_full)

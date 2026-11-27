@@ -166,6 +166,41 @@ class MealDesk(
     }
 
     /**
+     * 從相簿選 (T15c): a picked photo goes on the meal of its capture time [takenAt] (EXIF, read on the phone before it was
+     * stripped; null when it had none: now). The slot is the one that time belongs to; a meal of that day without a photo
+     * within [PHOTO_ATTACH_MS] of it takes it, else it waits as a meal of that slot. Later than [LATE_MS] after the capture (or
+     * with no capture time) it is 「補交」, with the time kept on the meal.
+     */
+    suspend fun attachPicked(media: Media, takenAt: Long?): MealOutcome {
+        val profile = snapshot.profile()
+        val now = clock.millis()
+        val at = takenAt?.takeIf { it <= now } ?: now
+        val day = snapshot.dayOf(java.time.Instant.ofEpochMilli(at), profile)
+        val d = day.toString()
+        val plan = snapshot.plan(day)
+        val meals = store.meals.onDay(d)
+        val late = takenAt == null || now - at > LATE_MS
+        val lateAt = if (late) at else null
+        val target = meals.filter { it.photoMediaId == null && kotlin.math.abs(it.at - at) <= PHOTO_ATTACH_MS }.minByOrNull { kotlin.math.abs(it.at - at) }
+        val m = target?.copy(verified = true, photoMediaId = media.id, lateAt = lateAt)
+            ?: Meal(newId(), d, at, MealSlots.pick(plan, "", Links.minuteOf(day, at, clock.zone), meals, at)?.name, PHOTO_ONLY_TEXT, verified = true, photoMediaId = media.id, lateAt = lateAt)
+        store.transaction {
+            store.media.insert(media)
+            store.meals.upsert(m)
+        }
+        val label = SlotKey.parse(m.slotKey)?.let { plan.slot(it)?.label ?: it.zh } ?: "加餐"
+        val z = java.time.Instant.ofEpochMilli(at).atZone(clock.zone)
+        val time = "%d/%d %02d:%02d".format(z.monthValue, z.dayOfMonth, z.hour, z.minute)
+        val mark = when {
+            takenAt == null -> "（補交，照片沒有拍攝時間）"
+            late -> "（補交，$time 拍的）"
+            else -> ""
+        }
+        val tail = if (target == null) "吃了什麼、幾份打給我，熱量才算得出來。" else "已證實。"
+        return MealOutcome(m, listOf("照片收到$mark，記在$label。$tail"))
+    }
+
+    /**
      * 刪掉照片 (after his confirm): the meal goes back to 「未證實」 (a meal that was only the photo goes with it). Returns the
      * media id whose file the app deletes, or null when there was none.
      */
@@ -237,6 +272,8 @@ class MealDesk(
         const val ZERO_KCAL_MAX = 20
         const val PHOTO_WAIT_MS = 3L * 3_600_000
         const val PHOTO_ATTACH_MS = 3L * 3_600_000
+        /** A picked photo handed in later than this after it was taken is 「補交」. */
+        const val LATE_MS = 30L * 60_000
         const val PENDING_KEEP_MS = 7L * 86_400_000
         const val LOW_DAYS = 2
         val LABEL_KCAL = 1..5000

@@ -89,6 +89,8 @@ class TodayLinksCardTest {
         val p = runBlocking { store().nerve.effects(today()) }.single { it.kind == EffectKind.PROPOSAL }
         rule.onNodeWithTag(LinkTags.YES + p.id).performScrollTo().performClick()
         rule.waitUntil(10_000) { runBlocking { store().nerve.effect(p.id) }?.status == EffectStatus.ACCEPTED }
+        // The proposal row is written right after the effect's: wait for it too (a loaded machine can see the gap).
+        rule.waitUntil(10_000) { runBlocking { store().proposals.get(p.proposalId!!) }?.status == ProposalStatus.ACCEPTED }
         assertEquals(ProposalStatus.ACCEPTED, runBlocking { store().proposals.get(p.proposalId!!) }!!.status)
         rule.waitForText("你說好了")
     }

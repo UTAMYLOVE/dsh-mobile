@@ -44,9 +44,14 @@ class AgencyTestKit(private val dir: File) {
     @Volatile var vaultLocked = false
 
     /** Everything open by default (the tests of the features); a rollout test passes its own week. */
-    fun overrides(modelBase: HttpUrl? = null, rollout: app.agency.core.schedule.RolloutSpec = app.agency.core.schedule.RolloutSpec.ALL_OPEN) = TestOverrides(
+    fun overrides(
+        modelBase: HttpUrl? = null,
+        rollout: app.agency.core.schedule.RolloutSpec = app.agency.core.schedule.RolloutSpec.ALL_OPEN,
+        systemCamera: Boolean = true,
+    ) = TestOverrides(
         modelBase = modelBase,
         rollout = rollout,
+        systemCamera = systemCamera,
         openDatabase = { ctx ->
             opens++
             failures.removeFirstOrNull()?.let { throw it }

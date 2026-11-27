@@ -21,7 +21,7 @@ class ManifestPermissionsTest {
     }
 
     companion object {
-        /** Arch 1.13 (USE_EXACT_ALARM came with the scheduler, T13). */
+        /** Arch 1.13 (USE_EXACT_ALARM came with the scheduler, T13; CAMERA with the in-app camera, T15b). */
         val ALLOWED_PERMISSIONS = setOf(
             "android.permission.INTERNET",
             "android.permission.WAKE_LOCK",
@@ -29,6 +29,7 @@ class ManifestPermissionsTest {
             "android.permission.RECEIVE_BOOT_COMPLETED",
             "android.permission.ACCESS_NETWORK_STATE",
             "android.permission.RECORD_AUDIO",
+            "android.permission.CAMERA",
             "android.permission.USE_EXACT_ALARM",
         )
     }

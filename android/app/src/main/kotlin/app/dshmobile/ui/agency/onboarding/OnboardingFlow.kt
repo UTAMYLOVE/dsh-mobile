@@ -102,6 +102,7 @@ fun OnboardingFlow(agency: AgencyApp, status: OnboardingStatus, actions: AgencyA
                         MediaNotice.NO_CAMERA -> R.string.ag_ob_no_camera
                         MediaNotice.LOCKED -> R.string.ag_ob_locked
                         MediaNotice.NOT_SAVED -> R.string.ag_ob_not_saved
+                        MediaNotice.NO_CAMERA_PERMISSION -> R.string.ag_media_no_camera_permission
                     },
                 ),
                 color = Sakura.Text, fontSize = 13.sp, modifier = Modifier.testTag(OnboardingTags.MEDIA_NOTICE),

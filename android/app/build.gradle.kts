@@ -98,6 +98,12 @@ dependencies {
     implementation(libs.sqlcipher.android)
     implementation(libs.androidx.sqlite)
 
+    // The in-app camera (T15b): the app's own viewfinder; a shot goes from memory into the media vault, never to a file or the
+    // gallery. auto-value's annotations (compile-time only, not from Google Maven) are left out.
+    listOf(libs.androidx.camera.core, libs.androidx.camera.camera2, libs.androidx.camera.lifecycle, libs.androidx.camera.view).forEach {
+        implementation(it) { exclude(group = "com.google.auto.value") }
+    }
+
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)

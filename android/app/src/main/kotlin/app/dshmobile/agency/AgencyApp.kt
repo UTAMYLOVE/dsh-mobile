@@ -90,10 +90,12 @@ class TestOverrides(
     val player: (() -> PlayerEngine)? = null,
     /** The rollout week a test starts in (分週上線; a new install starts in week 1). */
     val rollout: app.agency.core.schedule.RolloutSpec? = null,
+    /** The in-app camera cannot run here (Robolectric has no camera): photos take the system-camera fallback. */
+    val systemCamera: Boolean = false,
 )
 
 /** A line about a photo or the recording that could not be kept (shown on the 入社建檔 panel until the next try). */
-enum class MediaNotice { NO_CAMERA, LOCKED, NOT_SAVED }
+enum class MediaNotice { NO_CAMERA, LOCKED, NOT_SAVED, NO_CAMERA_PERMISSION }
 
 /** Where the company stands at start. [Ready] carries what the screens use. */
 sealed interface StartState {
@@ -384,6 +386,115 @@ class AgencyApp(
         return null
     }
 
+    private val _inAppCamera = MutableStateFlow<app.dshmobile.agency.media.PhotoTarget?>(null)
+
+    /** The in-app camera's target while its viewfinder is open (T15b); the activity shows it over the company. */
+    val inAppCamera: StateFlow<app.dshmobile.agency.media.PhotoTarget?> = _inAppCamera.asStateFlow()
+
+    /** Whether photos take the system-camera round trip: a test stands in for the camera, or says the in-app one cannot run. */
+    fun hasCameraSeam(): Boolean = overrides?.camera != null || overrides?.systemCamera == true
+
+    fun openCamera(target: app.dshmobile.agency.media.PhotoTarget) {
+        _mediaNotice.value = null
+        _inAppCamera.value = target
+    }
+
+    fun closeCamera() {
+        _inAppCamera.value = null
+    }
+
+    /** The camera permission was refused: nothing is taken (從相簿選 needs no permission). */
+    fun cameraDenied() {
+        _inAppCamera.value = null
+        _mediaNotice.value = MediaNotice.NO_CAMERA_PERMISSION
+    }
+
+    /**
+     * The system camera for [target] (the fallback when CameraX cannot run, and the test seam's path): its intent, or null
+     * when the test camera already answered.
+     */
+    fun systemCameraIntent(target: app.dshmobile.agency.media.PhotoTarget): Intent? = when (target) {
+        app.dshmobile.agency.media.PhotoTarget.Meal -> mealPhotoIntent()
+        is app.dshmobile.agency.media.PhotoTarget.Lesson -> lessonPhotoIntent(target.lessonId)
+        is app.dshmobile.agency.media.PhotoTarget.Baseline -> photoIntent(target.step)
+        else -> capture { camera.beginFor(target.purpose) }
+    }
+
+    /**
+     * A frame of the in-app camera (T15b), in memory only: cleaned (upright, ≤ 1600 px, a fresh JPEG with no metadata), sealed
+     * into the vault, the plaintext buffers cleared, and handed in for [target]. No file is written and nothing reaches the
+     * gallery.
+     */
+    fun onFrame(target: app.dshmobile.agency.media.PhotoTarget, jpeg: ByteArray, rotation: Int) {
+        _inAppCamera.value = null
+        scope.launch {
+            val ready = _start.first { it is StartState.Ready } as StartState.Ready
+            val v = vault ?: return@launch
+            val clean = app.dshmobile.agency.media.PhotoBytes.clean(jpeg, rotation)
+            jpeg.fill(0)
+            if (clean == null) {
+                _mediaNotice.value = MediaNotice.NOT_SAVED
+                return@launch
+            }
+            val id = UUID.randomUUID().toString()
+            val sealed = try {
+                v.put(id, clean)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                errorLog.append(TAG, "frame not sealed (${e.javaClass.simpleName})")
+                _mediaNotice.value = if (e is app.dshmobile.agency.secure.DataUnavailableException) MediaNotice.LOCKED else MediaNotice.NOT_SAVED
+                return@launch
+            } finally {
+                clean.fill(0)
+            }
+            handPhoto(ready, v, target, Media(id, MediaKind.PHOTO, target.purpose, CameraCapture.MIME, sealed.bytes, sealed.sha256, clock.millis()))
+        }
+    }
+
+    /** A sealed photo for [target]: its step, its lesson, its meal (then read when it has no words yet), or the model's read. */
+    private suspend fun handPhoto(ready: StartState.Ready, v: MediaVault, target: app.dshmobile.agency.media.PhotoTarget, media: Media, takenAt: Long? = null, picked: Boolean = false) {
+        when (target) {
+            is app.dshmobile.agency.media.PhotoTarget.Baseline -> handIn(ready, v, target.step, media)
+            is app.dshmobile.agency.media.PhotoTarget.Lesson -> practical(ready, v, target.lessonId, media)
+            app.dshmobile.agency.media.PhotoTarget.Meal -> {
+                val line = mealPhoto(ready, v, media, takenAt, picked) ?: return
+                val meal = line.refs.records.firstOrNull()?.let { runCatching { ready.store.meals.get(it) }.getOrNull() }
+                if (meal != null && meal.items.isEmpty() && meal.photoMediaId == media.id) readPhoto(ready, v, app.agency.core.model.PhotoReadKind.MEAL, media)
+            }
+            else -> readPhoto(ready, v, target.read ?: return, media)
+        }
+    }
+
+    /** The image model's read of [media] (T15b): the cleaned vault copy, and for 身體照 the 入社建檔 front photo to compare. */
+    private suspend fun readPhoto(ready: StartState.Ready, v: MediaVault, kind: app.agency.core.model.PhotoReadKind, media: Media) {
+        try {
+            val images = if (!ready.brain.photosReadable()) {
+                emptyList()
+            } else {
+                val own = runCatching { app.dshmobile.agency.media.PhotoBytes.forModel(v.get(media.id)) }.getOrNull()
+                val base = if (kind == app.agency.core.model.PhotoReadKind.BODY) {
+                    ready.store.baselines.get(app.agency.core.model.Baseline.JOIN)?.photoFront?.let { f -> runCatching { app.dshmobile.agency.media.PhotoBytes.forModel(v.get(f)) }.getOrNull() }
+                } else {
+                    null
+                }
+                listOfNotNull(own, base.takeIf { own != null })
+            }
+            ready.brain.readPhoto(kind, media, images)
+            if (costMeter.consumeAlert()) notifier.costAlert(costMeter.todayUsd())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "photo not read (${e.javaClass.simpleName})")
+            runCatching { if (ready.store.media.get(media.id) == null) v.delete(media.id) }
+        }
+    }
+
+    /** 確認 / 不要 on a reading card (T15b): his kept rows become facts only now. */
+    fun confirmPhoto(readId: String, draft: app.agency.core.vision.ReadDraft) = talk { it.confirmPhoto(readId, draft) }
+
+    fun dropPhoto(readId: String) = talk { it.dropPhoto(readId) }
+
     /** There is no camera app to take the picture. */
     fun cameraMissing() {
         camera.cancel()
@@ -410,25 +521,32 @@ class AgencyApp(
             } ?: return@launch
             val step = captured.step
             val lesson = captured.lessonId
-            when {
-                lesson != null -> practical(ready, v, lesson, captured.media)
-                step != null -> handIn(ready, v, step, captured.media)
-                else -> mealPhoto(ready, v, captured.media)
+            val target = when {
+                lesson != null -> app.dshmobile.agency.media.PhotoTarget.Lesson(lesson)
+                step != null -> app.dshmobile.agency.media.PhotoTarget.Baseline(step)
+                captured.media.purpose == MediaPurpose.MENU -> app.dshmobile.agency.media.PhotoTarget.Menu
+                captured.media.purpose == MediaPurpose.RECEIPT -> app.dshmobile.agency.media.PhotoTarget.Receipt
+                captured.media.purpose == MediaPurpose.BODY -> app.dshmobile.agency.media.PhotoTarget.Body
+                else -> app.dshmobile.agency.media.PhotoTarget.Meal
             }
+            handPhoto(ready, v, target, captured.media)
         }
     }
 
     /** A meal's photo: the media row and its meal are written together; a failure removes the sealed file again. */
-    private suspend fun mealPhoto(ready: StartState.Ready, v: MediaVault, media: Media) {
-        try {
-            ready.brain.attachMealPhoto(media)
-            _mediaNotice.value = null
+    private suspend fun mealPhoto(ready: StartState.Ready, v: MediaVault, media: Media, takenAt: Long? = null, picked: Boolean = false): app.agency.core.model.Message? {
+        return try {
+            (if (picked) ready.brain.attachPickedMealPhoto(media, takenAt) else ready.brain.attachMealPhoto(media)).also {
+                _mediaNotice.value = null
+                if (ready.store.media.get(media.id) == null) runCatching { v.delete(media.id) } // the feature was closed: nothing kept
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             errorLog.append(TAG, "meal photo not saved (${e.javaClass.simpleName})")
             runCatching { if (ready.store.media.get(media.id) == null) v.delete(media.id) }
             _mediaNotice.value = MediaNotice.NOT_SAVED
+            null
         }
     }
 
@@ -811,11 +929,19 @@ class AgencyApp(
         // Nearby food (T16): DeepSeek Search with his DeepSeek key, through the same gate, checks and meter (the spend cap
         // stops it before any socket; a non-empty answer is billed). Only his coarse area and a dish name are sent.
         val search = DeepSeekSearchClient(transport, { keyVault.get(Provider.DEEPSEEK) }, checks, costMeter, base ?: CompatEndpoint.DEEPSEEK_BASE)
+        // Photos (T15b): the image model of the provider he chose, through the same gate, checks and meter (the spend cap stops
+        // it before any socket). Only a cleaned photo can be sent; never a recording.
+        val vision = app.agency.core.vision.VisionRouter(
+            { settings.provider },
+            app.agency.core.vision.DeepSeekVisionClient(transport, { keyVault.get(Provider.DEEPSEEK) }, checks, costMeter, base ?: CompatEndpoint.DEEPSEEK_BASE),
+            app.agency.core.vision.ClaudeVisionClient(transport, { settings.claudeModel }, { keyVault.get(Provider.ANTHROPIC) }, checks, costMeter, base ?: AnthropicClient.BASE),
+        )
         return Brain(
             store, ProviderRouter({ settings.provider }, deepseek, claude, compat), { settings.provider }, clock,
             intakeLlm = ProviderRouter({ settings.provider }, deepseekClerk, claudeClerk, compat),
             log = { line -> errorLog.append("brain", line) },
             search = search,
+            vision = vision,
         )
     }
 

@@ -118,6 +118,8 @@ class Brain(
     private val log: (String) -> Unit = {},
     /** Nearby food search (T16, DeepSeek Search through the network gate); null leaves `search_places` without results. */
     private val search: app.agency.core.llm.SearchClient? = null,
+    /** The image-capable model of the provider he chose (T15b); null: photos are kept as evidence only. */
+    private val vision: app.agency.core.vision.VisionRouter? = null,
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
     private val mutex = Mutex()
@@ -144,6 +146,7 @@ class Brain(
     private val training = app.agency.core.brain.handlers.TrainingDesk(store, snapshot, clock, newId)
     private val income = app.agency.core.brain.handlers.IncomeDesk(store)
     private val memoDesk = app.agency.core.brain.handlers.MemoDesk(store, clock.zone, newId)
+    private val photos = app.agency.core.brain.handlers.PhotoDesk(store, snapshot, clock, newId, vision, intakeLlm)
     private val lessons = app.agency.core.brain.handlers.LessonDesk(store, clock, newId, structured, search) { snapshot.today(snapshot.profile()) }
 
     private val _busy = MutableStateFlow(false)
@@ -1052,6 +1055,49 @@ class Brain(
         closed(app.agency.core.schedule.Feature.MEALS)?.let { return@withLock said(MealOutcome(null, listOf(it)), MEAL_PHOTO_KIND).first().also { bump() } }
         said(meals.attachPhoto(media), MEAL_PHOTO_KIND).first().also { bump() }
     }
+
+    /** 從相簿選 (T15c): a picked meal photo, put on the meal of its capture time [takenAt] (補交 when late). */
+    suspend fun attachPickedMealPhoto(media: Media, takenAt: Long?): Message = mutex.withLock {
+        closed(app.agency.core.schedule.Feature.MEALS)?.let { return@withLock said(MealOutcome(null, listOf(it)), MEAL_PHOTO_KIND).first().also { bump() } }
+        said(meals.attachPicked(media, takenAt), MEAL_PHOTO_KIND).first().also { bump() }
+    }
+
+    /** Whether photos can be read by a model now (the provider he chose has image support). */
+    fun photosReadable(): Boolean = photos.supported()
+
+    /**
+     * A photo for the image-capable model (T15b): [media] is sealed already (a meal's is on its meal; another kind's row is
+     * written here), [images] are its cleaned copies (and a baseline photo for 身體照). The body teacher's line: a list to
+     * confirm (菜單, 餐點照, 收據) or her words on a body photo. Never a recording (a [VisionImage] cannot be one).
+     */
+    suspend fun readPhoto(kind: app.agency.core.model.PhotoReadKind, media: Media, images: List<app.agency.core.vision.VisionImage>): List<Message> = mutex.withLock {
+        require(media.kind == app.agency.core.model.MediaKind.PHOTO) { "only photos are read" }
+        if (store.media.get(media.id) == null) store.media.insert(media)
+        _busy.value = true
+        try {
+            val o = photos.read(kind, media, images)
+            val kindOf = if (o.body) app.agency.core.brain.handlers.PhotoDesk.BODY_KIND else app.agency.core.brain.handlers.PhotoDesk.READ_KIND
+            val m = Message(newId(), clock.millis(), Who.COMPANY, role = RoleKey.BODY, kind = kindOf, text = o.line, refs = MessageRefs(photoRead = o.read?.id), wordedBy = if (o.body && o.line != app.agency.core.brain.handlers.PhotoDesk.BODY_HELD) WordedBy.MODEL else WordedBy.TEMPLATE)
+            store.messages.insert(m)
+            bump()
+            listOf(m)
+        } finally {
+            _busy.value = false
+        }
+    }
+
+    suspend fun photoRead(id: String): app.agency.core.model.PhotoRead? = store.photoReads.get(id)
+
+    /** 確認 on a reading card with the rows he kept or edited: only now do they become facts. */
+    suspend fun confirmPhoto(id: String, draft: app.agency.core.vision.ReadDraft): List<Message> = mutex.withLock {
+        val ill = nerve.state(snapshot.today(snapshot.profile())).ill != null
+        val mealsOpen = closed(app.agency.core.schedule.Feature.MEALS) == null
+        val o = photos.confirm(id, draft, ill, meals, mealsOpen) ?: return@withLock emptyList()
+        said(o, if (o.meal != null) "meal" else app.agency.core.brain.handlers.PhotoDesk.READ_KIND).also { bump() }
+    }
+
+    /** 不要 on a reading card: nothing of it is kept (the photo stays as evidence). */
+    suspend fun dropPhoto(id: String): Boolean = mutex.withLock { photos.drop(id).also { if (it) bump() } }
 
     /** 刪掉照片 after his confirm: the media id whose sealed file the app deletes (null: nothing was deleted). */
     suspend fun deleteMealPhoto(mealId: String): String? = mutex.withLock { meals.deletePhoto(mealId).also { if (it != null) bump() } }

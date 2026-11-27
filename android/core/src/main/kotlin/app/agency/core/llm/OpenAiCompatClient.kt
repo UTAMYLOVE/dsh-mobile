@@ -247,6 +247,7 @@ class OpenAiCompatClient(
             Purpose.INTAKE -> 0.2
             Purpose.JUDGE -> 0.0
             Purpose.QUIZ -> 0.3
+            Purpose.VISION -> 0.2
             Purpose.UTTERANCE, Purpose.NUDGE, Purpose.CHAT -> 0.7
         }
     }

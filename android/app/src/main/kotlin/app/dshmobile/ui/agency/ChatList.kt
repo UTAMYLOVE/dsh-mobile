@@ -64,6 +64,8 @@ data class MealView(
     val vault: MediaVault? = null,
     /** The nearby results the lines point at (T16), by id. */
     val results: Map<String, SearchResult> = emptyMap(),
+    /** The photo readings the lines point at (T15b), by id. */
+    val reads: Map<String, app.agency.core.model.PhotoRead> = emptyMap(),
 )
 
 object ChatTags {
@@ -167,6 +169,7 @@ private fun Bubble(m: Message, chips: Boolean, memory: Map<String, MemoryEvent>,
                 MealCard(meal, meals.pending.filter { it.mealId == meal.id }, meals.vault, actions.meal, busy)
             }
             m.refs.results.mapNotNull { meals.results[it] }.forEach { r -> SearchResultCard(r, actions.meal.onLink, actions.meal.onSavePlace, busy) }
+            m.refs.photoRead?.let { meals.reads[it] }?.let { r -> app.dshmobile.ui.agency.meal.PhotoReadCard(r, actions.meal, busy) }
         }
     }
 }

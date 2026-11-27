@@ -48,6 +48,10 @@ object MealTags {
     const val LOADING = "ag-meal-loading-"
     const val UNVERIFIED = "ag-meal-unverified-"
     const val PHOTO = "ag-meal-photo"
+    const val MENU = "ag-photo-menu"
+    const val LATE = "ag-meal-late-"
+    const val RECEIPT = "ag-photo-receipt"
+    const val BODY = "ag-photo-body"
     const val LABEL = "ag-meal-label-"
     const val VIEWER = "ag-meal-viewer"
     const val DELETE = "ag-meal-delete"
@@ -68,6 +72,9 @@ data class MealActions(
     val onLabel: (PendingLabel) -> Unit = {},
     val onLink: (String) -> Unit = {},
     val onSavePlace: (String) -> Unit = {},
+    /** 確認 / 不要 on a photo reading (T15b). */
+    val onConfirmRead: (String, app.agency.core.vision.ReadDraft) -> Unit = { _, _ -> },
+    val onDropRead: (String) -> Unit = {},
 )
 
 /**
@@ -83,6 +90,11 @@ fun MealCard(meal: Meal, pending: List<PendingLabel>, vault: MediaVault?, action
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MealThumb(photo, vault, 72.dp, Modifier.clickable { actions.onOpen(meal) }.semantics { contentDescription = desc })
                 Pill(stringResource(R.string.ag_meal_verified))
+                // 補交 (T15c): a photo picked later than the meal, with its capture time.
+                meal.lateAt?.let { t ->
+                    val z = java.time.Instant.ofEpochMilli(t).atZone(java.time.ZoneId.systemDefault())
+                    Text(stringResource(R.string.ag_meal_late, z.hour, z.minute), color = Sakura.RoseBrown, fontSize = 12.sp, modifier = Modifier.testTag(MealTags.LATE + meal.id))
+                }
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

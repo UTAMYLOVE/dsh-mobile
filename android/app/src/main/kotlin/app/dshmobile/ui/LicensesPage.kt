@@ -49,7 +49,7 @@ internal object OpenSourceLicences {
     val notices = listOf(
         Notice("sqlcipher", R.string.ag_lic_sqlcipher, "SQLCipher for Android", "BSD-style License", listOf("Copyright (c) Zetetic LLC"), SQLCIPHER),
         Notice(
-            "androidx", R.string.ag_lic_androidx, "AndroidX (Room, SQLite, Compose, Activity, Core, WorkManager)", "Apache License 2.0",
+            "androidx", R.string.ag_lic_androidx, "AndroidX (Room, SQLite, Compose, Activity, Core, WorkManager, CameraX)", "Apache License 2.0",
             listOf("Copyright The Android Open Source Project"), APACHE,
         ),
         Notice("okhttp", R.string.ag_lic_okhttp, "OkHttp, Okio", "Apache License 2.0", listOf("Copyright Square, Inc."), APACHE),

@@ -6,9 +6,10 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * What a call is for; it picks temperature and thinking on DeepSeek. Discussion mode calls use [CHAT]; [JUDGE] is the
- * second-pass judge (arch 1.9b); [QUIZ] writes a 理論課 quiz from its 教材 (T19c).
+ * second-pass judge (arch 1.9b); [QUIZ] writes a 理論課 quiz from its 教材 (T19c); [VISION] reads one photo (T15b, only through
+ * [app.agency.core.vision.VisionClient]).
  */
-enum class Purpose { INTAKE, UTTERANCE, NUDGE, CHAT, JUDGE, QUIZ }
+enum class Purpose { INTAKE, UTTERANCE, NUDGE, CHAT, JUDGE, QUIZ, VISION }
 
 enum class Thinking { OFF, LOW }
 
@@ -30,7 +31,9 @@ enum class Wire { OPENAI, ANTHROPIC }
 
 /**
  * One entry of the conversation sent to a model. Only text exists: there is deliberately no picture, audio or file part, so a
- * photo cannot reach a model even by mistake (PromptNeverHasMediaTest in T07 and NoMediaInRequestsTest here).
+ * photo cannot reach a model even by mistake (PromptNeverHasMediaTest in T07 and NoMediaInRequestsTest here). The one way a
+ * photo goes out is a [app.agency.core.vision.VisionRequest] (T15b): his meal, menu, receipt or body photo, cleaned to a
+ * [app.agency.core.vision.VisionImage]; never a recording.
  */
 sealed interface Turn {
     data class User(val text: String) : Turn
