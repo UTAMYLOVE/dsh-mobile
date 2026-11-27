@@ -36,6 +36,9 @@ class WeekTargetTest {
         assertFalse(off.onTarget)
         assertEquals(0, off.weeksOnTarget) // the streak starts again
         assertTrue(Links.L20Week.summary(off).contains("這週沒達標（要該做的 90% 以上、沒有違規、真人任務做到）"))
+        // Week 1 (only lessons open): no training, breach or photo-wall rows (M6).
+        val week1 = Links.L20Week.summary(w) { it == app.agency.core.schedule.Feature.LESSONS }
+        listOf("訓練", "違規", "照片牆").forEach { assertFalse(it, week1.contains(it)) }
     }
 
     @Test fun onlyWeeksInARowCount() {

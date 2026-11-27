@@ -622,15 +622,16 @@ object Links {
         override val zh = "一週結束：評鑑分數、等級進度、照片牆、真人任務"
         override val dailyCap = 4
 
-        fun summary(w: Signal.WeekEnded): String {
+        fun summary(w: Signal.WeekEnded, open: (app.agency.core.schedule.Feature) -> Boolean = { true }): String {
             val monday = java.time.LocalDate.parse(w.monday)
             fun md(d: java.time.LocalDate) = "${d.monthValue}/${d.dayOfMonth}"
             return buildString {
                 append("一週結果（${md(monday)}–${md(monday.plusDays(6))}）\n")
                 append("完成率 ${WeekReport.pct(w.done, w.due)}%（該做 ${w.due} 項，做到 ${w.done} 項）\n")
-                append("訓練 ${w.trainingDone}/${w.trainingDue}\n")
-                append("違規 ${w.breaches} 次\n")
-                append("照片牆加了 ${w.photocards} 張\n")
+                // Rows of features not open yet are not there (M6: 「還沒打開的不出現」).
+                if (open(app.agency.core.schedule.Feature.CORE) || open(app.agency.core.schedule.Feature.STRENGTH)) append("訓練 ${w.trainingDone}/${w.trainingDue}\n")
+                if (open(app.agency.core.schedule.Feature.SIGN) || open(app.agency.core.schedule.Feature.MEALS)) append("違規 ${w.breaches} 次\n")
+                if (open(app.agency.core.schedule.Feature.CORE)) append("照片牆加了 ${w.photocards} 張\n")
                 if (w.realTaskRequired) append("真人任務：").append(if (w.realTask) "做到了" else "沒做到").append("\n")
                 val need = if (w.realTaskRequired) "、真人任務做到" else ""
                 append(if (w.onTarget) "這週達標。" else "這週沒達標（要該做的 ${WeekReport.TARGET_PCT}% 以上、沒有違規$need）。")
@@ -641,7 +642,7 @@ object Links {
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
             is Signal.WeekEnded -> {
                 listOfNotNull(
-                    Effect.Say(summary(signal)),
+                    Effect.Say(summary(signal) { ctx.specs.open(it) }),
                     Effect.Record("week", "${signal.monday} ${signal.done}/${signal.due} breaches=${signal.breaches} real=${signal.realTask} target=${signal.onTarget}"),
                     // The real-person task opens with its week (分週上線).
                     Effect.Say(RealTasks.line(state.realTasksDone)).takeIf { ctx.specs.open(app.agency.core.schedule.Feature.REAL_TASK) },

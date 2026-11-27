@@ -136,6 +136,10 @@ class LessonT19cTest {
         val two = QuizDraft(listOf(good, invented, good.copy(q = "另一題：嘶的聲音要多久？")))
         val r = QuizCheck.check(two, LessonKit.VOCAL, need = 3, spares = 3)
         assertTrue(r is Checked.Reject && r.violations.any { it.field == "questions[1]" })
+        // A page that teaches skipping meals never becomes a question (REVIEW-safety M4).
+        val fasting = good.copy(q = "想瘦要怎麼做？", options = listOf("晚餐跳過", "照常吃", "多喝水", "早睡"))
+        val r2 = QuizCheck.check(QuizDraft(listOf(fasting)), LessonKit.VOCAL, need = 1, spares = 0)
+        assertTrue(r2 is Checked.Reject && r2.violations.any { it.field == "questions[0]" && it.reason.contains("不能教") })
     }
 
     @Test fun inventedQuizzesAreSentBackThenTheLessonFallsBackToThreeKeyPoints() = runBlocking {

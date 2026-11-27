@@ -107,7 +107,9 @@ object QuizCheck {
         val good = mutableListOf<QuizQuestion>()
         val bad = mutableListOf<Violation>()
         draft.questions.forEachIndexed { i, q ->
-            val p = problems(q, material, seen)
+            // A web page that promotes fasting or eating less never becomes a question (REVIEW-safety M4): the diet guard reads it.
+            val banned = (listOf(q.q) + q.options).firstNotNullOfOrNull { app.agency.core.guard.OutputGuard.bannedLabel(it) }
+            val p = problems(q, material, seen) + listOfNotNull(banned?.let { "題目或選項有不能教的內容（$it）" })
             if (p.isEmpty()) {
                 good += q
                 seen += fold(q.q)

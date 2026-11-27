@@ -45,9 +45,15 @@ class AgencyNotifier(private val context: Context) {
             channels()
             val channel = if (p.channel == PostChannel.RIDING) CHANNEL_RIDING else CHANNEL_SCHEDULE
             val gap = p.key == GAP_KEY
+            val title = if (p.channel == PostChannel.RIDING) RIDING_TITLE else SCHEDULE_TITLE
+            // On the lock screen only that there is a reminder: his meals and weight never show there (REVIEW-safety M5).
+            val public = NotificationCompat.Builder(context, channel).setSmallIcon(R.drawable.ic_notification).setContentTitle(title)
+                .setContentText(LOCKED_TEXT).build()
             val n = NotificationCompat.Builder(context, channel)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(if (p.channel == PostChannel.RIDING) RIDING_TITLE else SCHEDULE_TITLE)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPublicVersion(public)
+                .setContentTitle(title)
                 .setContentText(p.text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(p.text))
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -139,6 +145,7 @@ class AgencyNotifier(private val context: Context) {
     )
 
     companion object {
+        const val LOCKED_TEXT = "公司有一則提醒，解鎖後看。"
         const val CHANNEL_SCHEDULE = "agency_schedule"
         const val CHANNEL_RIDING = "agency_riding"
         const val CHANNEL_MESSAGES = "agency_messages"
