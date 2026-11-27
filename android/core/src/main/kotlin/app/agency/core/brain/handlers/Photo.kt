@@ -48,9 +48,9 @@ class PhotoDesk(
         val v = vision?.takeIf { it.supported() } ?: return PhotoOutcome(PhotoReads.NO_VISION)
         if (images.isEmpty()) return PhotoOutcome(PhotoReads.failLine(null))
         val result = withTimeoutOrNull(TIMEOUT_MS) { v.see(PhotoReads.request(kind, images.take(if (kind == PhotoReadKind.BODY) 2 else 1))) }
-        val ok = result as? ChatResult.Ok ?: return PhotoOutcome(PhotoReads.failLine((result as? ChatResult.Failed)?.fail))
-        if (kind == PhotoReadKind.BODY) return PhotoOutcome(bodyLine(ok.text.orEmpty()), body = true)
-        val draft = PhotoReads.parse(kind, ok.text.orEmpty()) ?: return PhotoOutcome(PhotoReads.failLine(null))
+        val ok = result as? app.agency.core.vision.VisionResult.Ok ?: return PhotoOutcome(PhotoReads.failLine((result as? app.agency.core.vision.VisionResult.Failed)?.fail))
+        if (kind == PhotoReadKind.BODY) return PhotoOutcome(bodyLine(ok.text), body = true)
+        val draft = PhotoReads.parse(kind, ok.text) ?: return PhotoOutcome(PhotoReads.failLine(null))
         if (draft.rows.isEmpty()) return PhotoOutcome(PhotoReads.summary(kind, draft))
         val read = PhotoRead(newId(), clock.millis(), media.id, kind, draft.json())
         store.photoReads.upsert(read)

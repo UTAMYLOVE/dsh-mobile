@@ -1,6 +1,5 @@
 package app.agency.core.vision
 
-import app.agency.core.llm.ChatResult
 import app.agency.core.llm.Fail
 import app.agency.core.llm.ProviderChoice
 import kotlinx.serialization.json.JsonObject
@@ -26,9 +25,15 @@ data class VisionRequest(
     }
 }
 
+/** What a photo question got: the reply's text (JSON), or why there is none. */
+sealed interface VisionResult {
+    data class Ok(val text: String) : VisionResult
+    data class Failed(val fail: Fail) : VisionResult
+}
+
 /** A provider that can look at photos. */
 fun interface VisionClient {
-    suspend fun see(request: VisionRequest): ChatResult
+    suspend fun see(request: VisionRequest): VisionResult
 }
 
 /**
@@ -43,9 +48,9 @@ class VisionRouter(
 ) : VisionClient {
     fun supported(): Boolean = choice() != ProviderChoice.COMPAT
 
-    override suspend fun see(request: VisionRequest): ChatResult = when (choice()) {
+    override suspend fun see(request: VisionRequest): VisionResult = when (choice()) {
         ProviderChoice.DEEPSEEK -> deepseek.see(request)
         ProviderChoice.CLAUDE -> claude.see(request)
-        ProviderChoice.COMPAT -> ChatResult.Failed(Fail.NO_SETUP)
+        ProviderChoice.COMPAT -> VisionResult.Failed(Fail.NO_SETUP)
     }
 }

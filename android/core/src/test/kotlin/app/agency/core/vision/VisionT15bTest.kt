@@ -60,13 +60,13 @@ class VisionT15bTest {
             return out.toByteArray()
         }
 
-        fun ok(text: String): ChatResult = ChatResult.Ok(text, emptyList(), Turn.Assistant(Wire.OPENAI, JsonPrimitive(text), text, emptyList()), null)
+        fun ok(text: String): VisionResult = VisionResult.Ok(text)
     }
 
-    private class FakeVision(vararg replies: ChatResult) : VisionClient {
+    private class FakeVision(vararg replies: VisionResult) : VisionClient {
         private val script = ArrayDeque(replies.toList())
         val seen = mutableListOf<VisionRequest>()
-        override suspend fun see(request: VisionRequest): ChatResult {
+        override suspend fun see(request: VisionRequest): VisionResult {
             seen += request
             return script.removeFirstOrNull() ?: error("unexpected photo call")
         }
@@ -97,7 +97,7 @@ class VisionT15bTest {
             kit.enqueue(200, LlmTestKit.completion("""{"role":"assistant","content":"{\"rows\":[]}"}"""))
             val client = DeepSeekVisionClient(kit.transport, { kit.key }, kit.checks, kit.sink, kit.base)
             val r = client.see(PhotoReads.request(PhotoReadKind.MENU, listOf(VisionImage.of(jpeg(800, 600))!!)))
-            assertTrue(r is ChatResult.Ok)
+            assertTrue(r is VisionResult.Ok)
             val body = LlmTestKit.json(kit.take())
             assertEquals(CompatEndpoint.DEEPSEEK_FLASH, body["model"]!!.jsonPrimitive.content)
             val parts = body["messages"]!!.jsonArray[1].jsonObject["content"]!!.jsonArray
@@ -109,12 +109,12 @@ class VisionT15bTest {
             assertEquals(Triple(Provider.DEEPSEEK, CompatEndpoint.DEEPSEEK_FLASH, kit.recorded.single().third), kit.recorded.single())
             // Over the spend cap, nothing goes out.
             kit.capBlocked = true
-            assertEquals(ChatResult.Failed(Fail.CAP), client.see(PhotoReads.request(PhotoReadKind.MENU, listOf(VisionImage.of(jpeg(8, 8))!!))))
+            assertEquals(VisionResult.Failed(Fail.CAP), client.see(PhotoReads.request(PhotoReadKind.MENU, listOf(VisionImage.of(jpeg(8, 8))!!))))
             assertEquals(1, kit.server.requestCount)
             // A host the gate does not allow is never reached.
             kit.capBlocked = false
             kit.allowed = emptySet()
-            assertEquals(ChatResult.Failed(Fail.BLOCKED_HOST), client.see(PhotoReads.request(PhotoReadKind.MENU, listOf(VisionImage.of(jpeg(8, 8))!!))))
+            assertEquals(VisionResult.Failed(Fail.BLOCKED_HOST), client.see(PhotoReads.request(PhotoReadKind.MENU, listOf(VisionImage.of(jpeg(8, 8))!!))))
             assertEquals(1, kit.server.requestCount)
         }
     }
@@ -123,7 +123,7 @@ class VisionT15bTest {
         LlmTestKit().use { kit ->
             kit.enqueue(200, """{"model":"claude-sonnet-5-5","content":[{"type":"text","text":"{\"rows\":[]}"}],"stop_reason":"end_turn","usage":{"input_tokens":900,"output_tokens":10}}""")
             val client = ClaudeVisionClient(kit.transport, { "claude-sonnet-5-5" }, { kit.key }, kit.checks, kit.sink, kit.base)
-            assertTrue(client.see(PhotoReads.request(PhotoReadKind.MEAL, listOf(VisionImage.of(jpeg(100, 100))!!))) is ChatResult.Ok)
+            assertTrue(client.see(PhotoReads.request(PhotoReadKind.MEAL, listOf(VisionImage.of(jpeg(100, 100))!!))) is VisionResult.Ok)
             val body = LlmTestKit.json(kit.take())
             val block = body["messages"]!!.jsonArray[0].jsonObject["content"]!!.jsonArray[0].jsonObject
             assertEquals("image", block["type"]!!.jsonPrimitive.content)
@@ -133,7 +133,7 @@ class VisionT15bTest {
         }
         val router = VisionRouter({ ProviderChoice.COMPAT }, FakeVision(), FakeVision())
         assertFalse(router.supported())
-        assertEquals(ChatResult.Failed(Fail.NO_SETUP), router.see(PhotoReads.request(PhotoReadKind.MENU, listOf(VisionImage.of(jpeg(8, 8))!!))))
+        assertEquals(VisionResult.Failed(Fail.NO_SETUP), router.see(PhotoReads.request(PhotoReadKind.MENU, listOf(VisionImage.of(jpeg(8, 8))!!))))
     }
 
     private val store = InMemoryAgencyStore()

@@ -2,11 +2,8 @@ package app.agency.core.vision
 
 import app.agency.core.llm.AnthropicClient
 import app.agency.core.llm.CallChecks
-import app.agency.core.llm.ChatResult
 import app.agency.core.llm.CompatEndpoint
 import app.agency.core.llm.Fail
-import app.agency.core.llm.Turn
-import app.agency.core.llm.Wire
 import app.agency.core.metering.Provider
 import app.agency.core.metering.UsageParser
 import app.agency.core.metering.UsageSink
@@ -39,21 +36,21 @@ class DeepSeekVisionClient(
     private val usage: UsageSink,
     private val base: HttpUrl = CompatEndpoint.DEEPSEEK_BASE,
 ) : VisionClient {
-    override suspend fun see(request: VisionRequest): ChatResult {
+    override suspend fun see(request: VisionRequest): VisionResult {
         val k = key()
-        checks.blocked(k)?.let { return ChatResult.Failed(it) }
-        checks.takeBudget()?.let { return ChatResult.Failed(it) }
+        checks.blocked(k)?.let { return VisionResult.Failed(it) }
+        checks.takeBudget()?.let { return VisionResult.Failed(it) }
         val url = base.newBuilder().addPathSegment("chat").addPathSegment("completions").build()
         val outcome = transport.postJson(url, mapOf("Authorization" to "Bearer ${CallChecks.usableKey(k)}"), body(request).toString())
-        Fail.of(outcome)?.let { return ChatResult.Failed(it) }
+        Fail.of(outcome)?.let { return VisionResult.Failed(it) }
         val text = (outcome as HttpOutcome.Response).body
         UsageParser.fromOpenAiJson(text)?.let { u -> runCatching { usage.record(Provider.DEEPSEEK, MODEL, u) } }
-        val o = UsageParser.parseObject(text) ?: return ChatResult.Failed(Fail.BAD_RESPONSE)
-        val choice = (o["choices"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return ChatResult.Failed(Fail.BAD_RESPONSE)
-        if ((choice["finish_reason"] as? JsonPrimitive)?.content == "content_filter") return ChatResult.Failed(Fail.REFUSED)
+        val o = UsageParser.parseObject(text) ?: return VisionResult.Failed(Fail.BAD_RESPONSE)
+        val choice = (o["choices"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return VisionResult.Failed(Fail.BAD_RESPONSE)
+        if ((choice["finish_reason"] as? JsonPrimitive)?.content == "content_filter") return VisionResult.Failed(Fail.REFUSED)
         val content = ((choice["message"] as? JsonObject)?.get("content") as? JsonPrimitive)?.takeIf { it.isString }?.content
-            ?.takeIf { it.isNotBlank() } ?: return ChatResult.Failed(Fail.BAD_RESPONSE)
-        return ChatResult.Ok(content, emptyList(), Turn.Assistant(Wire.OPENAI, JsonObject(emptyMap()), content, emptyList()), null)
+            ?.takeIf { it.isNotBlank() } ?: return VisionResult.Failed(Fail.BAD_RESPONSE)
+        return VisionResult.Ok(content)
     }
 
     internal fun body(r: VisionRequest): JsonObject = buildJsonObject {
@@ -89,11 +86,11 @@ class ClaudeVisionClient(
     private val usage: UsageSink,
     private val base: HttpUrl = AnthropicClient.BASE,
 ) : VisionClient {
-    override suspend fun see(request: VisionRequest): ChatResult {
+    override suspend fun see(request: VisionRequest): VisionResult {
         val k = key()
-        checks.blocked(k)?.let { return ChatResult.Failed(it) }
-        val m = model().trim().ifEmpty { return ChatResult.Failed(Fail.NO_SETUP) }
-        checks.takeBudget()?.let { return ChatResult.Failed(it) }
+        checks.blocked(k)?.let { return VisionResult.Failed(it) }
+        val m = model().trim().ifEmpty { return VisionResult.Failed(Fail.NO_SETUP) }
+        checks.takeBudget()?.let { return VisionResult.Failed(it) }
         val headers = buildMap {
             put("x-api-key", CallChecks.usableKey(k)!!)
             put("anthropic-version", AnthropicClient.API_VERSION)
@@ -101,18 +98,18 @@ class ClaudeVisionClient(
         }
         val url = base.newBuilder().addPathSegment("v1").addPathSegment("messages").build()
         val outcome = transport.postJson(url, headers, body(m, request).toString())
-        Fail.of(outcome)?.let { return ChatResult.Failed(it) }
+        Fail.of(outcome)?.let { return VisionResult.Failed(it) }
         val text = (outcome as HttpOutcome.Response).body
-        val o = UsageParser.parseObject(text) ?: return ChatResult.Failed(Fail.BAD_RESPONSE)
+        val o = UsageParser.parseObject(text) ?: return VisionResult.Failed(Fail.BAD_RESPONSE)
         val served = (o["model"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: m
         UsageParser.fromJson(Provider.ANTHROPIC, text)?.let { u -> runCatching { usage.record(Provider.ANTHROPIC, served, u) } }
-        if ((o["stop_reason"] as? JsonPrimitive)?.content == "refusal") return ChatResult.Failed(Fail.REFUSED)
-        val content = o["content"] as? JsonArray ?: return ChatResult.Failed(Fail.BAD_RESPONSE)
+        if ((o["stop_reason"] as? JsonPrimitive)?.content == "refusal") return VisionResult.Failed(Fail.REFUSED)
+        val content = o["content"] as? JsonArray ?: return VisionResult.Failed(Fail.BAD_RESPONSE)
         val reply = content.mapNotNull { b ->
             val block = b as? JsonObject ?: return@mapNotNull null
             if ((block["type"] as? JsonPrimitive)?.content != "text") null else (block["text"] as? JsonPrimitive)?.content
-        }.joinToString("").takeIf { it.isNotBlank() } ?: return ChatResult.Failed(Fail.BAD_RESPONSE)
-        return ChatResult.Ok(reply, emptyList(), Turn.Assistant(Wire.ANTHROPIC, JsonArray(emptyList()), reply, emptyList()), null)
+        }.joinToString("").takeIf { it.isNotBlank() } ?: return VisionResult.Failed(Fail.BAD_RESPONSE)
+        return VisionResult.Ok(reply)
     }
 
     internal fun body(model: String, r: VisionRequest): JsonObject = buildJsonObject {
