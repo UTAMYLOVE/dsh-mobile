@@ -640,16 +640,15 @@ object Links {
 
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> = when (signal) {
             is Signal.WeekEnded -> {
-                val next = java.time.LocalDate.parse(signal.monday).plusDays(7)
                 listOfNotNull(
                     Effect.Say(summary(signal)),
                     Effect.Record("week", "${signal.monday} ${signal.done}/${signal.due} breaches=${signal.breaches} real=${signal.realTask} target=${signal.onTarget}"),
                     // The real-person task opens with its week (分週上線).
-                    Effect.Say(RealTasks.line(next)).takeIf { ctx.specs.open(app.agency.core.schedule.Feature.REAL_TASK) },
+                    Effect.Say(RealTasks.line(state.realTasksDone)).takeIf { ctx.specs.open(app.agency.core.schedule.Feature.REAL_TASK) },
                 )
             }
             is Signal.RemindersOn -> if (ctx.specs.open(app.agency.core.schedule.Feature.REAL_TASK)) {
-                listOf(Effect.Say(RealTasks.line(state.day.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))))
+                listOf(Effect.Say(RealTasks.line(state.realTasksDone)))
             } else {
                 emptyList()
             }

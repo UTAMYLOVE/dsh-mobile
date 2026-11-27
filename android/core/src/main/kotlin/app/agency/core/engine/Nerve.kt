@@ -78,8 +78,11 @@ class Nerve(
     /** Takes one signal (a repeat of a handled id does nothing). */
     suspend fun emit(signal: Signal): NerveResult = emit(signal, 0, null)
 
-    private suspend fun emit(signal: Signal, depth: Int, cause: String?): NerveResult {
-        val day = dayOf(signal.at, dayStartHour())
+    /** Takes one signal that belongs to [day], not to the day of its time (a sign-out after the day boundary, S1). */
+    suspend fun emitFor(signal: Signal, day: LocalDate): NerveResult = emit(signal, 0, null, day)
+
+    private suspend fun emit(signal: Signal, depth: Int, cause: String?, forDay: LocalDate? = null): NerveResult {
+        val day = forDay ?: dayOf(signal.at, dayStartHour())
         val stored = StoredSignal(signal.id, day.toString(), signal.at, Signal.type(signal), Signal.encode(signal), depth, cause)
         if (!store.nerve.insertSignal(stored)) return NerveResult()
         val state = state(day)
@@ -140,7 +143,7 @@ class Nerve(
                         )
                         result += write(row(EffectKind.RECORD, EffectStatus.DONE, e.because, null, null))
                     }
-                    is Effect.Chain -> if (depth + 1 < MAX_DEPTH) result += emit(e.signal, depth + 1, signal.id)
+                    is Effect.Chain -> if (depth + 1 < MAX_DEPTH) result += emit(e.signal, depth + 1, signal.id, forDay)
                 }
             }
         }

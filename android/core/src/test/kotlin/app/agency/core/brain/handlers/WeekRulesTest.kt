@@ -66,7 +66,9 @@ class WeekRulesTest {
         assertEquals(2, plan.strengthRounds)
         assertEquals("2 輪（病好第一天，明天全量）", plan.slot(SlotKey.STRENGTH)!!.note)
         assertTrue(runBlocking { store.nerve.effects(day.toString()) }.any { it.because == "因為昨天生病或受傷，所以今天是病好第一天：肌力先做 2 輪，明天全量。" })
-        // Two rounds are the whole of today's (after 19:00 with no run: the rounds may be done).
+        // Two rounds are the whole of today's (home from the run: the rounds may be done).
+        say("18:10", "出門跑單")
+        say("22:40", "收工")
         at("23:00")
         val out = runBlocking { brain().strengthDone(StrengthReport(2, mapOf("push_up" to 15, "squat" to 20, "plank" to 60), extra = 1, seconds = 600)) }
         assertTrue(out.first { it.who == Who.COMPANY }.text.startsWith("記下：肌力 2 輪"))

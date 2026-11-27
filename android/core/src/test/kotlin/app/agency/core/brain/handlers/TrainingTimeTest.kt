@@ -73,6 +73,13 @@ class TrainingTimeTest {
         assertTrue(plan.slot(SlotKey.STRENGTH)!!.afterRideMin < plan.slot(SlotKey.CARDIO)!!.afterRideMin)
     }
 
+    @Test fun pastTheLatestDepartureWithoutGoingOutTheBlockStillWaits() {
+        // 19:10, still home (late): the rounds are not done before the ride; a day without the run is 「今天休息」.
+        assertEquals(listOf(TrainingDesk.BEFORE_RIDE), say("19:10", "核心完成"))
+        assertEquals(listOf(TrainingDesk.BEFORE_RIDE), say("21:30", "肌力完成"))
+        assertTrue(runBlocking { store.training.onDay(day.toString()) }.isEmpty())
+    }
+
     @Test fun aDayWithoutARunTrainsAnyTimeAfterFive() {
         say("09:00", "今天休息")
         at("17:10")

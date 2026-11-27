@@ -140,7 +140,7 @@ object DayPlanner {
         val type = Timetable.type(day, s)
         val rest = override?.restDay == true
         // 分週上線 (owner 2026-11-27): a day without the run open is planned like a day without a run.
-        val noRun = rest || !specs.open(Feature.RIDE)
+        val noRun = rest || !specs.openOn(Feature.RIDE, day)
         val soy = override?.soyMorning == true || adjust.any { it is DayAdjust.SoyMorning }
         val cls = type == DayType.CLASS
         val wake = DayClock.minute(if (cls) s.classWake else s.noClassWake)
@@ -189,7 +189,7 @@ object DayPlanner {
                 add(Slot(SlotKey.LESSON_REVIEW, DayClock.minute(at), required = false, note = "兩天前的課，三題"))
             }
         }
-        val moved = slots.filter { specs.open(it.key.feature()) }.map { sl -> adjust.filterIsInstance<DayAdjust.Move>().lastOrNull { it.key == sl.key }?.let { sl.copy(minute = it.minute) } ?: sl }
+        val moved = slots.filter { specs.openOn(it.key.feature(), day) }.map { sl -> adjust.filterIsInstance<DayAdjust.Move>().lastOrNull { it.key == sl.key }?.let { sl.copy(minute = it.minute) } ?: sl }
         return DayPlan(
             day = day,
             type = type,

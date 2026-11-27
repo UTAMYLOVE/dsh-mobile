@@ -16,7 +16,7 @@ import javax.crypto.spec.SecretKeySpec
 
 /** The backup could not be opened: [reason] says why (wrong password or damaged file, not a backup, a newer version). */
 class BackupException(val reason: Reason, message: String, cause: Throwable? = null) : IOException(message, cause) {
-    enum class Reason { NOT_A_BACKUP, NEWER_VERSION, WRONG_PASSWORD_OR_DAMAGED, TRUNCATED, WEAK_PASSWORD }
+    enum class Reason { NOT_A_BACKUP, NEWER_VERSION, WRONG_PASSWORD_OR_DAMAGED, TRUNCATED, WEAK_PASSWORD, OLDER_VERSION }
 }
 
 /**

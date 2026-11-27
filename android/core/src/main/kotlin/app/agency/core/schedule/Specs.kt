@@ -146,6 +146,9 @@ data class PlanSpecs(
 
     fun open(f: Feature): Boolean = rollout.open(f)
 
+    /** [f] was open on [day] (see [RolloutSpec.openOn]). */
+    fun openOn(f: Feature, day: java.time.LocalDate): Boolean = rollout.openOn(f, day)
+
     companion object {
         val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 

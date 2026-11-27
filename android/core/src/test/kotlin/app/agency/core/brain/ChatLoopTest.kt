@@ -213,32 +213,31 @@ class ChatLoopTest {
     }
 
     // The time limit makes a judge without its own timeout fail here instead of hanging the suite.
-    @Test(timeout = 5_000) fun aJudgeTimeoutKeepsTheGuardedReply() {
+    @Test(timeout = 5_000) fun aJudgeTimeoutEndsOnTheTemplate() {
         var asked: String? = null
         val slow = LlmClient { req ->
             asked = (req.turns.single() as Turn.User).text
             awaitCancellation()
         }
-        // The rule guard drops the invented figure; the judge reads what is left, does not answer, and that reply stands.
+        // The rule guard drops the invented figure; the judge reads what is left and does not answer: the template, never the
+        // unjudged words (REVIEW-safety S1).
         val writer = ScriptedLlm(ScriptedLlm.ok(utter("去喝水。其實你只能再吃 1234 大卡。")))
         val r = judged(writer, slow, timeoutMs = 50)
-        assertTrue(r.fromModel)
-        assertEquals("去喝水。", r.utterance.text)
+        assertFalse(r.fromModel)
         assertEquals(1, writer.requests.size)
         assertEquals(1, r.judged)
         assertEquals(SecondPassJudge.userText("去喝水。", OVER), asked)
     }
 
-    @Test fun noAnswerFromTheJudgeKeepsTheGuardedReply() {
+    @Test fun noAnswerFromTheJudgeEndsOnTheTemplate() {
         listOf(Fail.CAP, Fail.RATE, Fail.OFFLINE, Fail.BAD_RESPONSE).forEach { f ->
             val writer = ScriptedLlm(ScriptedLlm.ok(utter("去喝水。")))
             val r = judged(writer, ScriptedLlm(ScriptedLlm.failed(f)))
-            assertTrue(f.name, r.fromModel)
-            assertEquals("去喝水。", r.utterance.text)
+            assertFalse(f.name, r.fromModel)
             assertEquals(1, writer.requests.size)
         }
         val unreadable = judged(ScriptedLlm(ScriptedLlm.ok(utter("去喝水。"))), ScriptedLlm(ScriptedLlm.ok("好")))
-        assertEquals("去喝水。", unreadable.utterance.text)
+        assertFalse(unreadable.fromModel)
     }
 
     @Test fun inDiscussionTheJudgeReadsTheTextTheQuestionAndTheOptionsInThatOrder() {

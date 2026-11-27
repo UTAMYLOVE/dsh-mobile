@@ -61,15 +61,16 @@ class TrainingDesk(
         else -> "今天沒有排$what。"
     }
 
-    /** A delivery day whose run is still ahead (before the latest departure) or under way. */
+    /** A delivery day whose run is still ahead (at any hour, until 收工) or under way. */
     private suspend fun beforeHome(plan: DayPlan): Boolean {
         if (!plan.delivery) return false
         val signs = store.signs.onDay(plan.day.toString())
         val start = signs.filter { it.kind == app.agency.core.model.SignKind.RIDE_START }.maxOfOrNull { it.at }
         val end = signs.filter { it.kind == app.agency.core.model.SignKind.RIDE_END }.maxOfOrNull { it.at }
-        if (start != null) return end == null || end < start
-        val until = plan.slot(SlotKey.RIDE_OUT)?.let { it.untilMinute ?: it.minute } ?: return false
-        return app.agency.core.engine.Links.minuteOf(plan.day, clock.millis(), clock.zone) < until
+        // Not out yet, even past the latest departure: still before the ride (a late start is no reason to train first; a
+        // day without the run is 「今天休息」).
+        if (start == null) return true
+        return end == null || end < start
     }
 
     private fun verified(fromTimer: Boolean, seconds: Int?, timed: Int) = fromTimer && seconds != null && seconds >= timed * PROOF_SHARE

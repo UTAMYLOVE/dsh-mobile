@@ -68,7 +68,8 @@ data class LoopReply(
  * spend cap, offline, refused…) ends the round on the template at once.
  *
  * A reply the guard accepted in a round with a [ChatRound.judgeContext] goes to [judge] (arch 1.9b). A breach is sent back
- * like a guard rejection and uses the same retries; no answer from the judge keeps the guarded reply.
+ * like a guard rejection and uses the same retries; no answer from the judge ends the round on the template (it never fails
+ * open).
  */
 class ChatLoop(
     private val llm: LlmClient,
@@ -123,10 +124,13 @@ class ChatLoop(
                     } else {
                         null
                     }
-                    if (verdict !is Verdict.Breach) return LoopReply(checked.value, true, null, step, called, judged, ok.assistant)
+                    if (verdict == null || verdict is Verdict.Clean) return LoopReply(checked.value, true, null, step, called, judged, ok.assistant)
+                    // No answer from the judge on a turn that needs it: the fixed template, never the unjudged words
+                    // (REVIEW-safety S1).
+                    if (verdict is Verdict.NoAnswer) return template(null, step)
                     if (retries >= StructuredCaller.MAX_RETRIES) return template(null, step)
                     retries++
-                    convo = convo + ok.assistant + Turn.User(StructuredCaller.retryText(listOf(verdict.violation)))
+                    convo = convo + ok.assistant + Turn.User(StructuredCaller.retryText(listOf((verdict as Verdict.Breach).violation)))
                 }
                 is Checked.Reject -> {
                     if (retries >= StructuredCaller.MAX_RETRIES) return template(null, step)

@@ -319,14 +319,16 @@ class Brain(
             val records = snapshot.records(d)
             val cards = store.nerve.effects(d.toString()).count { it.link == Links.L11Completion.id && it.because == Links.L11Completion.PHOTOCARD }
             // A breach: a meal against the rules, or a sign-out after the latest time.
-            val late = records.signs.count { it.kind == app.agency.core.model.SignKind.OUT && it.onTime == false }
+            val late = records.signs.count { it.kind == app.agency.core.model.SignKind.OUT && it.onTime == false } +
+                // No sign-out at all is a breach too (I2), once the day is over.
+                if (d.isBefore(today) && records.signs.none { it.kind == app.agency.core.model.SignKind.OUT } && snapshot.plan(d).slot(SlotKey.SIGN_OUT) != null) 1 else 0
             app.agency.core.engine.WeekReport.Day(d, snapshot.slots(d, records, profile), records.meals.sumOf { it.breaches.size } + late, cards)
         }
         val signals = store.nerve.signals(monday.minusDays(WEEKS_LOOKBACK_DAYS).toString(), sunday.toString())
         val real = signals.any { it.type == "real_task_done" && it.day >= monday.toString() }
         // Only weeks on target in a row count (owner 2026-11-27): the streak before this one.
         val earlier = app.agency.core.engine.WeekReport.streak(signals.filter { it.type == "week_ended" }.mapNotNull { Signal.decode(it.json) as? Signal.WeekEnded })
-        val realRequired = rollout().open(app.agency.core.schedule.Feature.REAL_TASK)
+        val realRequired = rollout().openOn(app.agency.core.schedule.Feature.REAL_TASK, monday)
         return nerve.emit(app.agency.core.engine.WeekReport.of(id, clock.millis(), monday, days, since, real, earlier, profile.level, realRequired))
     }
 
@@ -512,13 +514,40 @@ class Brain(
      * [Nudger.DAILY_WORDING_CAP] a day. The nudge row and its company line take the words; null keeps the template (no key,
      * offline, the cap, a reply the guard refused).
      */
-    suspend fun wordNudge(nudgeId: String): String? = mutex.withLock {
-        val n = store.nudges.get(nudgeId) ?: return@withLock null
-        if (n.wordedBy == WordedBy.MODEL) return@withLock null
+    suspend fun wordNudge(nudgeId: String): String? {
+        // Read under the lock, ask the model outside it (REVIEW-logic S2: a slow network never holds the brain, so an alarm's
+        // tick is never kept waiting), write back under the lock.
+        val job = mutex.withLock { nudgeJob(nudgeId) } ?: return null
+        val out = structured.call(
+            NudgeLine.SPEC, job.system, job.turns, Purpose.NUDGE, NUDGE_TOKENS,
+            check = NudgeLine.checker(job.evidence, job.tone), fallback = { null },
+        )
+        val text = (out as? Structured.Model)?.value?.text ?: return null
+        // The second-pass judge (arch 1.9b) on a pre-meal line, on a breach or over-quota day, and on any line about food; no
+        // answer keeps the template too (REVIEW-safety S1).
+        val ctx = SecondPassJudge.contextLine(job.overKcal, job.breachToday, foodTalk = job.premeal || mentionsFood(text))
+        if (ctx != null && judge.judge(text, ctx) !is app.agency.core.guard.Verdict.Clean) return null
+        return mutex.withLock {
+            val n = store.nudges.get(nudgeId)?.takeIf { it.wordedBy != WordedBy.MODEL } ?: return@withLock null
+            store.nudges.upsert(n.copy(text = text, wordedBy = WordedBy.MODEL))
+            store.messages.get(Nudger.messageId(n.id))?.let { store.messages.upsert(it.copy(text = text, wordedBy = WordedBy.MODEL)) }
+            bump()
+            text
+        }
+    }
+
+    private class NudgeJob(
+        val system: String, val turns: List<app.agency.core.llm.Turn>, val evidence: Evidence, val tone: app.agency.core.engine.Tone,
+        val premeal: Boolean, val overKcal: Int, val breachToday: Boolean,
+    )
+
+    private suspend fun nudgeJob(nudgeId: String): NudgeJob? {
+        val n = store.nudges.get(nudgeId) ?: return null
+        if (n.wordedBy == WordedBy.MODEL) return null
         val profile = snapshot.profile()
         val day = snapshot.today(profile)
         val worded = store.nudges.between(dayStart(day, profile), clock.millis() + 1).count { it.wordedBy == WordedBy.MODEL }
-        if (worded >= Nudger.DAILY_WORDING_CAP) return@withLock null
+        if (worded >= Nudger.DAILY_WORDING_CAP) return null
         val keys = n.gapKeys.mapNotNull { SlotKey.parse(it) }
         val premeal = n.id.startsWith(MealDiscussion.PREMEAL)
         val role = if (premeal) RoleKey.BODY else Nudger.roleOf(keys)
@@ -536,17 +565,8 @@ class Brain(
         // A suggestion names foods and his places: those are names it may use (nothing else).
         val names = if (premeal) (meals.table() + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct() + store.places.favorites().map { it.title } else emptyList()
         val evidence = Evidence(listOf(facts.json.toString(), n.text), names, profile.idolNames, breachToday = input.today.breachToday)
-        val out = structured.call(
-            NudgeLine.SPEC, system, PromptBuilder.turns(facts, null, n.text), Purpose.NUDGE, NUDGE_TOKENS,
-            check = NudgeLine.checker(evidence, tone), fallback = { null },
-        )
-        val text = (out as? Structured.Model)?.value?.text ?: return@withLock null
-        // About food: the second-pass judge reads it too (arch 1.9b scope); a breach keeps the template, no answer keeps the words.
-        if (premeal && judge.judge(text, SecondPassJudge.contextLine(0, input.today.breachToday, foodTalk = true)!!) is app.agency.core.guard.Verdict.Breach) return@withLock null
-        store.nudges.upsert(n.copy(text = text, wordedBy = WordedBy.MODEL))
-        store.messages.get(Nudger.messageId(n.id))?.let { store.messages.upsert(it.copy(text = text, wordedBy = WordedBy.MODEL)) }
-        bump()
-        text
+        val over = input.today.meals.sumOf { it.kcal } - input.rules.quotaKcal
+        return NudgeJob(system, PromptBuilder.turns(facts, null, n.text), evidence, tone, premeal, over, input.today.breachToday)
     }
 
     /** 「今天的連動」 (the war room's card): today's effects, oldest first. */
@@ -825,7 +845,7 @@ class Brain(
         val names = (FoodTable.current(0) + store.food.all()).flatMap { listOf(it.name) + it.aliases }.distinct() + store.places.favorites().map { it.title }
         val factsText = facts.json.toString()
         val foodItems = parsed?.items.orEmpty().isNotEmpty()
-        val judgeContext = { shown: String -> judgeContext(input, foodItems || mealTask != null, owner.text, shown) }
+        val judgeContext = { shown: String -> judgeContext(input, foodItems || mealTask != null, owner.text, shown, gentle = tone == app.agency.core.engine.Tone.GENTLE || dayState.gentle) }
         val ctx = RoundContext(owner, rendered.refs, today, role)
         val memory = MemoryApplier(store, clock, profile.dayStartHour, newId)
         val tools = ToolRegistry(chatTools(store, snapshot, clock, newId, memory, ctx, riding = { nerve.state(today).riding }, search = search))
@@ -839,7 +859,10 @@ class Brain(
             Thinking.LOW
         }
         val round = ChatRound(system, PromptBuilder.turns(facts, owner, replay = replay.replay), role, mode, tone, judgeContext, thinking) { outputs ->
-            Evidence(listOf(factsText) + outputs, names + ctx.searchTitles.values, latin, ownerText = owner.text, breachToday = input.today.breachToday)
+            Evidence(
+                listOf(factsText) + outputs, names + ctx.searchTitles.values, latin, ownerText = owner.text, breachToday = input.today.breachToday,
+                reduceOk = dayState.ill != null || dayState.plan.reduction != null,
+            )
         }
         val result = loop.run(round, tools)
         if (result.fail == Fail.OFFLINE && ctx.proposals.isEmpty() && ctx.memoryEvents.isEmpty()) return unsent(owner)
@@ -976,6 +999,21 @@ class Brain(
         return store.signs.onDay(d).any { it.kind == app.agency.core.model.SignKind.IN } && store.conditions.get(d) == null
     }
 
+    /**
+     * Last night's sign-out still owed (S1): within [LATE_SIGN_OUT_HOURS] hours after the day boundary, before today's sign-in,
+     * when yesterday had sign-out planned and none was written. A sign-out now is yesterday's (late), and the home screen
+     * shows 簽退 for it.
+     */
+    suspend fun lateSignOutDay(): java.time.LocalDate? {
+        val profile = snapshot.profile()
+        val today = snapshot.today(profile)
+        if (Links.minuteOf(today, clock.millis(), clock.zone) >= (profile.dayStartHour + LATE_SIGN_OUT_HOURS) * 60) return null
+        if (store.signs.onDay(today.toString()).any { it.kind == app.agency.core.model.SignKind.IN || it.kind == app.agency.core.model.SignKind.OUT }) return null
+        val y = today.minusDays(1)
+        if (store.signs.onDay(y.toString()).any { it.kind == app.agency.core.model.SignKind.OUT }) return null
+        return y.takeIf { nerve.plan(y).slot(SlotKey.SIGN_OUT) != null }
+    }
+
     /** The review question waiting now (the sheet shows), or null. */
     suspend fun reviewOpen(): app.agency.core.brain.handlers.ReviewDesk.Open? {
         val profile = snapshot.profile()
@@ -1060,7 +1098,8 @@ class Brain(
         val text = (out as? Structured.Model)?.value?.text ?: return null
         val over = input.today.meals.sumOf { it.kcal } - input.rules.quotaKcal
         SecondPassJudge.contextLine(over, input.today.breachToday, foodTalk = mentionsFood(text))?.let { ctx ->
-            if (judge.judge(text, ctx) is app.agency.core.guard.Verdict.Breach) return null
+            // No answer does not pass either: the template (REVIEW-safety S1).
+            if (judge.judge(text, ctx) !is app.agency.core.guard.Verdict.Clean) return null
         }
         return Message(newId(), at, Who.COMPANY, role = RoleKey.MANAGER, kind = ReviewDesk.LINE_KIND, text = text, wordedBy = WordedBy.MODEL)
             .also { store.messages.insert(it) }
@@ -1198,7 +1237,7 @@ class Brain(
         val said = if (v != null && chart != null) {
             (v.see(app.agency.core.singing.SingingCoach.request(chart, facts)) as? app.agency.core.vision.VisionResult.Ok)
                 ?.let { app.agency.core.singing.SingingCoach.accept(it.text, facts) }
-                ?.let { judged -> if (judge.judge(judged, "聲樂老師講評唱歌") is app.agency.core.guard.Verdict.Breach) null else judged }
+                ?.let { judged -> if (judge.judge(judged, "聲樂老師講評唱歌") !is app.agency.core.guard.Verdict.Clean) null else judged }
         } else {
             null
         }
@@ -1214,7 +1253,9 @@ class Brain(
         val v = vision?.takeIf { it.supported() } ?: return emptyList()
         if (images.isEmpty()) return emptyList()
         val r = v.see(app.agency.core.vision.EvalReads.request(images.take(app.agency.core.vision.VisionRequest.MAX_IMAGES), hasDance))
+        // Each basis passed the rule cut in parse; it reaches him only after the body rubric judge too (REVIEW-safety I3).
         return (r as? app.agency.core.vision.VisionResult.Ok)?.let { app.agency.core.vision.EvalReads.parse(it.text) }.orEmpty()
+            .filter { photos.bodyJudged(it.basis) }
     }
 
     /** The 月評s so far (oldest first) and the Sunday 全身對比照 timeline (day, media id). */
@@ -1513,6 +1554,7 @@ class Brain(
         val at = owner.at
         var signal: Signal? = null
         var earlier: Pair<String, String>? = null
+        var lateOut: java.time.LocalDate? = null
         val text = when {
             route.kind == "rest_day" -> restDay.declare(today, at).also {
                 if (store.days.get(today.toString())?.restDay == true) signal = Signal.RestDay("rest:$today", at)
@@ -1526,7 +1568,17 @@ class Brain(
                 r.line
             }
             route.kind == "sign_in" -> sign.signIn(plan, at).also { signal = it.signal; earlier = it.proposal }.line
-            route.kind == "sign_out" -> sign.signOut(plan, at).also { signal = it.signal }.line
+            route.kind == "sign_out" -> {
+                // After the day boundary, before today's sign-in, with last night not signed out: it is last night's (S1),
+                // late against last night's latest time; no review (he is going to bed now).
+                val owed = lateSignOutDay()
+                if (owed != null) {
+                    lateOut = owed
+                    sign.signOut(nerve.plan(owed), at).also { signal = it.signal }.line.let { "$it\n${ReviewDesk.GOOD_NIGHT}" }
+                } else {
+                    sign.signOut(plan, at).also { signal = it.signal }.line
+                }
+            }
             route.kind == Router.REAL_TASK -> if (nerve.state(today).realTaskThisWeek) {
                 "這週的真人任務已經記過了。"
             } else {
@@ -1572,7 +1624,7 @@ class Brain(
             else -> Router.NOT_YET
         }
         val line = reply(route.role, text, WordedBy.TEMPLATE, route.kind)
-        val said = signal?.let { nerve.emit(it).messages }.orEmpty()
+        val said = signal?.let { sig -> (lateOut?.let { nerve.emitFor(sig, it) } ?: nerve.emit(sig)).messages }.orEmpty()
         // After sign-in (T19): the 「提早起床」 proposal when it is due, then the morning score; after sign-out: the review.
         val after = mutableListOf<Message>()
         earlier?.let { (id, ask) ->
@@ -1582,7 +1634,7 @@ class Brain(
         if (route.kind == "sign_in" && signal != null && store.conditions.get(today.toString()) == null) {
             after += reply(RoleKey.MANAGER, app.agency.core.engine.ConditionPolicy.ASK, WordedBy.TEMPLATE, CONDITION_ASK_KIND)
         }
-        if (route.kind == "sign_out" && signal != null) after += reply(RoleKey.MANAGER, ReviewDesk.ASK_GOOD, WordedBy.TEMPLATE, ReviewDesk.GOOD_KIND)
+        if (route.kind == "sign_out" && signal != null && lateOut == null) after += reply(RoleKey.MANAGER, ReviewDesk.ASK_GOOD, WordedBy.TEMPLATE, ReviewDesk.GOOD_KIND)
         return listOf(line) + said + after
     }
 
@@ -1646,6 +1698,8 @@ class Brain(
         const val SCENE_KIND = "scene"
         const val SINGING_KIND = "singing"
         const val SCENE_FROM = "08:30"
+        /** Hours after the day boundary during which a sign-out still closes last night (S1). */
+        const val LATE_SIGN_OUT_HOURS = 7
         const val MEAL_PHOTO_KIND = "meal_photo"
 
         /** The kinds of the 狀態打分 lines (T19). */
@@ -1692,10 +1746,11 @@ class Brain(
          * words and record kinds never get here), so food talk is any of them where the clerk found food items or his words
          * or the [reply] he would read name food.
          */
-        fun judgeContext(input: FactsInput, foodItems: Boolean, ownerText: String, reply: String): String? {
+        fun judgeContext(input: FactsInput, foodItems: Boolean, ownerText: String, reply: String, gentle: Boolean = false): String? {
             val over = input.today.meals.sumOf { it.kcal } - input.rules.quotaKcal
             val foodTalk = foodItems || mentionsFood(ownerText) || mentionsFood(reply)
-            return SecondPassJudge.contextLine(over, input.today.breachToday, foodTalk)
+            // A low, unwell or tired turn is where attachment and shaming happen (REVIEW-safety I2): judged too.
+            return SecondPassJudge.contextLine(over, input.today.breachToday, foodTalk, gentle = gentle || app.agency.core.guard.SecondPassJudge.lowWords(ownerText))
         }
 
         /** KEY_REJECTED covers DeepSeek's 402 (no balance), so he does not delete a good key (FIX-T04 M2). */

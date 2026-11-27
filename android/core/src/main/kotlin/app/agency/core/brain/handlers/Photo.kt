@@ -62,15 +62,23 @@ class PhotoDesk(
         val said = app.agency.core.structured.LocalRepair.parse(raw, emptyMap())?.get("text")
             ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }
         val first = said?.let(PhotoReads::guardBody) ?: return BODY_HELD
-        val verdict = withTimeoutOrNull(JUDGE_TIMEOUT_MS) {
+        return if (bodyJudged(first)) first else BODY_HELD
+    }
+
+    /**
+     * The second check on words about his body (the body rubric judge): true only on a readable pass. No answer (timeout,
+     * offline, the cap, an unreadable reply) does not pass (REVIEW-safety S1: the judge never fails open).
+     */
+    suspend fun bodyJudged(first: String): Boolean {
+        val verdict = try { withTimeoutOrNull(JUDGE_TIMEOUT_MS) {
             judgeLlm.chat(
                 ChatRequest(
                     PhotoReads.BODY_JUDGE_SYSTEM, listOf(Turn.User("評語：\n$first")), Purpose.JUDGE, JUDGE_TOKENS,
                     output = Output.Json(PhotoReads.BODY_JUDGE_SCHEMA), thinking = Thinking.OFF,
                 ),
             )
-        }?.let(PhotoReads::bodyVerdict)
-        return if (verdict == false) BODY_HELD else first
+        }?.let(PhotoReads::bodyVerdict) } catch (e: kotlin.coroutines.cancellation.CancellationException) { throw e } catch (e: Exception) { null }
+        return verdict == true
     }
 
     /**

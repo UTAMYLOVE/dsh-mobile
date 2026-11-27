@@ -510,7 +510,9 @@
     <string name="ag_bk_pick">選備份檔</string>
     <string name="ag_bk_check">檢查備份</string>
     <string name="ag_bk_wrong">密碼不對，或檔案壞了。</string>
-    <string name="ag_bk_other">這不是這個版本能讀的備份檔。</string>
+    <string name="ag_bk_other">這不是小雨娛樂的備份檔。</string>
+    <string name="ag_bk_newer">這個備份是比較新的版本做的。先把程式更新到最新，再匯回。</string>
+    <string name="ag_bk_older">這個備份的版本太舊，沒辦法轉成現在的格式。</string>
     <string name="ag_bk_summary">%1$d/%2$d/%3$d 的備份：訊息 %4$d 則、餐點 %5$d 筆、記帳 %6$d 筆、備忘錄 %7$d 則、照片和錄音 %8$d 個。</string>
     <string name="ag_bk_restore">用這個備份覆蓋</string>
     <string name="ag_bk_restore_sure">現在手機裡的資料會全部被換掉，不能復原。確定嗎？</string>

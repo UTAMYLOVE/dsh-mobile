@@ -49,6 +49,15 @@ class TrainingT18Test {
 
     private fun at(hhmm: String) {
         clock.now = day.atStartOfDay(AgencyClock.TAIPEI).plusMinutes(DayClock.minute(hhmm).toLong()).toInstant()
+        // These tests are about the rounds, not the run: late in the evening of a delivery day he is home from it (the block
+        // waits for 收工 at any hour, REVIEW-logic I3).
+        if (DayClock.minute(hhmm) >= DayClock.minute("22:45")) runBlocking {
+            val signs = store.signs.onDay(day.toString())
+            if (store.days.get(day.toString())?.restDay != true && signs.none { it.kind == app.agency.core.model.SignKind.RIDE_START }) {
+                store.signs.insert(app.agency.core.model.SignLog("ride-$day-out", day.toString(), t("18:00"), app.agency.core.model.SignKind.RIDE_START))
+                store.signs.insert(app.agency.core.model.SignLog("ride-$day-home", day.toString(), t("22:30"), app.agency.core.model.SignKind.RIDE_END))
+            }
+        }
     }
 
     private fun t(hhmm: String) = day.atStartOfDay(AgencyClock.TAIPEI).plusMinutes(DayClock.minute(hhmm).toLong()).toInstant().toEpochMilli()
@@ -151,9 +160,9 @@ class TrainingT18Test {
         // Again: already recorded.
         at("23:55")
         assertEquals(listOf("今天的核心已經記過了。"), lines(runBlocking { brain().coreDone(420) }))
-        // A timer skipped through is no proof (the next day, after the latest departure without a run).
+        // A timer skipped through is no proof (the next day, home from the run).
         day = day.plusDays(1)
-        at("19:30")
+        at("23:30")
         assertEquals("記下：核心七分鐘（計時只跑了 1 分鐘，未證實）。", lines(runBlocking { brain().coreDone(seconds = 70) }).first())
     }
 

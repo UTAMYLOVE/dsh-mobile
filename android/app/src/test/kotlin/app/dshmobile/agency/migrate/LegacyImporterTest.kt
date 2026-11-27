@@ -270,7 +270,7 @@ class LegacyImporterTest {
         assertEquals(MigrationSource.AGENCY_V2_JSON, log.source)
         val note = ImportNote.fromJson(log.note!!)
         assertEquals(mapOf("t_lunch" to "12:30"), note.customisedSlots)
-        assertEquals(listOf(50.0), note.goalsDropped)
+        assertEquals(listOf(45.0), note.goalsDropped)
         // The two v0.8.3 lines the agency build kept: the company one takes its role from its kind.
         assertEquals(listOf(null, RoleKey.BODY, RoleKey.MANAGER, null, RoleKey.MANAGER, null, RoleKey.BODY, null, RoleKey.BODY), store.messages.recent(50).map { it.role })
         assertEquals("CLAUDE", agencyPrefs.getString(AgencyPrefKeys.PROVIDER, null))

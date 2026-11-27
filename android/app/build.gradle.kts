@@ -74,6 +74,10 @@ android {
     }
 
     // The legacy coach fixtures (android/core/src/test/resources/legacy) also feed the importer's Robolectric tests.
+    // Room's exported schemas ride along as assets: an older backup is brought forward from its own schema (REVIEW-logic I4).
+    sourceSets.getByName("main") {
+        assets.srcDir("schemas")
+    }
     sourceSets.getByName("test") {
         resources.srcDir("../core/src/test/resources")
     }

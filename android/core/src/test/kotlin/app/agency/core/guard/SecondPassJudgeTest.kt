@@ -48,7 +48,7 @@ class SecondPassJudgeTest {
         listOf("compensation", "excuse", "attachment", "json").forEach { assertTrue(it, SecondPassJudge.SYSTEM.contains(it)) }
         // No digits: every figure the judge sees comes from the context line.
         assertTrue(SecondPassJudge.SYSTEM.none { it.isDigit() })
-        assertEquals(listOf("compensation", "excuse", "attachment", "none"), JudgeClass.KEYS)
+        assertEquals(listOf("compensation", "excuse", "attachment", "insult", "training_cut", "none"), JudgeClass.KEYS)
     }
 
     @Test fun claudeGetsTheTokenFloorBecauseItsThinkingCannotBeTurnedOff() = runBlocking {

@@ -44,6 +44,8 @@ class Evidence(
     val acceptedProposal: Boolean = false,
     ownerText: String = "",
     val breachToday: Boolean = false,
+    /** Code decided a lighter training day (illness or injury, [app.agency.core.engine.ConditionPolicy]): only then may a reply say so. */
+    val reduceOk: Boolean = false,
 ) {
     val names: List<String> = names.map { it.trim() }.filter { it.length >= 2 }.sortedByDescending { it.length }
     val latin: List<String> = (OutputGuard.LATIN_WHITELIST + latin).map { it.trim() }.filter { it.isNotEmpty() }.sortedByDescending { it.length }
@@ -314,6 +316,16 @@ object OutputGuard {
             negatable = true,
         ),
         Ban("叫他用運動補回來", R3),
+        // The 21:00 portion is mandatory (riding safety): never skipped, put off or saved (REVIEW-safety S1).
+        Ban(
+            "叫他跳過一定要吃的那份",
+            Regex("(?:那份|雞胸|豆漿|蛋白質|蛋白飲|高蛋白|21:00|九點)[^，。,！？!?\\n]{0,8}(?:先不要吃|先不吃|不要吃|不用吃|別吃|不吃|免了|省下來|省掉|省略|跳過|取消|先不要|不用了)(?!$STEER)"),
+            negatable = true,
+        ),
+        // Only a drink instead of a meal, anywhere (「只喝豆漿就好」「喝水就好」).
+        Ban("叫他跳餐或餓肚子", Regex("喝水就好|喝水撐|只喝水|喝水就可以|只喝(?:一杯|一瓶|點)?\\p{script=Han}{0,4}就好|(?:$MEAL)(?:就|先)?只喝"), negatable = true),
+        Ban("罵人", Regex("你(?:真的|這樣|現在|看起來|實在|的樣子)?(?:很|好|超|太|有夠|真|還是)?(?:胖|醜|難看|肥|噁心)|(?:很|好|超|太|有夠)(?:難看|醜)(?![出清到懂見])|醜死|胖死"), negatable = true, kind = BanKind.INSULT),
+        Ban("依附或情緒勒索", phrases("沒有我你", "沒有我的話", "沒有我怎麼", "等你回來找我", "一直等你", "只能靠我", "你需要我", "少了我", "離開我", "沒我不行"), kind = BanKind.ATTACH),
         Ban("給體重速度或唱歌高度壓力", phrases("瘦得?太慢", "減得?太慢", "掉得?太慢", "怎麼還沒瘦", "還這麼胖", "還是這麼胖", "唱不上去", "高音.{0,4}(不行|太爛|太差)")),
         Ban("下醫療診斷", Regex("(我|幫你|替你)(來|先)?(幫你)?診斷|診斷(結果)?(是|為)|你得了|你罹患"), negatable = true),
         Ban("下醫療診斷", Regex("((應該|可能|大概|八成|一定|就)是|像是?)\\p{script=Han}{0,6}($CONDITION)")),
@@ -348,7 +360,17 @@ object OutputGuard {
     private val R4_CUT = Regex(
         "(?<![至多])少(?!(喝|吃|碰|點)?($STEER))|不吃|別吃|不要吃|宵夜不吃|下一餐不|跳過|補(?!充|蛋白|一份|吃|水|拍|交|上|給|做)" +
             "|減量|減半|減一半|砍半|吃一半|半碗|半份|一點點|只喝|只吃|(不要|別|不)再吃|份量少|省掉|省略|免了|撐過去|撐一下|忍一下" +
-            "|隨便吃點|吃點水果|水果就好|換成(黑咖啡|咖啡|水|茶|水果|沙拉)|多做|多練|多跑|多走|多騎|加練|加做",
+            "|隨便吃點|吃點水果|水果就好|換成(黑咖啡|咖啡|水|茶|水果|沙拉)|多做|多練|多跑|多走|多騎|加練|加做|喝水就好|喝水撐|只喝水",
+    )
+
+    /**
+     * A lighter training day (REVIEW-safety I1): only illness or injury, decided by code ([Evidence.reduceOk]); never for 累、
+     * 痠、沒睡好 or 不想做, whatever the model says.
+     */
+    private val TRAIN = "訓練|肌力|核心|伸展|體能|輪|練|伏地挺身|深蹲|棒式|舞蹈|快走"
+    private val TRAINING_CUT = Regex(
+        "(?:$TRAIN).{0,8}(?:減半|減量|少做|少練|砍半|做一半|不用練|不用做|先不練|先不做|免了|跳過|省掉|休息一天|可以不做|停一天)" +
+            "|(?:先做|做)[一兩二1-2]輪就好|少做[一兩二1-2]?輪|少[一兩二1-2]輪|今天(?:就)?不用練|今天先不練|先不要練|今天(?:就)?(?:休息|放過自己)不(?:練|做)",
     )
 
     private val PROMISE = phrases(
@@ -372,6 +394,8 @@ object OutputGuard {
             violations += dropped
             bans(s, ALWAYS).forEach { violations += GuardViolation(GuardRule.BANNED, it) }
             comfort(s, tone, evidence)?.let { violations += GuardViolation(GuardRule.BANNED, it) }
+            if (!evidence.reduceOk) TRAINING_CUT.findAll(maskSameDaySmaller(s)).firstOrNull { !negated(s, it.range) }
+                ?.let { violations += GuardViolation(GuardRule.BANNED, "沒有生病或受傷不能減量：「${it.value}」") }
             if (!evidence.acceptedProposal) PROMISE.find(s)?.let { violations += GuardViolation(GuardRule.PROMISE, "「${it.value}」：計畫沒有改，他還沒確認") }
             dropped.isEmpty()
         }

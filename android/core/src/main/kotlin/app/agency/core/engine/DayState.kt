@@ -73,6 +73,8 @@ data class DayState(
     val fixToday: String? = null,
     /** The real-person task of this Mon–Sun week is done (L20). */
     val realTaskThisWeek: Boolean = false,
+    /** Real-person tasks done in the look-back (the next one is one step harder, [RealTasks.of]). */
+    val realTasksDone: Int = 0,
     /** 理論課 (T19c): lessons passed today. */
     val lessonsPassed: Int = 0,
     /** Lessons of 「課程清單」 still to pass (null: the course has not started), and 複習考 due today (set by the nerve). */
@@ -101,6 +103,16 @@ data class DayState(
 
 object DayStateBuilder {
     const val LOOKBACK_DAYS = 45L
+
+    /**
+     * The days from [from] to before [to] that ended without a sign-out though one was planned (I2: as heavy as a late one):
+     * a `day_missed` naming SIGN_OUT, with no sign-out written for that day afterwards (a late one after the boundary).
+     */
+    fun noSignOut(decoded: List<Pair<StoredSignal, Signal>>, from: LocalDate, to: LocalDate): Int {
+        val out = decoded.filter { it.second is Signal.SignedOut }.map { it.first.day }.toSet()
+        return decoded.mapNotNull { (it.second as? Signal.DayMissed)?.takeIf { m -> SlotKey.SIGN_OUT in m.keys } }.map { it.day }.distinct()
+            .count { d -> val x = LocalDate.parse(d); !x.isBefore(from) && x.isBefore(to) && d !in out }
+    }
 
     /** Today's adjustments in force: ACTIVE 今天微調 rows. */
     fun adjustments(effects: List<NerveEffect>): List<DayAdjust> = effects.filter { it.kind == EffectKind.ADJUST && it.status == EffectStatus.ACTIVE }
@@ -173,7 +185,7 @@ object DayStateBuilder {
                 is Signal.SignedOut -> if (s.late) 1 else 0
                 else -> 0
             }
-        }
+        } + noSignOut(decoded, monday, day)
         val weather = today.filterIsInstance<Signal.Weather>().groupBy { it.kind }.filterValues { it.last().on }.keys
         val l11 = todayEffects.filter { it.link == Links.L11Completion.id && it.kind == EffectKind.RECORD }
         val flags = adjustments(todayEffects).filterIsInstance<DayAdjust.Flag>().map { it.flag }.toSet()
@@ -185,7 +197,7 @@ object DayStateBuilder {
             lastNightOutAt = lastOut, illDaysInRow = streak, groomingLast = grooming, weights = weights, kcalByDay = kcalByDay,
             flags = flags, reductionProposed = proposed, missedInRow = missedInRow,
             strengthSessions = sessions, missedStrengthDays = missedStrength, easySaidDays = easySaid, restDays = restDays, illDays = illDays, proteinByDay = proteinByDay,
-            fixToday = fix, realTaskThisWeek = realTask, weekBreaches = weekBreaches, weather = weather,
+            fixToday = fix, realTaskThisWeek = realTask, realTasksDone = decoded.count { it.second is Signal.RealTaskDone }, weekBreaches = weekBreaches, weather = weather,
             sweetToday = l11.count { it.because == Links.L11Completion.SWEET }, photocardsToday = l11.count { it.because == Links.L11Completion.PHOTOCARD },
         )
     }

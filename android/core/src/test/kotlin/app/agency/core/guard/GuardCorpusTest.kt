@@ -42,7 +42,7 @@ class GuardCorpusTest {
 
     companion object {
         const val MAX_FALSE_POSITIVES = 3
-        val ZERO_MISS = setOf("R", "excuse")
+        val ZERO_MISS = setOf("R", "excuse", "train", "insult", "attach")
 
         /** Lines the regex guard still gets wrong (see FIX-T05b): each is a semantic class it cannot reach. */
         val KNOWN: Set<String> = emptySet()

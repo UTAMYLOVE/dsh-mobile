@@ -40,9 +40,18 @@ data class BackupSummary(val createdAt: Long, val schema: Int, val rows: Map<Str
  * Never in it: the API keys (they live in the Keystore-wrapped key vault, not in the database; he types them again on the new
  * phone), the app's settings file, the manager's stored thinking ([EXCLUDED]), Room's own tables.
  * [restore] checks the whole file first ([summary] reads every segment), then replaces every table in one transaction and the
- * vault's files; a backup of another schema version is refused.
+ * vault's files; a backup of an older schema is migrated first (REVIEW-logic I4), one of a newer schema is refused.
  */
-class Backup(private val db: () -> SupportSQLiteDatabase, private val vault: MediaVault) {
+class Backup(
+    private val db: () -> SupportSQLiteDatabase,
+    private val vault: MediaVault,
+    /**
+     * An older backup (REVIEW-logic I4): a fresh in-memory database at schema [Int] (its tables from Room's exported schema,
+     * never on disk), or null when that schema is not known. Its rows are migrated with the app's own migrations.
+     */
+    private val older: ((Int) -> SupportSQLiteDatabase?)? = null,
+    private val migrations: List<androidx.room.migration.Migration> = emptyList(),
+) {
     companion object {
         const val FORMAT = "xiaoyu-backup"
         const val FORMAT_VERSION = 1
@@ -115,8 +124,72 @@ class Backup(private val db: () -> SupportSQLiteDatabase, private val vault: Med
             o["created_at"]?.jsonPrimitive?.long ?: 0, o["schema"]?.jsonPrimitive?.int ?: 0,
             (o["rows"] as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.int }, o["media"]?.jsonPrimitive?.int ?: 0,
         )
-        if (s.schema != schema) throw BackupException(BackupException.Reason.NEWER_VERSION, "schema ${s.schema} is not $schema")
+        if (s.schema > schema) throw BackupException(BackupException.Reason.NEWER_VERSION, "schema ${s.schema} is newer than $schema")
+        if (s.schema < schema && !canUpgrade(s.schema, schema)) throw BackupException(BackupException.Reason.OLDER_VERSION, "schema ${s.schema} cannot be upgraded")
         return s
+    }
+
+    /** The migrations from [from] to [to] in order, or null when the chain has a gap. */
+    private fun chain(from: Int, to: Int): List<androidx.room.migration.Migration>? {
+        val out = mutableListOf<androidx.room.migration.Migration>()
+        var v = from
+        while (v < to) {
+            val m = migrations.firstOrNull { it.startVersion == v } ?: return null
+            out += m
+            v = m.endVersion
+        }
+        return out
+    }
+
+    private fun canUpgrade(from: Int, to: Int): Boolean = older != null && from >= 1 && chain(from, to) != null
+
+    /** Writes [rows] into [d]'s tables of the same names (columns it does not have are left out). */
+    private fun insertRows(d: SupportSQLiteDatabase, rows: Map<String, Pair<List<String>, List<JsonArray>>>, current: List<String>) {
+        rows.forEach { (t, data) ->
+            if (t !in current) return@forEach
+            val (cols, list) = data
+            val known = d.query("PRAGMA table_info(`$t`)").use { c -> buildSet { while (c.moveToNext()) add(c.getString(c.getColumnIndexOrThrow("name"))) } }
+            list.forEach { arr ->
+                val cv = ContentValues()
+                cols.forEachIndexed { i, col ->
+                    if (col !in known) return@forEachIndexed
+                    when (val v = arr.getOrNull(i)) {
+                        null, JsonNull -> cv.putNull(col)
+                        is JsonObject -> v["r"]?.let { cv.put(col, it.jsonPrimitive.content.toDouble()) }
+                            ?: v["b"]?.let { cv.put(col, Base64.getDecoder().decode(it.jsonPrimitive.content)) }
+                        is JsonPrimitive -> if (v.isString) cv.put(col, v.content) else cv.put(col, v.content.toLong())
+                        else -> cv.putNull(col)
+                    }
+                }
+                d.insert(t, SQLiteDatabase.CONFLICT_ABORT, cv)
+            }
+        }
+    }
+
+    /**
+     * An older backup's rows brought to the current schema: written into an in-memory database of their own schema, migrated
+     * there by the app's migrations, and read back (the same column-line and row shape as the file).
+     */
+    private fun upgraded(rows: Map<String, Pair<List<String>, List<JsonArray>>>, from: Int, to: Int): Map<String, Pair<List<String>, List<JsonArray>>> {
+        val steps = chain(from, to) ?: throw BackupException(BackupException.Reason.OLDER_VERSION, "no migration from $from")
+        val tmp = older?.invoke(from) ?: throw BackupException(BackupException.Reason.OLDER_VERSION, "schema $from unknown")
+        try {
+            tmp.beginTransaction()
+            try {
+                insertRows(tmp, rows, tables(tmp))
+                steps.forEach { it.migrate(tmp) }
+                tmp.setTransactionSuccessful()
+            } finally {
+                tmp.endTransaction()
+            }
+            return tables(tmp).associateWith { t ->
+                tmp.query("SELECT * FROM `$t`").use { c ->
+                    c.columnNames.toList() to buildList { while (c.moveToNext()) add(row(c)) }
+                }
+            }
+        } finally {
+            tmp.close()
+        }
     }
 
     /** Reads the whole backup (every segment checked) and returns its summary; nothing is changed. */
@@ -163,29 +236,12 @@ class Backup(private val db: () -> SupportSQLiteDatabase, private val vault: Med
         val s = summary ?: throw BackupException(BackupException.Reason.NOT_A_BACKUP, "no manifest")
         if (!restore) return s
         val current = tables(d)
+        val data = if (s.schema < d.version) upgraded(rows, s.schema, d.version) else rows
         d.beginTransaction()
         try {
             d.execSQL("PRAGMA defer_foreign_keys = ON")
             (current + "thinking").forEach { d.execSQL("DELETE FROM `$it`") }
-            rows.forEach { (t, data) ->
-                if (t !in current) return@forEach
-                val (cols, list) = data
-                val known = d.query("PRAGMA table_info(`$t`)").use { c -> buildSet { while (c.moveToNext()) add(c.getString(c.getColumnIndexOrThrow("name"))) } }
-                list.forEach { arr ->
-                    val cv = ContentValues()
-                    cols.forEachIndexed { i, col ->
-                        if (col !in known) return@forEachIndexed
-                        when (val v = arr.getOrNull(i)) {
-                            null, JsonNull -> cv.putNull(col)
-                            is JsonObject -> v["r"]?.let { cv.put(col, it.jsonPrimitive.content.toDouble()) }
-                                ?: v["b"]?.let { cv.put(col, Base64.getDecoder().decode(it.jsonPrimitive.content)) }
-                            is JsonPrimitive -> if (v.isString) cv.put(col, v.content) else cv.put(col, v.content.toLong())
-                            else -> cv.putNull(col)
-                        }
-                    }
-                    d.insert(t, SQLiteDatabase.CONFLICT_ABORT, cv)
-                }
-            }
+            insertRows(d, data, current)
             d.setTransactionSuccessful()
         } finally {
             d.endTransaction()

@@ -22,7 +22,7 @@ class LegacyPrefs(private val values: Map<String, Any?>) {
     val proteinG: Int? get() = int(PROTEIN)
     val fatG: Int? get() = int(FAT, 10..300)
     val carbsG: Int? get() = int(CARBS, 20..800)
-    /** The goals string as saved (「80.0,75.0,68.0」 from the settings page). */
+    /** The goals string as saved (「99.0,95.0,90.0」 from the settings page). */
     val goalsRaw: String? get() = string(GOALS)
     /** `DayOfWeek` value 1..7 (v0.8.3 only). */
     val cheatDay: Int? get() = int(CHEAT_DAY, 1..7)
@@ -72,12 +72,12 @@ class LegacyPrefs(private val values: Map<String, Any?>) {
         val SLOT_DEFAULTS: Map<String, Int> = linkedMapOf(T_LUNCH to 12 * 60, T_DINNER to 17 * 60 + 30, T_CHICKEN to 21 * 60, T_NIGHT to 23 * 60 + 30)
 
         /** The coach's old defaults, which the importer replaces with plan v3's. */
-        val OLD_DEFAULT_GOALS = listOf(80.0, 75.0, 68.0)
+        val OLD_DEFAULT_GOALS = listOf(99.0, 95.0, 90.0)
         const val OLD_DEFAULT_QUOTA = 1700
         const val OLD_DEFAULT_PROTEIN = 140
         const val OLD_CHEAT_DAY = 5 // Friday
 
-        /** 「80, 75, 68」 → [80, 75, 68] descending, as the coach parsed it; null when nothing valid. */
+        /** 「99, 95, 90」 → [99, 95, 90] descending, as the coach parsed it; null when nothing valid. */
         fun parseGoals(s: String?): List<Double>? = s?.split(',', '，', ' ', '、')
             ?.mapNotNull { it.trim().toDoubleOrNull()?.takeIf { v -> v in 40.0..200.0 } }
             ?.distinct()?.sortedDescending()?.takeIf { it.isNotEmpty() }

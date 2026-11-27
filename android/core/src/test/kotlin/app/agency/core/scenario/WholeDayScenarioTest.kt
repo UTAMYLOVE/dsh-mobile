@@ -63,7 +63,8 @@ class WholeDayScenarioTest {
         // 10:25 the first lesson's quiz (T19c): six questions from its 教材, each quote checked by code.
         app.agency.core.lessons.LessonKit.quiz(app.agency.core.lessons.LessonKit.VOCAL_QS),
         // 12:30 his report: the clerk, a get_today call, then the reply (with its thinking).
-        intake("chat"), call("get_today", "{}"), reply("收到。上課專心，下課回報。", reasoning = "他在學校"),
+        // A sick day is gentle: the judge reads it too (REVIEW-safety I2).
+        intake("chat"), call("get_today", "{}"), reply("收到。上課專心，下課回報。", reasoning = "他在學校"), judge(),
         // 13:10 lunch with friends: the body teacher's pick as an order card (no clerk), then the judge (it is about food).
         call("propose_meal_order", """{"slot":"lunch","items":[{"name":"清燉牛肉麵","portion":1,"kcal_high":520,"protein_low":30},{"name":"燙青菜","portion":1,"kcal_high":80,"protein_low":2}],"place_result_id":null}"""),
         reply("點清燉牛肉麵加燙青菜，湯不要喝完。你按好就是這個。"), judge(),
@@ -143,7 +144,7 @@ class WholeDayScenarioTest {
     @Test fun aClassDayWithALateWakeAFeverARideAndAnEarlyNight() {
         // 07:00 the morning alarm: the reminders are running (nothing is due yet); the week's real-person task is given (L20).
         assertTrue(tick("07:00").posts.isEmpty())
-        assertTrue(runBlocking { store.messages.recent(5) }.any { it.text == app.agency.core.engine.RealTasks.line(monday) })
+        assertTrue(runBlocking { store.messages.recent(5) }.any { it.text == app.agency.core.engine.RealTasks.line(0) })
         // 10:00, 90 minutes late: lunch follows (13:40), sleep stays; shaving is due at sign-in.
         val wake = say("10:00", "簽到")
         assertEquals(listOf("簽到了，比表定晚 90 分鐘。", app.agency.core.engine.ConditionPolicy.ASK), wake)
@@ -200,7 +201,7 @@ class WholeDayScenarioTest {
         assertTrue(llm.requests[2].system.contains("【這一次的語氣：放軟】"))
         // 12:40 an attempt to change the rules in chat: the fixed reply, no model, nothing written.
         assertEquals(listOf(app.agency.core.rules.RulesBook.LOCKED), say("12:40", "每天熱量可以調高嗎"))
-        assertEquals(4, llm.requests.size)
+        assertEquals(5, llm.requests.size)
 
         // The alarm (T13): what was due goes out (the shave reminder); the next fire is the moved lunch.
         val shave = tick("10:06")
@@ -212,7 +213,7 @@ class WholeDayScenarioTest {
         val friends = runBlocking { at("13:10"); brain.onText("中午跟朋友吃牛肉麵") }.filter { it.who == Who.COMPANY }.single()
         assertEquals(RoleKey.BODY, friends.role)
         assertEquals("點清燉牛肉麵加燙青菜，湯不要喝完。你按好就是這個。", friends.text)
-        assertTrue(llm.requests[4].system.contains("他要跟朋友去吃「牛肉麵」"))
+        assertTrue(llm.requests[5].system.contains("他要跟朋友去吃「牛肉麵」"))
         // 572 + 88 = 660 fits what lunch may be today (up to the single-meal cap, 800: dinner follows what is left).
         assertEquals(listOf("好，這餐就點這個：清燉牛肉麵、燙青菜，660 大卡。吃完拍照回報。"), say("13:11", "好"))
         // 13:40 the moved lunch is pushed; 13:45 his report (the clerk sorts it, code counts it: strict estimates; he had an
@@ -311,18 +312,18 @@ class WholeDayScenarioTest {
         // the reply (a violation today).
         val open = say("00:10", "這裡有問題")
         assertEquals(listOf("說說看。\n是早上起床太趕，還是晚上太晚睡？"), open)
-        assertTrue(llm.requests[12].turns.last().let { it is app.agency.core.llm.Turn.User && it.text.contains("上一個輸出不合格") })
-        assertEquals(app.agency.core.llm.Purpose.JUDGE, llm.requests[13].purpose)
+        assertTrue(llm.requests[13].turns.last().let { it is app.agency.core.llm.Turn.User && it.text.contains("上一個輸出不合格") })
+        assertEquals(app.agency.core.llm.Purpose.JUDGE, llm.requests[14].purpose)
         assertEquals(listOf("早上太趕", "晚上太晚"), runBlocking { store.messages.recent(1) }.single().refs.options)
         // 00:11 his answer: she proposes moving tomorrow's wake; nothing changes until his yes.
         assertEquals(listOf("那上課日早十分鐘起床。你說好才改。\n這樣可以嗎？"), say("00:11", "我想早一點起來吃早餐再去上課"))
-        assertTrue(llm.requests[15].system.contains("【模式：討論】"))
+        assertTrue(llm.requests[16].system.contains("【模式：討論】"))
         assertEquals("08:30", runBlocking { brain.nerve.plan(monday.plusDays(1)) }.slot(SlotKey.WAKE)!!.time)
         assertEquals(1, runBlocking { brain.pendingProposals() }.size)
         // 00:12 his 「好」: applied by code, a new version of the schedule; the discussion is over.
         assertEquals(listOf("好，改了：上課日起床 08:30 → 08:20。"), say("00:12", "好"))
         assertEquals("08:20", runBlocking { brain.nerve.plan(monday.plusDays(1)) }.slot(SlotKey.WAKE)!!.time)
-        assertEquals(18, llm.requests.size) // the script up to the night, nothing more
+        assertEquals(19, llm.requests.size) // the script up to the night, nothing more
 
         // 01:00 to bed early (fine): signed out, and the bedtime review (T19): two questions, one at a time, code's.
         assertEquals(listOf("簽退了。", app.agency.core.brain.handlers.ReviewDesk.ASK_GOOD), say("01:00", "我要睡了"))
@@ -336,7 +337,7 @@ class WholeDayScenarioTest {
         assertEquals("你說做得好：三輪和伸展都照計時做完", card[4])
         assertEquals("明天要改：明天不吃炸的", card[5])
         assertEquals("今天的訓練都做完了，做得好。明天不吃炸的，記住，現在去睡。", review[1])
-        assertEquals(20, llm.requests.size)
+        assertEquals(21, llm.requests.size)
         // His yes: tomorrow's sign-in will remind him (L19).
         assertEquals(listOf("好，明天起床簽到的時候我提醒你：明天不吃炸的"), say("01:03", "好"))
         val night = tick("01:30")
@@ -391,7 +392,7 @@ class WholeDayScenarioTest {
         assertNull(runBlocking { store.rules.current() })
         assertTrue(runBlocking { store.rules.history() }.isEmpty())
         assertEquals(
-            listOf("QUIZ", "INTAKE", "CHAT", "CHAT", "CHAT", "CHAT", "JUDGE", "INTAKE", "QUIZ", "INTAKE", "INTAKE", "CHAT", "CHAT", "JUDGE", "INTAKE", "CHAT", "CHAT", "JUDGE", "NUDGE", "JUDGE"),
+            listOf("QUIZ", "INTAKE", "CHAT", "CHAT", "JUDGE", "CHAT", "CHAT", "JUDGE", "INTAKE", "QUIZ", "INTAKE", "INTAKE", "CHAT", "CHAT", "JUDGE", "INTAKE", "CHAT", "CHAT", "JUDGE", "NUDGE", "JUDGE"),
             llm.requests.map { it.purpose.name },
         )
         assertTrue(runBlocking { store.messages.recent(300) }.none { it.text.contains("他在學校") || it.text.contains("查一下") })

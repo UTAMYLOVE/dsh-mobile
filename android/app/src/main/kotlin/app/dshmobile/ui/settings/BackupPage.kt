@@ -78,11 +78,15 @@ fun BackupPage(agency: AgencyApp) {
     val failed = stringResource(R.string.ag_bk_failed)
     val wrong = stringResource(R.string.ag_bk_wrong)
     val other = stringResource(R.string.ag_bk_other)
+    val newer = stringResource(R.string.ag_bk_newer)
+    val older = stringResource(R.string.ag_bk_older)
     val restored = stringResource(R.string.ag_bk_restored)
 
     fun why(e: Throwable?): String = when ((e as? BackupException)?.reason) {
         BackupException.Reason.WRONG_PASSWORD_OR_DAMAGED, BackupException.Reason.TRUNCATED -> wrong
-        BackupException.Reason.NOT_A_BACKUP, BackupException.Reason.NEWER_VERSION -> other
+        BackupException.Reason.NEWER_VERSION -> newer
+        BackupException.Reason.OLDER_VERSION -> older
+        BackupException.Reason.NOT_A_BACKUP -> other
         else -> failed
     }
 

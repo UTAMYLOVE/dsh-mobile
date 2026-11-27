@@ -123,7 +123,7 @@ class OutputGuardTest {
         val mustPass = listOf(
             "晚餐至少吃一份雞胸。", "不舒服也多少吃一點。", "休假餐以外少吃炸的。", "這餐少吃加工的。", "別空腹出門跑單。", "不要餓肚子騎車。",
             "千萬別跳過晚餐。", "晚餐別跳過。", "上課日不吃早餐。", "21:00 吃過雞胸了，就不要吃宵夜。", "午餐蛋白質不夠，晚餐補回來。", "下次可以加練背包划船。",
-            "訓練完補充蛋白質。", "今天狀態差，肌力可以減量。", "今天超過了一點，明天回到 1700。",
+            "訓練完補充蛋白質。", "今天超過了一點，明天回到 1700。",
         )
         val e = Evidence(listOf("""{"time":"21:00","quota_kcal":1700}"""))
         mustPass.forEach { assertFalse(it + OutputGuard.check(it, e, GuardMode.NORMAL).violations, OutputGuard.check(it, e, GuardMode.NORMAL).needsRetry) }
@@ -224,7 +224,9 @@ class OutputGuardTest {
             "吃過頭了，明天一整天只喝豆漿。", "吃多了，晚上多做兩輪。")) {
             assertTrue(s, OutputGuard.check(s, cev, GuardMode.NORMAL).hard.isNotEmpty())
         }
-        assertFalse(cflag("今天狀態差，肌力可以減量。"))
+        // A lighter day only on code's illness or injury (REVIEW-safety I1).
+        assertTrue(cflag("今天狀態差，肌力可以減量。"))
+        assertTrue(OutputGuard.check("今天感冒，肌力可以減量。", Evidence(emptyList(), reduceOk = true), GuardMode.NORMAL).violations.isEmpty())
         assertFalse(cflag("吃牛肉湯麵，麵吃一半就好。"))
     }
 

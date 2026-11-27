@@ -63,6 +63,12 @@ data class RolloutSpec(
 
     fun open(f: Feature): Boolean = week >= weekOf(f)
 
+    /**
+     * Was [f] open on [day]: open now and its week opened on or before [day] (a week opened mid-week never rewrites the days
+     * before it: they keep the plan of the week they were in). A week whose day is not known counts as open from the start.
+     */
+    fun openOn(f: Feature, day: LocalDate): Boolean = open(f) && openedDay(weekOf(f))?.let { !day.isBefore(it) } != false
+
     /** What opens in week [w] (by the table). */
     fun opensIn(w: Int): List<Feature> = Feature.entries.filter { weekOf(it) == w }
 
@@ -76,7 +82,9 @@ data class RolloutSpec(
     fun at(w: Int, day: LocalDate): RolloutSpec {
         val n = w.coerceIn(1, LAST)
         val kept = openedOn.filterKeys { (it.toIntOrNull() ?: 0) <= n }
-        return copy(week = n, openedOn = if (kept.containsKey(n.toString())) kept else kept + (n.toString() to day.toString()))
+        // Every week passed over opens on [day] too (a jump from week 1 to 3 does not open week 2 in the past).
+        val added = (2..n).map { it.toString() }.filter { it !in kept && (it.toInt() > week || it.toInt() == n) }.associateWith { day.toString() }
+        return copy(week = n, openedOn = kept + added)
     }
 
     /** 「第 N 週開放」 for a feature not open yet. */

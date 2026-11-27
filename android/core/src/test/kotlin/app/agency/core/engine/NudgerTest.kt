@@ -136,12 +136,15 @@ class NudgerTest {
     }
 
     @Test fun theModelWordsThePushAndTheTemplateStaysWhenItCannot() {
-        val llm = ScriptedLlm(ScriptedLlm.ok("""{"text":"午餐時間到了，吃完拍照給我。"}"""), ScriptedLlm.failed(Fail.OFFLINE))
+        // About food: the second-pass judge reads it too (its clean verdict is the second answer).
+        val llm = ScriptedLlm(
+            ScriptedLlm.ok("""{"text":"午餐時間到了，吃完拍照給我。"}"""), ScriptedLlm.ok("""{"violation":false,"class":"none","reason":""}"""), ScriptedLlm.failed(Fail.OFFLINE),
+        )
         val b = brain(llm)
         signIn(b, "08:30")
         val push = tick(b, "12:10").posts.single { it.key == Nudger.GAP_KEY }
         assertEquals("午餐時間到了，吃完拍照給我。", runBlocking { b.wordNudge(push.nudgeId) })
-        assertEquals(Purpose.NUDGE, llm.requests.single().purpose)
+        assertEquals(listOf(Purpose.NUDGE, Purpose.JUDGE), llm.requests.map { it.purpose })
         val row = runBlocking { store.nudges.get(push.nudgeId) }!!
         assertEquals(WordedBy.MODEL, row.wordedBy)
         assertEquals("午餐時間到了，吃完拍照給我。", runBlocking { store.messages.get(Nudger.messageId(push.nudgeId)) }!!.text)
@@ -149,6 +152,15 @@ class NudgerTest {
         val chase = tick(b, "13:10").posts.single { it.key == Nudger.GAP_KEY }
         assertNull(runBlocking { b.wordNudge(chase.nudgeId) })
         assertEquals(WordedBy.TEMPLATE, runBlocking { store.nudges.get(chase.nudgeId) }!!.wordedBy)
+    }
+
+    @Test fun aFoodLineTheJudgeDoesNotAnswerKeepsTheTemplate() {
+        val llm = ScriptedLlm(ScriptedLlm.ok("""{"text":"午餐時間到了，吃完拍照給我。"}"""), ScriptedLlm.failed(Fail.OFFLINE))
+        val b = brain(llm)
+        signIn(b, "08:30")
+        val push = tick(b, "12:10").posts.single { it.key == Nudger.GAP_KEY }
+        assertNull(runBlocking { b.wordNudge(push.nudgeId) })
+        assertEquals(WordedBy.TEMPLATE, runBlocking { store.nudges.get(push.nudgeId) }!!.wordedBy)
     }
 
     @Test fun theDailyWordingCapKeepsTheTemplate() {

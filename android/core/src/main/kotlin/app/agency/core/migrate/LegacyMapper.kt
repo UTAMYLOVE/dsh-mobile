@@ -356,7 +356,7 @@ object LegacyMapper {
 
     private data class Goals(val goals: List<Double>, val kept: List<Double>?, val dropped: List<Double>)
 
-    /** The old default 80/75/68 (or nothing saved) becomes plan v3's 75/68; his own list is kept without values under 52 kg. */
+    /** The old default (or nothing saved) becomes none (he sets his own in 設定); his own list is kept without values under 52 kg. */
     private fun goals(prefs: LegacyPrefs): Goals {
         val saved = LegacyPrefs.parseGoals(prefs.goalsRaw)
         if (saved == null || saved == LegacyPrefs.OLD_DEFAULT_GOALS) return Goals(DEFAULT_GOALS, null, emptyList())

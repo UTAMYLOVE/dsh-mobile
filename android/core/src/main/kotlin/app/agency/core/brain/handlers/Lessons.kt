@@ -315,7 +315,7 @@ class LessonDesk(
         const val MAX_CANDIDATES = 5
         const val QUIZ_TOKENS = 1600
         const val NOTE_CHARS = 1000
-        const val NO_SEARCH = "現在不能找影片：要有 DeepSeek 的金鑰（設定的模型與金鑰）。"
+        const val NO_SEARCH = "現在不能找影片：要有深度求索的金鑰（設定的模型與金鑰）。"
         const val QUIZ_READY = "看完了就考：三題選擇題，到理論課作答。憑記憶答，不要回去看影片。"
         const val REVIEW_READY = "複習考三題，到理論課作答。只記錄，不擋課。"
         const val ASK_NOTE = "最後寫筆記，至少 ${LessonPlan.NOTE_HAN} 個字，寫完就開下一支。"

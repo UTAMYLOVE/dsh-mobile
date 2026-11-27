@@ -41,10 +41,10 @@ class IdolCardTest {
     }
 
     @Test fun onlyTheNextGoalAndNeverOneUnder52() {
-        val rules = CompanyRules(goalsKg = listOf(91.0, 84.0, 50.0))
+        val rules = CompanyRules(goalsKg = listOf(91.0, 84.0, 45.0))
         assertEquals(91.0, IdolCard.nextGoal(rules, 98.0)!!, 0.0)
         assertEquals(84.0, IdolCard.nextGoal(rules, 90.5)!!, 0.0)
-        assertNull(IdolCard.nextGoal(rules, 83.0)) // 50 is his wish, never a goal on the card
+        assertNull(IdolCard.nextGoal(rules, 83.0)) // under 52 kg is never a goal on the card
         assertEquals(91.0, IdolCard.nextGoal(rules, null)!!, 0.0)
     }
 

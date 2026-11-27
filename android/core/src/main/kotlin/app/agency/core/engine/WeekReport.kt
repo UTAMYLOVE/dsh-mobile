@@ -46,21 +46,24 @@ object WeekReport {
 }
 
 /**
- * The weekly real-person task (plan v3 §3 「會主動推我去找真人」, agency-links L20): one a week, small, with a real person — never
- * more chat with her. Lunch with friends does not count (he does that every day; owner 2026-11-22). Picked by the week.
+ * The weekly real-person task (定稿 §11 「每週一個真人任務，從最簡單的開始（約認識的朋友吃飯），不逼我跟陌生人講話」, L20): one a
+ * week, small, with people he knows — never more chat with her. From the easiest on, one step further each time he has done
+ * one ([done]: the tasks done in the look-back), the last staying once reached.
  */
 object RealTasks {
     val ALL = listOf(
+        "約一個認識的朋友吃一頓飯（午餐、晚餐都算），吃飯時把手機收起來。",
+        "傳訊息約一個朋友出來走走或看展。",
         "下課跟一個同學多聊兩句，不是只打招呼。",
-        "買東西時跟店員講一句真心的話，例如謝謝他，或問他推薦什麼。",
-        "傳訊息約一個朋友出來走走或看展（吃飯不算）。",
         "打電話跟家人聊十分鐘，說說你最近在做什麼。",
         "上課時問老師一個問題，或下課去問。",
+        "約兩個朋友一起做一件事，例如運動、唱歌或看電影。",
     )
 
-    fun of(monday: LocalDate): String = ALL[Math.floorMod(monday.toEpochDay() / 7, ALL.size.toLong()).toInt()]
+    fun of(done: Int): String = ALL[done.coerceIn(0, ALL.size - 1)]
 
     const val DONE_WORDS = "真人任務完成"
 
-    fun line(monday: LocalDate): String = "這週的真人任務：${of(monday)}做完跟我說「$DONE_WORDS」。"
+    fun line(done: Int): String = "這週的真人任務：${of(done)}做完跟我說「$DONE_WORDS」。"
 }
+

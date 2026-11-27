@@ -143,21 +143,21 @@ class LegacyMapperTest {
     }
 
     @Test fun theOldDefaultGoalsBecomeNone() {
-        assertEquals(emptyList<Double>(), plan(prefs = mapOf("goals" to "80.0,75.0,68.0")).rules.goalsKg)
+        assertEquals(emptyList<Double>(), plan(prefs = mapOf("goals" to "99.0,95.0,90.0")).rules.goalsKg)
         assertEquals(emptyList<Double>(), plan(prefs = emptyMap()).rules.goalsKg)
-        assertEquals(emptyList<Double>(), plan(prefs = mapOf("goals" to "68, 80 ,75")).rules.goalsKg)
-        assertNull(plan(prefs = mapOf("goals" to "80.0,75.0,68.0")).note.goalsKept)
+        assertEquals(emptyList<Double>(), plan(prefs = mapOf("goals" to "90, 99 ,95")).rules.goalsKg)
+        assertNull(plan(prefs = mapOf("goals" to "99.0,95.0,90.0")).note.goalsKept)
     }
 
     @Test fun hisOwnGoalsAreKeptWithoutAnythingUnder52() {
-        val p = plan(prefs = mapOf("goals" to "94.0,88.0,50.0"))
+        val p = plan(prefs = mapOf("goals" to "94.0,88.0,45.0"))
         assertEquals(listOf(94.0, 88.0), p.rules.goalsKg)
         assertEquals(listOf(94.0, 88.0), p.note.goalsKept)
-        assertEquals(listOf(50.0), p.note.goalsDropped)
+        assertEquals(listOf(45.0), p.note.goalsDropped)
         assertEquals(listOf(93.0, 52.0), plan(prefs = mapOf("goals" to "93,52")).rules.goalsKg)
-        val allLow = plan(prefs = mapOf("goals" to "50,45"))
+        val allLow = plan(prefs = mapOf("goals" to "48,45"))
         assertEquals(emptyList<Double>(), allLow.rules.goalsKg)
-        assertEquals(listOf(50.0, 45.0), allLow.note.goalsDropped)
+        assertEquals(listOf(48.0, 45.0), allLow.note.goalsDropped)
     }
 
     @Test fun rulesTakeFatCarbsAndMarginFromHisSettingsAndTheRestFromPlanV3() {

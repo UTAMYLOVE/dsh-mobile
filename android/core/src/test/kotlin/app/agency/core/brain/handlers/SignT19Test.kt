@@ -63,7 +63,7 @@ class SignT19Test {
         assertFalse(SignPolicy.onTime(wake.plusSeconds(601), wake))
         assertTrue(SignPolicy.onTime(wake.minusSeconds(3600), wake))
         val out = lines("08:40", "簽到")
-        assertEquals(listOf("簽到了，準時。", ConditionPolicy.ASK), out.filter { it != RealTasks.line(day) })
+        assertEquals(listOf("簽到了，準時。", ConditionPolicy.ASK), out.filter { it != RealTasks.line(0) })
         assertTrue(runBlocking { brain().conditionDue() })
         // The typed score answers it (code, no model).
         assertEquals(listOf("記下：今天 4 分。很好，照表走。"), lines("08:41", "4 分"))
@@ -190,7 +190,7 @@ class SignT19Test {
         at("07:00")
         runBlocking { brain().tick() }
         val first = runBlocking { store.messages.recent(10) }.map { it.text }
-        assertTrue(first.contains(RealTasks.line(day)))
+        assertTrue(first.contains(RealTasks.line(0)))
         assertEquals(listOf("記下：這週的真人任務做到了。跟真的人相處，就是這樣。"), lines("19:00", "真人任務完成"))
         assertEquals(listOf("這週的真人任務已經記過了。"), lines("19:01", "真人任務完成"))
         // The next Monday's start counts the week: almost nothing done, so not on target.
@@ -202,7 +202,8 @@ class SignT19Test {
         assertEquals("真人任務：做到了", summary[5])
         assertTrue(summary.last().contains("這週沒達標"))
         assertTrue(summary.last().contains("等級 C，連續達標 0 週"))
-        assertTrue(out.contains(RealTasks.line(day)))
+        // One done: the next is one step further (定稿 §11: from the easiest on).
+        assertTrue(out.contains(RealTasks.line(1)))
         // Once.
         assertTrue(lines("09:00", "簽到").none { it.startsWith("一週結果") })
     }

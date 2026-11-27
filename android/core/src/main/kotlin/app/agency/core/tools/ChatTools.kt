@@ -257,7 +257,7 @@ class SearchPlacesTool(
 
         fun failNote(f: Fail): String = when (f) {
             Fail.CAP -> "今天的花費到上限了，搜尋沒有做"
-            Fail.NO_KEY, Fail.NO_SETUP -> "附近搜尋要 DeepSeek 的金鑰，現在沒有"
+            Fail.NO_KEY, Fail.NO_SETUP -> "附近搜尋要深度求索的金鑰，現在沒有"
             Fail.KEY_REJECTED -> "金鑰被拒，搜尋沒有做"
             else -> "現在搜尋不到"
         }

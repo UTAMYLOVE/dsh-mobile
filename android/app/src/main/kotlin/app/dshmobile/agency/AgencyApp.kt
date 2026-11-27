@@ -280,6 +280,9 @@ class AgencyApp(
      * what is due and re-arms. Called from the receivers, off the main thread.
      */
     suspend fun onAlarm() {
+        // A safety alarm first (S2): a slow database, a lock held, a timeout or a throw below never ends the chain; a tick
+        // that gets through replaces it with the right one.
+        armFallback()
         start()
         val ready = withTimeoutOrNull(OPEN_WAIT_MS) { _start.first { it is StartState.Ready || it is StartState.Locked } } as? StartState.Ready ?: return
         remind(ready)
@@ -305,7 +308,14 @@ class AgencyApp(
             throw e
         } catch (e: Exception) {
             errorLog.append(TAG, "reminders failed (${e.javaClass.simpleName})")
+            armFallback()
         }
+    }
+
+    /** The next alarm in [FALLBACK_MS] whatever happens next (S2: the chain of reminders never breaks). */
+    private fun armFallback() {
+        runCatching { scheduler.arm(app.agency.core.engine.Fire(java.time.Instant.now().plusMillis(FALLBACK_MS), app.agency.core.engine.FireKind.CHASE)) }
+            .onFailure { errorLog.append(TAG, "fallback alarm not armed (${it.javaClass.simpleName})") }
     }
 
     /** The wording worker: the model's words for [post] (it stays the template when there are none). */
@@ -1202,7 +1212,11 @@ class AgencyApp(
     private fun backup(): app.dshmobile.agency.backup.Backup? {
         val d = db ?: return null
         val v = vault ?: return null
-        return app.dshmobile.agency.backup.Backup({ d.openHelper.writableDatabase }, v)
+        return app.dshmobile.agency.backup.Backup(
+            { d.openHelper.writableDatabase }, v,
+            older = { version -> app.dshmobile.agency.backup.OlderSchema.open(context, version) },
+            migrations = app.dshmobile.agency.data.AgencyDatabase.MIGRATIONS.toList(),
+        )
     }
 
     /** 匯出備份檔: everything, sealed with [password], into [out] (closed afterwards). The keys are never in it. */
@@ -1292,6 +1306,9 @@ class AgencyApp(
         private const val PROVIDER_SUFFIX = ".export"
         private const val DEFAULT_DAY_START = 5
         private const val OPEN_WAIT_MS = 8_000L
+
+        /** The safety alarm's delay (S2). */
+        const val FALLBACK_MS = 15 * 60_000L
         const val SINGING_RATE = 16_000
         private const val MAX_PICK_BYTES = 30 * 1024 * 1024
 

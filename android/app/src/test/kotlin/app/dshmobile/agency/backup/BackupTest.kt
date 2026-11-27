@@ -137,6 +137,69 @@ class BackupTest {
         assertEquals(secret, app.keyVault.get(Provider.DEEPSEEK))
     }
 
+    /** [zip] rewritten: the manifest says [schema], and [edit] may change or drop each table's column line and rows. */
+    private fun rewrite(zip: ByteArray, schema: Int, edit: (String, List<String>) -> List<String>?): ByteArray {
+        val out = ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(out).use { w ->
+            ZipInputStream(ByteArrayInputStream(zip)).use { z ->
+                while (true) {
+                    val e = z.nextEntry ?: break
+                    val bytes = z.readBytes()
+                    val body: ByteArray? = when {
+                        e.name == Backup.MANIFEST -> String(bytes).replace(Regex("\"schema\":\\d+"), "\"schema\":$schema").toByteArray()
+                        e.name.startsWith(Backup.TABLES) -> edit(e.name.removePrefix(Backup.TABLES).removeSuffix(".jsonl"), String(bytes).lines().filter { it.isNotEmpty() })
+                            ?.joinToString("") { "$it\n" }?.toByteArray()
+                        else -> bytes
+                    }
+                    if (body != null) {
+                        w.putNextEntry(java.util.zip.ZipEntry(e.name))
+                        w.write(body)
+                        w.closeEntry()
+                    }
+                }
+            }
+        }
+        val sealed = ByteArrayOutputStream()
+        BackupCipher.encrypt(sealed, pw(), BackupCipher.MIN_ITERATIONS).use { it.write(out.toByteArray()) }
+        return sealed.toByteArray()
+    }
+
+    @Test fun anOlderBackupIsMigratedFirstAndANewerOneIsRefusedWithItsOwnReason() {
+        AgencyApp.testOverrides = kit.overrides()
+        scenario = ActivityScenario.launch(AgencyActivity::class.java)
+        rule.waitForTag(AgencyTags.HOME)
+        runBlocking { ready().store.meals.insert(Meal("meal-old", "2026-12-01", 4, "LUNCH", "雞腿便當", verified = true, lateAt = 2)) }
+        val out = ByteArrayOutputStream()
+        runBlocking { app.agency.exportBackup({ out }, pw()) }.getOrThrow()
+        val zip = BackupCipher.decrypt(ByteArrayInputStream(out.toByteArray()), pw()).use { it.readBytes() }
+        // As schema 5 wrote it: no `late_at` on the meals, none of the tables schema 6 added.
+        val v5 = rewrite(zip, 5) { table, lines ->
+            when (table) {
+                "memo", "ledger_entry", "import_batch", "photo_read" -> null
+                "meal" -> {
+                    val cols = kotlinx.serialization.json.Json.parseToJsonElement(lines.first()) as kotlinx.serialization.json.JsonArray
+                    val drop = cols.indexOfFirst { (it as kotlinx.serialization.json.JsonPrimitive).content == "late_at" }
+                    lines.map { l ->
+                        val a = kotlinx.serialization.json.Json.parseToJsonElement(l) as kotlinx.serialization.json.JsonArray
+                        kotlinx.serialization.json.JsonArray(a.filterIndexed { i, _ -> i != drop }).toString()
+                    }
+                }
+                else -> lines
+            }
+        }
+        runBlocking { ready().store.meals.delete("meal-old") }
+        runBlocking { app.agency.restoreBackup({ ByteArrayInputStream(v5) }, pw()) }.getOrThrow()
+        rule.waitUntil(10_000) { app.agency.start.value is StartState.Ready }
+        val meal = runBlocking { ready().store.meals.between("2026-12-01", "2026-12-01") }.single { it.id == "meal-old" }
+        assertEquals("雞腿便當", meal.text)
+        assertNull(meal.lateAt)
+        // A newer backup: refused as newer (not 「not a backup」); one older than any migration: as older.
+        val newer = runBlocking { app.agency.restoreBackup({ ByteArrayInputStream(rewrite(zip, 99) { _, l -> l }) }, pw()) }
+        assertEquals(BackupException.Reason.NEWER_VERSION, (newer.exceptionOrNull() as BackupException).reason)
+        val older = runBlocking { app.agency.restoreBackup({ ByteArrayInputStream(rewrite(zip, 0) { _, l -> l }) }, pw()) }
+        assertEquals(BackupException.Reason.OLDER_VERSION, (older.exceptionOrNull() as BackupException).reason)
+    }
+
     private suspend fun snapshot(): List<Any?> {
         val s = ready().store
         return listOf(

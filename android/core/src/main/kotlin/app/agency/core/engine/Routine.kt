@@ -80,7 +80,7 @@ object Routine {
         }
         val moves = if (step >= 3) CORE.mapIndexed { i, m ->
             when (i) {
-                0 -> m.copy(name = "船式", how = "坐著雙腳伸直抬起，上身往後靠成 V 字，手往前伸，撐住不動。")
+                0 -> m.copy(name = "船式", how = "坐著雙腳伸直抬起，上身往後靠，身體和腿折成一個尖角，手往前伸，撐住不動。")
                 1 -> m.copy(name = "完整捲腹", how = "躺著屈膝，肩膀和上背慢慢捲起來再放下，腰貼地，不要用脖子出力。")
                 4 -> m.copy(name = "懸空抬腿", how = "躺著雙腳併攏，腳離地十公分撐住，再慢慢抬高放下，下背貼地。")
                 else -> m

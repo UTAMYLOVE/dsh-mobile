@@ -148,7 +148,7 @@ class WholeWeekScenarioTest {
         // Monday 07:00: the reminders start, with the week's real-person task.
         at("07:00")
         runBlocking { brain.tick() }
-        assertTrue(runBlocking { store.messages.recent(5) }.any { it.text == RealTasks.line(monday) })
+        assertTrue(runBlocking { store.messages.recent(5) }.any { it.text == RealTasks.line(0) })
         // 07:10–07:20 理論課: three searches (five, five, four real results), all fourteen said 好 to.
         val vocal = LessonKit.VOCAL
         listOf(0 until 5, 5 until 10, 10 until 14).forEach { range ->
@@ -203,7 +203,8 @@ class WholeWeekScenarioTest {
         assertEquals("照片牆加了 7 張", summary[4])
         assertEquals("真人任務：做到了", summary[5])
         assertEquals("這週達標。等級 C，連續達標 1 週；連續達標才累積，升級看月末評鑑。", summary[6])
-        assertTrue(lines.contains(RealTasks.line(day)))
+        // One done: the next is one step further (定稿 §11: from the easiest on).
+        assertTrue(lines.contains(RealTasks.line(1)))
         val week = runBlocking { store.nerve.signal("week:$monday") }!!.let { Signal.decode(it.json) as Signal.WeekEnded }
         assertTrue(week.onTarget && week.realTask)
         assertEquals(1, runBlocking { store.nerve.effects(day.toString()) }.count { it.link == Links.L20Week.id && it.kind == EffectKind.RECORD })
