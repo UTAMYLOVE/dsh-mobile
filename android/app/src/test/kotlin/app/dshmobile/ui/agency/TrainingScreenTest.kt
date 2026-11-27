@@ -68,7 +68,10 @@ class TrainingScreenTest {
         // A day without a run (the clock is the real one): the block may be done any time (on a delivery day it waits for 收工).
         app.agency.send("今天休息")
         app.agency.send("刮好了")
+        // Both answered and the brain idle (a button is disabled while it answers).
+        rule.waitUntil(30_000) { runBlocking { ready().store.messages.recent(10) }.any { it.text == "記下：刮鬍子。" } && !ready().brain.busy.value }
         rule.waitForTag(TrainingTags.STRETCH, 30_000)
+        rule.waitForIdle()
     }
 
     private fun logs() = runBlocking { ready().store.training.between("0000-01-01", "9999-12-31") }

@@ -166,3 +166,6 @@ data class Media(
     val sha256: String,
     val createdAt: Long,
 )
+
+/** 外送收入 of one coach day (owner 2026-11-26: the week's total counts, not one day); a second report replaces it. */
+data class DeliveryIncome(val day: String, val amount: Int, val at: Long)

@@ -41,6 +41,10 @@ object Router {
     /** The manual weather switches (no weather service): 「今天下雨」「今天很熱」 and their off words. */
     const val WEATHER = "weather:"
 
+    /** 「外送 1200 元」 (a day's delivery income) and 「外送週目標 N」. */
+    const val INCOME = "income"
+    const val INCOME_TARGET = "income_target"
+
     /** The kind prefix of a grooming report (「刮好了」 → `grooming:SHAVE`). */
     const val GROOMING = "grooming:"
 
@@ -96,6 +100,8 @@ object Router {
         COMMANDS[t]?.let { return Route.Command(it, roleOf(it)) }
         if (CHEAT_PREFIXES.any { t.startsWith(it) }) return Route.Command("cheat_declare", RoleKey.MANAGER)
         if (FIND.matches(t)) return Route.Command(FIND_VIDEOS, RoleKey.MANAGER)
+        if (app.agency.core.brain.handlers.IncomeWords.target(t) != null) return Route.Command(INCOME_TARGET, RoleKey.MANAGER)
+        if (app.agency.core.brain.handlers.IncomeWords.report(t) != null) return Route.Command(INCOME, RoleKey.MANAGER)
         if (RulesBook.isChangeAttempt(t)) return Route.RulesLocked
         return Route.Model
     }

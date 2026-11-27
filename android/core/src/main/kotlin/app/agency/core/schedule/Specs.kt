@@ -30,6 +30,12 @@ data class ScheduleSpec(
     val classSleepTarget: String = "01:30",
     val noClassSleepTarget: String = "02:30",
     val sleepStepMin: Int = 15,
+    /**
+     * 外送 (owner 2026-11-26): the week's income target is his own number (null until he sets it with 「外送週目標 N」: the code
+     * ships none) over [deliveryDaysPerWeek] days; the week's total counts, not one day.
+     */
+    val weeklyIncomeTarget: Int? = null,
+    val deliveryDaysPerWeek: Int = 6,
 )
 
 @Serializable

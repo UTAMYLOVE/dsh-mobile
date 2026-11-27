@@ -107,10 +107,16 @@ class MealPhotoScreenTest {
 
     /** Taps 拍這餐: the camera intent it started and the file it writes into. */
     private fun tapPhoto(): Pair<Intent, File> {
+        // The button is disabled while the brain answers: wait until it is idle.
+        rule.waitUntil(10_000) { !(app.agency.start.value as StartState.Ready).brain.busy.value }
+        rule.waitForIdle()
         rule.onNodeWithTag(MealTags.PHOTO).performClick()
         var started: Intent? = null
+        // The notification permission is asked once when 入社建檔 is done; its request may come first: skip it.
         rule.waitUntil(5_000) {
-            scenario!!.onActivity { a -> shadowOf(a).nextStartedActivityForResult?.let { started = it.intent } }
+            scenario!!.onActivity { a ->
+                shadowOf(a).nextStartedActivityForResult?.let { if (it.intent.action == MediaStore.ACTION_IMAGE_CAPTURE) started = it.intent }
+            }
             started != null
         }
         assertEquals(MediaStore.ACTION_IMAGE_CAPTURE, started!!.action)

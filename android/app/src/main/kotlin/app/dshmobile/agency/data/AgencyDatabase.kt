@@ -69,10 +69,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 /**
  * The agency's records (arch 1.2): Room over SQLCipher, file `noBackupFilesDir/agency/agency.db`. Schemas are in `schemas/`:
  * v1 (T02), v2 adds the nerve's `signal` and `nerve_effect` (T11b, [MIGRATION_1_2]), v3 the 「沒送出」 mark on `message` and the
- * manager's `thinking` (T12, [MIGRATION_2_3]), v4 理論課's `lesson` and `quiz` (T19c, [MIGRATION_3_4]).
+ * manager's `thinking` (T12, [MIGRATION_2_3]), v4 理論課's `lesson` and `quiz` (T19c, [MIGRATION_3_4]), v5 `delivery_income`
+ * (batch A, [MIGRATION_4_5]).
  */
 @Database(
-    version = 4,
+    version = 5,
     exportSchema = true,
     entities = [
         ProfileEntity::class, CompanyRulesEntity::class, CompanyRulesHistoryEntity::class, PlanSectionEntity::class,
@@ -82,7 +83,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         BaselineEntity::class, MediaEntity::class, MessageEntity::class, ProposalEntity::class, MemoryItemEntity::class,
         MemoryEventEntity::class, NudgeEntity::class, MigrationLogEntity::class, AuditLogEntity::class, SignalEntity::class,
         NerveEffectEntity::class, ThinkingEntity::class, app.dshmobile.agency.data.entities.LessonEntity::class,
-        app.dshmobile.agency.data.entities.QuizEntity::class,
+        app.dshmobile.agency.data.entities.QuizEntity::class, app.dshmobile.agency.data.entities.DeliveryIncomeEntity::class,
     ],
 )
 abstract class AgencyDatabase : RoomDatabase() {
@@ -108,6 +109,7 @@ abstract class AgencyDatabase : RoomDatabase() {
     abstract fun nerve(): NerveDao
     abstract fun thinking(): ThinkingDao
     abstract fun lessons(): app.dshmobile.agency.data.dao.LessonDao
+    abstract fun income(): app.dshmobile.agency.data.dao.IncomeDao
 
     companion object {
         /** v1 → v2 (T11b): the nerve's two tables; nothing else changes, every v1 row stays. */
@@ -155,7 +157,19 @@ abstract class AgencyDatabase : RoomDatabase() {
             "CREATE INDEX IF NOT EXISTS `index_quiz_lesson_id` ON `quiz` (`lesson_id`)",
         )
 
-        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+        /** v4 → v5 (batch A): 外送收入, one row a day; every v4 row stays. */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                MIGRATION_4_5_SQL.forEach(db::execSQL)
+            }
+        }
+
+        /** Copied from `schemas/…/5.json` (Room checks the result against it on open). */
+        val MIGRATION_4_5_SQL = listOf(
+            "CREATE TABLE IF NOT EXISTS `delivery_income` (`day` TEXT NOT NULL, `amount` INTEGER NOT NULL, `at` INTEGER NOT NULL, PRIMARY KEY(`day`))",
+        )
+
+        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 
         fun file(context: Context) = File(context.noBackupFilesDir, "agency/agency.db")
 

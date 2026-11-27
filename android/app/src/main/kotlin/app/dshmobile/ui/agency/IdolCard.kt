@@ -76,6 +76,7 @@ object IdolTags {
     const val GAPS = "ag-idol-gaps"
     const val UNVERIFIED = "ag-idol-unverified"
     const val WATER = "ag-idol-water"
+    const val INCOME = "ag-idol-income"
 }
 
 /**
@@ -142,6 +143,11 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
                     stringResource(R.string.ag_card_water, WaterPlan.bottles(facts.waterHalves), WaterPlan.bottles(facts.waterTargetHalves)),
                     color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.WATER),
                 )
+            }
+            // 外送 (owner 2026-11-26): the week's total against his target.
+            facts.incomeWeek?.let { total ->
+                val text = facts.incomeTarget?.let { stringResource(R.string.ag_card_income, total, it) } ?: stringResource(R.string.ag_card_income_no_target, total)
+                Text(text, color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.INCOME))
             }
             if (facts.photocards > 0) {
                 Text(stringResource(R.string.ag_card_photocards, facts.photocards), color = Sakura.Text, fontSize = 14.sp)

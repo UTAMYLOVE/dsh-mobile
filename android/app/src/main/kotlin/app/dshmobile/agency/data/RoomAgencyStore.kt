@@ -199,6 +199,13 @@ class RoomAgencyStore(private val db: AgencyDatabase) : AgencyStore {
     override val signs: DayLogRepo<SignLog> = RoomDayLog(db.signs(), SignLogEntity::of) { it.toModel() }
     override val weights: DayLogRepo<WeightLog> = RoomDayLog(db.weights(), WeightLogEntity::of) { it.toModel() }
 
+    override val income = object : app.agency.core.store.IncomeRepo {
+        private val dao = db.income()
+        override suspend fun put(income: app.agency.core.model.DeliveryIncome) = dao.put(app.dshmobile.agency.data.entities.DeliveryIncomeEntity.of(income))
+        override suspend fun get(day: String): app.agency.core.model.DeliveryIncome? = dao.get(day)?.toModel()
+        override suspend fun between(fromDay: String, toDay: String): List<app.agency.core.model.DeliveryIncome> = dao.between(fromDay, toDay).map { it.toModel() }
+    }
+
     override val conditions = object : ConditionRepo {
         private val dao = db.conditions()
         override suspend fun put(log: ConditionLog) = dao.put(ConditionLogEntity.of(log))

@@ -130,6 +130,13 @@ interface DayLogDao<E> : WriteDao<E> {
     @Query("SELECT COUNT(*) FROM condition_log") suspend fun count(): Int
 }
 
+@Dao interface IncomeDao {
+    @Upsert suspend fun put(row: app.dshmobile.agency.data.entities.DeliveryIncomeEntity)
+    @Query("SELECT * FROM delivery_income WHERE day = :day") suspend fun get(day: String): app.dshmobile.agency.data.entities.DeliveryIncomeEntity?
+    @Query("SELECT * FROM delivery_income WHERE day BETWEEN :fromDay AND :toDay ORDER BY day")
+    suspend fun between(fromDay: String, toDay: String): List<app.dshmobile.agency.data.entities.DeliveryIncomeEntity>
+}
+
 @Dao interface BaselineDao : WriteDao<BaselineEntity> {
     @Query("SELECT * FROM baseline WHERE id = :id") suspend fun get(id: String): BaselineEntity?
     @Query("SELECT * FROM baseline ORDER BY id") suspend fun all(): List<BaselineEntity>

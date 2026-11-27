@@ -395,6 +395,16 @@ abstract class AgencyStoreContract {
         assertEquals(1, messages.count())
     }
 
+    @Test fun theDeliveryIncomeIsOneRowADay() = test {
+        assertTrue(income.between("2026-12-07", "2026-12-13").isEmpty())
+        income.put(app.agency.core.model.DeliveryIncome("2026-12-08", 800, 2))
+        income.put(app.agency.core.model.DeliveryIncome("2026-12-07", 900, 1))
+        income.put(app.agency.core.model.DeliveryIncome("2026-12-07", 950, 3))
+        assertEquals(listOf("2026-12-07" to 950, "2026-12-08" to 800), income.between("2026-12-07", "2026-12-13").map { it.day to it.amount })
+        assertEquals(950, income.get("2026-12-07")!!.amount)
+        assertEquals(null, income.get("2026-12-09"))
+    }
+
     @Test fun theJournalKeepsMigrationsAndAudits() = test {
         val m = MigrationLog("mig-1", 5, MigrationSource.V083_JSON, """{"meals":3}""", ok = false, note = "數量不符")
         journal.logMigration(m)

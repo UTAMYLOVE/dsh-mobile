@@ -142,6 +142,7 @@ class Brain(
     private val weights = WeightDesk(store, snapshot, clock, newId)
     private val water = WaterDesk(store, snapshot, clock, newId)
     private val training = app.agency.core.brain.handlers.TrainingDesk(store, snapshot, clock, newId)
+    private val income = app.agency.core.brain.handlers.IncomeDesk(store)
     private val lessons = app.agency.core.brain.handlers.LessonDesk(store, clock, newId, structured, search) { snapshot.today(snapshot.profile()) }
 
     private val _busy = MutableStateFlow(false)
@@ -560,7 +561,12 @@ class Brain(
             status.baseline?.photoFront, Stickers.fromSlots(slots, records), slots, water.target(day, profile.joinDate),
         ).let { c ->
             val r = rollout()
-            c.copy(photocards = photocards().size, rolloutWeek = r.week, open = app.agency.core.schedule.Feature.entries.filter(r::open).toSet())
+            val s = snapshot.plans.specs().schedule
+            val w = if (r.open(app.agency.core.schedule.Feature.INCOME)) income.week(day, s.weeklyIncomeTarget, s.deliveryDaysPerWeek) else null
+            c.copy(
+                photocards = photocards().size, rolloutWeek = r.week, open = app.agency.core.schedule.Feature.entries.filter(r::open).toSet(),
+                incomeWeek = w?.total, incomeTarget = w?.target,
+            )
         }
     }
 
@@ -1144,6 +1150,7 @@ class Brain(
             route.kind == Router.REAL_TASK -> app.agency.core.schedule.Feature.REAL_TASK
             route.kind.startsWith(Router.GROOMING) -> app.agency.core.schedule.Feature.GROOMING
             route.kind == Router.EXAM_WEEK -> app.agency.core.schedule.Feature.EXAM_WEEK
+            route.kind == Router.INCOME || route.kind == Router.INCOME_TARGET -> app.agency.core.schedule.Feature.INCOME
             route.kind.startsWith(Router.WEATHER) -> app.agency.core.schedule.Feature.WEATHER
             else -> null
         }
@@ -1187,6 +1194,23 @@ class Brain(
             route.kind == "ride_start" -> sign.rideStart(plan, at).also { signal = it.signal }.line
             route.kind == "ride_end" -> sign.rideEnd(plan, at).also { signal = it.signal }.line
             route.kind == Router.EXAM_WEEK -> examWeek(today, at).also { signal = it.second }.first
+            route.kind == Router.INCOME -> {
+                val amount = app.agency.core.brain.handlers.IncomeWords.report(owner.text)!!.coerceIn(0, app.agency.core.brain.handlers.IncomeDesk.MAX_AMOUNT)
+                val s = snapshot.plans.specs().schedule
+                val monday = snapshot.weekStart(today)
+                val soFar = (0L..java.time.temporal.ChronoUnit.DAYS.between(monday, today)).count { nerve.plan(monday.plusDays(it)).delivery }
+                income.record(today, amount, at, s.weeklyIncomeTarget, s.deliveryDaysPerWeek, soFar)
+            }
+            route.kind == Router.INCOME_TARGET -> {
+                val target = app.agency.core.brain.handlers.IncomeWords.target(owner.text)!!.coerceIn(0, app.agency.core.brain.handlers.IncomeDesk.MAX_AMOUNT * 7)
+                val specs = snapshot.plans.specs()
+                store.rules.putSection(
+                    app.agency.core.model.PlanSectionKey.SCHEDULE,
+                    app.agency.core.schedule.PlanSpecs.JSON.encodeToString(app.agency.core.schedule.ScheduleSpec.serializer(), specs.schedule.copy(weeklyIncomeTarget = target)),
+                    app.agency.core.model.PlanSection.BY_OWNER_SETTINGS, at,
+                )
+                "記下：外送週目標 $target 元（一週跑 ${specs.schedule.deliveryDaysPerWeek} 天，看一週的總額）。"
+            }
             route.kind.startsWith(Router.WEATHER) -> route.kind.removePrefix(Router.WEATHER).split("_").let { (kind, sw) ->
                 val on = sw == "ON"
                 if (!on) store.nerve.effectsWith(EffectStatus.PENDING).filter { it.day == today.toString() && it.link == Links.L28Weather.id }

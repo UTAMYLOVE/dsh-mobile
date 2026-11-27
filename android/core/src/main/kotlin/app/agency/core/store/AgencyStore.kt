@@ -67,6 +67,7 @@ interface AgencyStore {
     val nerve: NerveRepo
     val thinking: ThinkingRepo
     val lessons: LessonRepo
+    val income: IncomeRepo
 
     /** Runs [block] atomically: if it throws, nothing it wrote stays. Calls may nest (the outermost one commits). */
     suspend fun <T> transaction(block: suspend () -> T): T
@@ -156,6 +157,13 @@ interface ConditionRepo {
     suspend fun get(day: String): ConditionLog?
     suspend fun between(fromDay: String, toDay: String): List<ConditionLog>
     suspend fun count(): Int
+}
+
+/** 外送收入 (owner 2026-11-26): one amount per coach day; a second report replaces the first. */
+interface IncomeRepo {
+    suspend fun put(income: app.agency.core.model.DeliveryIncome)
+    suspend fun get(day: String): app.agency.core.model.DeliveryIncome?
+    suspend fun between(fromDay: String, toDay: String): List<app.agency.core.model.DeliveryIncome>
 }
 
 interface BaselineRepo {

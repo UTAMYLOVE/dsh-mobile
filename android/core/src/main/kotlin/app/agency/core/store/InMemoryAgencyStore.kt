@@ -72,6 +72,7 @@ class InMemoryAgencyStore : AgencyStore {
         val thinking: MutableMap<String, StoredThinking> = mutableMapOf(),
         val lessons: MutableMap<String, Lesson> = mutableMapOf(),
         val quizzes: MutableMap<String, Quiz> = mutableMapOf(),
+        val income: MutableMap<String, app.agency.core.model.DeliveryIncome> = mutableMapOf(),
     ) {
         /** The records are immutable, so copying the containers is a full snapshot. */
         fun snapshot() = Tables(
@@ -81,7 +82,7 @@ class InMemoryAgencyStore : AgencyStore {
             baselines.toMutableMap(), media.toMutableMap(), messages.toMutableMap(), proposals.toMutableMap(),
             memoryItems.toMutableMap(), memoryEvents.toMutableMap(), nudges.toMutableMap(), migrations.toMutableList(),
             audits.toMutableList(), signals.toMutableMap(), effects.toMutableMap(), thinking.toMutableMap(), lessons.toMutableMap(),
-            quizzes.toMutableMap(),
+            quizzes.toMutableMap(), income.toMutableMap(),
         )
     }
 
@@ -194,6 +195,13 @@ class InMemoryAgencyStore : AgencyStore {
     override val training: DayLogRepo<TrainingLog> = DayLog { training }
     override val signs: DayLogRepo<SignLog> = DayLog { signs }
     override val weights: DayLogRepo<WeightLog> = DayLog { weights }
+
+    override val income = object : IncomeRepo {
+        override suspend fun put(income: app.agency.core.model.DeliveryIncome) = locked { this.income[income.day] = income }
+        override suspend fun get(day: String): app.agency.core.model.DeliveryIncome? = locked { income[day] }
+        override suspend fun between(fromDay: String, toDay: String): List<app.agency.core.model.DeliveryIncome> =
+            locked { income.values.filter { it.day in fromDay..toDay }.sortedBy { it.day } }
+    }
 
     override val conditions = object : ConditionRepo {
         override suspend fun put(log: ConditionLog) = locked { conditions[log.day] = log }

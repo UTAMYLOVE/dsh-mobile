@@ -143,3 +143,17 @@ data class MediaEntity(
         fun of(m: Media) = MediaEntity(m.id, m.kind, m.purpose, m.mime, m.bytes, m.sha256, m.createdAt)
     }
 }
+
+/** 外送收入 of a coach day (v5): one row per day, a second report replaces it. */
+@Entity(tableName = "delivery_income")
+data class DeliveryIncomeEntity(
+    @PrimaryKey val day: String,
+    val amount: Int,
+    val at: Long,
+) {
+    fun toModel() = app.agency.core.model.DeliveryIncome(day, amount, at)
+
+    companion object {
+        fun of(i: app.agency.core.model.DeliveryIncome) = DeliveryIncomeEntity(i.day, i.amount, i.at)
+    }
+}

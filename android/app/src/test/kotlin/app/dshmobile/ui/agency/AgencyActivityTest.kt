@@ -78,6 +78,8 @@ class AgencyActivityTest {
     @Test fun aFreshInstallOpensOnHomeAndTheTabsWork() {
         launch()
         rule.waitForTag(AgencyTags.HOME)
+        // The card loads after the screen (its numbers are read off the main thread).
+        rule.waitForTag(AgencyTags.TRAINEE)
         rule.onNodeWithTag(AgencyTags.TRAINEE).assertIsDisplayed()
         // 入社建檔 starts on the first open (T07): the manager's welcome and first question, written by code.
         rule.waitForText("入社第一件事：建檔")
