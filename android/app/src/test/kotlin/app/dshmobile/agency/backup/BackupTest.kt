@@ -86,7 +86,14 @@ class BackupTest {
             s.weights.insert(WeightLog("w-1", "2026-12-01", 8, 78.4))
             s.thinking.put(StoredThinking("m-1", 9, "DEEPSEEK", "OPENAI", "她在想的事"))
         }
-        val before = runBlocking { snapshot() }
+        // The company may still be writing the day's first lines (入社建檔 just marked done): the backup is taken once it is quiet.
+        var before = runBlocking { snapshot() }
+        for (i in 0 until 20) {
+            Thread.sleep(500)
+            val again = runBlocking { snapshot() }
+            if (again == before) break
+            before = again
+        }
         val out = ByteArrayOutputStream()
         val made = runBlocking { app.agency.exportBackup({ out }, pw()) }.getOrThrow()
         assertEquals(1, made.media)

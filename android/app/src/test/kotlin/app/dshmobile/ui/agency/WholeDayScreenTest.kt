@@ -1,5 +1,6 @@
 package app.dshmobile.ui.agency
 
+import app.agency.core.engine.SlotStatus
 import android.content.Context
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -181,6 +182,16 @@ class WholeDayScreenTest {
         rule.waitUntil(30_000) { !runBlocking { ready().brain.nerve.state(day) }.riding }
         // The block after 收工: the core on its timer, the rounds, the cardio and the stretch reported.
         at("02:38")
+        // The card (and its buttons) after 收工 at night: read without a fault, the core still to do.
+        val card = runCatching { runBlocking { ready().brain.card() } }
+        card.exceptionOrNull()?.let { throw AssertionError("the card failed after 收工: " + it.stackTraceToString().take(3000), it) }
+        val core = card.getOrNull()?.slots?.firstOrNull { it.key == SlotKey.CORE }
+        assertTrue("core slot: $core; slots: ${card.getOrNull()?.slots?.map { it.key.name + ":" + it.status }}", core != null && core.status != SlotStatus.DONE)
+        if (runCatching { rule.waitUntil(30_000) { rule.onAllNodesWithTag(TrainingTags.CORE).fetchSemanticsNodes().isNotEmpty() } }.isFailure) {
+            val tags = listOf(AgencyTags.HOME, AgencyTags.PANELS, AgencyTags.TRAINEE, AgencyTags.RIDE_START, AgencyTags.RIDE_END, AgencyTags.DISCUSS, SignTags.SIGN_OUT, SignTags.PICKER, SignTags.REVIEW)
+                .map { t -> t + "=" + rule.onAllNodesWithTag(t, useUnmergedTree = true).fetchSemanticsNodes().size }
+            throw AssertionError("no core button after 收工; on screen: $tags")
+        }
         tap(TrainingTags.CORE)
         tap(TrainingTags.START)
         repeat(7) { tap(TrainingTags.NEXT) }

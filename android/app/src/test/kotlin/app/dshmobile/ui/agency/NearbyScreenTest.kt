@@ -24,6 +24,7 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
+import app.dshmobile.agency.AgencyTestKit.Companion.tapTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.StartState
 import app.dshmobile.ui.agency.meal.ResultTags
@@ -88,12 +89,12 @@ class NearbyScreenTest {
         scenario!!.onActivity { opened = shadowOf(it).nextStartedActivity }
         assertEquals(Intent.ACTION_VIEW, opened!!.action)
         assertEquals("https://example.org/a", opened!!.dataString)
-        rule.onNodeWithTag(ResultTags.SAVE + "r-1").performScrollTo().performClick()
+        rule.tapTag(ResultTags.SAVE + "r-1")
         rule.waitUntil(10_000) { runBlocking { ready().store.proposals.withStatus(ProposalStatus.PENDING) }.any { it.kind == ProposalKind.SAVE_PLACE } }
         assertTrue(runBlocking { ready().store.places.favorites() }.isEmpty())
         val p = runBlocking { ready().store.proposals.withStatus(ProposalStatus.PENDING) }.single()
         rule.waitForTag(ProposalTags.YES + p.id)
-        rule.onNodeWithTag(ProposalTags.YES + p.id).performScrollTo().performClick()
+        rule.tapTag(ProposalTags.YES + p.id)
         rule.waitUntil(10_000) { runBlocking { ready().store.places.favorites() }.isNotEmpty() }
         assertEquals("健康雞胸便當大安店", runBlocking { ready().store.places.favorites() }.single().title)
     }
