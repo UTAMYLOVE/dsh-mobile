@@ -579,7 +579,10 @@ class AgencyE2eTest {
         assertEquals(3, runBlocking { ready().store.lessons.get(id) }!!.score)
     }
 
-    @Test fun e15_aWholeDayAcrossTheFeatures() = wholeDay()
+    @Test fun e15_aWholeDayAcrossTheFeatures() {
+        app.keyVault.put(Provider.DEEPSEEK, FAKE_KEY)
+        wholeDay()
+    }
 
     /**
      * 整天情境 on the phone, every rollout week open (week 4): an invented Saturday (no class, a delivery day) on the company's
