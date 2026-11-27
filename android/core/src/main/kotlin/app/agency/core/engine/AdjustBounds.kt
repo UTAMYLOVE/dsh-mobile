@@ -16,6 +16,8 @@ object AdjustBounds {
 
     fun allows(change: DayAdjust, plan: DayPlan, base: DayPlan, firstMealGapMin: Int): Boolean = when (change) {
         is DayAdjust.Flag -> true
+        // Owner 2026-11-26: the first day after an illness has two rounds (never none, never more than planned).
+        is DayAdjust.Recovery -> plan.slot(SlotKey.STRENGTH) != null && change.rounds in 1 until base.strengthRounds
         // A smaller meal, never none and never above the single-meal cap's bound (the link keeps the floor of the day).
         is DayAdjust.MealBudget -> change.key in app.agency.core.rules.MealBudget.ADJUSTABLE && plan.slot(change.key) != null &&
             change.kcal in app.agency.core.rules.MealBudget.MIN_MEAL_KCAL..app.agency.core.rules.SafetyBounds.MEAL_CAP_MAX

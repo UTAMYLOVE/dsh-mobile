@@ -103,6 +103,7 @@
     <!-- War room -->
     <string name="ag_warroom_title">指揮室</string>
     <string name="ag_warroom_closed">指揮室整修中</string>
+    <string name="ag_wall_attendance">全勤小卡　%1$s　連續 %2$d 天全部做到</string>
     <string name="ag_staff_title">公司成員</string>
     <string name="ag_staff_manager">經紀人 小葵：台灣名夏葵、韓文名해나。你叫她小葵姐，她叫你小雨。</string>
     <string name="ag_staff_on_duty">在職</string>

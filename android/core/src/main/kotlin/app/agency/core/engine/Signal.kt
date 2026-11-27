@@ -70,6 +70,18 @@ sealed interface Signal {
     @Serializable @SerialName("sleepy")
     data class Sleepy(override val id: String, override val at: Long, override val source: String = "chat") : Signal
 
+    /** 「這週考試」 (owner 2026-11-26): the Mon–Sun week of [monday] has one lesson a day; at most twice a semester. */
+    @Serializable @SerialName("exam_week")
+    data class ExamWeek(override val id: String, override val at: Long, val monday: String, override val source: String = "command") : Signal
+
+    /** The manual weather switch of the day (no weather service): [kind] `RAIN` or `HOT`, switched [on] or off. */
+    @Serializable @SerialName("weather")
+    data class Weather(override val id: String, override val at: Long, val kind: String, val on: Boolean, override val source: String = "command") : Signal
+
+    /** 全勤小卡: [days] days in a row with every item that was due done (sent on the day after the 7th and the 30th). */
+    @Serializable @SerialName("attendance")
+    data class Attendance(override val id: String, override val at: Long, val days: Int, override val source: String = "clock") : Signal
+
     @Serializable @SerialName("ride_end")
     data class RideEnd(override val id: String, override val at: Long, override val source: String = "command") : Signal
 

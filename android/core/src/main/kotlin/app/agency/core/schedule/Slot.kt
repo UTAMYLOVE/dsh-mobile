@@ -73,6 +73,9 @@ sealed interface DayAdjust {
      * skipped meal; [app.agency.core.rules.MealBudget]). The suggestion and the nearby search follow it.
      */
     @Serializable data class MealBudget(val key: SlotKey, val kcal: Int) : DayAdjust
+
+    /** The first day after an illness (owner 2026-11-26): the strength rounds are [rounds] (2) today, full tomorrow. */
+    @Serializable data class Recovery(val rounds: Int) : DayAdjust
 }
 
 /**

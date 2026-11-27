@@ -35,6 +35,12 @@ object Router {
     /** 「理論課」「再一支」 (T19c): where today's lessons stand (more on demand: the next one is always open after a pass). */
     const val LESSON_STATUS = "lesson_status"
 
+    /** 「這週考試」 (owner 2026-11-26): 理論課 one a day this week, at most twice a semester. */
+    const val EXAM_WEEK = "exam_week"
+
+    /** The manual weather switches (no weather service): 「今天下雨」「今天很熱」 and their off words. */
+    const val WEATHER = "weather:"
+
     /** The kind prefix of a grooming report (「刮好了」 → `grooming:SHAVE`). */
     const val GROOMING = "grooming:"
 
@@ -66,6 +72,11 @@ object Router {
         listOf("核心開始", "肌力開始", "體能開始", "伸展開始", "核心完成", "核心做完了", "肌力完成", "體能完成", "體能做完了", "伸展完成", "伸展做完了", "快走完成", "快走完了").forEach { put(it, "training") }
         listOf(app.agency.core.engine.RealTasks.DONE_WORDS, "真人任務做完了", "真人任務做好了", "真人任務做到了").forEach { put(it, REAL_TASK) }
         listOf("理論課", "今天的理論課", "再一支", "再來一支", "多看一支", "再看一支", "多一支", "下一支").forEach { put(it, LESSON_STATUS) }
+        listOf("這週考試", "這周考試", "這週要考試", "這周要考試", "這週期中考", "這週期末考").forEach { put(it, EXAM_WEEK) }
+        listOf("今天下雨", "下雨了", "外面下雨").forEach { put(it, WEATHER + "RAIN_ON") }
+        listOf("今天沒下雨", "雨停了", "沒下雨了").forEach { put(it, WEATHER + "RAIN_OFF") }
+        listOf("今天很熱", "大熱天", "今天好熱", "外面很熱").forEach { put(it, WEATHER + "HOT_ON") }
+        listOf("今天不熱", "不熱了").forEach { put(it, WEATHER + "HOT_OFF") }
         listOf("刮好了", "鬍子刮好了", "刮鬍子了", "刮好鬍子了").forEach { put(it, GROOMING + "SHAVE") }
         listOf("指甲剪好了", "剪指甲了", "指甲剪了").forEach { put(it, GROOMING + "NAILS") }
         listOf("眉毛修好了", "修眉了", "修好眉毛了").forEach { put(it, GROOMING + "BROWS") }

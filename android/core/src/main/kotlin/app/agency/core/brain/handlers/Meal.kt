@@ -100,6 +100,12 @@ class MealDesk(
         val back = store.meals.between(day.minusDays(ProteinRotation.ROTATE_AFTER_DAYS.toLong()).toString(), day.minusDays(1).toString())
             .groupBy { java.time.LocalDate.parse(it.day) }
         lines += ProteinRotation.notes(meal, others + meal, week + meal, back, day)
+        // 20:30 之後不喝咖啡和茶 (owner 2026-11-26; its rollout week): a note, not a breach.
+        if (snapshot.plans.specs().open(app.agency.core.schedule.Feature.CAFFEINE) && Links.minuteOf(day, at, clock.zone) >= app.agency.core.engine.Links.L29Caffeine.CUTOFF &&
+            counted.any { CAFFEINE.containsMatchIn(it.name) }
+        ) {
+            lines += app.agency.core.engine.Links.L29Caffeine.LINE
+        }
         lines += if (meal.verified) "照片有了，這餐已證實。" else UNVERIFIED
         pending.forEach { lines += askLabel(it.name) }
         lines += status(meal.day, ill)
@@ -240,6 +246,9 @@ class MealDesk(
         const val UNVERIFIED = "這餐先記「未證實」，按「拍這餐」補照片。"
         const val NO_PENDING = "沒有等標示的食物。說清楚是哪一樣、標示寫幾大卡。"
         const val LABEL_UNCLEAR = "說清楚標示寫幾大卡，例如「雞胸 標示 120 大卡 蛋白質 24 克」。"
+
+        /** Coffee and tea (茶葉蛋 is an egg; 無咖啡因 has none). */
+        val CAFFEINE = Regex("咖啡(?!因)|拿鐵|美式|(?<!葉)茶(?!葉蛋)")
 
         fun askLabel(name: String) = "${name}不在食物表，先照估算算。有包裝標示或菜單上的數字就打給我，確認了才存進表。"
     }

@@ -24,7 +24,7 @@ object Links {
     fun all(): List<Link> = listOf(
         L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd, L10Water,
         L11Completion, L12Chase, L13Violation, L14Discuss, L15Progression, L16Spend, L17Grooming, L18NoClassDay, L19Review, L20Week,
-        L21WeightStop, L22TiredRiding, L23WeightTrend, L24Lessons, L25Rollout,
+        L21WeightStop, L22TiredRiding, L23WeightTrend, L24Lessons, L25Rollout, L26Interview, L27Attendance, L28Weather, L29Caffeine,
     ) + Pending.all
 
     /** Minutes of [at] from 00:00 of the coach day's date (after midnight is past 24 × 60, like a slot's minute). */
@@ -73,7 +73,18 @@ object Links {
         const val PAIN_STOP = "刺痛或關節痛算受傷：現在馬上停下來，不要硬做。痠不算，刺痛才算。"
         val RED_FLAGS = setOf("頭暈", "暈")
 
+        /** The first day after an illness: the rounds today (owner 2026-11-26 「病好第一天肌力 2 輪，隔天全量」). */
+        const val RECOVERY_ROUNDS = 2
+
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal is Signal.DayStarted) {
+                val yesterday = state.day.minusDays(1)
+                if (yesterday !in state.illDays || state.day in state.illDays || state.plan.slot(SlotKey.STRENGTH) == null) return emptyList()
+                if (state.plan.strengthRounds <= RECOVERY_ROUNDS) return emptyList()
+                return listOf(
+                    Effect.AdjustToday(DayAdjust.Recovery(RECOVERY_ROUNDS), "因為昨天生病或受傷，所以今天是病好第一天：肌力先做 $RECOVERY_ROUNDS 輪，明天全量。"),
+                )
+            }
             if (signal !is Signal.Unwell) return emptyList()
             if (signal.kind == IllKind.UNKNOWN) return if (state.ill == null) listOf(Effect.Say(ASK)) else emptyList()
             val out = mutableListOf<Effect>()
@@ -793,6 +804,99 @@ object Links {
                 Effect.Proposal(todayOnly = false, change = change, because = "因為上一週達標（該做的 ${WeekReport.TARGET_PCT}% 以上、沒有違規），所以提案開下一週：$change", rolloutWeek = next),
             )
         }
+    }
+
+    /**
+     * L26 (owner 2026-11-26): the third breach of a Mon–Sun week → 小葵 opens a 面談 (one question, 討論), and that week's level
+     * progress does not count (the week is off target anyway: [WeekReport.onTarget] needs no breach). Once a week: when the
+     * count crosses three.
+     */
+    object L26Interview : Link {
+        override val id = "L26"
+        override val zh = "一週違規三次：面談，這週等級進度不算"
+        override val dailyCap = 1
+        const val TIMES = 3
+        val OPTIONS = listOf("時間排不過來", "忍不住", "忘記了", "其他原因")
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            val added = when (signal) {
+                is Signal.MealLogged -> signal.breaches.size
+                is Signal.SignedOut -> if (signal.late) 1 else 0
+                else -> 0
+            }
+            if (added == 0 || state.weekBreaches < TIMES || state.weekBreaches - added >= TIMES) return emptyList()
+            return listOf(
+                Effect.Say(
+                    "這週已經違規 ${state.weekBreaches} 次了。照公司規章要面談，這週的等級進度不算。先說原因：是哪裡卡住了？",
+                    discuss = true, options = OPTIONS,
+                ),
+                Effect.Record("interview", "breaches=${state.weekBreaches}"),
+            )
+        }
+    }
+
+    /** L27 全勤小卡 (owner 2026-11-26): 7 and 30 days in a row with everything that was due done → a card on the wall. */
+    object L27Attendance : Link {
+        override val feature get() = app.agency.core.schedule.Feature.ATTENDANCE
+        override val id = "L27"
+        override val zh = "全勤小卡：連續 7 天、30 天全部做到"
+        override val dailyCap = 1
+        const val CARD = "attendance"
+        val DAYS = listOf(7, 30)
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> =
+            if (signal is Signal.Attendance && signal.days in DAYS) {
+                listOf(
+                    Effect.Record(CARD, signal.days.toString()),
+                    Effect.Say("全勤小卡：連續 ${signal.days} 天，該做的全部做到。小卡貼上照片牆了。"),
+                )
+            } else {
+                emptyList()
+            }
+    }
+
+    /**
+     * L28 天氣 (owner 2026-11-26; a manual switch, no weather service): 「今天下雨」 → 30 minutes before the latest departure,
+     * the raincoat and riding slow; 「今天很熱」 → drink half a bottle more before leaving. Its off word takes it back.
+     */
+    object L28Weather : Link {
+        override val feature get() = app.agency.core.schedule.Feature.WEATHER
+        override val id = "L28"
+        override val zh = "天氣：下雨穿雨衣騎慢，大熱天出門前多喝半壺"
+        override val dailyCap = 6
+        const val RAIN = "今天下雨：出門穿雨衣、騎慢一點，煞車提早，路口多看一眼。"
+        const val HOT = "今天很熱：出門前多喝半壺水，路上小口喝；頭暈就停下來休息。"
+        const val BEFORE_MIN = 30
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.Weather || !signal.on) return emptyList()
+            val out = state.plan.slot(SlotKey.RIDE_OUT) ?: return emptyList()
+            val text = if (signal.kind == "RAIN") RAIN else HOT
+            val at = maxOf(signal.at, RuleEngineTime.at(state.plan.day, (out.untilMinute ?: out.minute) - BEFORE_MIN, ctx.zone).toEpochMilli())
+            return listOf(Effect.Notify("weather-${signal.kind}", text, NotifyKind.WARNING, at = at, unlessHome = true))
+        }
+    }
+
+    /** L29 (owner 2026-11-26): no coffee and no tea after 20:30 → a reminder a quarter before. */
+    object L29Caffeine : Link {
+        override val feature get() = app.agency.core.schedule.Feature.CAFFEINE
+        override val id = "L29"
+        override val zh = "晚上 8 點半後不喝咖啡和茶"
+        override val dailyCap = 1
+        val CUTOFF = DayClock.minute("20:30")
+        const val LINE = "20:30 之後不喝咖啡和茶，會睡不好。要喝就喝水。"
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> =
+            if (signal is Signal.DayStarted) {
+                listOf(
+                    Effect.Notify(
+                        "caffeine", LINE, NotifyKind.REMINDER, at = RuleEngineTime.at(state.plan.day, CUTOFF - 15, ctx.zone).toEpochMilli(),
+                        expiresAt = RuleEngineTime.at(state.plan.day, CUTOFF, ctx.zone).toEpochMilli(),
+                    ),
+                )
+            } else {
+                emptyList()
+            }
     }
 
     class Pending(override val id: String, override val zh: String, val batch: String) : Link {

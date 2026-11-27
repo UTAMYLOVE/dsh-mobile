@@ -119,9 +119,10 @@ object DayPlanner {
             // The training block (owner 2026-11-26): after 收工 on a delivery day (never before the ride: sore legs, unsafe),
             // in the no-run block otherwise; core, rounds, cardio (its days), then the stretch.
             val after = t.strengthAfterRideMin
+            val recovery = adjust.filterIsInstance<DayAdjust.Recovery>().lastOrNull()
             if (reduction == null) {
                 add(Slot(SlotKey.CORE, block.getValue(SlotKey.CORE), afterRide = !noRun, afterRideMin = after, note = CORE_NOTE))
-                add(Slot(SlotKey.STRENGTH, block.getValue(SlotKey.STRENGTH), afterRide = !noRun, afterRideMin = after + 10, note = app.agency.core.engine.Progression.note(t)))
+                add(Slot(SlotKey.STRENGTH, block.getValue(SlotKey.STRENGTH), afterRide = !noRun, afterRideMin = after + 10, note = recovery?.let { "${it.rounds} 輪（病好第一天，明天全量）" } ?: app.agency.core.engine.Progression.note(t)))
                 if (cardio) add(Slot(SlotKey.CARDIO, block.getValue(SlotKey.CARDIO), afterRide = !noRun, afterRideMin = after + 35, note = "${t.cardioMin} 分鐘：$CARDIO_NOTE"))
             }
             val stretchNote = if (reduction == Reduction.INJURY) "${t.stretchMin} 分鐘，避開受傷的地方" else "${t.stretchMin} 分鐘"
@@ -153,7 +154,8 @@ object DayPlanner {
             reduction = reduction,
             budgets = adjust.filterIsInstance<DayAdjust.MealBudget>().associate { it.key to it.kcal },
             progressionStep = t.progressionStep,
-            strengthRounds = app.agency.core.engine.Progression.rounds(t),
+            strengthRounds = adjust.filterIsInstance<DayAdjust.Recovery>().lastOrNull()?.rounds?.coerceAtMost(app.agency.core.engine.Progression.rounds(t))
+                ?: app.agency.core.engine.Progression.rounds(t),
             stretchMin = t.stretchMin,
             walkMin = t.walkMin,
             cardioMin = t.cardioMin,

@@ -23,6 +23,20 @@ enum class LessonStage(val zh: String) {
  */
 object LessonPlan {
     const val DAILY = 2
+
+    /** 「這週考試」: one lesson a day that week, at most twice a semester (owner 2026-11-26). */
+    const val EXAM_DAILY = 1
+    const val EXAM_WEEKS_PER_TERM = 2
+
+    /** The semester of [day]: February to July, or August to January (the first and last day). */
+    fun semester(day: java.time.LocalDate): Pair<java.time.LocalDate, java.time.LocalDate> {
+        val y = day.year
+        return when (day.monthValue) {
+            in 2..7 -> java.time.LocalDate.of(y, 2, 1) to java.time.LocalDate.of(y, 7, 31)
+            1 -> java.time.LocalDate.of(y - 1, 8, 1) to java.time.LocalDate.of(y, 1, 31)
+            else -> java.time.LocalDate.of(y, 8, 1) to java.time.LocalDate.of(y + 1, 1, 31)
+        }
+    }
     const val DAILY_SHOWN = 3
     const val THIN_HAN = 200
     const val NOTE_HAN = 30

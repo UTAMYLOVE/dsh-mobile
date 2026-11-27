@@ -36,7 +36,12 @@ class PlanStore(private val store: AgencyStore, private val zone: java.time.Zone
         if (all.isEmpty()) return LessonDay()
         val started = all.any { l -> l.listedAt != null && listedDay(l.listedAt) <= day }
         val review = all.any { it.reviewDay == day.toString() }
-        return LessonDay(if (started) app.agency.core.lessons.LessonPlan.DAILY else 0, review)
+        // 「這週考試」: one a day this week.
+        val monday = day.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+        val exam = store.nerve.signals(monday.toString(), monday.plusDays(6).toString())
+            .any { it.type == "exam_week" && (app.agency.core.engine.Signal.decode(it.json) as? app.agency.core.engine.Signal.ExamWeek)?.monday == monday.toString() }
+        val owed = if (exam) app.agency.core.lessons.LessonPlan.EXAM_DAILY else app.agency.core.lessons.LessonPlan.DAILY
+        return LessonDay(if (started) owed else 0, review)
     }
 
     private fun listedDay(at: Long): LocalDate = app.agency.core.rules.CoachRules.coachDay(java.time.Instant.ofEpochMilli(at), zone, DayClock.DAY_START_HOUR)

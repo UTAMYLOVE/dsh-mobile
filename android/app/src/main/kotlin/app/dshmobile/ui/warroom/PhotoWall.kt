@@ -39,6 +39,7 @@ object PhotoWallTags {
     const val CARD = "ag-photo-wall"
     const val ITEM = "ag-photo-wall-"
     const val EMPTY = "ag-photo-wall-empty"
+    const val ATTENDANCE = "ag-photo-wall-attendance-"
 }
 
 /**
@@ -51,7 +52,14 @@ fun PhotoWallCard(ready: StartState.Ready) {
     val cards by produceState<List<Photocard>>(emptyList(), revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.photocards() }.getOrDefault(emptyList()) } }
     }
+    val attendance by produceState<List<Pair<String, Int>>>(emptyList(), revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.attendanceCards() }.getOrDefault(emptyList()) } }
+    }
     Panel(title = stringResource(R.string.ag_wall_title, cards.size), modifier = Modifier.testTag(PhotoWallTags.CARD)) {
+        // 全勤小卡 (L27): 7 and 30 days in a row.
+        attendance.forEach { (day, n) ->
+            Text(stringResource(R.string.ag_wall_attendance, day.substring(5).replace('-', '/'), n), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(PhotoWallTags.ATTENDANCE + day))
+        }
         if (cards.isEmpty()) {
             Text(stringResource(R.string.ag_wall_empty), color = Sakura.TextSecondary, fontSize = 14.sp, modifier = Modifier.testTag(PhotoWallTags.EMPTY))
         }

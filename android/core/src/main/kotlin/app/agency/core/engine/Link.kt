@@ -58,6 +58,8 @@ sealed interface Effect {
         val unlessWaterHalves: Int? = null,
         /** Not posted once he is home from the run (the 收工 reminder). */
         val unlessHome: Boolean = false,
+        /** Not posted after this time (a reminder held back on the run that has nothing left to say by then). */
+        val expiresAt: Long? = null,
     ) : Effect
 
     /**

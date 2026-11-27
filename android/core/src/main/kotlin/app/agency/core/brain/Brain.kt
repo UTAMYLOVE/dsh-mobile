@@ -215,8 +215,34 @@ class Brain(
         val id = "day:$day"
         val fresh = store.nerve.signal(id) == null
         val r = nerve.emit(Signal.DayStarted(id, clock.millis(), day.toString()))
-        return if (fresh && profile.onboardingDone) r + missedDays(day, profile) + weekEnded(day, profile) else r
+        return if (fresh && profile.onboardingDone) r + missedDays(day, profile) + weekEnded(day, profile) + attendance(day, profile) else r
     }
+
+    /**
+     * 全勤小卡 (L27): at a day's start, the days in a row up to yesterday (after the reminders started) with every required item
+     * that was due done; the link answers 7 and 30.
+     */
+    private suspend fun attendance(today: java.time.LocalDate, profile: app.agency.core.model.Profile): NerveResult {
+        if (!rollout().open(app.agency.core.schedule.Feature.ATTENDANCE)) return NerveResult()
+        val since = remindersSince() ?: return NerveResult()
+        val sinceDay = snapshot.dayOf(since, profile)
+        var n = 0
+        var d = today.minusDays(1)
+        while (!d.isBefore(sinceDay) && n <= Links.L27Attendance.DAYS.max()) {
+            val due = snapshot.slots(d, snapshot.records(d), profile).filter { it.slot.required && !it.dueAt.isBefore(since) }
+            if (due.isEmpty() || due.any { it.status != SlotStatus.DONE }) break
+            n++
+            d = d.minusDays(1)
+        }
+        if (n !in Links.L27Attendance.DAYS) return NerveResult()
+        return nerve.emit(Signal.Attendance("attendance:$today", clock.millis(), n))
+    }
+
+    /** The 全勤小卡 on the wall (L27): the day each was given and its days in a row, newest first. */
+    suspend fun attendanceCards(): List<Pair<String, Int>> = store.nerve.effectsWith(EffectStatus.DONE)
+        .filter { it.link == Links.L27Attendance.id && it.kind == app.agency.core.model.EffectKind.RECORD && it.because == Links.L27Attendance.CARD }
+        .mapNotNull { e -> (Nerve.decodeEffect(e.json) as? Effect.Record)?.detail?.toIntOrNull()?.let { e.day to it } }
+        .sortedByDescending { it.first }
 
     /**
      * At the first day start of a week, the week before (L20), once (the id is its Monday): what code counts over its days
@@ -312,7 +338,7 @@ class Brain(
         // A water reminder whose water is in by now has nothing to say (L8, L10).
         val drunk = due.filter { e ->
             val n = Nerve.decodeEffect(e.json) as? Effect.Notify
-            n?.unlessWaterHalves?.let { state.waterHalves >= it } == true ||
+            n?.unlessWaterHalves?.let { state.waterHalves >= it } == true || n?.expiresAt?.let { now.toEpochMilli() > it } == true ||
                 // The 收工 reminder once he is home.
                 (n?.unlessHome == true && state.rideEndAt != null && (state.rideStartAt == null || state.rideEndAt >= state.rideStartAt))
         }
@@ -554,6 +580,24 @@ class Brain(
         )
         bump()
         next
+    }
+
+    /**
+     * 「這週考試」 (owner 2026-11-26): this Mon–Sun week has one lesson a day (training stays), at most [EXAM_WEEKS_PER_TERM] a
+     * semester (Feb–Jul, Aug–Jan). The line and the signal to emit (none when refused).
+     */
+    private suspend fun examWeek(today: java.time.LocalDate, at: Long): Pair<String, Signal?> {
+        val monday = snapshot.weekStart(today)
+        val (from, to) = app.agency.core.lessons.LessonPlan.semester(today)
+        val weeks = store.nerve.signals(from.toString(), to.toString()).filter { it.type == "exam_week" }
+            .mapNotNull { (Signal.decode(it.json) as? Signal.ExamWeek)?.monday }.toSet()
+        return when {
+            monday.toString() in weeks -> "這週已經是考試週了：理論課每天 1 支，訓練照做。" to null
+            weeks.size >= app.agency.core.lessons.LessonPlan.EXAM_WEEKS_PER_TERM ->
+                "這學期的考試週已經用了 ${weeks.size} 次（最多 ${app.agency.core.lessons.LessonPlan.EXAM_WEEKS_PER_TERM} 次），理論課照每天 ${app.agency.core.lessons.LessonPlan.DAILY} 支。" to null
+            else -> "好，這週是考試週：理論課每天 1 支，訓練照做。這學期第 ${weeks.size + 1} 次（最多 ${app.agency.core.lessons.LessonPlan.EXAM_WEEKS_PER_TERM} 次）。" to
+                Signal.ExamWeek("exam:$monday", at, monday.toString())
+        }
     }
 
     /** The line for a feature not open yet (分週上線), or null when it is open. */
@@ -1080,7 +1124,8 @@ class Brain(
         val b = lessons.board()
         if (!b.started) return "理論課還沒開始。說「找影片」，我只列真的搜尋結果，你按好才放進課程清單。"
         val cur = b.list.firstOrNull { !it.locked }
-        val head = "今天的理論課：通過 ${b.passedToday} 支，每天要 ${app.agency.core.lessons.LessonPlan.DAILY} 支。"
+        val owed = snapshot.plan(snapshot.today(snapshot.profile())).slot(SlotKey.LESSONS)?.count ?: app.agency.core.lessons.LessonPlan.DAILY
+        val head = "今天的理論課：通過 ${b.passedToday} 支，每天要 $owed 支。"
         return head + (cur?.let { "現在這支是「${it.category.zh}」，${it.stage.zh}，到理論課繼續。" } ?: "課程清單沒有影片了，說「找影片」補。")
     }
 
@@ -1098,6 +1143,8 @@ class Brain(
             route.kind == "sign_in" || route.kind == "sign_out" -> app.agency.core.schedule.Feature.SIGN
             route.kind == Router.REAL_TASK -> app.agency.core.schedule.Feature.REAL_TASK
             route.kind.startsWith(Router.GROOMING) -> app.agency.core.schedule.Feature.GROOMING
+            route.kind == Router.EXAM_WEEK -> app.agency.core.schedule.Feature.EXAM_WEEK
+            route.kind.startsWith(Router.WEATHER) -> app.agency.core.schedule.Feature.WEATHER
             else -> null
         }
         closed(feature)?.let { return listOf(reply(route.role, it, WordedBy.TEMPLATE, route.kind)) }
@@ -1139,6 +1186,19 @@ class Brain(
             }
             route.kind == "ride_start" -> sign.rideStart(plan, at).also { signal = it.signal }.line
             route.kind == "ride_end" -> sign.rideEnd(plan, at).also { signal = it.signal }.line
+            route.kind == Router.EXAM_WEEK -> examWeek(today, at).also { signal = it.second }.first
+            route.kind.startsWith(Router.WEATHER) -> route.kind.removePrefix(Router.WEATHER).split("_").let { (kind, sw) ->
+                val on = sw == "ON"
+                if (!on) store.nerve.effectsWith(EffectStatus.PENDING).filter { it.day == today.toString() && it.link == Links.L28Weather.id }
+                    .forEach { store.nerve.setStatus(it.id, EffectStatus.CANCELLED, at) }
+                signal = Signal.Weather(newId(), at, kind, on)
+                val what = if (kind == "RAIN") "下雨" else "很熱"
+                when {
+                    !on -> "好，今天的「$what」提醒取消了。"
+                    plan.delivery -> "記下：今天$what。出門前提醒你。"
+                    else -> "記下：今天$what。今天沒有跑單，出門的話也一樣小心。"
+                }
+            }
             route.kind.startsWith(Router.GROOMING) -> GroomingItem.valueOf(route.kind.removePrefix(Router.GROOMING)).let { item ->
                 signal = Signal.GroomingDone(newId(), at, item)
                 "記下：${item.zh}。"

@@ -220,7 +220,8 @@ class LessonDesk(
         val all = store.lessons.all()
         val lines = mutableListOf("通過：今天第 $n 支。兩天後有複習考。")
         lines += when {
-            n == LessonPlan.DAILY -> "今天的理論課做到了。想多看就繼續下一支。"
+            n == (app.agency.core.schedule.PlanStore(store, clock.zone).plan(day).slot(app.agency.core.schedule.SlotKey.LESSONS)?.count ?: LessonPlan.DAILY) ->
+                "今天的理論課做到了。想多看就繼續下一支。"
             LessonPlan.current(all) != null -> "下一支開了，到理論課按「去看」。"
             else -> "課程清單看完了。說「找影片」補新的。"
         }

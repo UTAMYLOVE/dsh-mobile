@@ -75,6 +75,10 @@ data class DayState(
     /** Lessons of 「課程清單」 still to pass (null: the course has not started), and 複習考 due today (set by the nerve). */
     val lessonsLeft: Int? = null,
     val reviewsDue: Int = 0,
+    /** Breaches of this Mon–Sun week up to now (meals against the rules, sign-outs after the time), for the interview. */
+    val weekBreaches: Int = 0,
+    /** Today's manual weather switches (`RAIN`, `HOT`), the last word of each. */
+    val weather: Set<String> = emptySet(),
 ) {
     val riding: Boolean get() = rideStartAt != null && (rideEndAt == null || rideEndAt < rideStartAt) && signedOutAt == null
     /** Ill, low, or a morning score of [LOW_SCORE] or less: she speaks gently (the plan stays, agency-links §3b). */
@@ -156,6 +160,14 @@ object DayStateBuilder {
         val fix = decoded.mapNotNull { (_, s) -> (s as? Signal.FixPlanned)?.takeIf { it.forDay == d } }.maxByOrNull { it.at }?.text
         val monday = day.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
         val realTask = decoded.any { (row, s) -> s is Signal.RealTaskDone && !LocalDate.parse(row.day).isBefore(monday) && !LocalDate.parse(row.day).isAfter(day) }
+        val weekBreaches = decoded.filter { (row, _) -> !LocalDate.parse(row.day).isBefore(monday) && !LocalDate.parse(row.day).isAfter(day) }.sumOf { (_, s) ->
+            when (s) {
+                is Signal.MealLogged -> s.breaches.size
+                is Signal.SignedOut -> if (s.late) 1 else 0
+                else -> 0
+            }
+        }
+        val weather = today.filterIsInstance<Signal.Weather>().groupBy { it.kind }.filterValues { it.last().on }.keys
         val l11 = todayEffects.filter { it.link == Links.L11Completion.id && it.kind == EffectKind.RECORD }
         val flags = adjustments(todayEffects).filterIsInstance<DayAdjust.Flag>().map { it.flag }.toSet()
         val proposed = todayEffects.any {
@@ -166,7 +178,7 @@ object DayStateBuilder {
             lastNightOutAt = lastOut, illDaysInRow = streak, groomingLast = grooming, weights = weights, kcalByDay = kcalByDay,
             flags = flags, reductionProposed = proposed, missedInRow = missedInRow,
             strengthSessions = sessions, restDays = restDays, illDays = illDays, proteinByDay = proteinByDay,
-            fixToday = fix, realTaskThisWeek = realTask,
+            fixToday = fix, realTaskThisWeek = realTask, weekBreaches = weekBreaches, weather = weather,
             sweetToday = l11.count { it.because == Links.L11Completion.SWEET }, photocardsToday = l11.count { it.because == Links.L11Completion.PHOTOCARD },
         )
     }

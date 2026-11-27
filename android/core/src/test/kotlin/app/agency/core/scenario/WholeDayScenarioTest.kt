@@ -359,7 +359,7 @@ class WholeDayScenarioTest {
         assertEquals(listOf(emptyList(), listOf("PROCESSED"), emptyList()), meals.map { it.breaches })
         assertTrue(runBlocking { brain.card() }.let { it.unverified.isEmpty() && it.waterHalves == 2 && it.waterTargetHalves == 2 && it.breachesToday == 1 })
         val byLink = effects().groupBy { it.link }
-        assertEquals(setOf("L1", "L2", "L3", "L3b", "L5", "L8", "L9", "L10", "L11", "L12", "L13", "L17", "L19", "L20", "L24"), byLink.keys)
+        assertEquals(setOf("L1", "L2", "L3", "L3b", "L5", "L8", "L9", "L10", "L11", "L12", "L13", "L17", "L19", "L20", "L24", "L29"), byLink.keys)
         // 理論課: both lessons recorded for the month-end evaluation (L24); never chased (both were in by 16:00).
         assertEquals(listOf("lesson", "lesson"), byLink.getValue("L24").map { it.because })
         // The training of the day: all three by the timer after 收工, no 撒嬌 (a breach) and one polaroid.
