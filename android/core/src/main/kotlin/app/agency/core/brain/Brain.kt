@@ -147,6 +147,7 @@ class Brain(
     private val income = app.agency.core.brain.handlers.IncomeDesk(store)
     private val memoDesk = app.agency.core.brain.handlers.MemoDesk(store, clock.zone, newId)
     private val photos = app.agency.core.brain.handlers.PhotoDesk(store, snapshot, clock, newId, vision, intakeLlm)
+    private val importer = app.agency.core.importing.Importer(store, clock.zone, newId)
     private val lessons = app.agency.core.brain.handlers.LessonDesk(store, clock, newId, structured, search) { snapshot.today(snapshot.profile()) }
 
     private val _busy = MutableStateFlow(false)
@@ -1217,6 +1218,26 @@ class Brain(
     }
 
     /** Today's items waiting for their label (the card's 補標示). */
+    /**
+     * 匯入 (T15c): code's guess of the columns (or the mapping he used last time for this source), the preview of what would
+     * be written, then his 「匯入」 and 復原 of a whole import. Files are read on the phone; nothing here calls a model.
+     */
+    suspend fun importMapping(target: app.agency.core.model.ImportTarget, table: app.agency.core.importing.Table, sourceKey: String): app.agency.core.importing.Mapping =
+        importer.remembered(sourceKey, target) ?: app.agency.core.importing.Importer.guess(table)
+
+    suspend fun planImport(target: app.agency.core.model.ImportTarget, table: app.agency.core.importing.Table, mapping: app.agency.core.importing.Mapping, sourceKey: String): app.agency.core.importing.ImportPlan =
+        importer.plan(target, table, mapping, sourceKey, snapshot.today(snapshot.profile()))
+
+    suspend fun commitImport(plan: app.agency.core.importing.ImportPlan): app.agency.core.model.ImportBatch = mutex.withLock { importer.commit(plan, clock.millis()).also { bump() } }
+
+    suspend fun undoImport(batchId: String): Boolean = mutex.withLock { importer.undo(batchId, clock.millis()).also { if (it) bump() } }
+
+    suspend fun imports(): List<app.agency.core.model.ImportBatch> = store.imports.all()
+
+    /** The lines of his Claude export code could not read, read by the model after his OK (only these lines go out). */
+    suspend fun readLedgerLines(lines: List<app.agency.core.importing.LedgerLine>): List<app.agency.core.importing.LedgerLine>? =
+        app.agency.core.importing.LineReader.read(intakeLlm, lines, snapshot.today(snapshot.profile()))
+
     /** 備忘錄 (T12b): the page's rows (not deleted), and his check-off, delete and 復原. */
     suspend fun memos(): List<app.agency.core.model.Memo> = memoDesk.list()
     suspend fun checkMemo(id: String, done: Boolean): Boolean = mutex.withLock { memoDesk.check(id, done, clock.millis()).also { if (it) bump() } }

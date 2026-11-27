@@ -38,7 +38,21 @@ class AgencyActivity : ComponentActivity() {
     private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val t = waiting ?: return@registerForActivityResult
         waiting = null
-        if (granted) agency.openCamera(t) else agency.cameraDenied()
+        if (granted) {
+            agency.openCamera(t)
+        } else {
+            // Refused: 從相簿選 still works (no permission), so it opens for the same photo.
+            agency.cameraDenied()
+            pick(t)
+        }
+    }
+
+    /** 從相簿選 (T15c): the system photo picker, no storage permission; [picking] is the photo it is for. */
+    private var picking: app.dshmobile.agency.media.PhotoTarget? = null
+    private val picker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val t = picking ?: return@registerForActivityResult
+        picking = null
+        if (uri != null) agency.onPicked(t, uri)
     }
 
     /** Reminders need notifications (asked at run time); asked once, 設定 › 權限檢查 shows it afterwards. */
@@ -55,7 +69,7 @@ class AgencyActivity : ComponentActivity() {
                     agency,
                     AgencyActions(
                         takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto, openLink = ::openLink,
-                        takeLessonPhoto = ::takeLessonPhoto, photo = ::photo,
+                        takeLessonPhoto = ::takeLessonPhoto, photo = ::photo, pick = ::pick,
                     ),
                 )
                 // The in-app camera over everything while it is open (T15b).
@@ -65,6 +79,7 @@ class AgencyActivity : ComponentActivity() {
                     app.dshmobile.ui.agency.camera.InAppCamera(
                         t, onShot = { bytes, rotation -> agency.onFrame(t, bytes, rotation) },
                         onFail = { agency.closeCamera(); systemCamera(t) }, onClose = agency::closeCamera,
+                        onPick = { agency.closeCamera(); pick(t) },
                     )
                 }
             }
@@ -111,6 +126,17 @@ class AgencyActivity : ComponentActivity() {
         }
     }
 
+    /** 從相簿選 for [target]: the system photo picker (images only). */
+    private fun pick(target: app.dshmobile.agency.media.PhotoTarget) {
+        picking = target
+        try {
+            picker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        } catch (_: Exception) {
+            picking = null
+            agency.cameraMissing()
+        }
+    }
+
     /** The system camera app: the fallback when the in-app camera cannot run here. */
     private fun systemCamera(target: app.dshmobile.agency.media.PhotoTarget) {
         val intent = agency.systemCameraIntent(target) ?: return
@@ -153,4 +179,6 @@ class AgencyActions(
     val takeLessonPhoto: (String) -> Unit = {},
     /** Any photo by its target (T15b: 拍菜單, 拍收據, 身體照 too): the in-app camera. */
     val photo: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
+    /** 從相簿選 (T15c): the system photo picker for the same targets. */
+    val pick: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
 )

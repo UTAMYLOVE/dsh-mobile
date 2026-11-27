@@ -183,7 +183,7 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
             if (conditionDue) ConditionPicker { score, sleep, energy, ill -> agency.condition(score, sleep, energy, ill) }
             reviewOpen?.let { open -> key(open) { BedtimeReviewSheet(open) { good, fix -> agency.review(good, fix) } } }
             MediaLine(agency)
-            QuickButtons(card, busy, onPhoto = actions.takeMealPhoto, onTarget = actions.photo) { agency.send(it) }
+            QuickButtons(card, busy, onPhoto = actions.takeMealPhoto, onTarget = actions.photo, onPick = actions.pick) { agency.send(it) }
             TrainingButtons(card, busy, onWalk = agency::walkDone) { kind ->
                 scope.launch {
                     val open = withContext(Dispatchers.IO) {
@@ -235,6 +235,7 @@ private fun QuickButtons(
     busy: Boolean,
     onPhoto: () -> Unit,
     onTarget: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
+    onPick: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
     onSay: (String) -> Unit,
 ) {
     val start = stringResource(R.string.ag_ride_start)
@@ -254,6 +255,8 @@ private fun QuickButtons(
         }
         if (open(app.agency.core.schedule.Feature.MEALS)) {
             PinkButton(stringResource(R.string.ag_meal_photo), onClick = onPhoto, enabled = !busy, modifier = Modifier.testTag(MealTags.PHOTO))
+            // T15c: a meal photo from the gallery (its capture time picks the meal; late is 補交).
+            SoftButton(stringResource(R.string.ag_pick_meal), onClick = { onPick(app.dshmobile.agency.media.PhotoTarget.Meal) }, enabled = !busy, modifier = Modifier.testTag(MealTags.PICK))
             // T15b: a menu or a receipt for the image model to read (a list he confirms).
             SoftButton(stringResource(R.string.ag_photo_menu), onClick = { onTarget(app.dshmobile.agency.media.PhotoTarget.Menu) }, enabled = !busy, modifier = Modifier.testTag(MealTags.MENU))
             SoftButton(stringResource(R.string.ag_photo_receipt), onClick = { onTarget(app.dshmobile.agency.media.PhotoTarget.Receipt) }, enabled = !busy, modifier = Modifier.testTag(MealTags.RECEIPT))

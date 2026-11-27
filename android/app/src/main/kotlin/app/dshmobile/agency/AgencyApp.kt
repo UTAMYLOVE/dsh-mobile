@@ -452,6 +452,60 @@ class AgencyApp(
         }
     }
 
+    /**
+     * 從相簿選 (T15c): a photo he picked with the system photo picker (no storage permission), read from [uri] on IO. Its capture
+     * time is read from its EXIF first (on the phone only), then it is cleaned and sealed like a frame; a meal photo goes on
+     * the meal of that time (補交 when late).
+     */
+    fun onPicked(target: app.dshmobile.agency.media.PhotoTarget, uri: android.net.Uri) {
+        scope.launch {
+            val bytes = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    val out = java.io.ByteArrayOutputStream()
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        check(out.size() <= MAX_PICK_BYTES) { "too large" }
+                    }
+                    out.toByteArray()
+                }
+            }.getOrNull()
+            if (bytes == null) {
+                _mediaNotice.value = MediaNotice.NOT_SAVED
+                return@launch
+            }
+            onPickedBytes(target, bytes)
+        }
+    }
+
+    /** [onPicked] after the read: the capture time, then clean, seal and hand in. */
+    internal suspend fun onPickedBytes(target: app.dshmobile.agency.media.PhotoTarget, bytes: ByteArray) {
+        val ready = _start.first { it is StartState.Ready } as StartState.Ready
+        val v = vault ?: return
+        val takenAt = app.dshmobile.agency.media.PhotoBytes.takenAt(bytes, clock.zone)
+        val clean = app.dshmobile.agency.media.PhotoBytes.clean(bytes)
+        bytes.fill(0)
+        if (clean == null) {
+            _mediaNotice.value = MediaNotice.NOT_SAVED
+            return
+        }
+        val id = UUID.randomUUID().toString()
+        val sealed = try {
+            v.put(id, clean)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            errorLog.append(TAG, "picked photo not sealed (${e.javaClass.simpleName})")
+            _mediaNotice.value = if (e is app.dshmobile.agency.secure.DataUnavailableException) MediaNotice.LOCKED else MediaNotice.NOT_SAVED
+            return
+        } finally {
+            clean.fill(0)
+        }
+        handPhoto(ready, v, target, Media(id, MediaKind.PHOTO, target.purpose, CameraCapture.MIME, sealed.bytes, sealed.sha256, clock.millis()), takenAt, picked = true)
+    }
+
     /** A sealed photo for [target]: its step, its lesson, its meal (then read when it has no words yet), or the model's read. */
     private suspend fun handPhoto(ready: StartState.Ready, v: MediaVault, target: app.dshmobile.agency.media.PhotoTarget, media: Media, takenAt: Long? = null, picked: Boolean = false) {
         when (target) {
@@ -965,6 +1019,7 @@ class AgencyApp(
         private const val PROVIDER_SUFFIX = ".export"
         private const val DEFAULT_DAY_START = 5
         private const val OPEN_WAIT_MS = 8_000L
+        private const val MAX_PICK_BYTES = 30 * 1024 * 1024
 
         /** The cheapest Claude model, for the data clerk and the second-pass judge only. */
         const val CLAUDE_CLERK = "claude-haiku-5-5"

@@ -50,6 +50,7 @@ object MealTags {
     const val PHOTO = "ag-meal-photo"
     const val MENU = "ag-photo-menu"
     const val LATE = "ag-meal-late-"
+    const val PICK = "ag-meal-pick"
     const val RECEIPT = "ag-photo-receipt"
     const val BODY = "ag-photo-body"
     const val LABEL = "ag-meal-label-"

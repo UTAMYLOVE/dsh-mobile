@@ -51,6 +51,7 @@ object CameraTags {
     const val FLIP = "ag-cam-flip"
     const val CLOSE = "ag-cam-close"
     const val HINT = "ag-cam-hint"
+    const val PICK = "ag-cam-pick"
 }
 
 /**
@@ -59,7 +60,7 @@ object CameraTags {
  * [onShot] with its rotation; [onFail] means CameraX could not run here (the caller falls back to the system camera).
  */
 @Composable
-fun InAppCamera(target: PhotoTarget, onShot: (ByteArray, Int) -> Unit, onFail: () -> Unit, onClose: () -> Unit) {
+fun InAppCamera(target: PhotoTarget, onShot: (ByteArray, Int) -> Unit, onFail: () -> Unit, onClose: () -> Unit, onPick: () -> Unit = {}) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     var front by remember { mutableStateOf(target == PhotoTarget.Body) }
@@ -104,6 +105,7 @@ fun InAppCamera(target: PhotoTarget, onShot: (ByteArray, Int) -> Unit, onFail: (
                 }, modifier = Modifier.testTag(CameraTags.SHOOT))
                 SoftButton(stringResource(R.string.ag_cam_flip), onClick = { front = !front }, modifier = Modifier.testTag(CameraTags.FLIP))
             }
+            SoftButton(stringResource(R.string.ag_pick_photo), onClick = onPick, modifier = Modifier.padding(top = 8.dp).testTag(CameraTags.PICK))
         }
     }
 }
