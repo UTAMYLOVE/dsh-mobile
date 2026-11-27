@@ -10,6 +10,8 @@ import java.time.LocalDate
  */
 enum class Feature(val zh: String, val defaultWeek: Int) {
     LESSONS("理論課和考試", 1),
+    /** 新鮮感: the manager's daily scene of company life and the special days (from the first week: she gets to know him). */
+    SCENES("公司日常", 1),
     EXAM_WEEK("考試週", 1),
     SIGN("簽到簽退", 2),
     MEALS("三餐拍照", 2),

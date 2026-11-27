@@ -42,6 +42,8 @@ sealed interface Effect {
         val fixTomorrow: String? = null,
         /** L25 (分週上線): the rollout week his yes opens (after a week on target). */
         val rolloutWeek: Int? = null,
+        /** L33 (學了就用): the subject whose small daily habit his yes adds (from tomorrow). */
+        val habit: String? = null,
     ) : Effect
 
     @Serializable @SerialName("notify")

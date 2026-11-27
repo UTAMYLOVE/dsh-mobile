@@ -223,7 +223,7 @@ class Brain(
         val id = "day:$day"
         val fresh = store.nerve.signal(id) == null
         val r = nerve.emit(Signal.DayStarted(id, clock.millis(), day.toString()))
-        return if (fresh && profile.onboardingDone) r + missedDays(day, profile) + weekEnded(day, profile) + attendance(day, profile) else r
+        return if (fresh && profile.onboardingDone) r + missedDays(day, profile) + weekEnded(day, profile) + attendance(day, profile) + levelUps(day) else r
     }
 
     /**
@@ -245,6 +245,57 @@ class Brain(
         if (n !in Links.L27Attendance.DAYS) return NerveResult()
         return nerve.emit(Signal.Attendance("attendance:$today", clock.millis(), n))
     }
+
+    /**
+     * 每科等級 (T19e) at a day's start: the subjects whose rule holds go up one level (the levels section's next version, by
+     * code), each with its ceremony (L32). Weeks of the L26 面談 do not count.
+     */
+    private suspend fun levelUps(today: java.time.LocalDate): NerveResult {
+        if (!rollout().open(app.agency.core.schedule.Feature.LESSONS)) return NerveResult()
+        val specs = snapshot.plans.specs()
+        val blocked = store.nerve.effectsWith(EffectStatus.DONE).filter { it.link == Links.L26Interview.id && it.because == "interview" }
+            .map { snapshot.weekStart(java.time.LocalDate.parse(it.day)) }.toSet()
+        val ups = app.agency.core.engine.Levels.ups(specs.levels, store.lessons.all(), today, blocked)
+        if (ups.isEmpty()) return NerveResult()
+        val now = clock.millis()
+        store.rules.putSection(
+            app.agency.core.model.PlanSectionKey.LEVELS,
+            app.agency.core.schedule.PlanSpecs.JSON.encodeToString(app.agency.core.schedule.LevelSpec.serializer(), app.agency.core.engine.Levels.apply(specs.levels, ups, today)),
+            app.agency.core.model.PlanSection.BY_MIGRATION, now,
+        )
+        var r = NerveResult()
+        ups.forEach { (c, l) -> r += nerve.emit(Signal.LevelUp("level:${c.name}:$l", now, c.name, l)) }
+        return r
+    }
+
+    /**
+     * 新鮮感: the day's one scene of company life (or a special day's line; Monday names the 主題週), once a day (the message
+     * id is the day), code's lines only; at the first alarm of the day from the wake time on (it opens his day).
+     */
+    private suspend fun scene(day: java.time.LocalDate, profile: app.agency.core.model.Profile): NerveResult {
+        val id = "scene:$day"
+        if (!rollout().open(app.agency.core.schedule.Feature.SCENES) || store.messages.get(id) != null) return NerveResult()
+        val wake = snapshot.plan(day).slot(SlotKey.WAKE)?.minute ?: app.agency.core.schedule.DayClock.minute(SCENE_FROM)
+        if (Links.minuteOf(day, clock.millis(), clock.zone) < wake) return NerveResult()
+        val text = app.agency.core.engine.Scenes.opening(day, profile.joinDate, rollout().open(app.agency.core.schedule.Feature.THEME_WEEK))
+        val m = Message(id, clock.millis(), Who.COMPANY, role = RoleKey.MANAGER, kind = SCENE_KIND, text = text, wordedBy = WordedBy.TEMPLATE)
+        store.messages.insert(m)
+        return NerveResult(messages = listOf(m))
+    }
+
+    /** Each subject's level now (T19e): subject → level index, for the subjects he has started or raised. */
+    suspend fun levels(): Map<app.agency.core.model.LessonCategory, Int> {
+        val spec = snapshot.plans.specs().levels
+        val started = store.lessons.all().filter { it.listedAt != null }.map { it.category }.toSet()
+        return app.agency.core.model.LessonCategory.entries.filter { it in started || spec.of(it.name).level > 0 }.associateWith { spec.of(it.name).level }
+    }
+
+    /** The level cards on the wall (L32): day, subject, level, newest first. */
+    suspend fun levelCards(): List<Triple<String, app.agency.core.model.LessonCategory, Int>> = store.nerve.effectsWith(EffectStatus.DONE)
+        .filter { it.link == Links.L32LevelUp.id && it.kind == app.agency.core.model.EffectKind.RECORD && it.because == Links.L32LevelUp.CARD }
+        .mapNotNull { e ->
+            (Nerve.decodeEffect(e.json) as? Effect.Record)?.detail?.split(":")?.let { (s, l) -> app.agency.core.model.LessonCategory.parse(s)?.let { Triple(e.day, it, l.toInt()) } }
+        }.sortedByDescending { it.first }
 
     /** The 全勤小卡 on the wall (L27): the day each was given and its days in a row, newest first. */
     suspend fun attendanceCards(): List<Pair<String, Int>> = store.nerve.effectsWith(EffectStatus.DONE)
@@ -332,6 +383,7 @@ class Brain(
         nerve.emit(Signal.RemindersOn(Signal.REMINDERS_ON, now.toEpochMilli()))
         val since = remindersSince() ?: now
         val day = snapshot.today(profile)
+        scene(day, profile)
         val states = snapshot.slots(day, snapshot.records(day), profile)
         val state = nerve.state(day)
         val today = store.nudges.between(dayStart(day, profile), now.toEpochMilli() + 1)
@@ -521,7 +573,7 @@ class Brain(
         proposals.expire()
         val today = snapshot.today(snapshot.profile()).toString()
         // L23's and L15's wait until he answers (they change no day); the others are today's.
-        val lasting = setOf(Links.L23WeightTrend.id, Links.L15Progression.id, Links.L25Rollout.id)
+        val lasting = setOf(Links.L23WeightTrend.id, Links.L15Progression.id, Links.L25Rollout.id, Links.L33Habit.id)
         val links = nerve.pending().filter { it.day == today || it.link in lasting }.mapNotNull { it.proposalId }.toSet()
         return store.proposals.withStatus(ProposalStatus.PENDING).filter { it.kind !in ProposalApplier.NERVE_KINDS || it.id in links }
     }
@@ -595,7 +647,10 @@ class Brain(
             c.copy(
                 // 突擊檢查 is a surprise: not on the card before it starts.
                 slots = c.slots.filterNot { it.key == SlotKey.SURPRISE_CHECK && it.status == SlotStatus.LATER },
-                photocards = photocards().size, rolloutWeek = r.week, open = app.agency.core.schedule.Feature.entries.filter(r::open).toSet(),
+                photocards = photocards().size, rolloutWeek = r.week,
+                levels = levels().map { (c, l) -> c.zh to app.agency.core.engine.Levels.name(l) },
+                special = app.agency.core.engine.Scenes.special(day, profile.joinDate),
+                theme = app.agency.core.engine.Themes.of(day).takeIf { r.open(app.agency.core.schedule.Feature.THEME_WEEK) }?.let { "${it.name}：${it.task}" }, open = app.agency.core.schedule.Feature.entries.filter(r::open).toSet(),
                 incomeWeek = w?.total, incomeTarget = w?.target,
             )
         }
@@ -1338,7 +1393,23 @@ class Brain(
         store.messages.insert(m)
         var r = NerveResult()
         out.signals.forEach { r += nerve.emit(it) }
+        out.signals.filterIsInstance<Signal.LessonPassed>().forEach { habitOffer(it)?.let { o -> r += nerve.emit(o) } }
         return listOf(m) + r.messages
+    }
+
+    /** 學了就用: after a passed lesson, the habit offer when code allows one (open, none pending, the last one steady). */
+    private suspend fun habitOffer(passed: Signal.LessonPassed): Signal? {
+        if (!rollout().open(app.agency.core.schedule.Feature.HABITS)) return null
+        val cat = app.agency.core.model.LessonCategory.parse(passed.category) ?: return null
+        if (store.nerve.effectsWith(EffectStatus.PROPOSED).any { it.link == Links.L33Habit.id }) return null
+        val habits = snapshot.plans.specs().practice.habits
+        val profile = snapshot.profile()
+        val today = snapshot.today(profile)
+        val done = (1..app.agency.core.engine.Habits.WINDOW_DAYS).map { today.minusDays(it.toLong()) }.filter { d ->
+            snapshot.slots(d, snapshot.records(d), profile).any { it.key == SlotKey.HABIT && it.status == SlotStatus.DONE }
+        }.toSet()
+        if (!app.agency.core.engine.Habits.mayOffer(cat, habits, today, done)) return null
+        return Signal.HabitOffer("habit:${cat.name}:$today", clock.millis(), cat.name)
     }
 
     /** 「理論課」「再一支」: today's count and the open lesson's step (code only). */
@@ -1549,6 +1620,8 @@ class Brain(
         const val LESSON_FOUND_KIND = "lesson_found"
 
         /** The kind of the body teacher's line about a meal photo (T15). */
+        const val SCENE_KIND = "scene"
+        const val SCENE_FROM = "08:30"
         const val MEAL_PHOTO_KIND = "meal_photo"
 
         /** The kinds of the 狀態打分 lines (T19). */

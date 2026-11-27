@@ -164,6 +164,15 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         )
         return
     }
+    // 升級典禮 (T19e): a level card he has not seen yet, once.
+    var seen by remember { mutableIntStateOf(agency.settings.ceremoniesSeen) }
+    val levelCards by produceState<List<Triple<String, app.agency.core.model.LessonCategory, Int>>>(emptyList(), revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.levelCards().reversed() }.getOrDefault(emptyList()) } }
+    }
+    levelCards.getOrNull(seen)?.let { (_, cat, l) ->
+        app.dshmobile.ui.agency.eval.CeremonyScreen(cat, l) { seen++; agency.settings.ceremoniesSeen = seen }
+        return
+    }
     // 每週評鑑 / 月評 take the whole screen while he hands them in.
     var eval by remember { mutableStateOf<SlotKey?>(null) }
     eval?.let { key ->

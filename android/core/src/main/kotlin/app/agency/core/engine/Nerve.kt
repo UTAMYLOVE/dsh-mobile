@@ -215,6 +215,7 @@ class Nerve(
         }
         p.progression?.let { next -> return progress(e, next, now) }
         p.rolloutWeek?.let { w -> return openWeek(e, w, now) }
+        p.habit?.let { subject -> return addHabit(e, subject, now) }
         p.fixTomorrow?.let { fix ->
             mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
             emit(Signal.FixPlanned("fix:${e.id}", now, LocalDate.parse(e.day).plusDays(1).toString(), fix), 1, e.signalId)
@@ -259,6 +260,25 @@ class Nerve(
         )
         mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
         return "好，第 ${next.week} 週開始。新開放：${next.opensIn(next.week).joinToString("、") { it.zh }}。"
+    }
+
+    /** His yes to a 學了就用 habit (L33): checked again (one at a time), then the practice section's next version, from tomorrow. */
+    private suspend fun addHabit(e: NerveEffect, subject: String, now: Long): String {
+        val specs = plans.specs()
+        val cat = app.agency.core.model.LessonCategory.parse(subject)
+        val o = cat?.let { Habits.offer(it) }
+        if (o == null || specs.practice.habits.any { it.category == subject }) {
+            mark(e, EffectStatus.EXPIRED, ProposalStatus.EXPIRED, now)
+            return "這個小習慣已經有了，沒有再加。"
+        }
+        val from = dayOf(now, dayStartHour()).plusDays(1)
+        val h = app.agency.core.schedule.Habit(e.id, o.text, subject, from.toString(), o.at)
+        store.rules.putSection(
+            app.agency.core.model.PlanSectionKey.PRACTICE, PlanSpecs.JSON.encodeToString(app.agency.core.schedule.PracticeSpec.serializer(), specs.practice.copy(habits = specs.practice.habits + h)),
+            e.proposalId ?: e.id, now,
+        )
+        mark(e, EffectStatus.ACCEPTED, ProposalStatus.ACCEPTED, now)
+        return "好，明天起每天：${o.text}。做完說「小習慣完成」。"
     }
 
     private suspend fun mark(e: NerveEffect, status: EffectStatus, ps: ProposalStatus, at: Long) {

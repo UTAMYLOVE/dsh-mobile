@@ -156,7 +156,7 @@ class WholeDayScenarioTest {
         // from then on today's plan has the 理論課 slot (in class: by 16:00, two lessons).
         val found = say("10:10", "找影片")
         assertTrue(found.single(), found.single().startsWith("找到 2 支「聲樂」的影片，都是真的搜尋結果。"))
-        assertEquals(listOf("發聲練習 唱歌技巧 教學 影片"), search.queries)
+        assertEquals(listOf("發聲練習 唱歌技巧 教學 入門 初學 影片"), search.queries)
         val lessons = runBlocking { store.messages.recent(1) }.single().refs.records
         assertNull(plan().slot(SlotKey.LESSONS))
         runBlocking { at("10:11"); lessons.forEach { brain.approveLesson(it) } }

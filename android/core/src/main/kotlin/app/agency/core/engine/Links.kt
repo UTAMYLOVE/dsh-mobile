@@ -25,7 +25,7 @@ object Links {
         L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd, L10Water,
         L11Completion, L12Chase, L13Violation, L14Discuss, L15Progression, L16Spend, L17Grooming, L18NoClassDay, L19Review, L20Week,
         L21WeightStop, L22TiredRiding, L23WeightTrend, L24Lessons, L25Rollout, L26Interview, L27Attendance, L28Weather, L29Caffeine,
-        L30MoodCare, L31MonthInterview,
+        L30MoodCare, L31MonthInterview, L32LevelUp, L33Habit,
     ) + Pending.all
 
     /** Minutes of [at] from 00:00 of the coach day's date (after midnight is past 24 × 60, like a slot's minute). */
@@ -896,6 +896,36 @@ object Links {
             } else {
                 emptyList()
             }
+    }
+
+    /** L32 升級典禮 (T19e): a subject's level-up → the ceremony line and a level card on the photocard wall. */
+    object L32LevelUp : Link {
+        override val feature get() = app.agency.core.schedule.Feature.LESSONS
+        override val id = "L32"
+        override val zh = "每科升級：升級典禮和小卡"
+        override val dailyCap = 20
+        const val CARD = "level_card"
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.LevelUp) return emptyList()
+            val cat = app.agency.core.model.LessonCategory.parse(signal.subject) ?: return emptyList()
+            return listOf(Effect.Say(Levels.ceremony(cat, signal.level)), Effect.Record(CARD, "${signal.subject}:${signal.level}"))
+        }
+    }
+
+    /** L33 學了就用 (owner 2026-11-23): the manager proposes the passed lesson's small daily habit; added only on his yes. */
+    object L33Habit : Link {
+        override val feature get() = app.agency.core.schedule.Feature.HABITS
+        override val id = "L33"
+        override val zh = "學了就用：一課通過，提議變成每天的小習慣"
+        override val dailyCap = 1
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
+            if (signal !is Signal.HabitOffer) return emptyList()
+            val cat = app.agency.core.model.LessonCategory.parse(signal.subject) ?: return emptyList()
+            val o = Habits.offer(cat) ?: return emptyList()
+            return listOf(Effect.Proposal(todayOnly = false, change = "明天起每天一個小習慣：${o.text}（${o.at}前，做完說「小習慣完成」）", because = "${cat.zh}這課通過了，生活用得上。一次只加一項，穩定兩週才加下一項。", habit = cat.name))
+        }
     }
 
     /**

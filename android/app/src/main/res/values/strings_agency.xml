@@ -544,4 +544,12 @@
     <string name="ag_eval_self">自評（程式算不出來、人工智慧也沒給建議時才用）</string>
     <string name="ag_eval_body_hint">全身照用今天的「全身對比照」，先拍好再交月評。</string>
     <string name="ag_eval_send">交出</string>
+    <string name="ag_card_levels">各科等級：%1$s</string>
+    <string name="ag_wall_level">%1$s 升級小卡：%2$s「%3$s」</string>
+    <string name="ag_wall_bodies">全身對比照時間軸（%1$d 張）：%2$s</string>
+    <string name="ag_ceremony_title">升級典禮</string>
+    <string name="ag_ceremony_line">%1$s升到「%2$s」</string>
+    <string name="ag_ceremony_sub">從今天起影片、考題和實作都變難。升級小卡貼上照片牆了。</string>
+    <string name="ag_ceremony_ok">收下小卡</string>
+    <string name="ag_card_theme">這週主題：%1$s</string>
 </resources>

@@ -1,5 +1,6 @@
 package app.agency.core.brain.handlers
 
+import app.agency.core.practiceOff
 import app.agency.core.brain.Brain
 import app.agency.core.brain.OrderDiff
 import app.agency.core.brain.ProposalApplier
@@ -43,7 +44,7 @@ import org.junit.Test
 
 /** T16: the meal talk of the body teacher, the nearby search (real results only) and the pre-meal suggestion. Invented data. */
 class MealTalkT16Test {
-    private val store = InMemoryAgencyStore()
+    private val store = InMemoryAgencyStore().practiceOff()
     private val clock = MutableClock()
     private var n = 0
     private var day = LocalDate.parse("2026-11-23") // a Monday, a class day

@@ -106,8 +106,8 @@ object LessonPlan {
     }
 
     /** The words code searches with: the category's words (the current language first for 外語), and 影片. */
-    fun query(category: LessonCategory, language: StudyLanguage? = null): String =
-        listOfNotNull(language?.zh?.takeIf { category == LessonCategory.LANGUAGE }, category.query, "影片").joinToString(" ")
+    fun query(category: LessonCategory, language: StudyLanguage? = null, level: Int = 0): String =
+        listOfNotNull(language?.zh?.takeIf { category == LessonCategory.LANGUAGE }, category.query, app.agency.core.engine.Levels.queryWords(level), "影片").joinToString(" ")
 
     /** A category named in his words (「找聲樂影片」), or null. */
     fun categoryIn(text: String): LessonCategory? = LessonCategory.entries.firstOrNull { text.contains(it.zh) }

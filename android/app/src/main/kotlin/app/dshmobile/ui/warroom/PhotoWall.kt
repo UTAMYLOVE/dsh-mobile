@@ -55,7 +55,20 @@ fun PhotoWallCard(ready: StartState.Ready) {
     val attendance by produceState<List<Pair<String, Int>>>(emptyList(), revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.attendanceCards() }.getOrDefault(emptyList()) } }
     }
+    val levels by produceState<List<Triple<String, app.agency.core.model.LessonCategory, Int>>>(emptyList(), revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.levelCards() }.getOrDefault(emptyList()) } }
+    }
+    val bodies by produceState<List<Pair<String, String>>>(emptyList(), revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.bodyTimeline() }.getOrDefault(emptyList()) } }
+    }
     Panel(title = stringResource(R.string.ag_wall_title, cards.size), modifier = Modifier.testTag(PhotoWallTags.CARD)) {
+        // 升級小卡 (T19e) and the Sunday 全身對比照 timeline.
+        levels.forEach { (day, cat, l) ->
+            Text(stringResource(R.string.ag_wall_level, day.substring(5).replace('-', '/'), cat.zh, app.agency.core.engine.Levels.name(l)), color = Sakura.Text, fontSize = 14.sp)
+        }
+        if (bodies.isNotEmpty()) {
+            Text(stringResource(R.string.ag_wall_bodies, bodies.size, bodies.joinToString("、") { it.first.substring(5).replace('-', '/') }), color = Sakura.Text, fontSize = 14.sp)
+        }
         // 全勤小卡 (L27): 7 and 30 days in a row.
         attendance.forEach { (day, n) ->
             Text(stringResource(R.string.ag_wall_attendance, day.substring(5).replace('-', '/'), n), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(PhotoWallTags.ATTENDANCE + day))

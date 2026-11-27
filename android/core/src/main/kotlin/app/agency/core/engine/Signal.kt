@@ -243,6 +243,14 @@ sealed interface Signal {
     @Serializable @SerialName("month_interview")
     data class MonthInterview(override val id: String, override val at: Long, override val source: String = "eval") : Signal
 
+    /** A subject went up a level (T19e, code's rule); id `level:<subject>:<level>`. */
+    @Serializable @SerialName("level_up")
+    data class LevelUp(override val id: String, override val at: Long, val subject: String, val level: Int, override val source: String = "lesson") : Signal
+
+    /** A passed lesson's subject may become a small daily habit (code checked one at a time and two weeks steady); L33. */
+    @Serializable @SerialName("habit_offer")
+    data class HabitOffer(override val id: String, override val at: Long, val subject: String, override val source: String = "lesson") : Signal
+
     companion object {
         const val REMINDERS_ON = "reminders:on"
 

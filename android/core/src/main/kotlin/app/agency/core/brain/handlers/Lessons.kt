@@ -85,7 +85,7 @@ class LessonDesk(
         val all = store.lessons.all()
         val cat = category ?: LessonPlan.nextCategory(all)
         val language = if (cat == LessonCategory.LANGUAGE) LessonPlan.language() else null
-        val found = when (val r = client.searchVideos(LessonPlan.query(cat, language))) {
+        val found = when (val r = client.searchVideos(LessonPlan.query(cat, language, level(cat)))) {
             is app.agency.core.llm.SearchResult.Failed -> return LessonOutcome(listOf(failLine(r.fail)))
             is app.agency.core.llm.SearchResult.Ok -> r
         }
@@ -156,7 +156,7 @@ class LessonDesk(
     private suspend fun quizFor(l: Lesson): LessonOutcome {
         val material = LessonPlan.material(l)
         val avoid = store.lessons.quizzes(l.id).flatMap { q -> q.questions.map { it.q } }
-        val draft = make(material, avoid, LessonPlan.QUESTIONS, LessonPlan.SPARES)
+        val draft = make(material, avoid, LessonPlan.QUESTIONS, LessonPlan.SPARES, level(l.category))
         if (draft == null) {
             val f = l.copy(fallback = true)
             if (f.keyPoints != null) {
@@ -171,9 +171,12 @@ class LessonDesk(
     }
 
     /** At least [need] checked questions from [material], or null (no answer, or nothing passed the checks after the retries). */
-    private suspend fun make(material: String, avoid: List<String>, need: Int, spares: Int): QuizDraft? {
+    /** [category]'s level (T19e): the search words and the quiz follow it. */
+    private suspend fun level(category: LessonCategory): Int = app.agency.core.schedule.PlanStore(store).specs().levels.of(category.name).level
+
+    private suspend fun make(material: String, avoid: List<String>, need: Int, spares: Int, level: Int = 0): QuizDraft? {
         val out = structured.call(
-            QuizSpec.SPEC, QuizSpec.system(need + spares), listOf(Turn.User(QuizSpec.user(material, avoid))), Purpose.QUIZ, QUIZ_TOKENS,
+            QuizSpec.SPEC, QuizSpec.system(need + spares) + "\n" + app.agency.core.engine.Levels.quizLine(level), listOf(Turn.User(QuizSpec.user(material, avoid))), Purpose.QUIZ, QUIZ_TOKENS,
             check = { QuizCheck.check(it, material, need, spares, avoid) }, fallback = { null },
         )
         return (out as? Structured.Model)?.value
@@ -248,7 +251,7 @@ class LessonDesk(
         if (openReview(l) != null) return LessonOutcome(listOf(REVIEW_READY))
         val material = LessonPlan.reviewMaterial(l)
         val avoid = store.lessons.quizzes(l.id).flatMap { q -> q.questions.map { it.q } }
-        val draft = make(material, avoid, LessonPlan.QUESTIONS, 0) ?: return LessonOutcome(listOf("複習考的題目這次出不來，等一下再試。只記錄，不擋課。"))
+        val draft = make(material, avoid, LessonPlan.QUESTIONS, 0, level(l.category)) ?: return LessonOutcome(listOf("複習考的題目這次出不來，等一下再試。只記錄，不擋課。"))
         store.lessons.putQuiz(Quiz(newId(), l.id, QuizKind.REVIEW, clock.millis(), draft.questions, shown = LessonPlan.QUESTIONS))
         return LessonOutcome(listOf(REVIEW_READY))
     }

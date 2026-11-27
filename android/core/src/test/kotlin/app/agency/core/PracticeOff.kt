@@ -15,7 +15,7 @@ import kotlinx.coroutines.runBlocking
 object PracticeOff {
     val FEATURES = setOf(
         Feature.MORNING_STRETCH, Feature.VOCAL_BASICS, Feature.POSTURE, Feature.SUNSCREEN, Feature.DANCE, Feature.WEEKLY_EVAL,
-        Feature.SURPRISE, Feature.THEME_WEEK, Feature.MONTHLY_EVAL, Feature.HABITS,
+        Feature.SURPRISE, Feature.THEME_WEEK, Feature.MONTHLY_EVAL, Feature.HABITS, Feature.SCENES,
     )
     val ROLLOUT = RolloutSpec(week = RolloutSpec.LAST, table = RolloutSpec().table + FEATURES.associate { it.name to RolloutSpec.LAST + 1 })
     val SPECS = PlanSpecs(rollout = ROLLOUT)

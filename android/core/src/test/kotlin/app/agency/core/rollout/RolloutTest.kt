@@ -73,7 +73,7 @@ class RolloutTest {
         assertTrue(SlotKey.WALK in keys(3, monday.plusDays(2)) && SlotKey.WALK !in keys(2, monday.plusDays(2)))
         // The table is data: what each week opens, and 「第 N 週開放」.
         val r = RolloutSpec(week = 1)
-        assertEquals(listOf(Feature.LESSONS, Feature.EXAM_WEEK), r.opensIn(1))
+        assertEquals(listOf(Feature.LESSONS, Feature.SCENES, Feature.EXAM_WEEK), r.opensIn(1))
         assertTrue(Feature.EARLIER_BEDTIME in r.opensIn(4) && Feature.WEEKLY_EVAL in r.opensIn(4) && Feature.REAL_TASK in r.opensIn(4))
         assertEquals("三餐拍照第 2 週開放，現在是第 1 週。這週先把開放的做好。", r.closedLine(Feature.MEALS))
         val custom = RolloutSpec(week = 1, table = r.table + (Feature.WATER.name to 1))
@@ -106,7 +106,7 @@ class RolloutTest {
         // The card says which week it is and what is open.
         val card = runBlocking { brain().card() }
         assertEquals(1, card.rolloutWeek)
-        assertEquals(setOf(Feature.LESSONS, Feature.EXAM_WEEK), card.open)
+        assertEquals(setOf(Feature.LESSONS, Feature.SCENES, Feature.EXAM_WEEK), card.open)
     }
 
     @Test fun aWeekOnTargetBringsTheCardAndHisYesOpensTheNextWeek() {

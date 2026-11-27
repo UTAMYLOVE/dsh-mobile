@@ -43,6 +43,11 @@ data class IdolCardFacts(
     /** 外送 this Mon–Sun week so far and his weekly target (null: not open, or no target set). */
     val incomeWeek: Int? = null,
     val incomeTarget: Int? = null,
+    /** 每科等級 (T19e): subject → level name, for the subjects started. */
+    val levels: List<Pair<String, String>> = emptyList(),
+    /** 特別日 (入社第 30、100 天, a holiday): its line; the 主題週 of this week (when open). */
+    val special: String? = null,
+    val theme: String? = null,
 ) {
     /** What comes next: the first slot still open or later, in time order. */
     val next: SlotState? get() = slots.firstOrNull { it.status == SlotStatus.OPEN || it.status == SlotStatus.LATER }

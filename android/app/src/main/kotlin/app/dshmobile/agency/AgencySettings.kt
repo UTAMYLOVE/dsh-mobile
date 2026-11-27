@@ -58,6 +58,11 @@ class AgencySettings(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(IDOL_SETUP_SKIPPED, false)
         set(v) = putBool(IDOL_SETUP_SKIPPED, v)
 
+    /** How many 升級典禮 he has seen (T19e): a newer level card shows the ceremony screen once. */
+    var ceremoniesSeen: Int
+        get() = prefs.getInt(CEREMONIES_SEEN, 0)
+        set(v) = prefs.edit().putInt(CEREMONIES_SEEN, v).apply()
+
     /** 「這個服務支援工具」: off by default; then chat runs without tools on that service. */
     /** 新版本通知: the coach day of the last release check (at most once a day), and the newer release found (`name|page`). */
     var releaseCheckedDay: String?
@@ -96,6 +101,7 @@ class AgencySettings(private val prefs: SharedPreferences) {
         const val COMPAT_JSON = "compat_json"
         const val COMPAT_TOOLS = "compat_tools"
         const val IDOL_SETUP_SKIPPED = "idol_setup_skipped"
+        const val CEREMONIES_SEEN = "ceremonies_seen"
 
         /** The compatible service's key, in KeyVault's named slots (the coach's slot, kept). */
         const val COMPAT_KEY = "COACH_COMPAT"

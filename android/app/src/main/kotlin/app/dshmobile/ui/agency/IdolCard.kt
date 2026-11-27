@@ -58,6 +58,9 @@ import kotlinx.coroutines.withContext
 object IdolTags {
     const val CARD = AgencyTags.TRAINEE
     const val FOLDED = "ag-idol-folded"
+    const val LEVELS = "ag-idol-levels"
+    const val SPECIAL = "ag-idol-special"
+    const val THEME = "ag-idol-theme"
     const val NAME = "ag-idol-name"
     const val NUMBER = "ag-idol-no"
     const val BAND = "ag-idol-band"
@@ -148,6 +151,16 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
             facts.incomeWeek?.let { total ->
                 val text = facts.incomeTarget?.let { stringResource(R.string.ag_card_income, total, it) } ?: stringResource(R.string.ag_card_income_no_target, total)
                 Text(text, color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.INCOME))
+            }
+            // 特別日 and 主題週 (新鮮感).
+            facts.special?.let { Text(it, color = Sakura.RoseBrown, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.SPECIAL)) }
+            facts.theme?.let { Text(stringResource(R.string.ag_card_theme, it), color = Sakura.Text, fontSize = 14.sp, modifier = Modifier.testTag(IdolTags.THEME)) }
+            // 每科等級 (T19e).
+            if (facts.levels.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.ag_card_levels, facts.levels.joinToString("、") { (s, l) -> "$s $l" }), color = Sakura.Text, fontSize = 14.sp,
+                    modifier = Modifier.testTag(IdolTags.LEVELS),
+                )
             }
             if (facts.photocards > 0) {
                 Text(stringResource(R.string.ag_card_photocards, facts.photocards), color = Sakura.Text, fontSize = 14.sp)

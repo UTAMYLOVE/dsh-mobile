@@ -78,7 +78,7 @@ class LessonT19cTest {
         val found = b.findVideos(LessonCategory.VOCAL)
         val card = found.single { it.kind == Brain.LESSON_FOUND_KIND }
         assertTrue(card.text.startsWith("找到 2 支「聲樂」的影片，都是真的搜尋結果。"))
-        assertEquals(listOf("發聲練習 唱歌技巧 教學 影片"), search.queries)
+        assertEquals(listOf("發聲練習 唱歌技巧 教學 入門 初學 影片"), search.queries)
         // Stored: the search results (the cards' evidence) and the candidates, each with the hit's own link and text.
         val results = store.places.results(SearchKind.VIDEO)
         assertEquals(setOf(LessonKit.VOCAL_URL, LessonKit.SMILE_URL), results.map { it.url }.toSet())
@@ -107,13 +107,13 @@ class LessonT19cTest {
         search.hits = listOf(LessonKit.hit("https://www.youtube.com/watch?v=v2", "發聲", LessonKit.VOCAL))
         b.findVideos(LessonCategory.VOCAL)
         b.findVideos() // VOCAL has one now: DANCE is next
-        assertEquals("韓國偶像 舞蹈 基本功 教學 影片", search.queries[2])
-        assertEquals("英文 初學 會話 教學 影片", LessonPlan.query(LessonCategory.LANGUAGE, LessonPlan.language()))
+        assertEquals("韓國偶像 舞蹈 基本功 教學 入門 初學 影片", search.queries[2])
+        assertEquals("英文 初學 會話 教學 入門 初學 影片", LessonPlan.query(LessonCategory.LANGUAGE, LessonPlan.language()))
         assertEquals(app.agency.core.model.StudyLanguage.ENGLISH, LessonPlan.language())
         // Typed: 「找表情影片」 names the category; 「找影片」 picks the next one.
         search.hits = emptyList()
         b.onText("找表情管理影片")
-        assertEquals("表情管理 鏡頭前 笑容 教學 影片", search.queries.last())
+        assertEquals("表情管理 鏡頭前 笑容 教學 入門 初學 影片", search.queries.last())
     }
 
     // ---- the quiz: code checks every quote, code grades ----
