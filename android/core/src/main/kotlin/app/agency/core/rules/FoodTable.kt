@@ -17,19 +17,49 @@ object FoodTable {
         FoodEntry("蚵仔麵線一碗", listOf("蚵仔麵線"), 415, null, null, null, fried = false, estimated = true, seeded = true, addedAt = now),
     )
 
-    /** The two foods plan v3 adds to his table (即食雞胸 is his own estimate until a label; the soy milk is the label's). */
+    /** The two foods plan v3 adds to his table (即食雞胸 by the convenience-store label; the soy milk is the label's). */
     fun v3Added(now: Long): List<FoodEntry> = listOf(
-        FoodEntry("即食雞胸", listOf("即食雞胸肉", "超商雞胸"), 117, null, null, null, fried = false, estimated = true, seeded = true, addedAt = now),
+        FoodEntry("即食雞胸", listOf("即食雞胸肉", "超商雞胸", "7-11雞胸", "小七雞胸"), 117, 23.6, null, null, fried = false, estimated = false, seeded = true, addedAt = now),
         FoodEntry("統一高纖豆漿", listOf("高纖豆漿"), 193, 15.0, null, null, fried = false, estimated = false, seeded = true, addedAt = now),
+    )
+
+    private fun e(name: String, aliases: List<String>, kcal: Int, protein: Double, estimated: Boolean = false, now: Long) =
+        FoodEntry(name, aliases, kcal, protein, null, null, fried = false, estimated = estimated, seeded = true, addedAt = now)
+
+    /**
+     * 「常吃的食物」 of the owner's latest design (2026-11-27): menu boards and labels; a range takes its high end (strict), 「約」
+     * values are marked estimates. Names he reads have no Latin letters (the shop's own spelling is an alias).
+     */
+    fun usual(now: Long): List<FoodEntry> = listOf(
+        e("給力盒子 椒鹽水煮雞胸", listOf("椒鹽水煮雞胸"), 605, 43.0, now = now),
+        e("給力盒子 塔香烘烤雞胸", listOf("塔香烘烤雞胸"), 613, 43.0, now = now),
+        e("給力盒子 泰式打拋雞胸", listOf("泰式打拋雞胸"), 596, 41.0, now = now),
+        e("給力盒子 蒜泥醬豬肉片", listOf("蒜泥醬豬肉片"), 623, 38.0, now = now),
+        e("給力盒子 十三香滷牛腱", listOf("十三香滷牛腱"), 573, 34.0, now = now),
+        e("給力盒子 樹子汁蒸鱸魚", listOf("樹子汁蒸鱸魚"), 555, 34.0, now = now),
+        e("給力盒子 鹽烤馬加魚", listOf("鹽烤馬加魚"), 594, 29.0, now = now),
+        e("給力盒子 大厚切烤鮭魚", listOf("大厚切烤鮭魚"), 690, 44.0, now = now),
+        e("給力盒子 爐烤鮮時蔬", listOf("爐烤鮮時蔬"), 510, 16.0, now = now),
+        e("麥當勞 炭燒醬烤雞腿堡", listOf("炭燒醬烤雞腿堡"), 347, 22.0, now = now),
+        e("麥當勞 香烙烤鷄腿堡", listOf("BLT香烙烤鷄腿堡", "香烙烤雞腿堡", "BLT香烙烤雞腿堡"), 464, 25.0, now = now),
+        e("麥當勞 藜麥烤鷄沙拉", listOf("藜麥烤雞沙拉", "藜麥烤鷄沙拉"), 264, 22.0, now = now),
+        e("麥當勞 大麥克", listOf("大麥克"), 600, 25.0, estimated = true, now = now),
+        e("福樂 蛋白飲", listOf("福樂蛋白飲", "福樂高蛋白"), 209, 21.0, now = now),
+        e("義美 高蛋白奶", listOf("義美高蛋白奶", "義美高蛋白"), 195, 20.0, now = now),
+        e("低脂鮮奶", listOf("低脂牛奶"), 178, 12.8, now = now),
+        e("茶葉蛋", listOf("茶葉蛋一顆"), 75, 7.0, estimated = true, now = now),
+        e("煙燻燒烤雞腿", listOf("燒烤雞腿"), 244, 29.4, now = now),
+        e("全家 雞肉便當", listOf("雞肉便當", "屏榮雞肉便當"), 481, 30.0, now = now),
     )
 
     /**
      * The table as plan v3 states it (T14): [seed] with 給力盒子 南加州烤雞腿 corrected to 714 kcal / 48 g (menu board), plus
-     * [v3Added]. Lookups use his stored table first and these for anything he has not stored ([withCurrent]).
+     * [v3Added] and the owner's 「常吃的食物」 ([usual]). Lookups use his stored table first and these for anything he has not
+     * stored ([withCurrent]).
      */
     fun current(now: Long): List<FoodEntry> = seed(now).map {
         if (it.name == GELI_CHICKEN) it.copy(kcal = 714, proteinG = 48.0) else it
-    } + v3Added(now)
+    } + v3Added(now) + usual(now)
 
     /** His stored entries, then [current] for the names he has none of (a stored entry always wins). */
     fun withCurrent(stored: List<FoodEntry>): List<FoodEntry> {

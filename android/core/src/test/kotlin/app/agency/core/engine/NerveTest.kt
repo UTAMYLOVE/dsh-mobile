@@ -159,7 +159,7 @@ class NerveTest {
     @Test fun l1TheFirstMealMovesAtMostToThreeHoursBeforeDinner() {
         val nv = nerve()
         emit(nv, Signal.WokeUp("in", t("13:30")))
-        assertEquals(DayAdjust.Move(SlotKey.LUNCH, DayClock.minute("14:15")), (effect(of("L1").single()) as Effect.AdjustToday).change)
+        assertEquals(DayAdjust.Move(SlotKey.LUNCH, DayClock.minute("14:35")), (effect(of("L1").single()) as Effect.AdjustToday).change)
     }
 
     @Test fun l1UnderAnHourLateChangesNothing() {

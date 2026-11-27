@@ -9,6 +9,7 @@ import app.agency.core.rules.Breaches
 import app.agency.core.rules.FoodTable
 import app.agency.core.rules.MealBudget
 import app.agency.core.rules.ProcessedFood
+import app.agency.core.rules.ProteinRotation
 import app.agency.core.rules.RulesBook
 import app.agency.core.schedule.DayPlan
 import app.agency.core.schedule.SlotKey
@@ -63,6 +64,10 @@ class CravingDesk(
         val zeroWeek = Breaches.zeroCalInWeek(store.meals.between(Breaches.weekStart(day).toString(), d), day)
         if (said.any { Breaches.isZeroCal(it.name, it.zeroCal) } && zeroWeek >= rules.zeroCalPerWeek) {
             return listOf("零卡飲料這週已經喝了 $zeroWeek 瓶，上限 ${rules.zeroCalPerWeek} 瓶，這週不能再喝。")
+        }
+        // 雞胸 one pack a day (owner 2026-11-26: its sodium); the swaps of the same protein instead.
+        if (said.any { ProteinRotation.isPack(it.name) } && ProteinRotation.packs(today.flatMap { it.items }) >= ProteinRotation.MAX_PACKS_PER_DAY) {
+            return listOf("雞胸今天已經吃過一包了，一天最多一包（鈉高）。換成${ProteinRotation.SWAPS}。")
         }
         val budget = MealBudget.room(plan, rules, slot, eaten, protein, today.mapNotNull { SlotKey.parse(it.slotKey) }.toSet(), minute)?.let(::Budget)
         val banned = if (cheat) emptyList() else said.mapNotNull { s ->

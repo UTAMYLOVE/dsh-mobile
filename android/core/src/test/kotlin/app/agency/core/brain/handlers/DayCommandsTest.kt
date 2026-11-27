@@ -57,7 +57,7 @@ class DayCommandsTest {
     @Test fun fromJanuaryTheCheatMealIsDeclaredInAdvanceOnceAWeek() {
         clock.now = Instant.parse("2027-01-04T02:00:00Z") // Monday 10:00
         val ok = say("休假餐 星期四晚餐")
-        assertEquals("記下：休假餐是星期四的晚餐（17:15）。那一餐零食、炸的、甜的都可以，熱量照樣算進 1700，單餐上限 800 照算。", ok.text)
+        assertEquals("記下：休假餐是星期四的晚餐（17:35）。那一餐零食、炸的、甜的都可以，熱量照樣算進 1700，單餐上限 800 照算。", ok.text)
         assertEquals("DINNER", day("2027-01-07")!!.cheatSlot)
         assertEquals("這週的休假餐已經訂在星期四了，一週只有一餐。", say("休假餐 明天午餐").text)
         assertEquals(CheatDeclare.FORMAT, say("休假餐 隨便").text)

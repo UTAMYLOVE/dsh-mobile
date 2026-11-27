@@ -129,7 +129,7 @@ class SignT19Test {
         val card = out.first { it.kind == "link" }.text.lines()
         assertEquals("今天的檢討卡", card[0])
         assertEquals("做到：起床簽到、簽退", card[1])
-        assertTrue(card[2], card[2].startsWith("沒做到：午餐、核心七分鐘、晚餐、出門跑單、跑單途中的雞胸、肌力三輪、伸展"))
+        assertTrue(card[2], card[2].startsWith("沒做到：午餐、核心七分鐘、晚餐、出門跑單、21:00 那份蛋白質、肌力三輪、伸展"))
         assertTrue(card.contains("沒做到的不用補，明天照表。"))
         assertTrue(card.contains("你說做得好：午餐有照點餐卡點"))
         assertEquals("明天要改：明天早點出門", card.last())

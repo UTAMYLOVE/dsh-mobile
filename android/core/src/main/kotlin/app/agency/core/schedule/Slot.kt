@@ -14,7 +14,8 @@ enum class SlotKey(val zh: String, val kind: SlotKind) {
     CORE("核心七分鐘", SlotKind.TRAINING),
     DINNER("晚餐", SlotKind.MEAL),
     RIDE_OUT("出門跑單", SlotKind.RIDE),
-    RIDE_MEAL("跑單途中的雞胸", SlotKind.MEAL),
+    /** The 21:00 portion: 雞胸＋豆漿 or a swap of the same protein (on the run on a delivery day). */
+    RIDE_MEAL("21:00 那份蛋白質", SlotKind.MEAL),
     STRENGTH("肌力三輪", SlotKind.TRAINING),
     STRETCH("伸展", SlotKind.TRAINING),
     SIGN_OUT("簽退", SlotKind.SIGN),

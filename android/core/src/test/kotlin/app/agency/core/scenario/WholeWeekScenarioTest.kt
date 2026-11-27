@@ -170,8 +170,8 @@ class WholeWeekScenarioTest {
             }
             // Thursday: the real-person task, reported before bed.
             if (i == 3) assertEquals(listOf("記下：這週的真人任務做到了。跟真的人相處，就是這樣。"), say("00:40", "真人任務完成"))
-            // Each day's meals: 1574 kcal, 143 g protein.
-            assertEquals(143.0, runBlocking { brain.nerve.state(day) }.proteinG, 0.01)
+            // Each day's meals: 1574 kcal, 166.6 g protein (the 即食雞胸 by its label, 23.6 g).
+            assertEquals(166.6, runBlocking { brain.nerve.state(day) }.proteinG, 0.01)
         }
         // The progression proposal came once, on Sunday (a week of easy rounds and the day before at 140 g), for the next step
         // only; his yes made the training plan's next version.

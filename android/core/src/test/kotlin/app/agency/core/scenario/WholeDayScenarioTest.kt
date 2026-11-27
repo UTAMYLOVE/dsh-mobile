@@ -65,7 +65,7 @@ class WholeDayScenarioTest {
         // 13:10 lunch with friends: the body teacher's pick as an order card (no clerk), then the judge (it is about food).
         call("propose_meal_order", """{"slot":"lunch","items":[{"name":"清燉牛肉麵","portion":1,"kcal_high":520,"protein_low":30},{"name":"燙青菜","portion":1,"kcal_high":80,"protein_low":2}],"place_result_id":null}"""),
         reply("點清燉牛肉麵加燙青菜，湯不要喝完。你按好就是這個。"), judge(),
-        // 13:45 (he had an egg more than the card said), 17:20, 21:05 his meal reports: the clerk only (the rest is code).
+        // 13:45 (he had an egg more than the card said), 17:36, 21:05 his meal reports: the clerk only (the rest is code).
         meal(item("清燉牛肉麵", 520, 30), item("燙青菜", 80, 2), item("滷蛋", 70, 6)),
         // 14:20 the second lesson's quiz.
         app.agency.core.lessons.LessonKit.quiz(app.agency.core.lessons.LessonKit.SMILE_QS),
@@ -211,7 +211,7 @@ class WholeDayScenarioTest {
         assertEquals(RoleKey.BODY, friends.role)
         assertEquals("點清燉牛肉麵加燙青菜，湯不要喝完。你按好就是這個。", friends.text)
         assertTrue(llm.requests[4].system.contains("他要跟朋友去吃「牛肉麵」"))
-        // 572 + 88 = 660 fits what lunch may be today (1700 less a usual dinner and the 21:00 portion: 676).
+        // 572 + 88 = 660 fits what lunch may be today (up to the single-meal cap, 800: dinner follows what is left).
         assertEquals(listOf("好，這餐就點這個：清燉牛肉麵、燙青菜，660 大卡。吃完拍照回報。"), say("13:11", "好"))
         // 13:40 the moved lunch is pushed; 13:45 his report (the clerk sorts it, code counts it: strict estimates; he had an
         // egg more), the order is eaten, and dinner gets what is left after the 21:00 portion (L5); 13:46 its photo.
@@ -249,25 +249,25 @@ class WholeDayScenarioTest {
         // 15:00 the water check (L10): half of the bottle is in, so there is nothing to say.
         assertTrue(tick("15:00").posts.isEmpty())
 
-        // 16:45 the body teacher's suggestion for dinner, sized by L5 (code's numbers; the model may only word it).
-        val pre = tick("16:45").posts.single()
-        assertEquals("premeal", pre.key)
-        assertTrue(pre.text, pre.text.startsWith("晚餐 17:15 快到了：今天建議 653 大卡以內、蛋白質至少 51 克。"))
-        // 17:00–17:07 the core 7 minutes by the timer (T18): the body teacher's line, then the day's one 撒嬌 and its polaroid (L11).
-        val core = runBlocking { at("17:07"); brain.coreDone(seconds = 425) }.filter { it.who == Who.COMPANY }
+        // 16:57–17:04 the core 7 minutes by the timer (T18): the body teacher's line, then the day's one 撒嬌 and its polaroid (L11).
+        val core = runBlocking { at("17:04"); brain.coreDone(seconds = 425) }.filter { it.who == Who.COMPANY }
         assertEquals("記下：核心七分鐘（照計時做完）。", core[0].text)
         assertEquals(app.agency.core.engine.Links.L11Completion.sweetLine(app.agency.core.model.TrainingKind.CORE7, null), core[1].text)
         assertEquals(RoleKey.MANAGER, core[1].role)
         assertEquals(1, state().sweetToday)
-        // 17:20 dinner is fried chicken: a breach (the body teacher says what, the manager records it coolly, L13).
-        val dinner = say("17:20", "晚餐吃了炸雞排")
+        // 17:05 the body teacher's suggestion for dinner (17:35), sized by L5 (code's numbers; the model may only word it).
+        val pre = tick("17:05").posts.single()
+        assertEquals("premeal", pre.key)
+        assertTrue(pre.text, pre.text.startsWith("晚餐 17:35 快到了：今天建議 653 大卡以內、蛋白質至少 51 克。"))
+        // 17:36 dinner is fried chicken: a breach (the body teacher says what, the manager records it coolly, L13).
+        val dinner = say("17:36", "晚餐吃了炸雞排")
         assertTrue(dinner[0], dinner[0].contains("炸雞排是炸物，休假餐以外不准吃。"))
         assertEquals("記一次違規：休假餐以外吃了禁止的東西。今天第 1 次，會算進評鑑。下一餐照計畫。", dinner[1])
         assertTrue(dinner.none { it.contains("少吃") })
-        assertEquals("照片收到，晚餐已證實。", photo("17:21", "photo-dinner"))
-        assertEquals(1, state().sweetToday) // the 撒嬌 of 17:07 stays the only one
-        // 17:30 the rest of the bottle, before he leaves: done, so the 17:40 pre-ride reminder has nothing to say.
-        assertTrue(say("17:30", "喝了半壺").single().endsWith("今天的水達標了。"))
+        assertEquals("照片收到，晚餐已證實。", photo("17:37", "photo-dinner"))
+        assertEquals(1, state().sweetToday) // the 撒嬌 of 17:04 stays the only one
+        // 17:38 the rest of the bottle, before he leaves: done, so the 17:40 pre-ride reminder has nothing to say.
+        assertTrue(say("17:38", "喝了半壺").single().endsWith("今天的水達標了。"))
         assertTrue(tick("17:40").posts.isEmpty())
 
         // 18:05 out on the run: reminders sound once; awake 8 hours after a night we do not know: no tired-riding warning.
@@ -276,14 +276,14 @@ class WholeDayScenarioTest {
         assertTrue(state().riding)
         assertTrue(DayFlag.RIDING_ONE_SOUND in state().flags)
         val ride = tick("21:00").posts.single { it.key == Nudger.GAP_KEY }
-        assertEquals("還缺：跑單途中的雞胸。", ride.text)
+        assertEquals("還缺：21:00 那份蛋白質。", ride.text)
         assertEquals(PostChannel.RIDING, ride.channel)
         assertTrue(ride.alert)
         // 21:05 the on-run portion, reported and photographed on the way: never a breach.
         val run = say("21:05", "跑單路上吃了即食雞胸和統一高纖豆漿").single()
-        assertTrue(run, run.startsWith("記在跑單途中的雞胸。"))
+        assertTrue(run, run.startsWith("記在21:00 那份蛋白質。"))
         assertTrue(run.contains("今天吃了 1597 大卡，剩 103 大卡"))
-        assertEquals("照片收到，跑單途中的雞胸已證實。", photo("21:06", "photo-run"))
+        assertEquals("照片收到，21:00 那份蛋白質已證實。", photo("21:06", "photo-run"))
         assertTrue(tick("21:35").posts.isEmpty())
 
         // 23:30 home: no 宵夜 tonight (L9), then the floor check (L6): 1597 is above 1200, nothing to remind. The rounds next.
@@ -325,7 +325,7 @@ class WholeDayScenarioTest {
         val review = say("01:02", "明天不吃炸的")
         val card = review[0].lines()
         assertEquals("今天的檢討卡", card[0])
-        assertEquals("做到：起床簽到、午餐、理論課、核心七分鐘、晚餐、出門跑單、跑單途中的雞胸、肌力三輪、伸展、簽退", card[1])
+        assertEquals("做到：起床簽到、午餐、理論課、核心七分鐘、晚餐、出門跑單、21:00 那份蛋白質、肌力三輪、伸展、簽退", card[1])
         assertEquals("沒做到：沒有，全部做到", card[2])
         assertEquals("違規：1 次", card[3])
         assertEquals("你說做得好：三輪和伸展都照計時做完", card[4])
@@ -373,8 +373,8 @@ class WholeDayScenarioTest {
         assertEquals(4, nudges.size)
         assertEquals("刮鬍子（每兩天一次），刮好說「刮好了」。", nudges[0])
         assertEquals("午餐時間到了，做完回報。", nudges[1])
-        assertTrue(nudges[2].startsWith("晚餐 17:15 快到了"))
-        assertEquals("還缺：跑單途中的雞胸。", nudges[3])
+        assertTrue(nudges[2].startsWith("晚餐 17:35 快到了"))
+        assertEquals("還缺：21:00 那份蛋白質。", nudges[3])
         assertEquals(
             listOf(app.agency.core.model.ProposalKind.MEAL_ORDER, app.agency.core.model.ProposalKind.PLAN_CHANGE, app.agency.core.model.ProposalKind.TOMORROW_FIX),
             runBlocking { store.proposals.withStatus(ProposalStatus.ACCEPTED) }.sortedBy { it.createdAt }.map { it.kind },

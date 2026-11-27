@@ -88,11 +88,11 @@ class AgencyNotifierTest {
     }
 
     @Test fun whileRidingTheSecondPushIsSilent() {
-        notifier.post(Post(Nudger.GAP_KEY, "n1", "跑單途中的雞胸時間到了，做完回報。", PostChannel.RIDING, alert = true))
+        notifier.post(Post(Nudger.GAP_KEY, "n1", "21:00 那份蛋白質時間到了，做完回報。", PostChannel.RIDING, alert = true))
         val first = shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS)
         assertEquals(AgencyNotifier.CHANNEL_RIDING, first.channelId)
         assertTrue(first.flags and Notification.FLAG_ONGOING_EVENT == 0)
-        notifier.post(Post(Nudger.GAP_KEY, "n2", "還缺：跑單途中的雞胸。", PostChannel.RIDING, alert = false))
+        notifier.post(Post(Nudger.GAP_KEY, "n2", "還缺：21:00 那份蛋白質。", PostChannel.RIDING, alert = false))
         val second = shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS)
         assertTrue(second.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
         assertEquals(AgencyNotifier.idOf(Nudger.GAP_KEY), AgencyNotifier.ID_GAPS)

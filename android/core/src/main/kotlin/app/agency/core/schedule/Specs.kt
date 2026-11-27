@@ -30,8 +30,12 @@ data class MealSpec(
     val classLunch: String = "12:10",
     val lunchProteinHintG: Int = 45,
     val noClassFirstMeal: String = "13:00",
-    val dinner: String = "17:15",
-    /** On the run, mandatory (riding safety): 雞胸 and 豆漿 (the 豆漿 moves to the morning on an 「早上很餓」 day). */
+    val dinner: String = "17:35",
+    /**
+     * Mandatory (on the run: riding safety): 雞胸 and 豆漿, or a swap of about the same protein (owner 2026-11-26: 福樂蛋白飲＋
+     * 茶葉蛋, 義美高蛋白奶＋茶葉蛋, 低脂鮮奶), counted in the day's 1700; the 豆漿 moves to the morning on an 「早上很餓」 day. No
+     * eating window (no 「168」) and no snack: three meals a day.
+     */
     val rideMeal: String = "21:00",
     /** When he wakes late the first meal may move, at most to this many minutes before the next meal (link L1). */
     val firstMealGapMin: Int = 180,

@@ -12,6 +12,7 @@ import app.agency.core.model.Media
 import app.agency.core.model.OrderStatus
 import app.agency.core.model.PendingLabel
 import app.agency.core.rules.Breaches
+import app.agency.core.rules.ProteinRotation
 import app.agency.core.rules.FoodTable
 import app.agency.core.rules.OverQuota
 import app.agency.core.rules.RulesBook
@@ -95,6 +96,10 @@ class MealDesk(
         counted.forEachIndexed { i, it -> lines.add(1 + i, MealWords.itemLine(it, rules.marginPct)) }
         if (cheat) lines += "這是你宣告的休假餐，禁止的東西這餐不算違規；熱量照算。"
         check.breaches.forEach { lines += Breaches.line(it, check, rules) }
+        // 雞胸 one pack a day, the 21:00 protein rotated, 福樂 a few times a week (notes, not breaches).
+        val back = store.meals.between(day.minusDays(ProteinRotation.ROTATE_AFTER_DAYS.toLong()).toString(), day.minusDays(1).toString())
+            .groupBy { java.time.LocalDate.parse(it.day) }
+        lines += ProteinRotation.notes(meal, others + meal, week + meal, back, day)
         lines += if (meal.verified) "照片有了，這餐已證實。" else UNVERIFIED
         pending.forEach { lines += askLabel(it.name) }
         lines += status(meal.day, ill)

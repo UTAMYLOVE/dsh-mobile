@@ -20,7 +20,7 @@ class DayPlannerTest {
             assertEquals(DayType.CLASS, p.type)
             assertEquals(
                 listOf(
-                    "08:30 WAKE", "12:10 LUNCH", "17:00 CORE", "17:15 DINNER", "18:00 RIDE_OUT", "21:00 RIDE_MEAL", "01:50 STRENGTH",
+                    "08:30 WAKE", "12:10 LUNCH", "17:00 CORE", "17:35 DINNER", "18:00 RIDE_OUT", "21:00 RIDE_MEAL", "01:50 STRENGTH",
                     "02:10 STRETCH", "02:30 SIGN_OUT",
                 ),
                 times(p),
@@ -43,7 +43,7 @@ class DayPlannerTest {
             assertEquals(DayType.NO_CLASS, p.type)
             assertEquals(
                 listOf(
-                    "12:00 WAKE", "13:00 FIRST_MEAL", "16:20 WALK", "17:00 CORE", "17:15 DINNER", "18:00 RIDE_OUT", "21:00 RIDE_MEAL",
+                    "12:00 WAKE", "13:00 FIRST_MEAL", "16:20 WALK", "17:00 CORE", "17:35 DINNER", "18:00 RIDE_OUT", "21:00 RIDE_MEAL",
                     "03:20 STRENGTH", "03:40 STRETCH", "04:00 SIGN_OUT",
                 ),
                 times(p),
@@ -57,7 +57,7 @@ class DayPlannerTest {
         val p = DayPlanner.build(d, override = DayOverride(d.toString(), restDay = true, declaredAt = 1))
         assertTrue(p.rest)
         assertEquals(
-            listOf("08:30 WAKE", "12:10 LUNCH", "17:15 DINNER", "18:30 CORE", "18:40 STRENGTH", "19:05 STRETCH", "21:00 RIDE_MEAL", "02:30 SIGN_OUT"),
+            listOf("08:30 WAKE", "12:10 LUNCH", "17:35 DINNER", "18:30 CORE", "18:40 STRENGTH", "19:05 STRETCH", "21:00 RIDE_MEAL", "02:30 SIGN_OUT"),
             times(p),
         )
         // Owed like any day, due at their time (no ride to come home from).
@@ -66,7 +66,7 @@ class DayPlannerTest {
         // A no-class rest day keeps its walk and its own times.
         val w = DayPlanner.build(day(2), override = DayOverride(day(2).toString(), restDay = true, declaredAt = 1))
         assertEquals(
-            listOf("12:00 WAKE", "13:00 FIRST_MEAL", "16:20 WALK", "17:15 DINNER", "18:30 CORE", "18:40 STRENGTH", "19:05 STRETCH", "21:00 RIDE_MEAL", "04:00 SIGN_OUT"),
+            listOf("12:00 WAKE", "13:00 FIRST_MEAL", "16:20 WALK", "17:35 DINNER", "18:30 CORE", "18:40 STRENGTH", "19:05 STRETCH", "21:00 RIDE_MEAL", "04:00 SIGN_OUT"),
             times(w),
         )
     }

@@ -94,14 +94,13 @@ class NudgerTest {
         assertTrue(before.posts.isEmpty())
         assertNull(before.next)
         runBlocking { store.profile.put(app.agency.core.model.Profile(onboardingDone = true)) }
-        // He finished 入社建檔 at 13:00: the wake slot and lunch before it are not chased; dinner at 17:15 is.
+        // He finished 入社建檔 at 13:00: the wake slot and lunch before it are not chased; dinner at 17:35 is.
         val first = tick(b, "13:05")
         assertTrue(first.posts.none { it.key == Nudger.GAP_KEY })
-        // The next fires: the water check at 15:00 (L10, T17), the body teacher's suggestion before dinner (T16, 16:45), then
-        // the core at 17:00.
+        // The next fires: the water check at 15:00 (L10, T17), the core at 17:00, then the body teacher's suggestion before
+        // dinner (T16, 17:05).
         assertEquals(Fire(t("15:00"), FireKind.NOTE), first.next)
-        assertEquals(Fire(t("16:45"), FireKind.NOTE), tick(b, "15:00").next)
-        assertEquals(Fire(t("17:00"), FireKind.SLOT), tick(b, "16:45").next)
+        assertEquals(Fire(t("17:00"), FireKind.SLOT), tick(b, "15:00").next)
         assertEquals("核心七分鐘時間到了，做完回報。", tick(b, "17:00").posts.single { it.key == Nudger.GAP_KEY }.text)
     }
 

@@ -38,15 +38,18 @@ data class DayPlan(
 
 /**
  * Builds a day's plan from the stored sections (arch 1.5, plan v3 §4): pure. Class day: 08:30 起床簽到, 12:10 午餐 (蛋白質至少
- * 45 克), 17:00 核心 (星期五 16:05), 17:15 晚餐, 18:00–19:00 出門, 21:00 雞胸加豆漿 on the run (mandatory), after 收工 肌力三輪
+ * 45 克), 17:00 核心 (星期五 16:05), 17:35 晚餐, 18:00–19:00 出門, 21:00 雞胸加豆漿 on the run (mandatory), after 收工 肌力三輪
  * (latest start 01:50) and 伸展, latest sign-out 02:30. No-class day: wake by 12:00, 13:00 第一餐, 16:20 快走 30 分鐘, 17:00 核心,
- * 17:15 晚餐, delivery, 21:00, 肌力 and 伸展, sign-out by 04:00. A rest day keeps those times without the delivery; its core,
+ * 17:35 晚餐, delivery, 21:00, 肌力 and 伸展, sign-out by 04:00. A rest day keeps those times without the delivery; its core,
  * rounds and stretch are owed as on any day, due from [TrainingSpec.noRideTrainingAt] (not after a ride: there is none).
  */
 object DayPlanner {
     /** On a day without a run: the rounds this long after the core, the stretch this long after the core. */
     const val NO_RIDE_STRENGTH_AFTER_MIN = 10
     const val NO_RIDE_STRETCH_AFTER_MIN = 35
+
+    /** The 21:00 portion and its swaps (owner 2026-11-26), one 雞胸 a day at most. */
+    const val RIDE_MEAL_NOTE = "雞胸加豆漿，一定要吃；可以換成福樂蛋白飲加茶葉蛋、義美高蛋白奶加茶葉蛋或低脂鮮奶（雞胸一天最多一包）"
 
     fun build(
         day: LocalDate,
@@ -78,7 +81,7 @@ object DayPlanner {
             if (reduction == null) add(Slot(SlotKey.CORE, core, note = "半船式、半仰臥起坐、抱膝、單車捲腹、進階抬腿、側棒式左右"))
             add(Slot(SlotKey.DINNER, DayClock.minute(m.dinner)))
             if (!rest) add(Slot(SlotKey.RIDE_OUT, DayClock.minute(s.rideOut), untilMinute = DayClock.minute(s.rideOutUntil)))
-            add(Slot(SlotKey.RIDE_MEAL, DayClock.minute(m.rideMeal), note = if (soy) "雞胸（豆漿早上喝過了）" else "雞胸加豆漿，一定要吃"))
+            add(Slot(SlotKey.RIDE_MEAL, DayClock.minute(m.rideMeal), note = if (soy) "雞胸（豆漿早上喝過了）" else RIDE_MEAL_NOTE))
             if (reduction == null) {
                 val at = if (rest) noRide + NO_RIDE_STRENGTH_AFTER_MIN else strengthLatest
                 add(Slot(SlotKey.STRENGTH, at, afterRide = !rest, note = app.agency.core.engine.Progression.note(t)))

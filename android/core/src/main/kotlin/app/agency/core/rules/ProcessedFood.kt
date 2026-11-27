@@ -19,11 +19,16 @@ enum class BannedCategory(val zh: String, val words: List<String>) {
 
 /**
  * Which banned categories a food name falls in (code, by words). The foods the plan names as his usual ones are never banned
- * (即食雞胸, 統一高纖豆漿, 給力盒子, 全家烤雞三明治, 麥當勞嫩煎雞腿堡／藜麥烤雞沙拉), and a zero-calorie drink is not a sugary one
+ * (即食雞胸, 統一高纖豆漿, 給力盒子, 全家烤雞三明治, 麥當勞嫩煎雞腿堡／藜麥烤雞沙拉, the 21:00 swaps 福樂蛋白飲 and 義美高蛋白奶), and a
+ * zero-calorie drink is not a sugary one
  * (it counts in its own weekly limit).
  */
 object ProcessedFood {
-    val ALLOWED = listOf("即食雞胸", "雞胸", "高纖豆漿", "統一高纖豆漿", "給力盒子", "烤雞三明治", "紐奧良烤雞", "嫩煎雞腿堡", "藜麥烤雞沙拉")
+    val ALLOWED = listOf(
+        "即食雞胸", "雞胸", "高纖豆漿", "統一高纖豆漿", "給力盒子", "烤雞三明治", "紐奧良烤雞", "嫩煎雞腿堡", "藜麥烤雞沙拉", "藜麥烤鷄沙拉",
+        // The 21:00 swaps (owner 2026-11-26): 福樂 has added sugar but is his allowed protein drink (2–3 a week).
+        "福樂蛋白飲", "福樂 蛋白飲", "福樂高蛋白", "高蛋白奶",
+    )
     private val ZERO = listOf("零卡", "無糖", "0卡", "零糖")
 
     fun categories(name: String): Set<BannedCategory> {

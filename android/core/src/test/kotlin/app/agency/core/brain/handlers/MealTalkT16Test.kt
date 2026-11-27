@@ -205,14 +205,14 @@ class MealTalkT16Test {
 
     @Test fun thePreMealSuggestionComesOnceBeforeDinnerAndNeverForTheClassDayLunch() {
         val b = brain(ScriptedLlm())
-        // Before 16:45 the next alarm is the suggestion's.
+        // Before 17:05 the alarms are the core's (17:00) and then the suggestion's.
         at("16:00")
-        assertEquals(day.atStartOfDay(AgencyClock.TAIPEI).plusHours(16).plusMinutes(45).toInstant(), runBlocking { b.nextFire() }!!.at)
-        at("16:45")
+        assertEquals(day.atStartOfDay(AgencyClock.TAIPEI).plusHours(17).toInstant(), runBlocking { b.nextFire() }!!.at)
+        at("17:05")
         val post = runBlocking { b.tick() }.posts.single { it.key == "premeal" }
         // Nothing eaten yet today: the floor (1200) needs 890 besides the 21:00 portion, the cap allows 800.
         assertEquals(
-            "晚餐 17:15 快到了：今天建議 800 大卡以內、蛋白質至少 70 克。可以吃給力盒子南加州烤雞腿（714 大卡、蛋白質 48 克）。" +
+            "晚餐 17:35 快到了：今天建議 800 大卡以內、蛋白質至少 70 克。可以吃給力盒子南加州烤雞腿（714 大卡、蛋白質 48 克）。" +
                 "想吃別的就說「今天想吃…」，跟朋友吃就說「跟朋友吃…」，要找附近的店就說「附近有什麼」。",
             post.text,
         )
@@ -223,7 +223,7 @@ class MealTalkT16Test {
         val line = runBlocking { store.messages.recent(5) }.last { it.kind != app.agency.core.engine.Nerve.KIND }
         assertEquals(RoleKey.BODY, line.role)
         assertEquals(MealDiscussion.PLAN_KIND, line.kind)
-        at("16:50")
+        at("17:10")
         assertTrue(runBlocking { b.tick() }.posts.none { it.key == "premeal" })
         // The class-day lunch is with friends: no suggestion for it (a Tuesday).
         day = LocalDate.parse("2026-11-24")
@@ -239,16 +239,16 @@ class MealTalkT16Test {
 
     @Test fun noSuggestionForAMealAlreadyInAndARestDayStillHasItsMeals() {
         runBlocking { store.meals.insert(Meal("d-0", day.toString(), 0, "DINNER", "晚餐", listOf(MealItem("便當", 1.0, 600, 40.0, null, null, false, KcalSource.TABLE)))) }
-        at("16:50")
+        at("17:10")
         assertTrue(runBlocking { brain(ScriptedLlm()).tick() }.posts.none { it.key == "premeal" })
         day = day.plusDays(1)
         runBlocking { store.days.put(DayOverride(day.toString(), restDay = true, declaredAt = 0)) }
-        at("16:50")
+        at("17:10")
         assertEquals(1, runBlocking { brain(ScriptedLlm()).tick() }.posts.count { it.key == "premeal" })
     }
 
     @Test fun theSuggestionsWordingIsTheBodyTeachersAndJudged() {
-        at("16:45")
+        at("17:05")
         val post = runBlocking { brain(ScriptedLlm()).tick() }.posts.single { it.key == "premeal" }
         // The judge finds compensation: the template stays.
         val bad = ScriptedLlm(ScriptedLlm.ok("""{"text":"晚餐吃給力盒子南加州烤雞腿。"}"""), ScriptedLlm.ok("""{"violation":true,"class":"compensation","reason":"叫他少吃"}"""))
@@ -260,10 +260,10 @@ class MealTalkT16Test {
     }
 
     @Test fun moreFoodTalkRightAfterTheSuggestionIsTheBodyTeachers() {
-        at("16:45")
+        at("17:05")
         runBlocking { brain(ScriptedLlm()).tick() }
         val llm = ScriptedLlm(ScriptedLlm.ok("""{"kind":"chat"}"""), reply("超商買即食雞胸加一份沙拉。"), judgeOk)
-        val out = say("16:50", "我只能買超商", llm)
+        val out = say("17:10", "我只能買超商", llm)
         assertEquals(RoleKey.BODY, out.single().role)
         assertTrue(llm.requests[1].system.contains("你們在討論下一餐吃什麼"))
     }
