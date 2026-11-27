@@ -624,8 +624,92 @@ class AgencyApp(
         brain.monthlyEval(handIn.copy(bodyPhoto = body), media, self, vocal, looks)
     }
 
-    /** The solo song's 音準 share by code (T19d; null until the recording can be decoded). */
-    private fun songPitch(v: MediaVault?, mediaId: String): Int? = null
+    /** The solo song's 音準 share by code (T19d): decoded and tracked on the phone; null when it cannot be read. */
+    private suspend fun songPitch(v: MediaVault?, mediaId: String): Int? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val vault = v ?: return@withContext null
+        val f = File(AudioRecorder.recordDir(context).apply { mkdirs() }, "pitch-${UUID.randomUUID()}.m4a")
+        try {
+            f.writeBytes(vault.get(mediaId))
+            val pcm = app.dshmobile.agency.media.AudioDecode.pcm(f) ?: return@withContext null
+            val s16 = app.agency.core.singing.Wav.resample(pcm.samples, pcm.rate, SINGING_RATE)
+            app.agency.core.singing.Analysis.of(app.agency.core.singing.Pitch.track(s16, SINGING_RATE)).inTunePct
+        } finally {
+            f.delete()
+        }
+    }
+
+    private var asr: app.agency.core.singing.DeepSeekAsr? = null
+
+    /** The reference melody he imported (UltraStar or MIDI), or his 示範錄音; kept for this session only (his own file stays his). */
+    private val _singingRef = MutableStateFlow<List<app.agency.core.singing.RefNote>?>(null)
+    val singingRef: StateFlow<List<app.agency.core.singing.RefNote>?> = _singingRef.asStateFlow()
+
+    /** The last take's chart (PNG) and code's lines, for the singing screen. */
+    data class SingingView(val chart: ByteArray, val lines: List<String>)
+
+    private val _singing = MutableStateFlow<SingingView?>(null)
+    val singing: StateFlow<SingingView?> = _singing.asStateFlow()
+
+    /** 匯入原唱: an UltraStar song file or a MIDI melody he picked; false when it could not be read. */
+    fun importReference(uri: android.net.Uri, done: (Boolean) -> Unit) {
+        scope.launch {
+            val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes().takeIf { b -> b.size <= MAX_PICK_BYTES } } }.getOrNull()
+            }
+            val notes = bytes?.let { b ->
+                if (b.size >= 4 && String(b, 0, 4, Charsets.US_ASCII) == "MThd") app.agency.core.singing.Reference.midi(b)
+                else app.agency.core.singing.Reference.ultraStar(String(b, Charsets.UTF_8))
+            }
+            if (notes != null) _singingRef.value = notes
+            done(notes != null)
+        }
+    }
+
+    fun clearReference() {
+        _singingRef.value = null
+    }
+
+    /**
+     * A take (T19d): decoded and tracked on the phone, the facts and (with a reference) the comparison computed by code, the
+     * chart drawn; with [lyrics] and his consent the take (≤ 2 minutes) goes to speech to text for 咬字; [asDemo] keeps it as
+     * the reference instead. The recording is sealed (it never goes anywhere else); the teacher's words come after.
+     */
+    suspend fun handInSinging(file: File, lyrics: String, aCappella: Boolean, asDemo: Boolean): Boolean {
+        val ready = _start.value as? StartState.Ready ?: return false.also { file.delete() }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val pcm = app.dshmobile.agency.media.AudioDecode.pcm(file)
+            if (pcm == null) {
+                file.delete()
+                _mediaNotice.value = MediaNotice.NOT_SAVED
+                return@withContext false
+            }
+            val s16 = app.agency.core.singing.Wav.resample(pcm.samples, pcm.rate, SINGING_RATE)
+            val frames = app.agency.core.singing.Pitch.track(s16, SINGING_RATE)
+            if (asDemo) {
+                _singingRef.value = app.agency.core.singing.Reference.demo(frames)
+                file.delete()
+                return@withContext true
+            }
+            val ref = _singingRef.value
+            val lines = app.agency.core.singing.Analysis.of(frames).lines().toMutableList()
+            ref?.let { lines += app.agency.core.singing.Score.compare(frames, it, ready.brain.singingStrictness(), aCappella).lines() }
+            if (lyrics.isNotBlank() && settings.dictionConsent) {
+                val heard = asr?.transcribe(app.agency.core.singing.Wav.write(s16, SINGING_RATE))
+                if (heard is app.agency.core.singing.DeepSeekAsr.Result.Ok) lines += app.agency.core.singing.Diction.lines(app.agency.core.singing.Diction.check(lyrics, heard.text))
+            }
+            val png = app.agency.core.singing.Chart.png(frames, ref.orEmpty())
+            _singing.value = SingingView(png, lines)
+            val media = sealFile(file, MediaKind.AUDIO, AudioRecorder.MIME)?.copy(purpose = MediaPurpose.SINGING) ?: return@withContext false
+            val chart = runCatching {
+                val bmp = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.size)
+                val out = java.io.ByteArrayOutputStream()
+                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                bmp.recycle()
+                app.dshmobile.agency.media.PhotoBytes.forModel(out.toByteArray())
+            }.getOrNull()
+            runCatching { ready.brain.singing(media, lines, chart) }.isSuccess
+        }
+    }
 
     /** The image model's read of [media] (T15b): the cleaned vault copy, and for 身體照 the 入社建檔 front photo to compare. */
     private suspend fun readPhoto(ready: StartState.Ready, v: MediaVault, kind: app.agency.core.model.PhotoReadKind, media: Media) {
@@ -1098,6 +1182,11 @@ class AgencyApp(
             app.agency.core.vision.DeepSeekVisionClient(transport, { keyVault.get(Provider.DEEPSEEK) }, checks, costMeter, base ?: CompatEndpoint.DEEPSEEK_BASE),
             app.agency.core.vision.ClaudeVisionClient(transport, { settings.claudeModel }, { keyVault.get(Provider.ANTHROPIC) }, checks, costMeter, base ?: AnthropicClient.BASE),
         )
+        // 咬字 (T19d): the only path a recording may take, after his one-time consent, through the same gate, checks and meter.
+        asr = app.agency.core.singing.DeepSeekAsr(
+            transport, { keyVault.get(Provider.DEEPSEEK) }, checks, costMeter, { settings.dictionConsent },
+            base?.newBuilder()?.addPathSegments("v1/tools/asr")?.build() ?: okhttp3.HttpUrl.Builder().scheme("https").host("api.deepseek.com").addPathSegments("v1/tools/asr").build(),
+        )
         return Brain(
             store, ProviderRouter({ settings.provider }, deepseek, claude, compat), { settings.provider }, clock,
             intakeLlm = ProviderRouter({ settings.provider }, deepseekClerk, claudeClerk, compat),
@@ -1201,6 +1290,7 @@ class AgencyApp(
         private const val PROVIDER_SUFFIX = ".export"
         private const val DEFAULT_DAY_START = 5
         private const val OPEN_WAIT_MS = 8_000L
+        const val SINGING_RATE = 16_000
         private const val MAX_PICK_BYTES = 30 * 1024 * 1024
 
         /** The cheapest Claude model, for the data clerk and the second-pass judge only. */

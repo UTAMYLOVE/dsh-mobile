@@ -41,15 +41,28 @@ class Transport(
         return attempt(url, headers, body).outcome
     }
 
+    /**
+     * One multipart POST of a single file (the 咬字 recording, T19d): the same gate and policy, retried once like JSON; the file
+     * is the only part.
+     */
+    suspend fun postFile(url: HttpUrl, headers: Map<String, String>, field: String, filename: String, bytes: ByteArray, mime: String): HttpOutcome {
+        val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
+            .addFormDataPart(field, filename, bytes.toRequestBody(mime.toMediaType())).build()
+        val first = attempt(url, headers, null, body)
+        if (!first.retryable) return first.outcome
+        sleep(RETRY_DELAY_MS)
+        return attempt(url, headers, null, body).outcome
+    }
+
     /** One GET with no body (the release check), the same policy and the same gate; [headers] only what it needs. */
     suspend fun getJson(url: HttpUrl, headers: Map<String, String>): HttpOutcome = attempt(url, headers, null).outcome
 
     private class Attempt(val outcome: HttpOutcome, val retryable: Boolean)
 
-    private suspend fun attempt(url: HttpUrl, headers: Map<String, String>, body: String?): Attempt {
+    private suspend fun attempt(url: HttpUrl, headers: Map<String, String>, body: String?, part: okhttp3.RequestBody? = null): Attempt {
         val request = try {
             Request.Builder().url(url).apply { headers.forEach { (k, v) -> header(k, v) } }
-                .apply { if (body != null) post(body.toRequestBody(JSON)) else get() }.build()
+                .apply { if (part != null) post(part) else if (body != null) post(body.toRequestBody(JSON)) else get() }.build()
         } catch (_: IllegalArgumentException) {
             return Attempt(HttpOutcome.Offline, retryable = false) // a header value OkHttp refuses; nothing was sent
         }

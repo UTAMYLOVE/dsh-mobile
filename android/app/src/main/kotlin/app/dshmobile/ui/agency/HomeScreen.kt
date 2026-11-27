@@ -173,6 +173,11 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         app.dshmobile.ui.agency.eval.CeremonyScreen(cat, l) { seen++; agency.settings.ceremoniesSeen = seen }
         return
     }
+    var singing by remember { mutableStateOf(false) }
+    if (singing) {
+        app.dshmobile.ui.agency.eval.SingingScreen(agency) { singing = false }
+        return
+    }
     // 每週評鑑 / 月評 take the whole screen while he hands them in.
     var eval by remember { mutableStateOf<SlotKey?>(null) }
     eval?.let { key ->
@@ -223,6 +228,7 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
                 onCheck = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Check) },
                 onBody = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Body) },
                 onEval = { eval = it },
+                onSinging = { singing = true },
             )
         }
         Composer(busy = busy, onSend = agency::send)
@@ -359,7 +365,14 @@ private fun PracticeButtons(
     onCheck: () -> Unit,
     onBody: () -> Unit,
     onEval: (SlotKey) -> Unit,
+    onSinging: () -> Unit = {},
 ) {
+    // 唱歌分析 opens with the vocal practice (rollout week 3: 聲樂基本功).
+    if (card?.open?.contains(app.agency.core.schedule.Feature.VOCAL_BASICS) == true) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
+            SoftButton(stringResource(R.string.ag_sing_open), onClick = onSinging, enabled = !busy, modifier = Modifier.testTag(PracticeTags.PRACTICE + "SINGING"))
+        }
+    }
     val owed = card?.slots.orEmpty().filter { it.key.kind == app.agency.core.schedule.SlotKind.PRACTICE && it.status != SlotStatus.DONE && it.status != SlotStatus.MISSED && (it.key != SlotKey.SURPRISE_CHECK || it.status == SlotStatus.OPEN) }
     if (owed.isEmpty()) return
     Row(

@@ -31,7 +31,7 @@ class PriceTable {
         val tokens = u.cacheReadTokens * rates.cacheHit +
             (u.inputTokens + u.cacheWriteTokens) * rates.miss +
             u.outputTokens * rates.output
-        return tokens / MILLION + u.webSearchRequests * DEEPSEEK_SEARCH_USD
+        return tokens / MILLION + u.webSearchRequests * DEEPSEEK_SEARCH_USD + u.asrMs / 3_600_000.0 * app.agency.core.singing.DeepSeekAsr.USD_PER_HOUR
     }
 
     private fun anthropicCost(model: String, u: Usage, maxPromptTokens: Long?, requests: Long): Double {

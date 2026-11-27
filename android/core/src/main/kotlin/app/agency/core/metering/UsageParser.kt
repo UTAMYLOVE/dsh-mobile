@@ -13,6 +13,8 @@ data class Usage(
     val cacheReadTokens: Long = 0,
     val cacheWriteTokens: Long = 0,
     val webSearchRequests: Long = 0,
+    /** Milliseconds of audio sent to speech to text (T19d 咬字), billed by time. */
+    val asrMs: Long = 0,
 )
 
 /** The usage fields one SSE event carried; a null field was absent and leaves the earlier value alone. */

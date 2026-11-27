@@ -552,4 +552,19 @@
     <string name="ag_ceremony_sub">從今天起影片、考題和實作都變難。升級小卡貼上照片牆了。</string>
     <string name="ag_ceremony_ok">收下小卡</string>
     <string name="ag_card_theme">這週主題：%1$s</string>
+    <string name="ag_sing_title">唱歌分析</string>
+    <string name="ag_sing_open">唱歌分析</string>
+    <string name="ag_sing_ref_none">還沒有原唱：只分析你自己的音準、音域、氣長和音量。</string>
+    <string name="ag_sing_ref_has">有原唱：%1$d 個音，唱完會比對。</string>
+    <string name="ag_sing_ref_ok">原唱讀好了。</string>
+    <string name="ag_sing_ref_bad">這個檔案讀不出旋律（要卡拉歌曲文字檔或旋律檔）。</string>
+    <string name="ag_sing_import">匯入原唱檔</string>
+    <string name="ag_sing_clear">清掉原唱</string>
+    <string name="ag_sing_a_cappella">清唱</string>
+    <string name="ag_sing_backing">跟伴奏</string>
+    <string name="ag_sing_as_demo">這次當示範</string>
+    <string name="ag_sing_lyrics">歌詞（有寫才檢查咬字）</string>
+    <string name="ag_sing_consent">檢查咬字要把這次的錄音送到深度求索的語音轉文字（兩分鐘以內，會算錢、受花費上限管）。同意一次以後，有寫歌詞的錄音才會送；沒寫歌詞就不送。</string>
+    <string name="ag_sing_consent_yes">同意送去轉文字</string>
+    <string name="ag_sing_chart">音高曲線圖</string>
 </resources>

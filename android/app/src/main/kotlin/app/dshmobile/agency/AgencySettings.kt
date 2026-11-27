@@ -58,6 +58,14 @@ class AgencySettings(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(IDOL_SETUP_SKIPPED, false)
         set(v) = putBool(IDOL_SETUP_SKIPPED, v)
 
+    /**
+     * 咬字分析 (T19d): his one-time yes that a take with lyrics may go to DeepSeek's speech to text (off until he turns it on;
+     * nothing else of a recording ever leaves the phone).
+     */
+    var dictionConsent: Boolean
+        get() = prefs.getBoolean(DICTION_CONSENT, false)
+        set(v) = putBool(DICTION_CONSENT, v)
+
     /** How many 升級典禮 he has seen (T19e): a newer level card shows the ceremony screen once. */
     var ceremoniesSeen: Int
         get() = prefs.getInt(CEREMONIES_SEEN, 0)
@@ -102,6 +110,7 @@ class AgencySettings(private val prefs: SharedPreferences) {
         const val COMPAT_TOOLS = "compat_tools"
         const val IDOL_SETUP_SKIPPED = "idol_setup_skipped"
         const val CEREMONIES_SEEN = "ceremonies_seen"
+        const val DICTION_CONSENT = "diction_consent"
 
         /** The compatible service's key, in KeyVault's named slots (the coach's slot, kept). */
         const val COMPAT_KEY = "COACH_COMPAT"

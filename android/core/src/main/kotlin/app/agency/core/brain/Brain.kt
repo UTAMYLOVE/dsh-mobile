@@ -1183,6 +1183,29 @@ class Brain(
         return (if (due == 0) 100 else done * 100 / due) to breaches
     }
 
+    /** 唱歌分析 (T19d): how strict the comparison is, by his vocal level (一般 until 進階, then 嚴格; never 入門). */
+    suspend fun singingStrictness(): app.agency.core.singing.Strictness =
+        app.agency.core.singing.Strictness.forLevel(snapshot.plans.specs().levels.of(app.agency.core.model.LessonCategory.VOCAL.name).level)
+
+    /**
+     * A take analysed on the phone (T19d): [media] (the recording, sealed) is written, then the vocal teacher's words on the
+     * cleaned [chart] and code's [facts] when a provider that sees pictures is set (her numbers must be code's), else code's
+     * summary. The recording itself never goes anywhere here.
+     */
+    suspend fun singing(media: Media, facts: List<String>, chart: app.agency.core.vision.VisionImage?): Message = mutex.withLock {
+        if (store.media.get(media.id) == null) store.media.insert(media)
+        val v = vision?.takeIf { it.supported() }
+        val said = if (v != null && chart != null) {
+            (v.see(app.agency.core.singing.SingingCoach.request(chart, facts)) as? app.agency.core.vision.VisionResult.Ok)
+                ?.let { app.agency.core.singing.SingingCoach.accept(it.text, facts) }
+                ?.let { judged -> if (judge.judge(judged, "聲樂老師講評唱歌") is app.agency.core.guard.Verdict.Breach) null else judged }
+        } else {
+            null
+        }
+        val text = said?.let { it + "\n\n" + facts.joinToString("\n") } ?: app.agency.core.singing.SingingCoach.summary(facts)
+        reply(RoleKey.MANAGER, text, if (said != null) WordedBy.MODEL else WordedBy.TEMPLATE, SINGING_KIND).also { bump() }
+    }
+
     /** Today's coach day. */
     suspend fun today(): java.time.LocalDate = snapshot.today(snapshot.profile())
 
@@ -1621,6 +1644,7 @@ class Brain(
 
         /** The kind of the body teacher's line about a meal photo (T15). */
         const val SCENE_KIND = "scene"
+        const val SINGING_KIND = "singing"
         const val SCENE_FROM = "08:30"
         const val MEAL_PHOTO_KIND = "meal_photo"
 
