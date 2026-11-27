@@ -86,7 +86,7 @@ class AgencyActivityTest {
         rule.onNodeWithText("【小葵姐】").assertIsDisplayed()
 
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.WAR_ROOM.name).performClick()
-        rule.onNodeWithText("指揮室整修中").assertIsDisplayed()
+        rule.onNodeWithText("後台手帳").assertIsDisplayed()
 
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.SETTINGS.name).performClick()
         rule.onNodeWithTag(SettingsTags.ENTRY + SettingsPage.MODEL.name).performClick()

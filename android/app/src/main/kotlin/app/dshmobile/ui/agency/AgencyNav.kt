@@ -142,7 +142,7 @@ private fun Tabs(agency: AgencyApp, ready: StartState.Ready, actions: AgencyActi
             when (tab) {
                 AgencyTab.COMPANY -> HomeScreen(agency, ready, actions)
                 AgencyTab.LESSONS -> app.dshmobile.ui.agency.lessons.LessonsScreen(agency, ready, actions)
-                AgencyTab.WAR_ROOM -> WarRoomPlaceholder(ready)
+                AgencyTab.WAR_ROOM -> app.dshmobile.ui.warroom.WarRoomScreen(ready, { agency.costMeter.todayUsd() }, { agency.costMeter.hardCapUsd })
                 AgencyTab.SETTINGS -> SettingsScreen(agency, ready)
             }
         }
@@ -155,19 +155,3 @@ private fun Dot(on: Boolean) {
     Box(Modifier.padding(4.dp).background(if (on) LocalAccent.current.fill else Sakura.MilkTea, shape).padding(5.dp))
 }
 
-/** 指揮室 is rebuilt in T20; until then one panel and 「今天的連動」 (T11b). */
-@Composable
-fun WarRoomPlaceholder(ready: StartState.Ready) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag(AgencyTags.WAR_ROOM),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Panel(title = stringResource(R.string.ag_warroom_title)) {
-            Text(stringResource(R.string.ag_warroom_closed), color = Sakura.Text, fontSize = 15.sp)
-        }
-        app.dshmobile.ui.warroom.StaffCard()
-        app.dshmobile.ui.warroom.MemoCard(ready)
-        TodayLinksCard(ready)
-        app.dshmobile.ui.warroom.PhotoWallCard(ready)
-    }
-}

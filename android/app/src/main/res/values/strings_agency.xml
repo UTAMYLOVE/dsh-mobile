@@ -567,4 +567,11 @@
     <string name="ag_sing_consent">檢查咬字要把這次的錄音送到深度求索的語音轉文字（兩分鐘以內，會算錢、受花費上限管）。同意一次以後，有寫歌詞的錄音才會送；沒寫歌詞就不送。</string>
     <string name="ag_sing_consent_yes">同意送去轉文字</string>
     <string name="ag_sing_chart">音高曲線圖</string>
+    <string name="ag_war_title">後台手帳</string>
+    <string name="ag_war_stickers">今天的貼紙：貼了 %1$d 張，還有 %2$d 格空著</string>
+    <string name="ag_war_breaches">今天違規 %1$d 次</string>
+    <string name="ag_war_manager">經紀人 小葵姐</string>
+    <string name="ag_war_body">體態管理老師</string>
+    <string name="ag_war_spend">今天的花費：%1$s 美元</string>
+    <string name="ag_war_spend_cap">今天的花費：%1$s／上限 %2$s 美元</string>
 </resources>
