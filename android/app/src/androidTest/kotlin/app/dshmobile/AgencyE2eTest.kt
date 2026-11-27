@@ -219,7 +219,28 @@ class AgencyE2eTest {
         }
     }
 
+    /**
+     * A test that hangs (the screen never idle) says where the main thread is: every 30 s after the first minute, its stack
+     * goes to logcat under 「E2E-WATCH」 (diagnostics only; the test itself is unchanged).
+     */
+    private var watchdog: Thread? = null
+
+    private fun startWatchdog() {
+        val main = android.os.Looper.getMainLooper().thread
+        watchdog = Thread {
+            try {
+                Thread.sleep(60_000)
+                while (true) {
+                    android.util.Log.w("E2E-WATCH", "main thread:\n" + main.stackTrace.take(60).joinToString("\n") { "  at $it" })
+                    Thread.sleep(30_000)
+                }
+            } catch (_: InterruptedException) {
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
     @Before fun setUp() {
+        startWatchdog()
         // The notification question (asked once 入社建檔 is done) and the microphone's would cover the company: answered
         // beforehand, as on a phone where he said yes.
         val ui = InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -228,6 +249,7 @@ class AgencyE2eTest {
     }
 
     @After fun tearDown() {
+        watchdog?.interrupt()
         lastLines = runCatching {
             runBlocking { ready().store.messages.recent(40) }.joinToString("\n") { "${it.who} ${it.kind} unsent=${it.unsent} ${it.text.take(160)}" }
         }.getOrDefault("(not open)")
