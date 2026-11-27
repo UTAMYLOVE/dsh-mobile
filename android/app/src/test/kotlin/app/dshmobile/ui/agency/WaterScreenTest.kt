@@ -18,6 +18,7 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
+import app.dshmobile.agency.AgencyTestKit.Companion.tapTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.StartState
 import app.dshmobile.ui.settings.SettingsPage
@@ -71,10 +72,10 @@ class WaterScreenTest {
 
     @Test fun theButtonsRecordTheBottleAndTheCardShowsIt() {
         open()
-        rule.onNodeWithTag(AgencyTags.WATER_HALF).performScrollTo().performClick()
+        rule.tapTag(AgencyTags.WATER_HALF, 30_000)
         rule.waitUntil(10_000) { halves() == 1 }
         rule.waitForText("記下：喝了半壺。", 30_000)
-        rule.onNodeWithTag(AgencyTags.WATER_FULL).performScrollTo().performClick()
+        rule.tapTag(AgencyTags.WATER_FULL, 30_000)
         rule.waitUntil(10_000) { halves() == 3 }
         assertEquals(3, runBlocking { ready().brain.card() }.waterHalves)
     }

@@ -34,6 +34,7 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
+import app.dshmobile.agency.AgencyTestKit.Companion.tapTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.StartState
 import app.dshmobile.agency.media.MediaVault
@@ -110,7 +111,7 @@ class MealPhotoScreenTest {
         // The button is disabled while the brain answers: wait until it is idle.
         rule.waitUntil(10_000) { !(app.agency.start.value as StartState.Ready).brain.busy.value }
         rule.waitForIdle()
-        rule.onNodeWithTag(MealTags.PHOTO).performClick()
+        rule.tapTag(MealTags.PHOTO, 30_000)
         var started: Intent? = null
         // The notification permission is asked once when 入社建檔 is done; its request may come first: skip it.
         rule.waitUntil(5_000) {

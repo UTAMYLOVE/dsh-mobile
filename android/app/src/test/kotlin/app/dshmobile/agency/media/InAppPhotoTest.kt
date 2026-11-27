@@ -27,6 +27,7 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
+import app.dshmobile.agency.AgencyTestKit.Companion.tapTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.MediaNotice
 import app.dshmobile.agency.StartState
@@ -180,7 +181,7 @@ class InAppPhotoTest {
         rule.waitForTag(MealTags.MENU, 30_000)
         // The chips wait while the company answers 「刮好了」.
         rule.waitUntil(30_000) { runCatching { rule.onNodeWithTag(MealTags.MENU).assertIsEnabled() }.isSuccess }
-        rule.onNodeWithTag(MealTags.MENU).performScrollTo().performClick()
+        rule.tapTag(MealTags.MENU, 30_000)
         // The notification question may come first (入社建檔 is done): wait for the camera's.
         rule.waitUntil(10_000) {
             var asked = false
@@ -197,7 +198,7 @@ class InAppPhotoTest {
         rule.waitForText("沒有相機權限")
         // Granted: the app's own camera opens for the menu (no camera app, no file).
         shadowOf(app).grantPermissions(Manifest.permission.CAMERA)
-        rule.onNodeWithTag(MealTags.MENU).performScrollTo().performClick()
+        rule.tapTag(MealTags.MENU, 30_000)
         rule.waitUntil(5_000) { app.agency.inAppCamera.value == PhotoTarget.Menu || app.agency.camera.pending() != null }
         assertTrue(MediaVault.cameraDir(app).list().orEmpty().isEmpty() || app.agency.camera.pending() != null)
     }

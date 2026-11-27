@@ -17,6 +17,7 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
+import app.dshmobile.agency.AgencyTestKit.Companion.tapTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.StartState
 import app.dshmobile.ui.agency.training.TrainingTags
@@ -78,7 +79,7 @@ class TrainingScreenTest {
 
     @Test fun theCoreTimerShowsEachMoveAndWhatComesNextAndReportsWhenItIsOver() {
         open()
-        rule.onNodeWithTag(TrainingTags.CORE).performScrollTo().performClick()
+        rule.tapTag(TrainingTags.CORE, 30_000)
         rule.waitForTag(TrainingTags.START)
         rule.onNodeWithTag(TrainingTags.START).performClick()
         rule.onNodeWithTag(TrainingTags.STEP).assertTextEquals("半船式")
@@ -104,7 +105,7 @@ class TrainingScreenTest {
 
     @Test fun theRoundsAskForTheLastRoundAndRecordIt() {
         open()
-        rule.onNodeWithTag(TrainingTags.STRENGTH).performScrollTo().performClick()
+        rule.tapTag(TrainingTags.STRENGTH, 30_000)
         rule.waitForTag(TrainingTags.START)
         rule.onNodeWithTag(TrainingTags.START).performClick()
         rule.onNodeWithTag(TrainingTags.STEP).assertTextEquals("伏地挺身")
