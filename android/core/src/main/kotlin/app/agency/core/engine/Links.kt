@@ -430,36 +430,43 @@ object Links {
     }
 
     /**
-     * L15: the strength rounds were easy for a whole week (every session of the current step, 2 or more reps left on the last
-     * round; [Progression.weekEasy]) and protein reached the target the day before → the body teacher proposes the next step,
-     * one at a time, in order (背包划船 → 臀橋 → 第四輪). Never while one waits, never past the last step; his yes applies it.
+     * L15 訓練升級 (owner 2026-11-22 甲, 2026-11-26): AUTOMATIC once truly stable ([Progression.stable]: two weeks of full rounds
+     * with room to spare, 「輕鬆」 twice, no illness, protein on five of seven days, two weeks after the last step) → one item
+     * up one step, the ladders in turn (strength, core, cardio), with its 「因為…所以…」; protein is to be eaten in full on the
+     * days after. Two sessions in a row not in full after a step: it stays at this step (never back down). Answers a strength
+     * report.
      */
     object L15Progression : Link {
         override val feature get() = app.agency.core.schedule.Feature.STRENGTH
         override val id = "L15"
-        override val zh = "肌力一週都輕鬆：提案升級（一次一項）"
+        override val zh = "訓練真的穩定了：自動加一級（一次一項，加完兩週不再加）"
         override val dailyCap = 1
+        const val HOLD = "加量之後連兩次沒做滿：停在這一級，不退回，先把這一級做穩。"
 
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
-            if (signal !is Signal.TrainingDone || signal.kind != TrainingKind.STRENGTH || !signal.easy) return emptyList()
-            val step = ctx.specs.training.progressionStep
-            val next = Progression.next(step) ?: return emptyList()
-            if (signal.step != step || state.pendingProgression) return emptyList()
-            if (!Progression.weekEasy(state.day, step, state.strengthSessions, state.illDays)) return emptyList()
-            val protein = state.proteinByDay[state.day.minusDays(1)] ?: 0.0
-            if (protein < ctx.rules.proteinG) return emptyList()
-            val change = Progression.change(next)
+            if (signal !is Signal.TrainingDone || signal.kind != TrainingKind.STRENGTH) return emptyList()
+            val t = ctx.specs.training
+            val last = t.lastStepDay?.let { java.time.LocalDate.parse(it) }
+            if (!signal.full) {
+                val after = state.strengthSessions.filterKeys { d -> last != null && d.isAfter(last.minusDays(1)) }.toSortedMap()
+                val tail = after.values.toList().takeLast(2)
+                return if (last != null && tail.size == 2 && tail.none { it.full }) listOf(Effect.Say(HOLD, role = RoleKey.BODY), Effect.Record("hold", t.progressionStep.toString())) else emptyList()
+            }
+            if (!signal.easy || state.pendingProgression) return emptyList()
+            val stable = Progression.stable(
+                state.day,
+                Progression.Stability(state.strengthSessions, state.missedStrengthDays, state.illDays, state.easySaidDays, state.proteinByDay, ctx.rules.proteinG),
+                last,
+            )
+            if (!stable) return emptyList()
+            val ladder = Progression.nextLadder(t, ctx.specs.open(app.agency.core.schedule.Feature.CARDIO)) ?: return emptyList()
+            val next = Progression.up(t, ladder, state.day)
+            val change = Progression.change(ladder, next)
+            val because = "因為這兩週的肌力每次都做滿、最後一輪還能多做 ${Progression.EASY_EXTRA} 下以上，你也說了輕鬆、沒有生病、蛋白質有吃夠，" +
+                "所以自動加一級（一次一項，加完兩週內不再加）：$change"
             return listOf(
-                Effect.Say(
-                    "這一週的肌力，每次最後一輪都還能多做 ${Progression.EASY_EXTRA} 下以上，可以加量了。我提一個：$change" +
-                        "你說「好」才加；加量的日子蛋白質一定要吃夠 ${ctx.rules.proteinG} 克。",
-                    role = RoleKey.BODY,
-                ),
-                Effect.Proposal(
-                    todayOnly = false, change = change,
-                    because = "因為這一週的肌力每次最後一輪都還能多做 ${Progression.EASY_EXTRA} 下以上，昨天蛋白質也吃到 ${ctx.rules.proteinG} 克，所以提案加一樣（一次只加一樣）：$change",
-                    progression = next,
-                ),
+                Effect.Progress(ladder.name, because),
+                Effect.Say("$because 接下來兩週蛋白質一定要吃夠 ${ctx.rules.proteinG} 克；做不完就停在這一級，不退回。", role = RoleKey.BODY),
             )
         }
     }

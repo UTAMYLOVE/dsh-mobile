@@ -26,6 +26,8 @@ data class StrengthReport(
     val extra: Int? = null,
     val fromTimer: Boolean = false,
     val seconds: Int? = null,
+    /** He said this time was 「輕鬆」 (the report's chip, or his words): the progression rule needs it twice. */
+    val easySaid: Boolean = false,
 )
 
 /**
@@ -72,11 +74,13 @@ class TrainingDesk(
 
     private fun verified(fromTimer: Boolean, seconds: Int?, timed: Int) = fromTimer && seconds != null && seconds >= timed * PROOF_SHARE
 
-    private suspend fun write(plan: DayPlan, kind: TrainingKind, rounds: Int?, detail: String, verified: Boolean, easy: Boolean = false): Signal {
+    private suspend fun write(
+        plan: DayPlan, kind: TrainingKind, rounds: Int?, detail: String, verified: Boolean, easy: Boolean = false, full: Boolean = true, saidEasy: Boolean = false,
+    ): Signal {
         val now = clock.millis()
         val log = TrainingLog(newId(), plan.day.toString(), now, kind, rounds, detail, reduced = false, verified = verified)
         store.training.insert(log)
-        return Signal.TrainingDone("training:${log.id}", now, kind, easy, plan.progressionStep, rounds)
+        return Signal.TrainingDone("training:${log.id}", now, kind, easy, plan.progressionStep, rounds, full = full, saidEasy = saidEasy)
     }
 
     private fun proof(fromTimer: Boolean, verified: Boolean, seconds: Int?): String = when {
@@ -90,9 +94,10 @@ class TrainingDesk(
         val plan = plan()
         notToday(plan, SlotKey.CORE, "核心")?.let { return MealOutcome(null, listOf(it)) }
         if (done(plan, TrainingKind.CORE7)) return MealOutcome(null, listOf("今天的核心已經記過了。"))
-        val ok = verified(fromTimer, seconds, Routine.timedSeconds(Routine.CORE))
+        val ok = verified(fromTimer, seconds, Routine.timedSeconds(Routine.core(plan.coreStep)))
         val detail = buildJsonObject {
             put("moves", Routine.CORE.size)
+            put("step", plan.coreStep)
             seconds?.let { put("seconds", it) }
             put("timer", fromTimer)
         }.toString()
@@ -122,7 +127,7 @@ class TrainingDesk(
             r.seconds?.let { put("seconds", it) }
             put("timer", r.fromTimer)
         }.toString()
-        val signal = write(plan, TrainingKind.STRENGTH, r.rounds ?: need, detail, ok, easy)
+        val signal = write(plan, TrainingKind.STRENGTH, r.rounds ?: need, detail, ok, easy, full = full || last.isEmpty(), saidEasy = r.easySaid)
         val lines = mutableListOf<String>()
         lines += if (last.isEmpty()) {
             "記下：肌力 $need 輪（${if (r.fromTimer) proof(true, ok, r.seconds) else "打字回報，沒有次數，未證實"}）。"
@@ -151,7 +156,7 @@ class TrainingDesk(
         val plan = plan()
         notToday(plan, SlotKey.CARDIO, "體能")?.let { return MealOutcome(null, listOf(it)) }
         if (done(plan, TrainingKind.CARDIO)) return MealOutcome(null, listOf("今天的體能已經記過了。"))
-        val ok = verified(fromTimer, seconds, Routine.timedSeconds(Routine.cardio(plan.cardioMin)))
+        val ok = verified(fromTimer, seconds, Routine.timedSeconds(Routine.cardio(plan.cardioMin, Routine.cardioWork(plan.cardioStep))))
         val detail = buildJsonObject {
             put("minutes", plan.cardioMin)
             seconds?.let { put("seconds", it) }
@@ -201,7 +206,9 @@ class TrainingDesk(
         val kind = TrainingWords.kind(text) ?: said?.kind?.let(TrainingWords::ofIntake) ?: return MealOutcome(null, listOf(WHICH))
         return when (kind) {
             TrainingKind.CORE7 -> core(fromTimer = false, seconds = null)
-            TrainingKind.STRENGTH -> strength(StrengthReport(TrainingWords.rounds(text) ?: said?.rounds, extra = TrainingWords.extra(text) ?: said?.lastRoundExtra))
+            TrainingKind.STRENGTH -> strength(
+                StrengthReport(TrainingWords.rounds(text) ?: said?.rounds, extra = TrainingWords.extra(text) ?: said?.lastRoundExtra, easySaid = TrainingWords.saidEasy(text)),
+            )
             TrainingKind.STRETCH -> stretch(fromTimer = false, seconds = null)
             TrainingKind.WALK -> walk()
             TrainingKind.CARDIO -> cardio(fromTimer = false, seconds = null)
@@ -240,6 +247,16 @@ object TrainingWords {
     private val EXTRA = Regex("(?:還能|還可以|可以再)多做\\s*([0-9一二兩三四五六七八九十]+)\\s*下")
 
     fun notDone(text: String): Boolean = NOT_DONE.containsMatchIn(text)
+
+    private val EASY = Regex("(?<!不)(?<!不太)(?<!沒有)(?<!沒)輕鬆")
+
+    /** He says it was easy (「很輕鬆」; never 「不輕鬆」「沒有很輕鬆」). */
+    fun saidEasy(text: String): Boolean = EASY.containsMatchIn(text) && !text.contains("不輕鬆") && !text.contains("沒有很輕鬆") && !text.contains("不太輕鬆")
+
+    private val FELT_EASY = Regex("^(?:今天)?(?:的)?(?:肌力|核心|體能|訓練)(?:的)?(?:好|很|超|蠻|滿|算|有點)?輕鬆(?:耶|欸|喔|啊|了)?$")
+
+    /** 「肌力好輕鬆」 on its own (no report): a 「輕鬆」 for the progression rule. */
+    fun feltEasy(text: String): Boolean = FELT_EASY.matches(text.trim().trimEnd('。', '！', '!'))
 
     fun started(text: String): Boolean = STARTED.matches(text.trim())
 

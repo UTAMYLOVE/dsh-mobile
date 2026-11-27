@@ -233,72 +233,83 @@ class TrainingT18Test {
         assertEquals(listOf("今天只改這一天：肌力停一天，伸展照做就好。不用補做。"), rounds("23:10", extra = 2))
     }
 
-    /** A week of easy rounds at [step] (Monday to Sunday, [rest] a rest day), protein 140 every day before [day]. */
-    private fun easyWeek(start: LocalDate, rest: LocalDate? = null, extra: Int = 2, proteinG: Double = 140.0): List<List<String>> {
+    /**
+     * [days] days of rounds from [start] (every move in full, [extra] left on the last round), protein [proteinG] each day, 「輕鬆」
+     * said on the days of [easyOn] (indexes); [rest] declared a rest day (it trains too). Returns what each evening said.
+     */
+    private fun easyDays(start: LocalDate, days: Int, extra: Int = 2, proteinG: Double = 140.0, easyOn: Set<Int> = setOf(2, 9), rest: Int? = null): List<List<String>> {
         val out = mutableListOf<List<String>>()
-        for (i in 0 until 7) {
+        for (i in 0 until days) {
             day = start.plusDays(i.toLong())
-            // A rest day trains too (only the run is off), in the no-run block.
-            if (day == rest) say("09:00", "今天休息")
+            if (i == rest) say("09:00", "今天休息")
             protein("17:30", proteinG)
-            out += rounds(if (day == rest) "18:50" else "23:50", extra = extra)
+            at(if (i == rest) "18:50" else "23:50")
+            out += lines(runBlocking { brain().strengthDone(StrengthReport(3, full, extra, seconds = 900, easySaid = i in easyOn)) })
         }
         return out
     }
 
-    private fun pending() = runBlocking { store.proposals.withStatus(ProposalStatus.PENDING) }.filter { it.kind == ProposalKind.PROGRESSION }
+    private fun steps() = runBlocking { PlanStore(store).specs() }.training.let { Triple(it.progressionStep, it.coreStep, it.cardioStep) }
 
-    @Test fun aWeekOfEasyRoundsProposesTheNextStepOneAtATimeInOrder() {
-        val week = easyWeek(LocalDate.parse("2026-11-23"), rest = LocalDate.parse("2026-11-25"))
-        // Only on the seventh day (Sunday), and only once.
-        assertTrue(week.dropLast(1).all { it.none { l -> l.contains("可以加量了") } })
-        assertTrue(week.last().any { it.startsWith("這一週的肌力，每次最後一輪都還能多做 2 下以上，可以加量了。我提一個：肌力每輪加一個動作：背包划船 12 下。") })
-        val p = pending().single()
-        assertEquals(RoleKey.BODY, p.role)
-        // Nothing changes before his yes; a second easy day while it waits proposes nothing more.
-        assertEquals(0, runBlocking { PlanStore(store).specs() }.training.progressionStep)
-        day = day.plusDays(1)
-        protein("17:30", 150.0)
-        rounds("23:50", extra = 3)
-        assertEquals(1, pending().size)
-        // His 「好」 (it waits across days): the training plan's next version, changed by the proposal.
-        assertEquals(listOf("好，下一次肌力開始：3 輪：伏地挺身 15 下、慢速深蹲 20 下、棒式 60 秒、背包划船 12 下。加量的日子蛋白質一定要吃夠 140 克。"), say("23:59", "好"))
-        val section = runBlocking { store.rules.section(PlanSectionKey.TRAINING) }!!
-        assertEquals(1, runBlocking { PlanStore(store).specs() }.training.progressionStep)
-        assertEquals(p.id, section.changedBy)
-        assertTrue(runBlocking { brain().nerve.plan(day) }.slot(SlotKey.STRENGTH)!!.note!!.contains("背包划船 12 下"))
-        // The next week counts only sessions at the new step: then the glute bridge, never two steps at once.
-        val next = easyWeek(day.plusDays(1))
-        assertTrue(next.last().any { it.contains("我提一個：肌力每輪加一個動作：臀橋 15 下。") })
-        assertEquals(2, pending().single().let { (app.agency.core.engine.Nerve.decodeEffect(it.diffJson) as app.agency.core.engine.Effect.Proposal).progression })
+    @Test fun twoTrulyStableWeeksStepUpByThemselvesOneItemAtATime() {
+        val start = LocalDate.parse("2026-11-23")
+        val evenings = easyDays(start, 14, rest = 2)
+        // Only on the fourteenth day (two whole weeks), with no question: the strength ladder first.
+        assertEquals(listOf(13), evenings.indices.filter { i -> evenings[i].any { it.contains("自動加一級") } })
+        assertTrue(evenings[13].any { it.contains("所以自動加一級（一次一項，加完兩週內不再加）：肌力：背包划船 12 下。") })
+        assertEquals(Triple(1, 0, 0), steps())
+        assertEquals(Links.L15Progression.id, runBlocking { store.rules.section(PlanSectionKey.TRAINING) }!!.changedBy)
+        assertTrue(runBlocking { store.proposals.withStatus(ProposalStatus.PENDING) }.none { it.kind == ProposalKind.PROGRESSION })
+        assertTrue(runBlocking { brain().nerve.plan(day.plusDays(1)) }.slot(SlotKey.STRENGTH)!!.note!!.contains("背包划船 12 下"))
+        // Two weeks of nothing more, however easy; then the next ladder in turn: the core.
+        val next = easyDays(day.plusDays(1), 14, easyOn = setOf(1, 8))
+        assertEquals(listOf(13), next.indices.filter { i -> next[i].any { it.contains("自動加一級") } })
+        assertTrue(next[13].any { it.contains("核心：每個動作 75 秒（約 9 分鐘）。") })
+        assertEquals(Triple(1, 1, 0), steps())
+        assertEquals(75, runBlocking { brain().routine(TrainingKind.CORE7) }!!.first().seconds)
     }
 
-    @Test fun noStepWhenTheLastRoundWasOnlyOneMoreOrProteinWasShort() {
-        easyWeek(LocalDate.parse("2026-11-23"), extra = 1)
-        assertTrue(pending().isEmpty())
-        easyWeek(LocalDate.parse("2026-11-30"), proteinG = 120.0)
-        assertTrue(pending().isEmpty())
-        // A missed day breaks the week (a week far from the others, so their days are not in it).
-        val start = LocalDate.parse("2027-01-04")
-        for (i in 0 until 7) {
-            day = start.plusDays(i.toLong())
-            protein("17:30", 140.0)
-            if (i != 3) rounds("23:50", extra = 2)
-        }
-        assertTrue(pending().isEmpty())
-        assertTrue(runBlocking { store.nerve.effects(day.toString()) }.none { it.link == Links.L15Progression.id && it.kind == EffectKind.PROPOSAL })
+    @Test fun noStepWithoutRoomOnTheLastRoundEasyTwiceProteinOrHealth() {
+        easyDays(LocalDate.parse("2026-11-23"), 14, extra = 1)
+        assertEquals(Triple(0, 0, 0), steps())
+        easyDays(LocalDate.parse("2027-01-04"), 14, easyOn = setOf(5))
+        assertEquals(Triple(0, 0, 0), steps())
+        easyDays(LocalDate.parse("2027-03-01"), 14, proteinG = 120.0)
+        assertEquals(Triple(0, 0, 0), steps())
+        // Ill in the two weeks: no step.
+        val start = LocalDate.parse("2027-05-03")
+        easyDays(start, 7)
+        day = start.plusDays(7)
+        say("09:00", "我發燒了")
+        easyDays(start.plusDays(8), 6)
+        assertEquals(Triple(0, 0, 0), steps())
+        assertTrue(Progression.next(Progression.MAX_STEP) == null)
     }
 
-    @Test fun theLastStepIsTheFourthRoundAndThenNothingMore() {
+    @Test fun aStepItCannotFinishStaysAndNeverGoesBack() {
         runBlocking {
-            store.rules.putSection(PlanSectionKey.TRAINING, app.agency.core.schedule.PlanSpecs.JSON.encodeToString(TrainingSpec.serializer(), TrainingSpec(progressionStep = 3)), "test", 1)
+            store.rules.putSection(PlanSectionKey.TRAINING, app.agency.core.schedule.PlanSpecs.JSON.encodeToString(TrainingSpec.serializer(), TrainingSpec(progressionStep = 3, lastStepDay = "2026-11-22")), "test", 1)
         }
         at("23:00")
         assertEquals(4, runBlocking { brain().nerve.plan(day) }.strengthRounds)
         assertEquals(listOf("今天照表：肌力要做滿 4 輪才算完成。做完再回報。"), rounds("23:40", extra = null, rounds = 3))
-        easyWeek(LocalDate.parse("2026-11-30"))
-        assertTrue(pending().isEmpty())
-        assertNull(Progression.next(3))
+        // Two sessions in a row not in full: it stays at this step.
+        val short = mapOf("push_up" to 12, "squat" to 20, "plank" to 60, "row" to 12, "bridge" to 15)
+        assertTrue(lines(runBlocking { at("23:45"); brain().strengthDone(StrengthReport(4, short, 0, seconds = 900)) }).none { it == Links.L15Progression.HOLD })
+        day = day.plusDays(1)
+        assertTrue(lines(runBlocking { at("23:45"); brain().strengthDone(StrengthReport(4, short, 0, seconds = 900)) }).contains(Links.L15Progression.HOLD))
+        assertEquals(3, steps().first)
+        // The ladders: strength 18, 20 push-ups, 75, 90 seconds of plank, the harder versions; core and cardio have theirs.
+        assertEquals(18, Routine.moves(4).first().reps)
+        assertEquals(90, Routine.moves(7).first { it.key == "plank" }.seconds)
+        assertEquals("腳墊高伏地挺身", Routine.moves(8).first().name)
+        assertEquals("分腿蹲", Routine.moves(9).first { it.key == "squat" }.name)
+        assertEquals(86, Routine.core(2).first().seconds)
+        assertEquals("船式", Routine.core(3).first().name)
+        assertEquals(55, Routine.cardioWork(2))
+        assertEquals(12, Routine.cardioMinutes(3, 10))
         assertEquals("肌力加到四輪（每輪的動作照現在）。", Progression.change(3))
+        assertTrue(TrainingWords.saidEasy("肌力三輪做完了，很輕鬆") && !TrainingWords.saidEasy("一點都不輕鬆"))
+        assertTrue(TrainingWords.feltEasy("今天肌力好輕鬆") && !TrainingWords.feltEasy("肌力三輪做完了"))
     }
 }

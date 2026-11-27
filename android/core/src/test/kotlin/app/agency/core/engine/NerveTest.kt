@@ -108,7 +108,7 @@ class NerveTest {
 
     @Test fun noEffectCanCarryTheCompanyRules() {
         val kinds = Effect::class.java.permittedSubclasses
-        assertEquals(6, kinds.size)
+        assertEquals(7, kinds.size)
         kinds.forEach { k -> k.declaredFields.forEach { f -> assertFalse("${k.simpleName}.${f.name}", f.type == CompanyRules::class.java) } }
     }
 

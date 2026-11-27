@@ -43,14 +43,60 @@ object Routine {
     )
 
     val PUSH_UP = StrengthMove("push_up", "伏地挺身", MoveIcon.PUSH_UP, "雙手比肩寬，身體成一直線，胸口降到快碰地再推起來。", reps = 15)
+    val PUSH_UP_FEET_UP = StrengthMove("push_up", "腳墊高伏地挺身", MoveIcon.PUSH_UP, "腳放在床邊或椅子上，身體成一直線，胸口降下去再推起來。", reps = 15)
+    val SPLIT_SQUAT = StrengthMove("squat", "分腿蹲", MoveIcon.SQUAT, "一腳在前一腳在後，三秒慢慢蹲下、後膝快碰地停一秒再站起來；每邊 10 下。", reps = 20)
     /** Owner 2026-11-26: 20 slow squats (3 seconds down, a second at the bottom) and a 60-second plank. */
     val SQUAT = StrengthMove("squat", "慢速深蹲", MoveIcon.SQUAT, "雙腳與肩同寬，三秒慢慢蹲下、最低點停一秒，再站起來；膝蓋對腳尖。", reps = 20)
     val PLANK = StrengthMove("plank", "棒式", MoveIcon.PLANK, "手肘撐地，身體成一直線，肚子收緊，不要塌腰。", seconds = 60)
     val ROW = StrengthMove("row", "背包划船", MoveIcon.ROW, "背包裝書或水，彎腰背打直，把背包往肚子拉，再慢慢放下。", reps = 12)
     val BRIDGE = StrengthMove("bridge", "臀橋", MoveIcon.BRIDGE, "躺著屈膝，腳踩地，屁股往上推到身體成一直線，夾緊再放下。", reps = 15)
 
-    /** The moves of one round at progression [step] (0 the three original moves; 1 + backpack row; 2 + glute bridge). */
-    fun moves(step: Int): List<StrengthMove> = listOfNotNull(PUSH_UP, SQUAT, PLANK, ROW.takeIf { step >= 1 }, BRIDGE.takeIf { step >= 2 })
+    /**
+     * The moves of one round at progression [step] (0 the three original moves; 1 + backpack row; 2 + glute bridge; 3 a fourth
+     * round; 4–5 push-ups 18, 20; 6–7 plank 75, 90 seconds; 8 push-ups with the feet up; 9 split squats).
+     */
+    fun moves(step: Int): List<StrengthMove> {
+        val push = when {
+            step >= 8 -> PUSH_UP_FEET_UP
+            step >= 5 -> PUSH_UP.copy(reps = 20)
+            step >= 4 -> PUSH_UP.copy(reps = 18)
+            else -> PUSH_UP
+        }
+        val plank = when {
+            step >= 7 -> PLANK.copy(seconds = 90)
+            step >= 6 -> PLANK.copy(seconds = 75)
+            else -> PLANK
+        }
+        val squat = if (step >= 9) SPLIT_SQUAT else SQUAT
+        return listOfNotNull(push, squat, plank, ROW.takeIf { step >= 1 }, BRIDGE.takeIf { step >= 2 })
+    }
+
+    /** The core at its ladder [step]: 60, 75, 86 seconds a move; from step 3 the advanced moves. */
+    fun core(step: Int): List<RoutineStep> {
+        val seconds = when {
+            step >= 2 -> 86
+            step >= 1 -> 75
+            else -> STEP_SECONDS
+        }
+        val moves = if (step >= 3) CORE.mapIndexed { i, m ->
+            when (i) {
+                0 -> m.copy(name = "船式", how = "坐著雙腳伸直抬起，上身往後靠成 V 字，手往前伸，撐住不動。")
+                1 -> m.copy(name = "完整捲腹", how = "躺著屈膝，肩膀和上背慢慢捲起來再放下，腰貼地，不要用脖子出力。")
+                4 -> m.copy(name = "懸空抬腿", how = "躺著雙腳併攏，腳離地十公分撐住，再慢慢抬高放下，下背貼地。")
+                else -> m
+            }
+        } else CORE
+        return moves.map { it.copy(seconds = seconds) }
+    }
+
+    /** The cardio at its ladder [step]: work seconds a minute 45, 50, 55; from step 3 twelve minutes. */
+    fun cardioWork(step: Int): Int = when {
+        step >= 2 -> 55
+        step >= 1 -> 50
+        else -> CARDIO_WORK_SECONDS
+    }
+
+    fun cardioMinutes(step: Int, base: Int): Int = if (step >= 3) base + 2 else base
 
     /** Every step of the strength rounds: each move of each round, a rest between two moves. */
     fun strength(step: Int, rounds: Int): List<RoutineStep> = buildList {

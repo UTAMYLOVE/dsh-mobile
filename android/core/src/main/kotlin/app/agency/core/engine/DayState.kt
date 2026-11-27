@@ -52,6 +52,9 @@ data class DayState(
     val missedInRow: Map<SlotKey, Int> = emptyMap(),
     /** The strength sessions of the lookback days (the first of each day), for L15. */
     val strengthSessions: Map<LocalDate, Progression.Session> = emptyMap(),
+    /** Lookback days the rounds were owed and ended undone (from `day_missed`), and the days he said 「輕鬆」 (L15). */
+    val missedStrengthDays: Set<LocalDate> = emptySet(),
+    val easySaidDays: List<LocalDate> = emptyList(),
     /** Lookback days declared 「今天休息」. */
     val restDays: Set<LocalDate> = emptySet(),
     /** Lookback days he said he was ill or hurt. */
@@ -153,7 +156,11 @@ object DayStateBuilder {
             n
         }.filterValues { it > 0 }
         val sessions = decoded.mapNotNull { (row, s) -> (s as? Signal.TrainingDone)?.takeIf { it.kind == TrainingKind.STRENGTH }?.let { LocalDate.parse(row.day) to it } }
-            .groupBy({ it.first }, { it.second }).mapValues { (_, v) -> v.minBy { it.at }.let { Progression.Session(it.easy, it.step) } }
+            .groupBy({ it.first }, { it.second }).mapValues { (_, v) -> v.minBy { it.at }.let { Progression.Session(it.easy, it.step, it.full) } }
+        val missedStrength = missedDays.filterValues { SlotKey.STRENGTH in it }.keys
+        val easySaid = decoded.mapNotNull { (row, s) ->
+            LocalDate.parse(row.day).takeIf { s is Signal.FeltEasy || (s is Signal.TrainingDone && s.saidEasy) }
+        }
         val restDays = decoded.filter { it.second is Signal.RestDay }.map { LocalDate.parse(it.first.day) }.toSet()
         val proteinByDay = decoded.mapNotNull { (row, s) -> (s as? Signal.MealLogged)?.let { LocalDate.parse(row.day) to it.proteinG } }
             .groupBy({ it.first }, { it.second }).mapValues { (_, v) -> v.sum() }
@@ -177,7 +184,7 @@ object DayStateBuilder {
         return st.copy(
             lastNightOutAt = lastOut, illDaysInRow = streak, groomingLast = grooming, weights = weights, kcalByDay = kcalByDay,
             flags = flags, reductionProposed = proposed, missedInRow = missedInRow,
-            strengthSessions = sessions, restDays = restDays, illDays = illDays, proteinByDay = proteinByDay,
+            strengthSessions = sessions, missedStrengthDays = missedStrength, easySaidDays = easySaid, restDays = restDays, illDays = illDays, proteinByDay = proteinByDay,
             fixToday = fix, realTaskThisWeek = realTask, weekBreaches = weekBreaches, weather = weather,
             sweetToday = l11.count { it.because == Links.L11Completion.SWEET }, photocardsToday = l11.count { it.because == Links.L11Completion.PHOTOCARD },
         )

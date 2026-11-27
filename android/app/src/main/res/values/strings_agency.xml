@@ -359,6 +359,9 @@
     <string name="ag_train_unit_reps">下</string>
     <string name="ag_train_unit_seconds">秒</string>
     <string name="ag_train_extra">最後一輪還能多做幾下？</string>
+    <string name="ag_train_easy">這次覺得輕鬆嗎？（可不選）</string>
+    <string name="ag_train_easy_yes">輕鬆</string>
+    <string name="ag_train_easy_no">不輕鬆</string>
     <string name="ag_train_send">回報</string>
     <string name="ag_wall_title">拍立得照片牆（%1$d 張）</string>
     <string name="ag_card_photocards">拍立得照片牆：%1$d 張（在指揮室）</string>

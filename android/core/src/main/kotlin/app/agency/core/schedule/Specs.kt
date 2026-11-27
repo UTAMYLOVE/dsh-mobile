@@ -64,8 +64,12 @@ data class TrainingSpec(
     val stretchMin: Int = 10,
     val walkNoClass: String = "16:20",
     val walkMin: Int = 30,
-    /** Steps of the progression rule already taken (0 = the three original moves; T18). */
+    /** Steps of the progression rule already taken (0 = the three original moves; T18): the strength ladder. */
     val progressionStep: Int = 0,
+    /** The core and the cardio ladders (owner 2026-11-26: 「加上體能與核心的階梯」), and the day of the last step taken. */
+    val coreStep: Int = 0,
+    val cardioStep: Int = 0,
+    val lastStepDay: String? = null,
     /** After 收工 he puts the helmet down first: the block (core first) is due this long after the ride ends. */
     val strengthAfterRideMin: Int = 15,
     /** ISO days of the 10-minute 體能 (開合跳、波比跳、深蹲跳): three a week (owner 2026-11-26); 二、四、六 by default. */

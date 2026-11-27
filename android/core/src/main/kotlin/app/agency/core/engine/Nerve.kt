@@ -130,6 +130,16 @@ class Nerve(
                         result += NerveResult(messages = listOf(m))
                     }
                     is Effect.Record -> result += write(row(EffectKind.RECORD, EffectStatus.DONE, e.what, null, null))
+                    is Effect.Progress -> {
+                        val ladder = Progression.Ladder.valueOf(e.ladder)
+                        val t = plans.specs().training
+                        val next = Progression.up(t, ladder, day)
+                        store.rules.putSection(
+                            app.agency.core.model.PlanSectionKey.TRAINING, PlanSpecs.JSON.encodeToString(app.agency.core.schedule.TrainingSpec.serializer(), next),
+                            link.id, clock.millis(),
+                        )
+                        result += write(row(EffectKind.RECORD, EffectStatus.DONE, e.because, null, null))
+                    }
                     is Effect.Chain -> if (depth + 1 < MAX_DEPTH) result += emit(e.signal, depth + 1, signal.id)
                 }
             }

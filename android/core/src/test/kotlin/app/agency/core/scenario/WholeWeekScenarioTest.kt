@@ -176,13 +176,9 @@ class WholeWeekScenarioTest {
             // Each day's meals: 1574 kcal, 166.6 g protein (the 即食雞胸 by its label, 23.6 g).
             assertEquals(166.6, runBlocking { brain.nerve.state(day) }.proteinG, 0.01)
         }
-        // The progression proposal came once, on Sunday (a week of easy rounds and the day before at 140 g), for the next step
-        // only; his yes made the training plan's next version.
-        assertEquals(listOf(6), evenings.indices.filter { i -> evenings[i].any { it.contains("可以加量了") } })
-        assertTrue(evenings[6].any { it.contains("我提一個：肌力每輪加一個動作：背包划船 12 下。") })
-        val progression = runBlocking { store.proposals.withStatus(ProposalStatus.ACCEPTED) }.filter { it.kind == ProposalKind.PROGRESSION }
-        assertEquals(1, progression.size)
-        assertEquals(1, runBlocking { PlanStore(store).specs() }.training.progressionStep)
+        // 訓練升級 is automatic once truly stable, and that takes two whole weeks: after one easy week nothing changes yet.
+        assertTrue(evenings.none { e -> e.any { it.contains("自動加一級") } })
+        assertEquals(0, runBlocking { PlanStore(store).specs() }.training.progressionStep)
         // The rest day had everything but the run; every day had all three, each by the timer.
         val wed = monday.plusDays(2).toString()
         assertEquals(listOf(TrainingKind.WALK, TrainingKind.CORE7, TrainingKind.STRENGTH, TrainingKind.STRETCH), runBlocking { store.training.onDay(wed) }.map { it.kind })
@@ -213,8 +209,8 @@ class WholeWeekScenarioTest {
         at("07:30")
         runBlocking { brain.tick() }
         assertEquals(1, runBlocking { store.messages.recent(30) }.count { it.text.startsWith("一週結果") })
-        // The new step is in the plan: the rounds now have the backpack row.
-        assertTrue(runBlocking { brain.nerve.plan(day) }.slot(SlotKey.STRENGTH)!!.note!!.contains("背包划船 12 下"))
+        // Still the first step (one week is not two).
+        assertTrue(!runBlocking { brain.nerve.plan(day) }.slot(SlotKey.STRENGTH)!!.note!!.contains("背包划船"))
         // 理論課 of the week: fourteen passed, two a day, every score recorded (L24); Monday's two reviewed on Wednesday.
         val all = runBlocking { store.lessons.all() }
         assertEquals((0..6).associate { monday.plusDays(it.toLong()).toString() to 2 }, all.groupingBy { it.passedDay!! }.eachCount())

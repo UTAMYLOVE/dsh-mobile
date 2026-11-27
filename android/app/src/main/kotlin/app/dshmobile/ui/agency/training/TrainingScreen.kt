@@ -56,6 +56,7 @@ object TrainingTags {
     const val WALK = "ag-train-walk"
     const val CARDIO = "ag-train-cardio"
     const val PAIN = "ag-train-pain"
+    const val EASY = "ag-train-easy-"
     const val SCREEN = "ag-train-screen"
     const val START = "ag-train-start"
     const val PAUSE = "ag-train-pause"
@@ -206,6 +207,7 @@ private fun Running(runner: RoutineRunner, frame: Int, onPause: () -> Unit, onRe
 private fun StrengthReportForm(moves: List<StrengthMove>, rounds: Int, onSend: (StrengthReport) -> Unit) {
     val values = remember { mutableStateMapOf<String, String>().apply { moves.forEach { m -> put(m.key, (m.reps ?: m.seconds ?: 0).toString()) } } }
     var extra by remember { mutableIntStateOf(-1) }
+    var easy by remember { mutableIntStateOf(-1) }
     Column(
         Modifier.fillMaxWidth().background(Sakura.White, RoundedCornerShape(20.dp)).padding(16.dp).testTag(TrainingTags.REPORT),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -221,8 +223,11 @@ private fun StrengthReportForm(moves: List<StrengthMove>, rounds: Int, onSend: (
         }
         Text(stringResource(R.string.ag_train_extra), color = Sakura.Text, fontSize = 15.sp)
         Segmented(EXTRA_OPTIONS, extra, onSelect = { extra = it }, tagPrefix = TrainingTags.EXTRA)
+        // 訓練升級 needs his own 「輕鬆」 twice (owner 2026-11-22): optional, not asked by default.
+        Text(stringResource(R.string.ag_train_easy), color = Sakura.Text, fontSize = 15.sp)
+        Segmented(listOf(stringResource(R.string.ag_train_easy_yes), stringResource(R.string.ag_train_easy_no)), easy, onSelect = { easy = it }, tagPrefix = TrainingTags.EASY)
         PinkButton(stringResource(R.string.ag_train_send), enabled = extra >= 0 && moves.all { values[it.key]?.toIntOrNull() != null }, onClick = {
-            onSend(StrengthReport(rounds, moves.associate { it.key to (values[it.key]?.toIntOrNull() ?: 0) }, extra, fromTimer = true))
+            onSend(StrengthReport(rounds, moves.associate { it.key to (values[it.key]?.toIntOrNull() ?: 0) }, extra, fromTimer = true, easySaid = easy == 0))
         }, modifier = Modifier.testTag(TrainingTags.SEND))
     }
 }

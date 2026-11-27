@@ -29,6 +29,9 @@ data class DayPlan(
     val stretchMin: Int = 10,
     val walkMin: Int = 30,
     val cardioMin: Int = 10,
+    /** The core and the cardio ladders' steps (訓練升級). */
+    val coreStep: Int = 0,
+    val cardioStep: Int = 0,
 ) {
     fun slot(key: SlotKey): Slot? = slots.firstOrNull { it.key == key }
 
@@ -123,7 +126,7 @@ object DayPlanner {
             if (reduction == null) {
                 add(Slot(SlotKey.CORE, block.getValue(SlotKey.CORE), afterRide = !noRun, afterRideMin = after, note = CORE_NOTE))
                 add(Slot(SlotKey.STRENGTH, block.getValue(SlotKey.STRENGTH), afterRide = !noRun, afterRideMin = after + 10, note = recovery?.let { "${it.rounds} 輪（病好第一天，明天全量）" } ?: app.agency.core.engine.Progression.note(t)))
-                if (cardio) add(Slot(SlotKey.CARDIO, block.getValue(SlotKey.CARDIO), afterRide = !noRun, afterRideMin = after + 35, note = "${t.cardioMin} 分鐘：$CARDIO_NOTE"))
+                if (cardio) add(Slot(SlotKey.CARDIO, block.getValue(SlotKey.CARDIO), afterRide = !noRun, afterRideMin = after + 35, note = "${app.agency.core.engine.Routine.cardioMinutes(t.cardioStep, t.cardioMin)} 分鐘：$CARDIO_NOTE"))
             }
             val stretchNote = if (reduction == Reduction.INJURY) "${t.stretchMin} 分鐘，避開受傷的地方" else "${t.stretchMin} 分鐘"
             // It closes the block (on a reduced day it stays as the minimum).
@@ -158,7 +161,9 @@ object DayPlanner {
                 ?: app.agency.core.engine.Progression.rounds(t),
             stretchMin = t.stretchMin,
             walkMin = t.walkMin,
-            cardioMin = t.cardioMin,
+            cardioMin = app.agency.core.engine.Routine.cardioMinutes(t.cardioStep, t.cardioMin),
+            coreStep = t.coreStep,
+            cardioStep = t.cardioStep,
         )
     }
 }

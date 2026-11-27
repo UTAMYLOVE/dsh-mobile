@@ -116,7 +116,15 @@ sealed interface Signal {
         val step: Int = 0,
         val rounds: Int? = null,
         override val source: String = "training",
+        /** The rounds were done in full (every move at the plan's number). */
+        val full: Boolean = true,
+        /** He said 「輕鬆」 with this report. */
+        val saidEasy: Boolean = false,
     ) : Signal
+
+    /** 「肌力好輕鬆」 said on its own (訓練升級 needs it at least twice). */
+    @Serializable @SerialName("felt_easy")
+    data class FeltEasy(override val id: String, override val at: Long, override val source: String = "chat") : Signal
 
     @Serializable @SerialName("grooming_done")
     data class GroomingDone(override val id: String, override val at: Long, val item: GroomingItem, override val source: String = "command") : Signal

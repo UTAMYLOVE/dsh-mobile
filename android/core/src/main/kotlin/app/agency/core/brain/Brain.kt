@@ -669,6 +669,11 @@ class Brain(
             return said.ifEmpty { listOf(reply(RoleKey.MANAGER, "知道了，先照顧身體。今天的調整已經提過了，在指揮室的今天的連動按好或不要。", WordedBy.TEMPLATE, Nerve.KIND)) }
         }
         if (BodyWords.asksLess(owner.text)) return nerve.emit(Signal.ReduceAsked(newId(), owner.at)).messages.ifEmpty { null }
+        // 「肌力好輕鬆」 on its own: a 「輕鬆」 for 訓練升級 (L15), no record of a session.
+        if (app.agency.core.brain.handlers.TrainingWords.feltEasy(owner.text)) {
+            nerve.emit(Signal.FeltEasy(newId(), owner.at))
+            return listOf(reply(RoleKey.BODY, FELT_EASY_LINE, WordedBy.TEMPLATE, "training"))
+        }
         // Sleepy on a delivery day before he is home: no riding (L22); otherwise it goes on to the manager.
         if (BodyWords.sleepy(owner.text)) nerve.emit(Signal.Sleepy(newId(), owner.at)).messages.takeIf { it.isNotEmpty() }?.let { return it }
         if (BodyWords.moodLow(owner.text)) nerve.emit(Signal.MoodLow(newId(), owner.at))
@@ -992,11 +997,11 @@ class Brain(
     suspend fun routine(kind: app.agency.core.model.TrainingKind): List<app.agency.core.engine.RoutineStep>? {
         val plan = snapshot.plan(snapshot.today(snapshot.profile()))
         return when (kind) {
-            app.agency.core.model.TrainingKind.CORE7 -> app.agency.core.engine.Routine.CORE.takeIf { plan.slot(SlotKey.CORE) != null }
+            app.agency.core.model.TrainingKind.CORE7 -> app.agency.core.engine.Routine.core(plan.coreStep).takeIf { plan.slot(SlotKey.CORE) != null }
             app.agency.core.model.TrainingKind.STRENGTH -> plan.slot(SlotKey.STRENGTH)?.let { app.agency.core.engine.Routine.strength(plan.progressionStep, plan.strengthRounds) }
             app.agency.core.model.TrainingKind.STRETCH -> app.agency.core.engine.Routine.stretch(plan.stretchMin)
             app.agency.core.model.TrainingKind.WALK -> null
-            app.agency.core.model.TrainingKind.CARDIO -> plan.slot(SlotKey.CARDIO)?.let { app.agency.core.engine.Routine.cardio(plan.cardioMin) }
+            app.agency.core.model.TrainingKind.CARDIO -> plan.slot(SlotKey.CARDIO)?.let { app.agency.core.engine.Routine.cardio(plan.cardioMin, app.agency.core.engine.Routine.cardioWork(plan.cardioStep)) }
         }
     }
 
@@ -1354,6 +1359,9 @@ class Brain(
         }
 
         /** KEY_REJECTED covers DeepSeek's 402 (no balance), so he does not delete a good key (FIX-T04 M2). */
+        /** His 「輕鬆」 said on its own. */
+        const val FELT_EASY_LINE = "記下：你說這次輕鬆。真的穩定了會自動加一級，不用問你。"
+
         const val KEY_REJECTED = "金鑰被拒或帳戶餘額不足，請到服務商網站確認。"
     }
 }

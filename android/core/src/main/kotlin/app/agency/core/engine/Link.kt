@@ -72,6 +72,14 @@ sealed interface Effect {
     @Serializable @SerialName("record")
     data class Record(val what: String, val detail: String = "") : Effect
 
+    /**
+     * 訓練升級 (owner 2026-11-22 甲: automatic once truly stable, L15): one step up on [ladder] (a [Progression.Ladder] name),
+     * written as the next version of the training section; the one plan change a link makes without a yes. [because] is the
+     * 「因為…所以…」 line he reads.
+     */
+    @Serializable @SerialName("progress")
+    data class Progress(val ladder: String, val because: String) : Effect
+
     @Serializable @SerialName("chain")
     data class Chain(val signal: Signal) : Effect
 }
