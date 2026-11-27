@@ -112,6 +112,26 @@ class AgencyNotifier(private val context: Context) {
         }
     }
 
+    /** 新版本通知: one notification, tapping it opens the release page (a page of the releases repository only). */
+    fun newRelease(versionName: String, page: String) {
+        if (!page.startsWith(app.agency.core.net.ReleaseCheck.PAGE_PREFIX) && page != app.agency.core.net.ReleaseCheck.RELEASES_PAGE) return
+        runCatching {
+            channels()
+            val view = PendingIntent.getActivity(
+                context, ID_RELEASE, Intent(Intent.ACTION_VIEW, android.net.Uri.parse(page)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val n = Notification.Builder(context, CHANNEL_MESSAGES)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(RELEASE_TITLE)
+                .setContentText(releaseText(versionName))
+                .setContentIntent(view)
+                .setAutoCancel(true)
+                .build()
+            manager.notify(ID_RELEASE, n)
+        }
+    }
+
     private fun open(requestCode: Int, slot: String?): PendingIntent = PendingIntent.getActivity(
         context, requestCode,
         Intent(context, AgencyActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).apply { if (slot != null) putExtra(EXTRA_SLOT, slot) },
@@ -127,6 +147,9 @@ class AgencyNotifier(private val context: Context) {
         const val GAP_KEY = app.agency.core.engine.Nudger.GAP_KEY
         const val ID_COST = 7101
         const val ID_RATE = 7102
+        const val ID_RELEASE = 7103
+        const val RELEASE_TITLE = "小葵姐・新版本"
+        fun releaseText(versionName: String) = "有新版本 $versionName 可以更新了。點這裡看下載頁，設定裡也看得到。"
         const val ID_GAPS = 7201
         /** Every reminder is hers (owner 2026-11-26: the manager is 小葵, he calls her 小葵姐). */
         const val SCHEDULE_TITLE = "小葵姐・行程提醒"

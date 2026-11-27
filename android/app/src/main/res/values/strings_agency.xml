@@ -241,6 +241,12 @@
     <string name="ag_legacy_chats">以前的聊天和小說</string>
     <string name="ag_legacy_chats_hint">舊版的對話和小說還留在手機裡。可以打包分享出去存起來；要不要刪掉等你決定，現在不會刪。</string>
     <string name="ag_legacy_chats_export">匯出舊聊天與小說</string>
+    <string name="ag_legacy_novels_delete">刪除舊小說</string>
+    <string name="ag_legacy_novels_confirm_1">要刪掉手機裡的舊小說嗎？舊聊天會留著。想留一份就先按上面的匯出。</string>
+    <string name="ag_legacy_novels_next">要刪</string>
+    <string name="ag_legacy_novels_confirm_2">再確認一次：舊小說刪了就救不回來。</string>
+    <string name="ag_legacy_novels_yes">確定刪除</string>
+    <string name="ag_legacy_novels_deleted">舊小說刪掉了，舊聊天還在。</string>
     <string name="ag_legacy_preparing">正在打包…</string>
     <!-- 授權 (T09): one Chinese line above each notice says what it covers; the notices themselves are legal text. -->
     <string name="ag_lic_title">開放原始碼授權</string>
@@ -305,6 +311,20 @@
     <string name="ag_result_estimate">熱量都是估算，拍菜單或標示才算數。</string>
     <string name="ag_set_area">附近搜尋</string>
     <string name="ag_set_rollout">上線週數</string>
+    <string name="ag_set_samsung">三星手機：提醒不被關掉</string>
+    <string name="ag_samsung_intro">三星手機會把不常開的程式放去休眠，提醒就會晚到或不響。照下面做一次就好。</string>
+    <string-array name="ag_samsung_steps">
+        <item>打開手機的「設定」→「應用程式」→ 找到「小雨娛樂」。</item>
+        <item>點「電池」，選「不受限制」。</item>
+        <item>回到「設定」→「電池」→「背景使用限制」，確認「小雨娛樂」不在「休眠中的應用程式」和「深度休眠中的應用程式」裡；有的話移除。</item>
+        <item>同一頁打開「永不休眠的應用程式」，把「小雨娛樂」加進去。</item>
+        <item>回到「小雨娛樂」的應用程式頁，「通知」要打開；「鬧鐘與提醒」也要允許。</item>
+        <item>做完回到這裡，到「權限檢查」看一次，全部都是可以就好了。</item>
+    </string-array>
+    <string name="ag_samsung_open">打開小雨娛樂的系統設定</string>
+    <string name="ag_version_title">版本</string>
+    <string name="ag_version_now">現在的版本：%1$s（第 %2$d 版）</string>
+    <string name="ag_version_new">有新版本 %1$s，點這裡看下載頁</string>
     <string name="ag_rollout_now">現在是第 %1$d 週</string>
     <string name="ag_rollout_note">功能一週一週打開。這週達標（該做的九成以上、沒有違規、真人任務做到），小葵姐會給你一張卡，你按好就開下一週。也可以在這裡自己調。還沒打開的不排、不催、不算違規。</string>
     <string name="ag_rollout_week">第 %1$d 週：%2$s（%3$s）</string>

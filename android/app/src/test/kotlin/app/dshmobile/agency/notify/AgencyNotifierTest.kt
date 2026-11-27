@@ -29,6 +29,20 @@ class AgencyNotifierTest {
 
     @Before fun grant() = shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
 
+    @Test fun aNewReleaseIsOneNotificationOpeningItsPageOnly() {
+        notifier.newRelease("0.9.1", "https://github.com/UTAMYLOVE/dsh-mobile-releases/releases/tag/v0.9.1%2B19")
+        val n = shadowOf(nm).getNotification(AgencyNotifier.ID_RELEASE)
+        assertEquals(AgencyNotifier.RELEASE_TITLE, shadowOf(n).contentTitle.toString())
+        assertEquals(AgencyNotifier.releaseText("0.9.1"), shadowOf(n).contentText.toString())
+        val intent = shadowOf(n.contentIntent).savedIntent
+        assertEquals(android.content.Intent.ACTION_VIEW, intent.action)
+        assertEquals("https://github.com/UTAMYLOVE/dsh-mobile-releases/releases/tag/v0.9.1%2B19", intent.dataString)
+        // A page outside the releases repository is never offered.
+        nm.cancelAll()
+        notifier.newRelease("9.9.9", "https://evil.example/x")
+        assertEquals(null, shadowOf(nm).getNotification(AgencyNotifier.ID_RELEASE))
+    }
+
     @Test fun theSpendAlertSaysTheAmountAndOpensTheCompany() {
         notifier.costAlert(1.5)
         val n = shadowOf(nm).getNotification(AgencyNotifier.ID_COST)

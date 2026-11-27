@@ -28,12 +28,12 @@ class NetworkGateTest {
 
     private val production = NetworkGate({ NetworkGate.allowlist("https://my-llm.example.com/v1") })
 
-    @Test fun theProductionAllowlistIsTheModelHostsPlusHisHttpsService() {
+    @Test fun theProductionAllowlistIsTheModelHostsTheReleaseCheckPlusHisHttpsService() {
         assertEquals(
-            setOf(Origin.https("api.deepseek.com"), Origin.https("api.anthropic.com"), Origin.https("my-llm.example.com")),
+            setOf(Origin.https("api.deepseek.com"), Origin.https("api.anthropic.com"), Origin.https("api.github.com"), Origin.https("my-llm.example.com")),
             NetworkGate.allowlist("https://My-LLM.example.com/v1/chat/completions"),
         )
-        val bare = setOf(Origin.https("api.deepseek.com"), Origin.https("api.anthropic.com"))
+        val bare = setOf(Origin.https("api.deepseek.com"), Origin.https("api.anthropic.com"), Origin.https("api.github.com"))
         assertEquals(bare, NetworkGate.allowlist(null))
         assertEquals(bare, NetworkGate.allowlist("http://my-llm.example.com/v1"))
         assertEquals(bare, NetworkGate.allowlist("https://my-llm.example.com:8443/v1"))

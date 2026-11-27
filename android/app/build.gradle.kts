@@ -22,8 +22,8 @@ android {
         applicationId = "app.dshmobile"
         minSdk = 34
         targetSdk = 37
-        versionCode = providers.gradleProperty("dshm.versionCode").map(String::toInt).getOrElse(1)
-        versionName = providers.gradleProperty("dshm.versionName").getOrElse("0.1.0")
+        versionCode = providers.gradleProperty("dshm.versionCode").map(String::toInt).getOrElse(18)
+        versionName = providers.gradleProperty("dshm.versionName").getOrElse("0.9.0")
         // Starts the fake model and points the company at it before the app's onCreate (see src/androidTest/.../E2eRunner.kt).
         testInstrumentationRunner = "app.dshmobile.E2eRunner"
 

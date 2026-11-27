@@ -41,12 +41,15 @@ class Transport(
         return attempt(url, headers, body).outcome
     }
 
+    /** One GET with no body (the release check), the same policy and the same gate; [headers] only what it needs. */
+    suspend fun getJson(url: HttpUrl, headers: Map<String, String>): HttpOutcome = attempt(url, headers, null).outcome
+
     private class Attempt(val outcome: HttpOutcome, val retryable: Boolean)
 
-    private suspend fun attempt(url: HttpUrl, headers: Map<String, String>, body: String): Attempt {
+    private suspend fun attempt(url: HttpUrl, headers: Map<String, String>, body: String?): Attempt {
         val request = try {
             Request.Builder().url(url).apply { headers.forEach { (k, v) -> header(k, v) } }
-                .post(body.toRequestBody(JSON)).build()
+                .apply { if (body != null) post(body.toRequestBody(JSON)) else get() }.build()
         } catch (_: IllegalArgumentException) {
             return Attempt(HttpOutcome.Offline, retryable = false) // a header value OkHttp refuses; nothing was sent
         }

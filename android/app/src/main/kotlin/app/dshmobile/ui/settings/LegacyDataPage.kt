@@ -4,7 +4,9 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.webkit.MimeTypeMap
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +56,10 @@ object LegacyTags {
     const val DELETED = "ag-legacy-deleted"
     const val CHATS = "ag-legacy-chats"
     const val CHATS_EXPORT = "ag-legacy-chats-export"
+    const val NOVELS_DELETE = "ag-legacy-novels-delete"
+    const val NOVELS_CONFIRM_1 = "ag-legacy-novels-confirm-1"
+    const val NOVELS_CONFIRM_2 = "ag-legacy-novels-confirm-2"
+    const val NOVELS_DELETED = "ag-legacy-novels-deleted"
 }
 
 /** 「照片 1」「錄音 2」: a legacy file by its kind and its place among the [all] files of that kind. */
@@ -88,6 +94,8 @@ fun LegacyDataPage(agency: AgencyApp) {
     var sharedFolder by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
     var deleted by remember { mutableStateOf(false) }
+    var novelStep by remember { mutableIntStateOf(0) }
+    var novelsDeleted by remember { mutableStateOf(false) }
     // The onMain wrappers on this page are defensive: on the phone these already run on the main thread; under the Compose
     // test rule they would not. Keep them (AgencyMainThreadTest fails without each).
     LaunchedEffect(reload) { onMain { status = withContext(Dispatchers.IO) { runCatching { agency.legacyStatus() }.getOrNull() } } }
@@ -202,6 +210,38 @@ fun LegacyDataPage(agency: AgencyApp) {
                 }
             }, modifier = Modifier.testTag(LegacyTags.CHATS_EXPORT))
         }
+        // 刪除舊小說 (owner 2026-11-27): the novels only, after two confirmations; the old chats stay.
+        val novels = remember(reload) { agency.oldNovels() }
+        if (novels != null) {
+            when (novelStep) {
+                0 -> SoftButton(stringResource(R.string.ag_legacy_novels_delete), onClick = { novelStep = 1 }, modifier = Modifier.testTag(LegacyTags.NOVELS_DELETE))
+                1 -> {
+                    Note(stringResource(R.string.ag_legacy_novels_confirm_1))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SoftButton(stringResource(R.string.ag_legacy_confirm_no), onClick = { novelStep = 0 })
+                        PinkButton(stringResource(R.string.ag_legacy_novels_next), onClick = { novelStep = 2 }, modifier = Modifier.testTag(LegacyTags.NOVELS_CONFIRM_1))
+                    }
+                }
+                else -> {
+                    Note(stringResource(R.string.ag_legacy_novels_confirm_2))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SoftButton(stringResource(R.string.ag_legacy_confirm_no), onClick = { novelStep = 0 })
+                        PinkButton(stringResource(R.string.ag_legacy_novels_yes), onClick = {
+                            scope.launch {
+                                onMain {
+                                    val ok = agency.deleteOldNovels()
+                                    novelStep = 0
+                                    novelsDeleted = ok
+                                    if (!ok) note = deleteFailed
+                                    reload++
+                                }
+                            }
+                        }, modifier = Modifier.testTag(LegacyTags.NOVELS_CONFIRM_2))
+                    }
+                }
+            }
+        }
+        if (novelsDeleted) Note(stringResource(R.string.ag_legacy_novels_deleted), Modifier.testTag(LegacyTags.NOVELS_DELETED))
         note?.let { Note(it) }
     }
 }

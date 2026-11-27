@@ -25,6 +25,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import androidx.compose.ui.test.onAllNodesWithTag
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -114,7 +115,7 @@ class LegacyDataPageTest {
         return chooserSeen
     }
 
-    @Test fun oldChatsAndNovelsCanBeSharedAndAreNeverDeleted() {
+    @Test fun oldChatsAndNovelsCanBeSharedAndOnlyTheNovelsDeletedAfterTwoConfirmations() {
         val userdata = File(app.filesDir, "userdata").apply { mkdirs() }
         File(userdata, "workspace/novels").mkdirs()
         // ASCII file names: this JVM's file-name encoding is not UTF-8 (the phone's is); the content is Chinese.
@@ -128,7 +129,16 @@ class LegacyDataPageTest {
         val names = ZipFile(zip).use { z -> z.entries().toList().map { it.name }.sorted() }
         assertEquals(listOf("home/chat.json", "workspace/novels/chapter-1.md"), names)
         assertEquals("虛構的小說內容", File(userdata, "workspace/novels/chapter-1.md").readText())
-        // No delete is offered for them.
+        // No delete of the old folder is offered for them.
         rule.onNodeWithTag(LegacyTags.DELETE).assertDoesNotExist()
+        // 刪除舊小說 (owner 2026-11-27): two confirmations, the novels go, the old chats stay.
+        rule.onNodeWithTag(LegacyTags.NOVELS_DELETE).performScrollTo().performClick()
+        rule.onNodeWithTag(LegacyTags.NOVELS_CONFIRM_1).performScrollTo().performClick()
+        assertTrue(File(userdata, "workspace/novels/chapter-1.md").exists()) // not yet
+        rule.onNodeWithTag(LegacyTags.NOVELS_CONFIRM_2).performScrollTo().performClick()
+        rule.waitUntil(10_000) { !File(userdata, "workspace/novels").exists() }
+        assertEquals("{\"invented\":true}", File(userdata, "home/chat.json").readText())
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag(LegacyTags.NOVELS_DELETED).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag(LegacyTags.NOVELS_DELETE).assertDoesNotExist()
     }
 }

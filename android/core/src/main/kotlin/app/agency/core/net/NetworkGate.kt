@@ -51,12 +51,15 @@ class NetworkGate(
         const val DEEPSEEK_HOST = "api.deepseek.com"
         const val ANTHROPIC_HOST = "api.anthropic.com"
 
+        /** The release check (owner 2026-11-27: 「有新版本要跳通知」): GitHub's API, for the one public releases repository. */
+        const val GITHUB_API_HOST = "api.github.com"
+
         /**
-         * The production allowlist: the two model hosts plus the host of his compatible service when its address is https on
-         * port 443. Anything else he types (http, another port, garbage) adds nothing.
+         * The production allowlist: the two model hosts, GitHub's API for the release check, plus the host of his compatible
+         * service when its address is https on port 443. Anything else he types (http, another port, garbage) adds nothing.
          */
         fun allowlist(compatUrl: String?): Set<Origin> {
-            val base = setOf(Origin.https(DEEPSEEK_HOST), Origin.https(ANTHROPIC_HOST))
+            val base = setOf(Origin.https(DEEPSEEK_HOST), Origin.https(ANTHROPIC_HOST), Origin.https(GITHUB_API_HOST))
             val compat = compatUrl?.trim()?.takeIf { it.startsWith("https://", ignoreCase = true) }?.toHttpUrlOrNull()
                 ?.takeIf { it.isHttps && it.port == 443 }
                 ?: return base

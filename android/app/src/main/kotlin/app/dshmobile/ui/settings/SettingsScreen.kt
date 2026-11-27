@@ -17,6 +17,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import app.dshmobile.ui.agency.collectOnMain
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -45,7 +47,7 @@ import app.dshmobile.ui.kit.SoftButton
 enum class SettingsPage(val title: Int) {
     MODEL(R.string.ag_set_model), SPEND(R.string.ag_set_spend), RULES(R.string.ag_set_rules), SCHEDULE(R.string.ag_set_schedule),
     TRAINEE(R.string.ag_set_trainee), MEMORY(R.string.ag_set_memory), PERMISSIONS(R.string.ag_set_permissions), LEGACY(R.string.ag_set_legacy),
-    AREA(R.string.ag_set_area), ROLLOUT(R.string.ag_set_rollout), LICENSES(R.string.ag_set_licenses),
+    AREA(R.string.ag_set_area), ROLLOUT(R.string.ag_set_rollout), SAMSUNG(R.string.ag_set_samsung), LICENSES(R.string.ag_set_licenses),
 }
 
 object SettingsTags {
@@ -77,6 +79,8 @@ fun SettingsScreen(agency: AgencyApp, ready: StartState.Ready) {
                     )
                 }
             }
+            // Below the entries, so their places stay.
+            VersionPanel(agency)
         } else {
             SoftButton(stringResource(R.string.ag_back), onClick = { page = null }, modifier = Modifier.testTag(SettingsTags.BACK))
             when (open) {
@@ -90,8 +94,34 @@ fun SettingsScreen(agency: AgencyApp, ready: StartState.Ready) {
                 SettingsPage.PERMISSIONS -> PermissionCheckPage(agency)
                 SettingsPage.LEGACY -> LegacyDataPage(agency)
                 SettingsPage.ROLLOUT -> RolloutPage(ready)
+                SettingsPage.SAMSUNG -> SamsungPage()
                 SettingsPage.LICENSES -> Unit
             }
+        }
+    }
+}
+
+object VersionTags {
+    const val NOW = "ag-version-now"
+    const val NEW = "ag-version-new"
+}
+
+/** The installed version, and a newer release when the daily check found one (新版本通知): tapping opens its page. */
+@Composable
+private fun VersionPanel(agency: AgencyApp) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val rev by agency.settings.revision.collectOnMain()
+    val newer = remember(rev) { agency.settings.newRelease }
+    Panel(title = stringResource(R.string.ag_version_title)) {
+        Text(stringResource(R.string.ag_version_now, app.dshmobile.BuildConfig.VERSION_NAME, app.dshmobile.BuildConfig.VERSION_CODE), color = Sakura.Text, fontSize = 15.sp, modifier = Modifier.testTag(VersionTags.NOW))
+        newer?.let { n ->
+            val name = n.substringBefore('|')
+            val page = n.substringAfter('|')
+            SoftButton(stringResource(R.string.ag_version_new, name), onClick = {
+                if (page.startsWith(app.agency.core.net.ReleaseCheck.PAGE_PREFIX) || page == app.agency.core.net.ReleaseCheck.RELEASES_PAGE) {
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(page)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }
+            }, modifier = Modifier.testTag(VersionTags.NEW))
         }
     }
 }

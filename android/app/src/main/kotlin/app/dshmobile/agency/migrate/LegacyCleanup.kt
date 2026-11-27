@@ -13,6 +13,9 @@ class LegacyCleanup(private val filesDir: File, private val cacheDir: File) {
     companion object {
         /** His old dsh conversations and novels: never deleted here. */
         const val USER_DATA = "userdata"
+
+        /** His old novels inside it: deleted only by his own 刪除舊小說 (two confirmations); the chats stay. */
+        const val NOVELS = "userdata/workspace/novels"
     }
 
     /** The program folders it deletes, relative to their roots. */

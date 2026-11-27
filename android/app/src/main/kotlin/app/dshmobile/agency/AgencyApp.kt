@@ -233,6 +233,42 @@ class AgencyApp(
         val ready = StartState.Ready(store, brain)
         _start.value = ready
         remind(ready)
+        checkRelease()
+    }
+
+    /** The release check behind the network gate (null until the brain is built, and in tests with a model server). */
+    private var releases: app.agency.core.net.ReleaseCheck? = null
+
+    /**
+     * 新版本通知 (owner 2026-11-27): at most once a day (the day is kept before the request, so a failure is not retried the
+     * same day), the latest release; a newer one is kept for 設定 and notified once. Never with a test model server.
+     */
+    suspend fun checkRelease() {
+        // Tests never reach the network: they call [checkReleaseWith] with their own server.
+        if (overrides != null) return
+        checkReleaseWith(releases ?: return)
+    }
+
+    /** [checkRelease] with [check] (a test's server). */
+    internal suspend fun checkReleaseWith(check: app.agency.core.net.ReleaseCheck) {
+        val today = java.time.LocalDate.now(clock.zone).toString()
+        if (settings.releaseCheckedDay == today) return
+        settings.releaseCheckedDay = today
+        val r = try {
+            check.latest()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            errorLog.append(TAG, "release check failed (${e.javaClass.simpleName})")
+            null
+        } ?: return
+        if (app.agency.core.net.ReleaseCheck.newer(r, app.dshmobile.BuildConfig.VERSION_NAME, app.dshmobile.BuildConfig.VERSION_CODE)) {
+            val known = settings.newRelease
+            settings.newRelease = "${r.versionName}|${r.page}"
+            if (known?.substringBefore('|') != r.versionName) notifier.newRelease(r.versionName, r.page)
+        } else {
+            settings.newRelease = null
+        }
     }
 
     /**
@@ -243,6 +279,7 @@ class AgencyApp(
         start()
         val ready = withTimeoutOrNull(OPEN_WAIT_MS) { _start.first { it is StartState.Ready || it is StartState.Locked } } as? StartState.Ready ?: return
         remind(ready)
+        checkRelease()
     }
 
     /**
@@ -663,6 +700,26 @@ class AgencyApp(
     /** His old dsh conversations and novels (`filesDir/userdata`), when anything is left there; never deleted by the app. */
     fun oldChats(): File? = File(context.filesDir, LegacyCleanup.USER_DATA).takeIf { d -> d.isDirectory && d.walkTopDown().any { it.isFile } }
 
+    /** His old novels (`userdata/workspace/novels`), when any file is there (owner 2026-11-27: the novels may go, chats stay). */
+    fun oldNovels(): File? = File(context.filesDir, LegacyCleanup.NOVELS).takeIf { d -> d.isDirectory && d.walkTopDown().any { it.isFile } }
+
+    /**
+     * 刪除舊小說 after his two confirmations: only `userdata/workspace/novels` (the old chats stay), and an `audit_log` row
+     * (counts only). True when they are gone.
+     */
+    suspend fun deleteOldNovels(): Boolean {
+        val ready = _start.value as? StartState.Ready ?: return false
+        val dir = File(context.filesDir, LegacyCleanup.NOVELS)
+        if (!dir.isDirectory) return false
+        return scope.async {
+            val files = dir.walkTopDown().count { it.isFile }
+            val gone = dir.deleteRecursively() || !dir.exists()
+            runCatching { ready.store.journal.audit(app.agency.core.model.AuditLog(UUID.randomUUID().toString(), clock.millis(), "old_novels_deleted", "files=$files ok=$gone")) }
+            errorLog.append(TAG, "old novels deleted ok=$gone")
+            gone
+        }.await()
+    }
+
     /**
      * 匯出舊聊天與小說 / 先分享整個舊資料夾: [folder] zipped into `cache/export/` (served by the FileProvider, swept at the next
      * start); the folder itself is not changed. Null when it could not be written.
@@ -729,6 +786,7 @@ class AgencyApp(
             onBlocked = { host -> errorLog.append("net", "blocked host $host") },
         )
         val transport = Transport(HttpFactory.create(gate))
+        releases = app.agency.core.net.ReleaseCheck(transport)
         val checks = CallChecks(costMeter, CallBudget(clock = Clock.systemUTC()), onBudgetRefused = notifier::rateLimited)
         val deepseek = OpenAiCompatClient(
             transport,

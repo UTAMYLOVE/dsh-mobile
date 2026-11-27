@@ -59,6 +59,15 @@ class AgencySettings(private val prefs: SharedPreferences) {
         set(v) = putBool(IDOL_SETUP_SKIPPED, v)
 
     /** 「這個服務支援工具」: off by default; then chat runs without tools on that service. */
+    /** 新版本通知: the coach day of the last release check (at most once a day), and the newer release found (`name|page`). */
+    var releaseCheckedDay: String?
+        get() = prefs.getString(RELEASE_CHECKED_DAY, null)
+        set(v) = put(RELEASE_CHECKED_DAY, v)
+
+    var newRelease: String?
+        get() = prefs.getString(NEW_RELEASE, null)
+        set(v) = put(NEW_RELEASE, v)
+
     var compatTools: Boolean
         get() = prefs.getBoolean(COMPAT_TOOLS, false)
         set(v) = putBool(COMPAT_TOOLS, v)
@@ -81,6 +90,8 @@ class AgencySettings(private val prefs: SharedPreferences) {
     data class ModelChoice(val id: String, val zh: String)
 
     companion object {
+        const val RELEASE_CHECKED_DAY = "release_checked_day"
+        const val NEW_RELEASE = "new_release"
         const val COMPAT_DAILY_CAP = 300
         const val COMPAT_JSON = "compat_json"
         const val COMPAT_TOOLS = "compat_tools"
