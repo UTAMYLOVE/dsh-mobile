@@ -259,9 +259,9 @@ fun HomeScreen(
         // rest (never less than 40%), the chips and the composer are always on screen.
         // The conversation keeps at least 40% of the room after the line, the chips and the composer (about [FIXED] together).
         val cap = minOf(room * PANEL_SHARE, maxOf(room * PANEL_MIN_SHARE, room * (1f - CHAT_SHARE) - FIXED))
-        // While he types (the keyboard up) the conversation has the screen; the card comes back when the line is sent.
+        // While he types (the keyboard up) the 今天 card steps aside for the conversation; it comes back when the line is sent.
         val typing = imeVisible()
-        if (!typing) Column(Modifier.fillMaxWidth().heightIn(max = cap).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
+        Column(Modifier.fillMaxWidth().heightIn(max = cap).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
             notice?.let { NoticeBar(it, agency::dismissNotice) }
             MediaLine(agency)
             ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
@@ -277,7 +277,8 @@ fun HomeScreen(
             onboarding?.takeIf { it.completed && it.missing.isNotEmpty() }?.let { st ->
                 OnboardingBanner(st.missing.map { app.dshmobile.ui.agency.onboarding.short(it) }, onOnboarding)
             }
-            c?.let {
+            // The pickers above stay while he types into them (睡前回顧); only the 今天 card steps aside.
+            if (!typing) c?.let {
                 TodayCard(it, lessonBoard, busy, todayActions, onList = { list = true }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
             }
         }
