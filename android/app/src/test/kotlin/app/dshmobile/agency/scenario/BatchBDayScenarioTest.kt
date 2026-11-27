@@ -166,14 +166,14 @@ class BatchBDayScenarioTest {
         val backup = Backup({ db.openHelper.writableDatabase }, vault)
         val made = backup.export(out, "invented-pass-77".toCharArray(), clock.millis(), app.agency.core.backup.BackupCipher.MIN_ITERATIONS)
         assertEquals(2, made.media)
-        brain.onText("幫我記買軟尺")
+        brain.onText("幫我記買洗衣精")
         store.ledger.delete(store.ledger.between("2026-11-01", "2026-11-30").last().id)
         vault.delete("menu-photo")
         assertFalse(snapshot() == before)
         backup.restore(ByteArrayInputStream(out.toByteArray()), "invented-pass-77".toCharArray())
         assertEquals(before, snapshot())
         assertTrue(vault.has("menu-photo") && vault.has("lunch-photo"))
-        assertTrue(store.messages.recent(200).none { it.who == Who.OWNER && it.text == "幫我記買軟尺" })
+        assertTrue(store.messages.recent(200).none { it.who == Who.OWNER && it.text == "幫我記買洗衣精" })
     }
 
     private suspend fun snapshot(): List<Any?> = listOf(

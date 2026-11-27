@@ -54,8 +54,8 @@ class MemoScreenTest {
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
         rule.waitForTag(AgencyTags.HOME)
         runBlocking { ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true)) }
-        app.agency.send("幫我記：買軟尺")
-        rule.waitForText("記下了：「買軟尺」，放在備忘錄。")
+        app.agency.send("幫我記：買洗衣精")
+        rule.waitForText("記下了：「買洗衣精」，放在備忘錄。")
         val id = runBlocking { ready().store.memos.all() }.single().id
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.WAR_ROOM.name).performClick()
         rule.waitForTag(MemoTags.ROW + id)
@@ -67,7 +67,7 @@ class MemoScreenTest {
         rule.onNodeWithTag(MemoTags.UNDO).performScrollTo().performClick()
         rule.waitUntil(10_000) { runBlocking { ready().store.memos.all() }.size == 1 }
         rule.waitForTag(MemoTags.ROW + id)
-        assertEquals("買軟尺", runBlocking { ready().store.memos.get(id)!!.text })
+        assertEquals("買洗衣精", runBlocking { ready().store.memos.get(id)!!.text })
         assertTrue(runBlocking { ready().store.memos.get(id)!!.deletedAt } == null)
     }
 }

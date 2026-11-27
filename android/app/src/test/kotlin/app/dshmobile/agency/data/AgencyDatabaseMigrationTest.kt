@@ -308,8 +308,8 @@ class AgencyDatabaseMigrationTest {
             assertEquals("雞腿便當", meal.text)
             assertEquals(null, meal.lateAt) // every old meal was handed in on time
             assertEquals(900, store.income.get("2026-12-01")!!.amount)
-            store.memos.upsert(app.agency.core.model.Memo("memo1", 9, "買軟尺"))
-            assertEquals(listOf("買軟尺"), store.memos.all().map { it.text })
+            store.memos.upsert(app.agency.core.model.Memo("memo1", 9, "買洗衣精"))
+            assertEquals(listOf("買洗衣精"), store.memos.all().map { it.text })
             assertTrue(store.ledger.insert(app.agency.core.model.LedgerEntry("l1", "2026-12-01", 9, 120, "便當")))
             store.imports.upsert(app.agency.core.model.ImportBatch("b1", 9, app.agency.core.model.ImportTarget.LEDGER, "貼上", "{}", listOf("l1"), 0))
             store.photoReads.upsert(app.agency.core.model.PhotoRead("r1", 9, "m1", app.agency.core.model.PhotoReadKind.MENU, "{}"))

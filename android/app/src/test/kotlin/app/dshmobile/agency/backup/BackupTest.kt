@@ -80,8 +80,8 @@ class BackupTest {
             val sealed = app.agency.mediaVault()!!.put("photo-1", photo)
             s.media.insert(Media("photo-1", MediaKind.PHOTO, MediaPurpose.MEAL, "image/jpeg", sealed.bytes, sealed.sha256, 3))
             s.meals.insert(Meal("meal-1", "2026-12-01", 4, "LUNCH", "雞腿便當", verified = true, photoMediaId = "photo-1", lateAt = 2))
-            s.messages.insert(Message("m-1", 5, Who.OWNER, text = "幫我記買軟尺"))
-            s.memos.upsert(Memo("memo-1", 6, "買軟尺", dueAt = 4_102_444_800_000)) // far ahead: no reminder fires during the test
+            s.messages.insert(Message("m-1", 5, Who.OWNER, text = "幫我記買洗衣精"))
+            s.memos.upsert(Memo("memo-1", 6, "買洗衣精", dueAt = 4_102_444_800_000)) // far ahead: no reminder fires during the test
             s.ledger.insert(LedgerEntry("l-1", "2026-12-01", 7, 120, "便當"))
             s.weights.insert(WeightLog("w-1", "2026-12-01", 8, 78.4))
             s.thinking.put(StoredThinking("m-1", 9, "DEEPSEEK", "OPENAI", "她在想的事"))
@@ -102,7 +102,7 @@ class BackupTest {
         val text = String(zip, Charsets.UTF_8)
         assertFalse(text.contains(secret))
         assertFalse(text.contains("她在想的事"))
-        assertFalse(String(file, Charsets.UTF_8).contains("買軟尺")) // the file itself is sealed
+        assertFalse(String(file, Charsets.UTF_8).contains("買洗衣精")) // the file itself is sealed
 
         // Things change after the backup.
         runBlocking {

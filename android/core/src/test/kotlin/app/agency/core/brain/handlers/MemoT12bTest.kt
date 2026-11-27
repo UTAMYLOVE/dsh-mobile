@@ -56,7 +56,7 @@ class MemoT12bTest {
 
     @Test fun theThreePhrasingsKeepHisWords() {
         val now = Instant.parse("2026-11-25T02:00:00Z")
-        assertEquals("買軟尺", MemoWords.parse("幫我記：買軟尺", now, zone, 5)!!.text)
+        assertEquals("買洗衣精", MemoWords.parse("幫我記：買洗衣精", now, zone, 5)!!.text)
         assertEquals("明天九點繳電話費", MemoWords.parse("記一下 明天九點繳電話費。", now, zone, 5)!!.text)
         val r = MemoWords.parse("提醒我下午三點拿包裹", now, zone, 5)!!
         assertEquals("下午三點拿包裹", r.text)
@@ -76,7 +76,7 @@ class MemoT12bTest {
         assertEquals(LocalDateTime.parse("2026-11-25T18:45"), due("18:45 收衣服"))
         assertEquals(LocalDateTime.parse("2026-11-25T10:20"), due("二十分鐘後關火"))
         assertEquals(LocalDateTime.parse("2026-12-03T09:00"), due("12/3 繳學費"))
-        assertNull(due("買軟尺"))
+        assertNull(due("買洗衣精"))
         // After midnight it is still yesterday's coach day: 「明天」 is the calendar day that starts in the morning.
         at("01:00") // the planner's clock: 01:00 after the 25th, i.e. the 26th
         assertEquals(Instant.parse("2026-11-25T17:00:00Z"), clock.now)
@@ -102,13 +102,13 @@ class MemoT12bTest {
     }
 
     @Test fun withoutATimeItIsOnlyListed() {
-        assertEquals("記下了：「買軟尺」，放在備忘錄。", say("10:00", "幫我記買軟尺").single().text)
+        assertEquals("記下了：「買洗衣精」，放在備忘錄。", say("10:00", "幫我記買洗衣精").single().text)
         assertTrue(say("10:01", "提醒我買洗面乳").single().text.contains("沒聽到時間"))
         assertEquals(listOf(null, null), runBlocking { store.memos.all() }.map { it.dueAt })
     }
 
     @Test fun checkOffDeleteAndUndo() = runBlocking {
-        say("10:00", "幫我記買軟尺")
+        say("10:00", "幫我記買洗衣精")
         val id = store.memos.all().single().id
         val b = brain()
         assertTrue(b.checkMemo(id, true))
@@ -118,16 +118,16 @@ class MemoT12bTest {
         assertTrue(b.deleteMemo(id))
         assertTrue(b.memos().isEmpty())
         assertTrue(b.restoreMemo(id))
-        assertEquals(listOf("買軟尺"), b.memos().map { it.text })
+        assertEquals(listOf("買洗衣精"), b.memos().map { it.text })
     }
 
     @Test fun theToolReturnsOnlyStoredRowsInHisWords() = runBlocking {
-        store.memos.upsert(Memo("a", 1, "買軟尺"))
+        store.memos.upsert(Memo("a", 1, "買洗衣精"))
         store.memos.upsert(Memo("b", 2, "繳電話費", dueAt = Instant.parse("2026-11-26T01:00:00Z").toEpochMilli(), doneAt = 3))
         store.memos.upsert(Memo("c", 3, "刪掉的", deletedAt = 4))
         val out = ReadMemosTool(store, zone).run(JsonObject(emptyMap())).jsonObject
         val rows = out["memos"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(listOf("買軟尺", "繳電話費"), rows.map { it["text"]!!.jsonPrimitive.content })
+        assertEquals(listOf("買洗衣精", "繳電話費"), rows.map { it["text"]!!.jsonPrimitive.content })
         assertEquals("2026-11-26T09:00", rows[1]["remind_at"]!!.jsonPrimitive.content)
         assertEquals(1, out["count_open"]!!.jsonPrimitive.content.toInt())
         // No tool can write one.
@@ -140,6 +140,6 @@ class MemoT12bTest {
     }
 
     @Test fun theManagerIsXiaoKuiInTheReminder() {
-        assertTrue(MemoDesk.reminder(Memo("a", 1, "買軟尺")).startsWith("小雨，"))
+        assertTrue(MemoDesk.reminder(Memo("a", 1, "買洗衣精")).startsWith("小雨，"))
     }
 }

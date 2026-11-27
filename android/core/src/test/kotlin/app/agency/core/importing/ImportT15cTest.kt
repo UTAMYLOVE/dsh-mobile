@@ -107,10 +107,10 @@ class ImportT15cTest {
         assertEquals("體重看不懂", pw.rows.single { it.status == Planned.Status.BAD }.reason)
         importer.commit(pw, 6)
         assertEquals(2, store.weights.count())
-        val memos = Tables.text("買軟尺\n繳電話費")
+        val memos = Tables.text("買洗衣精\n繳電話費")
         val pn = importer.plan(ImportTarget.MEMOS, memos, Importer.guess(memos), Importer.PASTE, today)
         val b = importer.commit(pn, 7)
-        assertEquals(listOf("買軟尺", "繳電話費"), store.memos.all().map { it.text })
+        assertEquals(listOf("買洗衣精", "繳電話費"), store.memos.all().map { it.text })
         importer.undo(b.id, 8)
         assertTrue(store.memos.all(deleted = true).isEmpty())
     }

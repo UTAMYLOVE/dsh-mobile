@@ -444,11 +444,11 @@ abstract class AgencyStoreContract {
     }
 
     @Test fun memosKeepHisWordsAndHideDeletedOnes() = test {
-        val a = app.agency.core.model.Memo("memo-1", 10, "買軟尺", dueAt = 99)
+        val a = app.agency.core.model.Memo("memo-1", 10, "買洗衣精", dueAt = 99)
         val b = app.agency.core.model.Memo("memo-2", 11, "繳電話費")
         memos.upsert(b)
         memos.upsert(a)
-        assertEquals(listOf("買軟尺", "繳電話費"), memos.all().map { it.text })
+        assertEquals(listOf("買洗衣精", "繳電話費"), memos.all().map { it.text })
         memos.upsert(b.copy(deletedAt = 12))
         assertEquals(listOf("memo-1"), memos.all().map { it.id })
         assertEquals(listOf("memo-1", "memo-2"), memos.all(deleted = true).map { it.id })
