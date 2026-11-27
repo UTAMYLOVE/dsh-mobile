@@ -142,21 +142,21 @@ class LegacyMapperTest {
         assertEquals(mapOf("FOOD" to 1), p.note.duplicates)
     }
 
-    @Test fun theOldDefaultGoalsBecome75Then68() {
-        assertEquals(listOf(75.0, 68.0), plan(prefs = mapOf("goals" to "80.0,75.0,68.0")).rules.goalsKg)
-        assertEquals(listOf(75.0, 68.0), plan(prefs = emptyMap()).rules.goalsKg)
-        assertEquals(listOf(75.0, 68.0), plan(prefs = mapOf("goals" to "68, 80 ,75")).rules.goalsKg)
+    @Test fun theOldDefaultGoalsBecomeNone() {
+        assertEquals(emptyList<Double>(), plan(prefs = mapOf("goals" to "80.0,75.0,68.0")).rules.goalsKg)
+        assertEquals(emptyList<Double>(), plan(prefs = emptyMap()).rules.goalsKg)
+        assertEquals(emptyList<Double>(), plan(prefs = mapOf("goals" to "68, 80 ,75")).rules.goalsKg)
         assertNull(plan(prefs = mapOf("goals" to "80.0,75.0,68.0")).note.goalsKept)
     }
 
     @Test fun hisOwnGoalsAreKeptWithoutAnythingUnder52() {
-        val p = plan(prefs = mapOf("goals" to "78.0,72.0,50.0"))
-        assertEquals(listOf(78.0, 72.0), p.rules.goalsKg)
-        assertEquals(listOf(78.0, 72.0), p.note.goalsKept)
+        val p = plan(prefs = mapOf("goals" to "94.0,88.0,50.0"))
+        assertEquals(listOf(94.0, 88.0), p.rules.goalsKg)
+        assertEquals(listOf(94.0, 88.0), p.note.goalsKept)
         assertEquals(listOf(50.0), p.note.goalsDropped)
-        assertEquals(listOf(77.0, 52.0), plan(prefs = mapOf("goals" to "77,52")).rules.goalsKg)
+        assertEquals(listOf(93.0, 52.0), plan(prefs = mapOf("goals" to "93,52")).rules.goalsKg)
         val allLow = plan(prefs = mapOf("goals" to "50,45"))
-        assertEquals(listOf(75.0, 68.0), allLow.rules.goalsKg)
+        assertEquals(emptyList<Double>(), allLow.rules.goalsKg)
         assertEquals(listOf(50.0, 45.0), allLow.note.goalsDropped)
     }
 
@@ -187,9 +187,9 @@ class LegacyMapperTest {
     }
 
     @Test fun theProfileComesFromHisSettings() {
-        val p = plan(prefs = mapOf("height" to "172.0", "start_weight" to "81.5", "company" to " 星光娛樂 ", "join_date" to "2026-11-19", "day_start" to 4)).profile
-        assertEquals(172.0, p.heightCm!!, 0.0)
-        assertEquals(81.5, p.startWeightKg!!, 0.0)
+        val p = plan(prefs = mapOf("height" to "188.0", "start_weight" to "97.5", "company" to " 星光娛樂 ", "join_date" to "2026-11-19", "day_start" to 4)).profile
+        assertEquals(188.0, p.heightCm!!, 0.0)
+        assertEquals(97.5, p.startWeightKg!!, 0.0)
         assertEquals("星光娛樂", p.companyName)
         assertEquals("2026-11-19", p.joinDate)
         assertEquals(4, p.dayStartHour)
@@ -218,7 +218,7 @@ class LegacyMapperTest {
         val p = plan(prefs = mapOf(
             "provider" to "CLAUDE", "model_deepseek" to "deepseek-flash", "model_claude" to "claude-haiku-5-5",
             "compat_url" to "https://llm.example.invalid/v1", "compat_model" to "local-small", "compat_day" to "2026-11-21",
-            "compat_count" to 12, "open_on_coach" to true, "height" to "170.0",
+            "compat_count" to 12, "open_on_coach" to true, "height" to "186.0",
         )).prefs
         assertEquals(
             mapOf(
@@ -263,11 +263,11 @@ class LegacyMapperTest {
     @Test fun weightsPendingAndTrainingsComeAcross() {
         val p = plan(LegacyState(
             seeded = true,
-            weights = listOf(LegacyWeight("w", 3, "2026-11-20", 79.6, 90.5)),
+            weights = listOf(LegacyWeight("w", 3, "2026-11-20", 95.6, 90.5)),
             pending = listOf(LegacyPending("m", 1, "牛肉麵", 935, 9)),
             trainings = listOf(LegacyTraining("t1", 4, "2026-11-21", 3), LegacyTraining("t2", 5, "2026-11-22", null)),
         ))
-        assertEquals(79.6, p.weights.single().kg, 0.0)
+        assertEquals(95.6, p.weights.single().kg, 0.0)
         assertEquals(90.5, p.weights.single().waistCm!!, 0.0)
         assertEquals("2026-11-20", p.weights.single().day)
         val pend = p.pending.single()
@@ -279,8 +279,8 @@ class LegacyMapperTest {
 
     @Test fun theBaselineKeepsItsNumbersStepsAndFiles() {
         val b = LegacyBaseline(
-            heightCm = 172.0, weightKg = 79.2, photo = "photo-1795224600000.jpg", recording = "recording-1795225200000.m4a",
-            pushups = 18, plankSec = 45, skipped = setOf(LegacyBaselineStep.RECORDING, LegacyBaselineStep.BODY), step = LegacyBaselineStep.PLANK,
+            heightCm = 188.0, weightKg = 95.2, photo = "photo-1795224600000.jpg", recording = "recording-1795225200000.m4a",
+            pushups = 30, plankSec = 45, skipped = setOf(LegacyBaselineStep.RECORDING, LegacyBaselineStep.BODY), step = LegacyBaselineStep.PLANK,
         )
         val files = listOf(
             LegacyFile("recording-1795225200000.m4a", 99), LegacyFile("photo-1795224600000.jpg", 98), LegacyFile("photo-1795224000000.jpg", 97),
@@ -288,9 +288,9 @@ class LegacyMapperTest {
         val p = plan(LegacyState(seeded = true, baseline = b), files = files)
         val out = p.baseline!!
         assertEquals(Baseline.JOIN, out.id)
-        assertEquals(172.0, out.heightCm!!, 0.0)
-        assertEquals(79.2, out.weightKg!!, 0.0)
-        assertEquals(18, out.pushupsMax)
+        assertEquals(188.0, out.heightCm!!, 0.0)
+        assertEquals(95.2, out.weightKg!!, 0.0)
+        assertEquals(30, out.pushupsMax)
         assertEquals(45, out.plankMaxSec)
         assertEquals(listOf("BODY", "RECORDING"), out.skipped)
         assertEquals("PLANK", out.step)
@@ -372,7 +372,7 @@ class LegacyMapperTest {
         val old = LegacyState(
             seeded = true,
             food = listOf(food("給力盒子  南加州烤雞腿", 650, 50.0, seeded = false), food("牛肉麵", 650, 28.0, seeded = false)),
-            baseline = LegacyBaseline(heightCm = 172.0, pushups = 12),
+            baseline = LegacyBaseline(heightCm = 188.0, pushups = 12),
         )
         val p = plan(fresh, setAside = listOf("state.json.bad-1" to old))
         assertEquals(650, p.food.single { FoodTable.normalize(it.name) == FoodTable.normalize(LegacyMapper.GELI_CHICKEN) }.kcal)
@@ -484,15 +484,15 @@ class LegacyMapperTest {
     }
 
     @Test fun savedValuesAnExistingRowKeptOutAreListed() {
-        val p = plan(prefs = mapOf("height" to "172.0", "fat" to 55, "goals" to "78,72", "day_start" to 5))
+        val p = plan(prefs = mapOf("height" to "188.0", "fat" to 55, "goals" to "94,88", "day_start" to 5))
         assertEquals(
             setOf(LegacyMapper.PROFILE_HEIGHT, LegacyMapper.PROFILE_DAY_START, LegacyMapper.RULES_FAT, LegacyMapper.RULES_GOALS),
             p.fromPrefs,
         )
-        val stored = p.profile.copy(heightCm = 170.0, companyName = "星光娛樂")
-        val rules = p.rules.copy(fatG = 50, goalsKg = listOf(75.0, 68.0), quotaKcal = 1600)
+        val stored = p.profile.copy(heightCm = 186.0, companyName = "星光娛樂")
+        val rules = p.rules.copy(fatG = 50, goalsKg = listOf(91.0, 84.0), quotaKcal = 1600)
         assertEquals(
-            mapOf("profile.heightCm" to "172.0", "rules.fatG" to "55", "rules.goalsKg" to "[78.0, 72.0]"),
+            mapOf("profile.heightCm" to "188.0", "rules.fatG" to "55", "rules.goalsKg" to "[94.0, 88.0]"),
             LegacyMapper.notApplied(p, stored, rules),
         )
         // A row the import wrote itself, or one that holds his values, lists nothing.
@@ -512,7 +512,7 @@ class LegacyMapperTest {
 
     @Test fun aFinishedBaselineIsMarkedComplete() {
         val files = listOf(LegacyFile("photo-1.jpg", 1, 10), LegacyFile("recording-2.m4a", 2, 10))
-        val done = LegacyBaseline(heightCm = 172.0, weightKg = 79.2, photo = "photo-1.jpg", recording = "recording-2.m4a", pushups = 18, skipped = setOf(LegacyBaselineStep.PLANK))
+        val done = LegacyBaseline(heightCm = 188.0, weightKg = 95.2, photo = "photo-1.jpg", recording = "recording-2.m4a", pushups = 18, skipped = setOf(LegacyBaselineStep.PLANK))
         assertEquals(now, plan(LegacyState(seeded = true, baseline = done), files = files).baseline!!.completedAt)
         // A question still open, a step neither handed in nor skipped, or a file that is not there: not finished.
         assertNull(plan(LegacyState(seeded = true, baseline = done.copy(step = LegacyBaselineStep.PLANK)), files = files).baseline!!.completedAt)

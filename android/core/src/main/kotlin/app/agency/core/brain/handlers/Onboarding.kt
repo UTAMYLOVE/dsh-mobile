@@ -106,7 +106,7 @@ object BaselineAnswers {
 
     /** (height, weight), either may be null when only the other was given; null when the message is not a body answer. */
     fun body(raw: String): Pair<Double?, Double?>? {
-        // A1: 「我身高 170 體重 78」「我的體重 78」: a leading 我 / 我的 is part of a plain answer.
+        // A1: 「我身高 186 體重 94」「我的體重 94」: a leading 我 / 我的 is part of a plain answer.
         val t = raw.trim().removePrefix("我的").removePrefix("我").trim()
         BOTH.find(t)?.let { m -> return (h(num(m.groupValues[1])) ?: return null) to (w(num(m.groupValues[2])) ?: return null) }
         BOTH_UNITS.find(t)?.let { m -> return (h(num(m.groupValues[1])) ?: return null) to (w(num(m.groupValues[2])) ?: return null) }
@@ -273,7 +273,7 @@ class Onboarding(
             } else {
                 // Only one of the two: saved, the question stays open for the other.
                 store.baselines.upsert(got.copy(step = OnboardingStep.BODY.name))
-                "記下：${saved.joinToString("、")}。" + if (got.heightCm == null) "再打身高，例如「身高 170」。" else "再打體重，例如「體重 78」。"
+                "記下：${saved.joinToString("、")}。" + if (got.heightCm == null) "再打身高，例如「身高 186」。" else "再打體重，例如「體重 94」。"
             }
         }
     }
@@ -328,9 +328,9 @@ class Onboarding(
         OnboardingStep.BODY -> {
             val w = latestWeight() ?: p.startWeightKg
             if (p.heightCm != null && w != null) {
-                "先確認身高 ${CoachRules.kg(p.heightCm)} 公分、體重 ${CoachRules.kg(w)} 公斤。對就回「對」，不對就打「身高 170 體重 78」這樣。"
+                "先確認身高 ${CoachRules.kg(p.heightCm)} 公分、體重 ${CoachRules.kg(w)} 公斤。對就回「對」，不對就打「身高 186 體重 94」這樣。"
             } else {
-                "先量身高體重，打「身高 170 體重 78」這樣。"
+                "先量身高體重，打「身高 186 體重 94」這樣。"
             }
         }
         OnboardingStep.PHOTO_FRONT ->

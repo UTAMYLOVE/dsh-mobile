@@ -83,7 +83,7 @@ class BackupTest {
             s.messages.insert(Message("m-1", 5, Who.OWNER, text = "幫我記買洗衣精"))
             s.memos.upsert(Memo("memo-1", 6, "買洗衣精", dueAt = 4_102_444_800_000)) // far ahead: no reminder fires during the test
             s.ledger.insert(LedgerEntry("l-1", "2026-12-01", 7, 120, "便當"))
-            s.weights.insert(WeightLog("w-1", "2026-12-01", 8, 78.4))
+            s.weights.insert(WeightLog("w-1", "2026-12-01", 8, 94.4))
             s.thinking.put(StoredThinking("m-1", 9, "DEEPSEEK", "OPENAI", "她在想的事"))
         }
         // The company may still be writing the day's first lines (入社建檔 just marked done): the backup is taken once it is quiet.

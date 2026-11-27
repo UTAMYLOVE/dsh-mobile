@@ -67,7 +67,7 @@ class ImportT15cTest {
         assertEquals(120, Cells.amount("120元"))
         assertEquals(120, Cells.amount("-120"))
         assertNull(Cells.amount("免費"))
-        assertEquals(78.4, Cells.kg("78.4 公斤")!!, 1e-9)
+        assertEquals(94.4, Cells.kg("94.4 公斤")!!, 1e-9)
     }
 
     @Test fun theMapperGuessesThePreviewSkipsDuplicatesAndNothingIsSavedBeforeImport() = runBlocking {
@@ -101,9 +101,9 @@ class ImportT15cTest {
         assertEquals(1, pm.duplicates)
         importer.commit(pm, 5)
         assertEquals(700, store.meals.onDay("2026-12-08").single().kcal)
-        val weights = Tables.text("日期,體重\n12/1,79.6\n12/8,78.9 公斤\n12/9,很重")
+        val weights = Tables.text("日期,體重\n12/1,95.6\n12/8,94.9 公斤\n12/9,很重")
         val pw = importer.plan(ImportTarget.WEIGHTS, weights, Importer.guess(weights), Importer.PASTE, today)
-        assertEquals(listOf(79.6, 78.9), pw.fresh.map { it.kg })
+        assertEquals(listOf(95.6, 94.9), pw.fresh.map { it.kg })
         assertEquals("體重看不懂", pw.rows.single { it.status == Planned.Status.BAD }.reason)
         importer.commit(pw, 6)
         assertEquals(2, store.weights.count())

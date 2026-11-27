@@ -59,8 +59,8 @@ class MemoryApplierTest {
     }
 
     @Test fun digitsPrivateThingsAndBannedGuidanceAreRejected() = runBlocking {
-        val m = said("體重 78 公斤，身高一百七十公分，超過就叫我多跑步補回來")
-        val out = apply(add("about_him", "體重 78 公斤", "體重 78 公斤"), add("about_him", "身高一百七十公分", "身高一百七十公分"), owner = m)
+        val m = said("體重 94 公斤，身高一百八十六公分，超過就叫我多跑步補回來")
+        val out = apply(add("about_him", "體重 94 公斤", "體重 94 公斤"), add("about_him", "身高一百八十六公分", "身高一百八十六公分"), owner = m)
         assertEquals(listOf("不能有數字，數字要記在紀錄裡", "不能有數字，數字要記在紀錄裡"), out.rejected.map { it.reason })
         val banned = apply(MemoryRequest(MemoryOp.ADD, "how_to_talk", text = "超過就叫他多跑步補回來", quote = "多跑步補回來"), owner = m)
         assertTrue(banned.rejected.single().reason.startsWith("不能記："))

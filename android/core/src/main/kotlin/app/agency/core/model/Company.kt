@@ -34,7 +34,8 @@ data class CompanyRules(
     val zeroCalPerWeek: Int = 3,
     val marginPct: Int = 10,
     val banned: List<String> = emptyList(),
-    val goalsKg: List<Double> = listOf(75.0, 68.0),
+    /** His own target weights (設定 › 規章); none shipped in code (a public repository). */
+    val goalsKg: List<Double> = emptyList(),
     val version: Int = 0,
     val updatedAt: Long = 0,
 )

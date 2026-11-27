@@ -59,7 +59,7 @@ class MealTalkT16Test {
     private val search = SearchClient { area, dish -> searched += area to dish; answer }
 
     init {
-        runBlocking { store.profile.put(Profile(heightCm = 170.0, startWeightKg = 78.0, areaText = "大安區", onboardingDone = true)) }
+        runBlocking { store.profile.put(Profile(heightCm = 186.0, startWeightKg = 94.0, areaText = "大安區", onboardingDone = true)) }
     }
 
     private fun brain(llm: ScriptedLlm, s: SearchClient? = search) = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock), search = s) { "id-%04d".format(++n) }

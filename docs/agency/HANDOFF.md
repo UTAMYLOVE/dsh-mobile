@@ -26,15 +26,21 @@ Ask him for it at the start; never commit its contents here.
 ## Where the work is
 
 - Branch with all code: `claude/dsh-mobile-cloud-handoff-vfhvdh` (feature work is done on a local `feat/agency` branch and
-  merged onto it). Last pushed code commit: `37d2c91` (daily lessons and quizzes). Batches A, B and C (below) are committed on
-  `feat/agency` and NOT pushed yet.
+  merged onto it with `integ-ci.sh`). Batches A, B and C and the final test-and-fix rounds are pushed.
 - Android app in `android/` (Kotlin + Compose). Pure-Kotlin rules/brain in the `:core` module.
 - Green check: `cd android && ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon`.
-  Last local result (batch C): core 639, app 291, all passing (a few Robolectric screen tests can time out when the machine
-  is busy and pass alone). Instrumented e2e (e01–e14) compile; none of the batch A–C screens has run on an emulator yet.
-- Database: Room schema version 6 (batch C added no table: new record kinds are enum values stored as text, new settings are
-  the plan sections `PRACTICE` and `LEVELS`).
-- CI runs on push (GitHub Actions); the emulator e2e job is the integration test.
+  Last local result: core 639, app 292, all passing.
+- Emulator e2e (CI job `e2e`, `AgencyE2eTest` e01–e15 + `ReminderE2eTest` e07–e09): every rollout week open
+  (`RolloutSpec.ALL_OPEN`), notification and microphone permissions granted before each test, a failing test prints the
+  company's last lines. e15 is the whole-day scenario across the features on a test clock (`TestOverrides.clock`,
+  `E2eClock`); the same day runs on Robolectric (`ui/agency/WholeDayScreenTest`, the emulator's 320×640 screen).
+- Home screen layout: the trainee card area (at most half the screen) and the panels under the conversation (at most the
+  room less 160 dp) scroll; the composer is always on screen. The conversation scrolls to its newest line on the next frame.
+- Public repository: no example or test number matches his body (examples use 身高 186 體重 94, targets 91、84); the code
+  ships no target weights (`CompanyRules.goalsKg` is empty until he sets 設定 › 規章). The strength program's prescribed reps
+  and the safety floors (52 kg, 65 kg) are rules, not measurements, and stay.
+- Database: Room schema version 6.
+- CI runs on push (GitHub Actions); the emulator e2e job gates the release (`release.yml`, tag `v0.9.0+18`).
 
 ## Built so far (batches, all committed)
 
@@ -79,8 +85,8 @@ Ask him for it at the start; never commit its contents here.
    used for them); monthly evaluation's dance score has no model look at the video beyond two still frames; the singing
    screen draws the PNG without note labels; no in-app editor for the reference melody; the weekly/monthly hand-ins and the
    singing screen never ran on a real phone (MediaCodec decode, camera video).
-2. Whole-branch review (cross-feature), one fix wave, CI + emulator whole-day scenario (add the batch A–C screens), release
-   dry run, give him the tag command and Chinese phone test steps.
+2. Done: CI + emulator whole-day scenario, release dry run (unsigned APK). Left: he runs the tag command from the final
+   report once CI is green, then tests on his phone (steps in the final report); a whole-branch code review was not done.
 
 ## Usage budget
 

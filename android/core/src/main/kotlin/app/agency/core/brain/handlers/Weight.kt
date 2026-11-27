@@ -12,7 +12,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 /**
- * A weight he typed (「今天體重 79.5」; the scale comes later): only a number he wrote himself (Intake keeps those only),
+ * A weight he typed (「今天體重 95.5」; the scale comes later): only a number he wrote himself (Intake keeps those only),
  * recorded with the waist when given, answered by code (身體質量指數 and its zone when his height is known, the next goal only;
  * nothing below 52 kg is ever named), and a `weight_logged` signal for L21 and L23.
  */

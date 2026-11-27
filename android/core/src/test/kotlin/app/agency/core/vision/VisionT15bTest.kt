@@ -222,7 +222,7 @@ class VisionT15bTest {
     @Test fun bodyFeedbackPassesTwoChecksAndNeverTalksFoodOrNumbers() = runBlocking {
         at("21:00")
         val v = FakeVision(
-            ok("""{"text":"肩膀有點往前，站的時候把肩胛往後收。腰腹的脂肪比較集中。晚餐少吃一點。看起來大概 80 公斤。褲子太長，褲管堆在鞋上。"}"""),
+            ok("""{"text":"肩膀有點往前，站的時候把肩胛往後收。腰腹的脂肪比較集中。晚餐少吃一點。看起來大概 96 公斤。褲子太長，褲管堆在鞋上。"}"""),
             ok("""{"text":"你這樣很醜。"}"""),
             ok("""{"text":"腰腹比較集中。"}"""),
         )

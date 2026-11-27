@@ -929,7 +929,7 @@ class Brain(
             }
             "craving" -> MealOutcome(null, cravings.answer(owner.text, parsed.items))
             "label" -> meals.label(parsed.label?.name ?: parsed.items.firstOrNull()?.name, parsed.label?.kcal, parsed.label?.proteinG)
-            "weight" -> parsed.weightKg?.let { weights.record(it, parsed.waistCm) } ?: MealOutcome(null, listOf("沒聽到體重。說「今天體重 79.5」。"))
+            "weight" -> parsed.weightKg?.let { weights.record(it, parsed.waistCm) } ?: MealOutcome(null, listOf("沒聽到體重。說「今天體重 95.5」。"))
             "water" -> water.record(WaterDesk.halvesIn(owner.text) ?: parsed.waterHalf ?: 0, nerve.state(snapshot.today(snapshot.profile())).riding)
             "training" -> training.typed(owner.text, parsed.training)
             "condition" -> return parsed.conditionScore?.let { conditionLines(it, null, null, null, owner.at) }

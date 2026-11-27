@@ -9,11 +9,11 @@ import org.junit.Test
 
 class CoachRulesTest {
     @Test fun theSpecsExampleBlockComesOutWordForWord() {
-        val block = CoachRules.overQuota(380, 1700, 75.0, 80.0, 168.0).joinToString("\n")
+        val block = CoachRules.overQuota(380, 1700, 91.0, 96.0, 184.0).joinToString("\n")
         assertEquals(
             "超過 380 大卡。\n" +
                 "身材：每天都這樣，一個月多 1.6 公斤，赤字只剩 120，等於不會瘦。\n" +
-                "身體：留在肥胖區的時間多 0.8 天，75 公斤延後 0.8 天。\n" +
+                "身體：留在肥胖區的時間多 0.8 天，91 公斤延後 0.8 天。\n" +
                 "明天回到 1700。不准少吃來補。",
             block,
         )
@@ -29,32 +29,32 @@ class CoachRulesTest {
     }
 
     @Test fun theSecondLineTailFollowsTheDeficitLeft() {
-        fun line2(x: Int) = CoachRules.overQuota(x, 1700, 75.0, 80.0, 168.0)[1]
+        fun line2(x: Int) = CoachRules.overQuota(x, 1700, 91.0, 96.0, 184.0)[1]
         assertEquals("身材：每天都這樣，一個月多 2.1 公斤，赤字變成 0，等於在變胖。", line2(500))
         assertEquals("身材：每天都這樣，一個月多 1.1 公斤，赤字只剩 250。", line2(250))
         assertEquals("身材：每天都這樣，一個月多 2.6 公斤，赤字變成 -100，等於在變胖。", line2(600))
     }
 
     @Test fun belowTheObeseLineTheObeseClauseGoes() {
-        assertEquals("身體：68 公斤延後 0.8 天。", CoachRules.overQuota(380, 1700, 68.0, 74.0, 168.0)[2])
-        assertEquals("身體：留在肥胖區的時間多 0.8 天。", CoachRules.overQuota(380, 1700, null, 80.0, 168.0)[2])
+        assertEquals("身體：84 公斤延後 0.8 天。", CoachRules.overQuota(380, 1700, 84.0, 90.0, 184.0)[2])
+        assertEquals("身體：留在肥胖區的時間多 0.8 天。", CoachRules.overQuota(380, 1700, null, 96.0, 184.0)[2])
     }
 
-    @Test fun bmiLinesAndZonesAt168() {
-        assertEquals("76.2", CoachRules.obeseLineKg(168.0).toPlainString())
-        assertEquals("67.7", CoachRules.healthyLineKg(168.0).toPlainString())
-        assertEquals(CoachRules.Zone.OBESE, CoachRules.zone(76.2, 168.0))
-        assertEquals(CoachRules.Zone.HEALTHY, CoachRules.zone(67.7, 168.0))
-        assertEquals(CoachRules.Zone.OVER, CoachRules.zone(70.0, 168.0))
-        assertEquals("28.1", CoachRules.bmi(79.2, 168.0))
+    @Test fun bmiLinesAndZonesAt184() {
+        assertEquals("91.4", CoachRules.obeseLineKg(184.0).toPlainString())
+        assertEquals("81.3", CoachRules.healthyLineKg(184.0).toPlainString())
+        assertEquals(CoachRules.Zone.OBESE, CoachRules.zone(91.4, 184.0))
+        assertEquals(CoachRules.Zone.HEALTHY, CoachRules.zone(81.3, 184.0))
+        assertEquals(CoachRules.Zone.OVER, CoachRules.zone(86.0, 184.0))
+        assertEquals("28.1", CoachRules.bmi(95.2, 184.0))
     }
 
     @Test fun theNextGoalIsTheFirstStepBelow() {
-        val g = listOf(80.0, 75.0, 68.0)
-        assertEquals(80.0, CoachRules.nextGoal(g, 80.4)!!, 0.0)
-        assertEquals(75.0, CoachRules.nextGoal(g, 80.0)!!, 0.0)
-        assertEquals(68.0, CoachRules.nextGoal(g, 75.0)!!, 0.0)
-        assertNull(CoachRules.nextGoal(g, 67.9))
+        val g = listOf(96.0, 91.0, 84.0)
+        assertEquals(96.0, CoachRules.nextGoal(g, 96.4)!!, 0.0)
+        assertEquals(91.0, CoachRules.nextGoal(g, 96.0)!!, 0.0)
+        assertEquals(84.0, CoachRules.nextGoal(g, 91.0)!!, 0.0)
+        assertNull(CoachRules.nextGoal(g, 83.9))
     }
 
     @Test fun floorAndDayAndQuota() {

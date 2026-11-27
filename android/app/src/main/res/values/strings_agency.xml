@@ -76,7 +76,7 @@
     <string name="ag_rules_cap">單餐上限（大卡）</string>
     <string name="ag_rules_cheat">休假餐一週幾餐（零或一）</string>
     <string name="ag_rules_zero">零卡飲料一週幾瓶</string>
-    <string name="ag_rules_goals">目標體重（公斤，用頓號分開，例如 75、68）</string>
+    <string name="ag_rules_goals">目標體重（公斤，用頓號分開，例如 91、84）</string>
     <string name="ag_rules_bad_number">有一格不是數字，請改好再存。</string>
     <string name="ag_rules_confirm_1">確定要改公司規章嗎？</string>
     <string name="ag_rules_confirm_2">再確認一次：改了之後，每個角色都照新的規章，舊的版本會留著紀錄。</string>
@@ -193,7 +193,7 @@
     <string name="ag_ob_progress">第 %1$d 項，共 %2$d 項：%3$s</string>
     <string name="ag_ob_skip">跳過</string>
     <string name="ag_ob_confirm">對</string>
-    <string name="ag_ob_body_hint">數字不對就在下面打「身高 170 體重 78」。</string>
+    <string name="ag_ob_body_hint">數字不對就在下面打「身高 186 體重 94」。</string>
     <string name="ag_ob_type_hint">做完在下面打數字。</string>
     <string name="ag_ob_take_photo">拍照</string>
     <string name="ag_ob_photo_hint">同一個位置、同樣的光線，全身入鏡。</string>

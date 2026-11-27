@@ -41,16 +41,16 @@ class IdolCardTest {
     }
 
     @Test fun onlyTheNextGoalAndNeverOneUnder52() {
-        val rules = CompanyRules(goalsKg = listOf(75.0, 68.0, 50.0))
-        assertEquals(75.0, IdolCard.nextGoal(rules, 82.0)!!, 0.0)
-        assertEquals(68.0, IdolCard.nextGoal(rules, 74.5)!!, 0.0)
-        assertNull(IdolCard.nextGoal(rules, 67.0)) // 50 is his wish, never a goal on the card
-        assertEquals(75.0, IdolCard.nextGoal(rules, null)!!, 0.0)
+        val rules = CompanyRules(goalsKg = listOf(91.0, 84.0, 50.0))
+        assertEquals(91.0, IdolCard.nextGoal(rules, 98.0)!!, 0.0)
+        assertEquals(84.0, IdolCard.nextGoal(rules, 90.5)!!, 0.0)
+        assertNull(IdolCard.nextGoal(rules, 83.0)) // 50 is his wish, never a goal on the card
+        assertEquals(91.0, IdolCard.nextGoal(rules, null)!!, 0.0)
     }
 
     @Test fun whatIsLeftAndTheBreachesAreCountedByCode() {
         val today = TodayRecords(d, meals = listOf(meal("m1", 714, 48.0), meal("m2", 310, 30.5, listOf("PROCESSED"))))
-        val f = IdolCard.build(Profile(stageName = "小雨", memberColor = "#8E2440"), CompanyRules(), today, day, 80.0, 2, "photo-1")
+        val f = IdolCard.build(Profile(stageName = "小雨", memberColor = "#8E2440"), CompanyRules(), today, day, 96.0, 2, "photo-1")
         assertEquals(1700 - 1024, f.kcalLeft)
         assertEquals(140 - 79, f.proteinLeftG) // 61.5 left, rounded down
         assertEquals(1, f.breachesToday)

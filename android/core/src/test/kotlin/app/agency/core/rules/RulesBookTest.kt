@@ -14,8 +14,8 @@ class RulesBookTest {
     @Test fun theBounds() {
         assertTrue(SafetyBounds.check(CompanyRules()).isEmpty())
         assertEquals(listOf("floor_kcal"), SafetyBounds.check(CompanyRules(floorKcal = 1100)).map { it.field }.distinct().take(1))
-        assertTrue(SafetyBounds.check(CompanyRules(goalsKg = listOf(75.0, 50.0))).any { it.field == "goals_kg" })
-        assertTrue(SafetyBounds.check(CompanyRules(goalsKg = listOf(75.0, 52.0))).isEmpty())
+        assertTrue(SafetyBounds.check(CompanyRules(goalsKg = listOf(91.0, 50.0))).any { it.field == "goals_kg" })
+        assertTrue(SafetyBounds.check(CompanyRules(goalsKg = listOf(91.0, 52.0))).isEmpty())
         assertTrue(SafetyBounds.check(CompanyRules(quotaKcal = 1150)).any { it.field == "quota_kcal" })
         assertTrue(SafetyBounds.check(CompanyRules(mealCapKcal = 1300)).any { it.field == "meal_cap_kcal" })
         assertTrue(SafetyBounds.check(CompanyRules(cheatMealsPerWeek = 2)).any { it.field == "cheat_meals_per_week" })

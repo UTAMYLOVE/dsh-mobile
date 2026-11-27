@@ -181,7 +181,7 @@ class PracticeTest {
         val b = brain()
         val media = listOf("s", "d", "r").map { Media(it, MediaKind.AUDIO, MediaPurpose.EVAL, "audio/mp4", 1, it, 0) }
         val said = company(runBlocking {
-            b.monthlyEval(MonthlyResult("2026-12", song = "s", dance = "d", rotating = "r", weightKg = 70.0), media, mapOf(EvalItem.VOCAL to 3, EvalItem.DANCE to 1, EvalItem.VISUAL to 4, EvalItem.STAR to 4), null, emptyList())
+            b.monthlyEval(MonthlyResult("2026-12", song = "s", dance = "d", rotating = "r", weightKg = 86.0), media, mapOf(EvalItem.VOCAL to 3, EvalItem.DANCE to 1, EvalItem.VISUAL to 4, EvalItem.STAR to 4), null, emptyList())
         })
         assertTrue(said, said.contains("態度") && said.contains("程式算") && said.contains("舞蹈 1（自評）"))
         assertTrue(said.contains("這個月的個人任務：舞蹈"))
@@ -193,7 +193,7 @@ class PracticeTest {
     @Test fun theLookedAtScoresKeepOnlyAGuardedBasis() {
         val ok = EvalReads.parse("""{"dance":{"score":3,"basis":"手臂的線條有出來，拍子穩。"},"visual":{"score":4,"basis":"表情自然。"},"star":{"score":9,"basis":"很有氣勢"}}""")
         assertEquals(listOf(EvalItem.DANCE, EvalItem.VISUAL), ok.map { it.item }) // 9 is out of range
-        val numbered = EvalReads.parse("""{"dance":{"score":3,"basis":"看起來有 70 公斤。"},"visual":{"score":4,"basis":"表情自然。"},"star":{"score":3,"basis":"眼神有焦點。"}}""")
+        val numbered = EvalReads.parse("""{"dance":{"score":3,"basis":"看起來有 86 公斤。"},"visual":{"score":4,"basis":"表情自然。"},"star":{"score":3,"basis":"眼神有焦點。"}}""")
         assertTrue(numbered.none { it.item == EvalItem.DANCE })
     }
 

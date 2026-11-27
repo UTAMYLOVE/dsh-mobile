@@ -75,10 +75,10 @@ class AgencyDaoTest {
     @Test fun profileIsOneRowWithJsonNames() = runBlocking {
         val dao = db.profile()
         dao.upsert(ProfileEntity.of(Profile(idolNames = listOf("BABYMONSTER"))))
-        dao.upsert(ProfileEntity.of(Profile(heightCm = 170.0, idolNames = listOf("BABYMONSTER", "DESERVE"))))
+        dao.upsert(ProfileEntity.of(Profile(heightCm = 186.0, idolNames = listOf("BABYMONSTER", "DESERVE"))))
         assertEquals("1", one("SELECT COUNT(*) FROM profile"))
         assertEquals("""["BABYMONSTER","DESERVE"]""", one("SELECT idol_names FROM profile"))
-        assertEquals(170.0, dao.get()!!.heightCm)
+        assertEquals(186.0, dao.get()!!.heightCm)
     }
 
     @Test fun aRulesVersionCannotBeWrittenTwice() = runBlocking {
@@ -89,7 +89,7 @@ class AgencyDaoTest {
             fail("a second history row for version 1 must be refused")
         } catch (_: android.database.sqlite.SQLiteConstraintException) {
         }
-        assertEquals("[75.0,68.0]", one("SELECT goals_kg FROM company_rules_history"))
+        assertEquals("[]", one("SELECT goals_kg FROM company_rules_history"))
     }
 
     @Test fun mealsIgnoreADuplicateIdAndTheirItemsGoWithThem() = runBlocking {

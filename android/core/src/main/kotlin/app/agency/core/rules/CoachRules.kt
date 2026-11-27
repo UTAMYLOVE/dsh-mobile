@@ -73,7 +73,7 @@ object CoachRules {
         DayOfWeek.SUNDAY -> "日"
     }
 
-    /** 75.0 → "75", 79.25 → "79.3". */
+    /** 91.0 → "91", 95.25 → "95.3". */
     fun kg(v: Double): String {
         val b = BigDecimal(v).setScale(1, RoundingMode.HALF_UP)
         return if (b.stripTrailingZeros().scale() <= 0) b.setScale(0).toPlainString() else b.toPlainString()

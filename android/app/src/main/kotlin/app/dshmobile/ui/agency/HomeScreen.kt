@@ -2,8 +2,7 @@ package app.dshmobile.ui.agency
 
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -191,11 +190,9 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
     val moodDue by produceState(false, revision) {
         onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.moodDue() }.getOrDefault(false) } }
     }
-    // The screen's height less the keyboard (no subcomposition: the conversation's effects never start during a measure).
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val ime = WindowInsets.ime.getBottom(density)
-    val room = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - with(density) { ime.toDp() }).coerceAtLeast(ROOM_MIN)
-    Column(Modifier.fillMaxSize().imePadding().testTag(AgencyTags.HOME)) {
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+    val room = maxHeight
+    Column(Modifier.fillMaxSize().testTag(AgencyTags.HOME)) {
         // The open card's rows take about [CARD_SHARE] of the screen and scroll inside it; with 補交 and 藝名 open too the whole card
         // takes at most [CARD_AREA_SHARE] and scrolls: the conversation and the composer keep their room on a small phone too.
         card?.let { c ->
@@ -210,53 +207,53 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         // The conversation and the panels under it share what is left after the card and the composer: the composer is never
         // squeezed out (with every rollout week open the buttons and pickers are taller than a small phone), and the panels leave
         // the conversation at least [CHAT_MIN] (or [PANEL_SHARE] of the room on a small screen) and scroll beyond it.
-        ChatAndPanels(
-            Modifier.weight(1f).fillMaxWidth(),
-            chat = {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val cap = (maxHeight - CHAT_MIN).coerceAtLeast(maxHeight * PANEL_SHARE)
+            Column(Modifier.fillMaxSize()) {
                 ChatList(
-                    messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.fillMaxSize(),
+                    messages, hasOlder = total > messages.size, onOlder = { limit += PAGE }, modifier = Modifier.weight(1f),
                     memory = memory, actions = chatActions, busy = busy, meals = mealView,
                 )
-            },
-        ) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
-                ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
-                onboarding?.let { OnboardingFlow(agency, it, actions) }
-                // The quick buttons come with the reminders, after 入社建檔 (the 入社建檔 panel has the room until then).
-                labelling?.let { p ->
-                    LabelForm(p, onSave = { kcal, protein -> labelling = null; agency.label(p.mealId, p.itemIdx, kcal, protein) }, onClose = { labelling = null })
-                }
-                if (onboarding?.completed == true) {
-                    if (conditionDue) ConditionPicker { score, sleep, energy, ill -> agency.condition(score, sleep, energy, ill) }
-                    reviewOpen?.let { open -> key(open) { BedtimeReviewSheet(open) { good, fix -> agency.review(good, fix) } } }
-                    if (moodDue) app.dshmobile.ui.agency.sign.MoodPicker(agency::mood)
-                    MediaLine(agency)
-                    QuickButtons(card, busy, onPhoto = actions.takeMealPhoto, onTarget = actions.photo, onPick = actions.pick) { agency.send(it) }
-                    TrainingButtons(card, busy, onWalk = agency::walkDone) { kind ->
-                        scope.launch {
-                            val open = withContext(Dispatchers.IO) {
-                                runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, ready.brain.strengthMoves()) } }.getOrNull()
-                            }
-                            training = open
-                        }
+                Column(Modifier.fillMaxWidth().heightIn(max = cap).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
+                    ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
+                    onboarding?.let { OnboardingFlow(agency, it, actions) }
+                    // The quick buttons come with the reminders, after 入社建檔 (the 入社建檔 panel has the room until then).
+                    labelling?.let { p ->
+                        LabelForm(p, onSave = { kcal, protein -> labelling = null; agency.label(p.mealId, p.itemIdx, kcal, protein) }, onClose = { labelling = null })
                     }
-                    PracticeButtons(
-                        card, busy,
-                        onTimer = { kind ->
+                    if (onboarding?.completed == true) {
+                        if (conditionDue) ConditionPicker { score, sleep, energy, ill -> agency.condition(score, sleep, energy, ill) }
+                        reviewOpen?.let { open -> key(open) { BedtimeReviewSheet(open) { good, fix -> agency.review(good, fix) } } }
+                        if (moodDue) app.dshmobile.ui.agency.sign.MoodPicker(agency::mood)
+                        MediaLine(agency)
+                        QuickButtons(card, busy, onPhoto = actions.takeMealPhoto, onTarget = actions.photo, onPick = actions.pick) { agency.send(it) }
+                        TrainingButtons(card, busy, onWalk = agency::walkDone) { kind ->
                             scope.launch {
-                                training = withContext(Dispatchers.IO) { runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, emptyList()) } }.getOrNull() }
+                                val open = withContext(Dispatchers.IO) {
+                                    runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, ready.brain.strengthMoves()) } }.getOrNull()
+                                }
+                                training = open
                             }
-                        },
-                        onTap = agency::practiceTap,
-                        onCheck = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Check) },
-                        onBody = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Body) },
-                        onEval = { eval = it },
-                        onSinging = { singing = true },
-                    )
+                        }
+                        PracticeButtons(
+                            card, busy,
+                            onTimer = { kind ->
+                                scope.launch {
+                                    training = withContext(Dispatchers.IO) { runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, emptyList()) } }.getOrNull() }
+                                }
+                            },
+                            onTap = agency::practiceTap,
+                            onCheck = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Check) },
+                            onBody = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Body) },
+                            onEval = { eval = it },
+                            onSinging = { singing = true },
+                        )
+                    }
                 }
             }
         }
         Composer(busy = busy, onSend = agency::send)
+    }
     }
     viewing?.let { m ->
         PhotoViewer(
@@ -287,31 +284,6 @@ private fun MediaLine(agency: AgencyApp) {
 }
 
 private const val PAGE = 500
-
-/**
- * The conversation over the panels below it (proposals, 入社建檔, pickers, buttons): the panels are measured first and take what
- * they need up to the room less [CHAT_MIN] (at least [PANEL_SHARE] of it on a small screen), scrolling beyond; the conversation
- * takes the rest. A plain layout, not a subcomposition: the conversation's effects (its scroll to the newest line) never start
- * inside a measure.
- */
-@Composable
-private fun ChatAndPanels(modifier: Modifier, chat: @Composable () -> Unit, panels: @Composable () -> Unit) {
-    androidx.compose.ui.layout.Layout(contents = listOf(chat, panels), modifier = modifier) { (chatParts, panelParts), c ->
-        val h = c.maxHeight
-        val cap = maxOf(h - CHAT_MIN.roundToPx(), (h * PANEL_SHARE).toInt()).coerceIn(0, h)
-        val placedPanels = panelParts.map { it.measure(c.copy(minHeight = 0, maxHeight = cap)) }
-        val chatHeight = (h - placedPanels.sumOf { it.height }).coerceAtLeast(0)
-        val placedChat = chatParts.map { it.measure(c.copy(minHeight = chatHeight, maxHeight = chatHeight)) }
-        layout(c.maxWidth, h) {
-            placedChat.forEach { it.place(0, 0) }
-            var y = chatHeight
-            placedPanels.forEach { it.place(0, y); y += it.height }
-        }
-    }
-}
-
-/** The least screen height the caps are worked out from (a split screen). */
-private val ROOM_MIN = 320.dp
 
 /** The least room the conversation keeps above the panels. */
 private val CHAT_MIN = 160.dp

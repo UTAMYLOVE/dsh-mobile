@@ -423,10 +423,10 @@ class NerveTest {
         val nv = nerve()
         val d0 = monday.minusDays(14)
         for (i in 0..14) emit(nv, Signal.MealLogged("m$i", t("12:30", d0.plusDays(i.toLong())), SlotKey.LUNCH, 1700, 140.0))
-        emit(nv, Signal.WeightLogged("w0", t("07:00", d0), 82.0))
-        emit(nv, Signal.WeightLogged("w1", t("07:00", d0.plusDays(7)), 80.6))
+        emit(nv, Signal.WeightLogged("w0", t("07:00", d0), 98.0))
+        emit(nv, Signal.WeightLogged("w1", t("07:00", d0.plusDays(7)), 96.6))
         at("07:00")
-        emit(nv, Signal.WeightLogged("w2", t("07:00"), 79.2))
+        emit(nv, Signal.WeightLogged("w2", t("07:00"), 95.2))
         val p = of("L23").single()
         val e = effect(p) as Effect.Proposal
         // TDEE = 1700 + 2.8 × 7700 ÷ 14 = 3240; minus 500 → 2740, rounded up to 2750.
@@ -440,9 +440,9 @@ class NerveTest {
     @Test fun l23ASlowLossProposesNothing() {
         val nv = nerve()
         val d0 = monday.minusDays(14)
-        emit(nv, Signal.WeightLogged("w0", t("07:00", d0), 82.0))
-        emit(nv, Signal.WeightLogged("w1", t("07:00", d0.plusDays(7)), 81.3))
-        emit(nv, Signal.WeightLogged("w2", t("07:00"), 80.5))
+        emit(nv, Signal.WeightLogged("w0", t("07:00", d0), 98.0))
+        emit(nv, Signal.WeightLogged("w1", t("07:00", d0.plusDays(7)), 97.3))
+        emit(nv, Signal.WeightLogged("w2", t("07:00"), 96.5))
         assertTrue(of("L23").isEmpty())
     }
 

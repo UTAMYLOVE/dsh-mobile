@@ -415,7 +415,7 @@ class AgencyE2eTest {
     @Test fun e06_baselinePhotosAndRecordingWithTheCameraSeam() {
         open()
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + OnboardingStep.BODY.name).fetchSemanticsNodes().isNotEmpty() }
-        say("身高 170 體重 78")
+        say("身高 186 體重 94")
         for (step in OnboardingStep.PHOTOS) {
             rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + step.name).fetchSemanticsNodes().isNotEmpty() }
             tap(OnboardingTags.TAKE_PHOTO)
@@ -463,7 +463,7 @@ class AgencyE2eTest {
         open()
         runBlocking {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
-            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
+            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 186.0, weightKg = 94.0, completedAt = 1))
         }
         say("吃了即食雞胸")
         rule.waitUntil(60_000) { runBlocking { ready().store.meals.count() } == 1 }
@@ -512,7 +512,7 @@ class AgencyE2eTest {
         open()
         runBlocking {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
-            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
+            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 186.0, weightKg = 94.0, completedAt = 1))
         }
         // A day without a run (the phone's real clock): the core may be done any time (on a delivery day it waits for 收工).
         say("今天休息")
@@ -606,7 +606,7 @@ class AgencyE2eTest {
         open()
         runBlocking {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true, joinDate = "2026-11-01"))
-            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, pushupsMax = 18, plankMaxSec = 65, completedAt = 1))
+            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 186.0, weightKg = 94.0, pushupsMax = 30, plankMaxSec = 120, completedAt = 1))
             ready().brain.setIdol("小雨", MemberColour.PRESETS[0].second)
         }
         val plan = runBlocking { ready().brain.nerve.plan(day) }

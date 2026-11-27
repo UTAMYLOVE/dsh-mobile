@@ -63,7 +63,7 @@ class TrainingScreenTest {
         rule.waitForTag(AgencyTags.HOME)
         runBlocking {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
-            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
+            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 186.0, weightKg = 94.0, completedAt = 1))
         }
         // A day without a run (the clock is the real one): the block may be done any time (on a delivery day it waits for 收工).
         app.agency.send("今天休息")

@@ -28,10 +28,10 @@ class IntakeTest {
     }
 
     @Test fun figuresThatMustBeHisAreKeptOnlyWhenHeWroteThem() {
-        val json = """{"kind":"weight","weight_kg":79.2,"waist_cm":88,"label":{"name":"雞胸","kcal":117,"protein_g":24},
+        val json = """{"kind":"weight","weight_kg":95.2,"waist_cm":88,"label":{"name":"雞胸","kcal":117,"protein_g":24},
             "training":{"kind":"strength","rounds":3,"last_round_extra":2},"condition_score":4,"illness":false}"""
-        val said = decode(json, "早上七十九點二，腰圍 88，雞胸標示 117 卡 24 克，肌力三輪做完最後一輪還能多兩下，狀態 4").value!!
-        assertEquals(79.2, said.weightKg!!, 1e-9)
+        val said = decode(json, "早上九十五點二，腰圍 88，雞胸標示 117 卡 24 克，肌力三輪做完最後一輪還能多兩下，狀態 4").value!!
+        assertEquals(95.2, said.weightKg!!, 1e-9)
         assertEquals(88.0, said.waistCm!!, 1e-9)
         assertEquals(IntakeLabel("雞胸", 117, 24.0), said.label)
         assertEquals(IntakeTraining("strength", 3, 2), said.training)

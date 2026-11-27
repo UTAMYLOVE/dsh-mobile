@@ -158,12 +158,12 @@ class LegacyImporterTest {
         assertNull(store.food.get("蚵仔麵線一碗")) // he had deleted that seed
 
         val rules = store.rules.current()!!
-        assertEquals(listOf(75.0, 68.0), rules.goalsKg)
+        assertEquals(emptyList<Double>(), rules.goalsKg)
         assertEquals(1700, rules.quotaKcal)
         assertEquals(800, rules.mealCapKcal)
         val profile = store.profile.get()!!
-        assertEquals(172.0, profile.heightCm!!, 0.0)
-        assertEquals(81.5, profile.startWeightKg!!, 0.0)
+        assertEquals(188.0, profile.heightCm!!, 0.0)
+        assertEquals(97.5, profile.startWeightKg!!, 0.0)
         assertEquals("小雨娛樂", profile.companyName)
         assertEquals("2026-11-21", profile.joinDate)
 
@@ -256,13 +256,13 @@ class LegacyImporterTest {
         val b = store.baselines.get(Baseline.JOIN)!!
         assertEquals(LegacyMapper.mediaId("photo-1795224600000.jpg"), b.photoFront)
         assertEquals(LegacyMapper.mediaId("recording-1795225200000.m4a"), b.recording)
-        assertEquals(18, b.pushupsMax)
+        assertEquals(30, b.pushupsMax)
         assertEquals(listOf("PLANK"), b.skipped)
         // Nothing in the vault is plaintext.
         assertTrue(mediaDir.listFiles()!!.none { f -> baselineFiles.any { sha(fixture("agency-v2-baseline/$it")) == sha(f.readBytes()) } })
 
         val rules = store.rules.current()!!
-        assertEquals(listOf(78.0, 72.0), rules.goalsKg)
+        assertEquals(listOf(94.0, 88.0), rules.goalsKg)
         assertEquals(55, rules.fatG)
         assertEquals(160, rules.carbsG)
         assertEquals(15, rules.marginPct)
@@ -327,7 +327,7 @@ class LegacyImporterTest {
         assertTrue(r.ok)
         assertEquals(StateOrigin.TMP.name, r.note!!.stateOrigin)
         assertEquals("午餐吃了雞胸便當", store.meals.get("a58b1763-9abc-4176-979a-048f0d5a4b26")!!.text)
-        assertEquals(78.9, store.weights.get("b69c2874-abcd-4287-8a8b-159a1e6b5c27")!!.kg, 0.0)
+        assertEquals(94.9, store.weights.get("b69c2874-abcd-4287-8a8b-159a1e6b5c27")!!.kg, 0.0)
     }
 
     @Test fun anUnreadableStateFailsKeepsTheFolderAndStillBringsWhatCanBeRead() = runBlocking {
@@ -351,7 +351,7 @@ class LegacyImporterTest {
         assertEquals(0, store.food.count())
         assertEquals(0, store.meals.count())
         assertEquals(11, store.messages.count())
-        assertEquals(172.0, store.profile.get()!!.heightCm!!, 0.0)
+        assertEquals(188.0, store.profile.get()!!.heightCm!!, 0.0)
         assertEquals("DEEPSEEK", agencyPrefs.getString(AgencyPrefKeys.PROVIDER, null))
         val log = store.journal.migrations().single()
         assertFalse(log.ok)
@@ -588,7 +588,7 @@ class LegacyImporterTest {
         assertTrue(r.ok)
         assertFalse(r.renameFailed)
         assertNull(r.keptAt)
-        assertEquals(172.0, store.profile.get()!!.heightCm!!, 0.0)
+        assertEquals(188.0, store.profile.get()!!.heightCm!!, 0.0)
     }
 
     @Test fun theRecordsTheCoachSetAsideAreImportedAndListed() = runBlocking {
@@ -644,7 +644,7 @@ class LegacyImporterTest {
         assertEquals(listOf("FRIED"), store.meals.get("0b6f3c2e-1a4d-4c55-9a51-3f7d2e8a9c01")!!.breaches)
         assertEquals(2, store.training.get("7c2e9d41-5a3b-4f86-9e17-2b8d6c4a0f39")!!.rounds)
         val b = store.baselines.get(Baseline.JOIN)!!
-        assertEquals(15, b.pushupsMax)
+        assertEquals(27, b.pushupsMax)
         assertEquals(listOf("PHOTO", "RECORDING"), b.skipped)
         assertEquals(NOW, b.completedAt)
     }
@@ -773,15 +773,15 @@ class LegacyImporterTest {
     }
 
     @Test fun savedSettingsAnExistingProfileOrRulesRowKeptOutAreListed() = runBlocking {
-        store.profile.put(Profile(heightCm = 170.0, startWeightKg = 81.5, companyName = "小雨娛樂", joinDate = "2026-11-21", dayStartHour = 5))
+        store.profile.put(Profile(heightCm = 186.0, startWeightKg = 97.5, companyName = "小雨娛樂", joinDate = "2026-11-21", dayStartHour = 5))
         store.rules.put(CompanyRules(fatG = 45), NOW - 1)
         seedV083()
         val r = importer(prefs("legacy", "v083-prefs.xml")).run()
         assertTrue(r.ok)
-        val expected = mapOf("profile.heightCm" to "172.0", "rules.fatG" to "50")
+        val expected = mapOf("profile.heightCm" to "188.0", "rules.fatG" to "50")
         assertEquals(expected, r.note!!.notApplied)
         assertEquals(expected, ImportNote.fromJson(store.journal.migrations().single().note!!).notApplied)
-        assertEquals(170.0, store.profile.get()!!.heightCm!!, 0.0)
+        assertEquals(186.0, store.profile.get()!!.heightCm!!, 0.0)
         assertEquals(45, store.rules.current()!!.fatG)
     }
 

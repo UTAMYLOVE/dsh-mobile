@@ -79,7 +79,7 @@ class CameraCaptureTest {
         scenario = ActivityScenario.launch(AgencyActivity::class.java)
         rule.waitForTag(AgencyTags.HOME)
         rule.waitForTag(OnboardingTags.STEP + OnboardingStep.BODY.name)
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("身高 170 體重 78")
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("身高 186 體重 94")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
         rule.waitForTag(OnboardingTags.STEP + OnboardingStep.PHOTO_FRONT.name)
     }

@@ -94,7 +94,7 @@ class OnboardingFlowTest {
         launch()
         rule.waitForText("入社第一件事：建檔")
         waitStep(OnboardingStep.BODY)
-        type("身高 170 體重 78")
+        type("身高 186 體重 94")
         for (step in OnboardingStep.PHOTOS) {
             waitStep(step)
             rule.onNodeWithTag(OnboardingTags.TAKE_PHOTO).performClick()
@@ -108,18 +108,18 @@ class OnboardingFlowTest {
         assertEquals(listOf(2048), played) // played back from the plaintext before handing in
         rule.onNodeWithTag(OnboardingTags.REC_HAND_IN).performClick()
         waitStep(OnboardingStep.PUSHUPS)
-        type("伏地挺身 18 下")
+        type("伏地挺身 30 下")
         waitStep(OnboardingStep.PLANK)
-        type("棒式 65 秒")
+        type("棒式 120 秒")
         // The line is written (the conversation may already show the day's later lines below it).
         rule.waitUntil(10_000) { runBlocking { ready().store.messages.recent(20) }.any { it.text.contains("入社建檔完成") } }
 
         val b = join()!!
         assertNull(b.step)
         assertNotNull(b.completedAt)
-        assertEquals(listOf(170.0, 78.0), listOf(b.heightCm, b.weightKg))
-        assertEquals(18, b.pushupsMax)
-        assertEquals(65, b.plankMaxSec)
+        assertEquals(listOf(186.0, 94.0), listOf(b.heightCm, b.weightKg))
+        assertEquals(30, b.pushupsMax)
+        assertEquals(120, b.plankMaxSec)
         val media = runBlocking { ready().store.media.all() }.associateBy { it.id }
         assertEquals(4, media.size)
         // The photos reached the vault only, as JPEG (re-encoded by the downsizing).
@@ -140,7 +140,7 @@ class OnboardingFlowTest {
         // 入社資料 opens what was handed in, and the recording plays again from the vault.
         rule.onNodeWithTag(OnboardingTags.FILE).performClick()
         rule.waitForTag(OnboardingTags.FILE_DIALOG)
-        rule.waitForText("伏地挺身 18 下")
+        rule.waitForText("伏地挺身 30 下")
         rule.onNodeWithTag(OnboardingTags.FILE_PLAY).performClick()
         // The vault is read on an IO thread and the speaker started on the main one: let the main looper run until it has.
         val until = System.currentTimeMillis() + 5_000
@@ -170,7 +170,7 @@ class OnboardingFlowTest {
     @Test fun anOpenQuestionSurvivesARestart() {
         launch()
         waitStep(OnboardingStep.BODY)
-        type("身高 170 體重 78")
+        type("身高 186 體重 94")
         waitStep(OnboardingStep.PHOTO_FRONT)
         scenario!!.close()
         runBlocking { app.agency.stopForTest() }
@@ -185,7 +185,7 @@ class OnboardingFlowTest {
     @Test fun thePlankStopwatchAnswersInHisWords() {
         launch()
         waitStep(OnboardingStep.BODY)
-        type("身高 170 體重 78")
+        type("身高 186 體重 94")
         repeat(5) {
             rule.onNodeWithTag(OnboardingTags.SKIP).performClick()
             rule.waitUntil(5_000) { ready().brain.busy.value.not() }

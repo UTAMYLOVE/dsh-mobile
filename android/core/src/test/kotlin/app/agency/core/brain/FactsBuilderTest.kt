@@ -21,7 +21,7 @@ import org.junit.Test
 
 /** Invented data only. */
 object Fixtures {
-    val profile = Profile(heightCm = 172.0, startWeightKg = 81.0, stageName = "小雨", areaText = "某某區", idolNames = listOf("Ahyeon"))
+    val profile = Profile(heightCm = 188.0, startWeightKg = 97.0, stageName = "小雨", areaText = "某某區", idolNames = listOf("Ahyeon"))
     val meal = Meal(
         id = "meal-a", day = "2026-11-20", at = 1_763_611_200_000, slotKey = "lunch", text = "我吃了雞胸便當 https://shop.example.com/x",
         items = listOf(MealItem("雞胸便當", 1.0, 629, 40.0, null, null, false, KcalSource.TABLE)),
@@ -34,9 +34,9 @@ object Fixtures {
     }
 
     fun input(history: List<Message> = messages(4), summaries: Int = 3) = FactsInput(
-        rules = CompanyRules(),
+        rules = CompanyRules(goalsKg = listOf(91.0, 84.0)),
         profile = profile,
-        currentWeightKg = 79.0,
+        currentWeightKg = 95.0,
         today = TodayRecords("2026-11-20", meals = listOf(meal), signs = listOf(sign)),
         summaries = (1..summaries).map { DaySummary("2026-11-${20 - it}", true, 1600, 120.0, 0, true) },
         history = history,
@@ -49,10 +49,10 @@ class FactsBuilderTest {
         val json = FactsBuilder.facts(Fixtures.input())
         val s = json.toString()
         assertTrue(s.contains("\"quota_kcal\":1700"))
-        assertTrue(s.contains("\"next_goal_kg\":75.0"))
+        assertTrue(s.contains("\"next_goal_kg\":91.0"))
         assertTrue(s.contains("\"left\":1071"))
         assertTrue(s.contains("\"stage_name\":\"小雨\""))
-        for (never in listOf("media-photo-77", "photo", "某某區", "Ahyeon", "http", "很私人的回顧", "別的私事", "我吃了", "81.0")) {
+        for (never in listOf("media-photo-77", "photo", "某某區", "Ahyeon", "http", "很私人的回顧", "別的私事", "我吃了", "97.0")) {
             assertFalse(never, s.contains(never))
         }
     }
@@ -82,7 +82,7 @@ class FactsBuilderTest {
             val c = FactsBuilder.clean("看 $t 這個")
             assertFalse("$t → $c", c.contains(t))
         }
-        assertEquals("早上七十九點二，79.2 公斤", FactsBuilder.clean("早上七十九點二，79.2 公斤"))
+        assertEquals("早上七十九點二，95.2 公斤", FactsBuilder.clean("早上七十九點二，95.2 公斤"))
     }
 
     @Test fun todaysListsAreCappedAndSlotsCarryTheirTimes() {

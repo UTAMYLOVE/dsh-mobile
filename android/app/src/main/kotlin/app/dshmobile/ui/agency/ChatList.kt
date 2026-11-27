@@ -95,7 +95,11 @@ fun ChatList(
 ) {
     val state = rememberLazyListState()
     LaunchedEffect(messages.lastOrNull()?.id) {
-        if (messages.isNotEmpty()) state.scrollToItem(messages.size - 1 + if (hasOlder) 1 else 0)
+        if (messages.isEmpty()) return@LaunchedEffect
+        // On the next frame, never inside the measure that composed this list (the home screen's panels are sized from the
+        // room they get, so the list may be composed while the screen is measured).
+        androidx.compose.runtime.withFrameNanos { }
+        state.scrollToItem(messages.size - 1 + if (hasOlder) 1 else 0)
     }
     if (messages.isEmpty()) {
         Box(modifier.fillMaxSize().padding(24.dp).testTag(AgencyTags.CHAT), contentAlignment = Alignment.Center) {

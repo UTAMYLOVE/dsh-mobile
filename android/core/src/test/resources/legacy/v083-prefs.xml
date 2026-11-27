@@ -6,7 +6,7 @@
     <string name="planned_meal">給力盒子 南加州烤雞腿</string>
     <int name="compat_count" value="0" />
     <int name="cheat_day" value="5" />
-    <string name="start_weight">81.5</string>
+    <string name="start_weight">97.5</string>
     <string name="provider">DEEPSEEK</string>
     <int name="quota" value="1700" />
     <int name="protein" value="140" />
@@ -15,6 +15,6 @@
     <int name="day_start" value="5" />
     <string name="bedtime">00:30</string>
     <string name="compat_day">2026-11-18</string>
-    <string name="height">172.0</string>
+    <string name="height">188.0</string>
     <string name="goals">80.0,75.0,68.0</string>
 </map>

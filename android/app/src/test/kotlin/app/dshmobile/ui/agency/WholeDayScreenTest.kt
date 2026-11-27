@@ -130,7 +130,7 @@ class WholeDayScreenTest {
         open()
         runBlocking {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true, joinDate = "2026-11-01"))
-            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, pushupsMax = 18, plankMaxSec = 65, completedAt = 1))
+            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 186.0, weightKg = 94.0, pushupsMax = 30, plankMaxSec = 120, completedAt = 1))
             ready().brain.setIdol("小雨", MemberColour.PRESETS[0].second)
         }
         val plan = runBlocking { ready().brain.nerve.plan(day) }

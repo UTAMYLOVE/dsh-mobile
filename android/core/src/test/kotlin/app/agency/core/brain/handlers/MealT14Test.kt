@@ -43,7 +43,10 @@ class MealT14Test {
     private var day = LocalDate.parse("2026-11-23") // a Monday, a class day
 
     init {
-        runBlocking { store.profile.put(Profile(heightCm = 168.0, startWeightKg = 80.0, onboardingDone = true)) }
+        runBlocking {
+            store.profile.put(Profile(heightCm = 184.0, startWeightKg = 96.0, onboardingDone = true))
+            store.rules.put(app.agency.core.model.CompanyRules(goalsKg = listOf(91.0, 84.0)), 0) // invented targets (none ship in code)
+        }
     }
 
     private fun brain(llm: ScriptedLlm) = Brain(store, llm, { ProviderChoice.DEEPSEEK }, AgencyClock.of(clock)) { "id-%04d".format(++n) }
@@ -240,7 +243,7 @@ class MealT14Test {
         val i = lines.indexOf("超過 615 大卡。")
         assertTrue(out.first().text, i > 0)
         assertEquals("身材：每天都這樣，一個月多 2.6 公斤，赤字變成 -115，等於在變胖。", lines[i + 1])
-        assertEquals("身體：留在肥胖區的時間多 1.2 天，75 公斤延後 1.2 天。", lines[i + 2])
+        assertEquals("身體：留在肥胖區的時間多 1.2 天，91 公斤延後 1.2 天。", lines[i + 2])
         assertEquals("明天回到 1700。不准少吃來補。", lines[i + 3])
         assertTrue(runBlocking { store.nerve.effects(day.toString()) }.none { it.link == "L5" })
     }
@@ -285,13 +288,13 @@ class MealT14Test {
     }
 
     @Test fun aWeightHeTypedIsRecordedWithItsZoneAndTheNextGoalOnly() {
-        val out = say("09:00", "今天體重 79.5", ScriptedLlm.ok("""{"kind":"weight","weight_kg":79.5}"""))
-        assertEquals("記下：79.5 公斤。身體質量指數 28.2，肥胖區。下一個目標 75 公斤，還差 4.5 公斤。", out.single().text)
-        assertEquals(79.5, runBlocking { store.weights.onDay(day.toString()) }.single().kg, 1e-9)
-        assertEquals(listOf(day to 79.5), runBlocking { brain(ScriptedLlm()).nerve.state(day) }.weights)
+        val out = say("09:00", "今天體重 95.5", ScriptedLlm.ok("""{"kind":"weight","weight_kg":95.5}"""))
+        assertEquals("記下：95.5 公斤。身體質量指數 28.2，肥胖區。下一個目標 91 公斤，還差 4.5 公斤。", out.single().text)
+        assertEquals(95.5, runBlocking { store.weights.onDay(day.toString()) }.single().kg, 1e-9)
+        assertEquals(listOf(day to 95.5), runBlocking { brain(ScriptedLlm()).nerve.state(day) }.weights)
         // A number the clerk made up (he wrote none) is not a weight.
-        val none = say("09:05", "我今天量了體重", ScriptedLlm.ok("""{"kind":"weight","weight_kg":81}"""))
-        assertEquals("沒聽到體重。說「今天體重 79.5」。", none.single().text)
+        val none = say("09:05", "我今天量了體重", ScriptedLlm.ok("""{"kind":"weight","weight_kg":97}"""))
+        assertEquals("沒聽到體重。說「今天體重 95.5」。", none.single().text)
         assertEquals(1, runBlocking { store.weights.count() })
     }
 

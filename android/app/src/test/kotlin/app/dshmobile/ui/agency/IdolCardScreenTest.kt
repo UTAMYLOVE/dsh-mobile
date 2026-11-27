@@ -16,6 +16,7 @@ import app.agency.core.model.Baseline
 import app.agency.core.model.KcalSource
 import app.agency.core.model.Meal
 import app.agency.core.model.MealItem
+import app.agency.core.model.CompanyRules
 import app.agency.core.model.Profile
 import app.agency.core.model.WaterLog
 import app.agency.core.rules.CoachRules
@@ -85,7 +86,7 @@ class IdolCardScreenTest {
     private fun seedFinished(profile: Profile) = runBlocking {
         val s = ready().store
         s.profile.put(profile.copy(onboardingDone = true))
-        s.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 80.0, completedAt = 1L))
+        s.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 186.0, weightKg = 96.0, completedAt = 1L))
     }
 
     @Test fun theOpenCardShowsTheIdolFileAndFoldsToOneLine() {
@@ -102,6 +103,7 @@ class IdolCardScreenTest {
             val d = today().toString()
             s.meals.insert(Meal("m1", d, 1L, slotKey = DayPlanner.build(today()).firstMeal.name, text = "便當", breaches = listOf("PROCESSED"), items = listOf(MealItem("便當", 1.0, 714, 48.0, null, null, false, KcalSource.TABLE))))
             s.water.insert(WaterLog("w1", d, 2L, 2))
+            s.rules.put(CompanyRules(goalsKg = listOf(91.0, 84.0)), 3L) // invented targets (none ship in code)
         }
         type("藝名 小雨")
         rule.waitForText("記下：藝名「小雨」。")
@@ -111,7 +113,7 @@ class IdolCardScreenTest {
         rule.onNodeWithText("入社第 10 天", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("今天還剩 986 大卡、蛋白質還差 92 克", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("今日違規 1", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("下一個目標 75 公斤", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("下一個目標 91 公斤", useUnmergedTree = true).assertExists()
         assertEquals(2, rule.onAllNodesWithTag(IdolTags.STICKER + "0", useUnmergedTree = true).fetchSemanticsNodes().size + rule.onAllNodesWithTag(IdolTags.STICKER + "1", useUnmergedTree = true).fetchSemanticsNodes().size)
         rule.onNodeWithTag(IdolTags.BAND, useUnmergedTree = true).assertExists()
 

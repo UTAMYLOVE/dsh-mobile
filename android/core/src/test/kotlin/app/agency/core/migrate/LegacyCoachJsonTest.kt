@@ -47,10 +47,10 @@ class LegacyCoachJsonTest {
         assertEquals(listOf("ZEROCAL"), s.meals[2].breaches)
         assertEquals(listOf(3, null), s.trainings.map { it.rounds })
         val b = s.baseline!!
-        assertEquals(172.0, b.heightCm!!, 0.0)
+        assertEquals(188.0, b.heightCm!!, 0.0)
         assertEquals("photo-1795224600000.jpg", b.photo)
         assertEquals("recording-1795225200000.m4a", b.recording)
-        assertEquals(18, b.pushups)
+        assertEquals(30, b.pushups)
         assertNull(b.plankSec)
         assertEquals(setOf(LegacyBaselineStep.PLANK), b.skipped)
         assertNull(b.step)
@@ -89,7 +89,7 @@ class LegacyCoachJsonTest {
     @Test fun everyRecordTheDecodersLeaveOutIsCounted() {
         val s = LegacyCoachJson.parseState(
             """{"meals":[{"day":"2026-11-20"},{"id":"a"},{"id":"m","day":"2026-11-20","items":[{"kcal":5},3,{"name":"蛋"}]},7],
-               "weights":[{"id":"w","day":"2026-11-20"},{"id":"v","day":"2026-11-20","kg":80.1}],"food":[{"name":"x"},{"kcal":3},{"name":"y","kcal":1}],
+               "weights":[{"id":"w","day":"2026-11-20"},{"id":"v","day":"2026-11-20","kg":96.1}],"food":[{"name":"x"},{"kcal":3},{"name":"y","kcal":1}],
                "pending":[{"name":"p"}],"trainings":[{"id":"t"},{"id":"u","day":"2026-11-21"}]}""",
         )!!
         assertEquals(mapOf("MEALS" to 3, "MEAL_ITEMS" to 2, "WEIGHTS" to 1, "FOOD" to 2, "PENDING" to 1, "TRAININGS" to 1), s.dropped)
@@ -121,7 +121,7 @@ class LegacyCoachJsonTest {
         assertEquals(listOf("a"), s.meals.map { it.id })
         assertEquals("說 \"}]{\" 也行", s.meals[0].text)
         // Complete arrays before the cut are kept whole; a cut number is not trusted.
-        val w = LegacyCoachJson.salvageState("""{"weights":[{"id":"w","day":"2026-11-20","kg":80.1}],"food":[{"name":"x","kcal":12""")!!
+        val w = LegacyCoachJson.salvageState("""{"weights":[{"id":"w","day":"2026-11-20","kg":96.1}],"food":[{"name":"x","kcal":12""")!!
         assertEquals(1, w.weights.size)
         assertTrue(w.food.isEmpty())
         // Nothing complete, or not JSON at all: nothing to salvage.

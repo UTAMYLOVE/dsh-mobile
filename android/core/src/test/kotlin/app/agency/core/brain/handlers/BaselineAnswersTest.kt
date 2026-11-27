@@ -7,19 +7,19 @@ import org.junit.Test
 /** The strict answer readers (the old AgencyTest cases, moved with the code, plus the T07 ones). */
 class BaselineAnswersTest {
     @Test fun strictBodyAnswers() {
-        assertEquals(170.0 to 79.5, BaselineAnswers.body("身高 170 體重 79.5"))
-        assertEquals(170.0 to 79.5, BaselineAnswers.body("170 79.5"))
-        assertEquals(170.0 to 79.5, BaselineAnswers.body("170公分 79.5公斤"))
-        assertEquals(null to 79.5, BaselineAnswers.body("體重 79.5"))
-        assertEquals(170.0 to null, BaselineAnswers.body("身高一百七十"))
+        assertEquals(186.0 to 95.5, BaselineAnswers.body("身高 186 體重 95.5"))
+        assertEquals(186.0 to 95.5, BaselineAnswers.body("186 95.5"))
+        assertEquals(186.0 to 95.5, BaselineAnswers.body("186公分 95.5公斤"))
+        assertEquals(null to 95.5, BaselineAnswers.body("體重 95.5"))
+        assertEquals(186.0 to null, BaselineAnswers.body("身高一百八十六"))
         assertNull(BaselineAnswers.body("晚餐 150 元"))
         assertNull(BaselineAnswers.body("150 2"))
-        assertNull(BaselineAnswers.body("身高 300 體重 78"))
+        assertNull(BaselineAnswers.body("身高 300 體重 94"))
     }
 
     @Test fun aPronounBeforeTheAnswerStillAnswers() {
-        assertEquals(170.0 to 78.0, BaselineAnswers.body("我身高 170 體重 78"))
-        assertEquals(null to 78.0, BaselineAnswers.body("我的體重 78"))
+        assertEquals(186.0 to 94.0, BaselineAnswers.body("我身高 186 體重 94"))
+        assertEquals(null to 94.0, BaselineAnswers.body("我的體重 94"))
     }
 
     @Test fun pushUps() {

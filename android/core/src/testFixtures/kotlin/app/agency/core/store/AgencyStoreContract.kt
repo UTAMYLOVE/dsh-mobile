@@ -86,7 +86,7 @@ abstract class AgencyStoreContract {
     @Test fun profileIsEmptyThenRoundTrips() = test {
         assertNull(profile.get())
         val p = Profile(
-            heightCm = 171.5, startWeightKg = 79.2, stageName = "小雨", memberColor = "#FFB7C5", companyName = "小雨娛樂",
+            heightCm = 187.5, startWeightKg = 95.2, stageName = "小雨", memberColor = "#FFB7C5", companyName = "小雨娛樂",
             traineeNo = "0001", joinDate = "2026-11-21", level = "C", areaText = "某區", idolNames = listOf("BABYMONSTER", "DESERVE"),
             dayStartHour = 5, onboardingDone = true,
         )
@@ -101,11 +101,11 @@ abstract class AgencyStoreContract {
         val first = rules.put(CompanyRules(banned = listOf("FRIED", "PROCESSED")), at = 100)
         assertEquals(1, first.version)
         assertEquals(100, first.updatedAt)
-        val second = rules.put(first.copy(quotaKcal = 1800, goalsKg = listOf(68.0)), at = 200)
+        val second = rules.put(first.copy(quotaKcal = 1800, goalsKg = listOf(84.0)), at = 200)
         assertEquals(2, second.version)
         assertEquals(second, rules.current())
         assertEquals(listOf(first, second), rules.history())
-        assertEquals(listOf(75.0, 68.0), first.goalsKg)
+        assertEquals(emptyList<Double>(), first.goalsKg)
     }
 
     @Test fun planSectionsGetAVersionPerKeyAndKeepTheirHistory() = test {
@@ -222,15 +222,15 @@ abstract class AgencyStoreContract {
         val t = TrainingLog("t-1", "2026-11-23", 20, TrainingKind.STRENGTH, rounds = 3, detailJson = """{"pushups":[15,15,14]}""",
             reduced = true, verified = true, legacy = true)
         val s = SignLog("s-1", "2026-11-23", 30, SignKind.OUT, onTime = false, reviewGood = "有喝水", reviewFix = "早點睡")
-        val k = WeightLog("k-1", "2026-11-23", 40, 78.4, waistCm = 88.5)
+        val k = WeightLog("k-1", "2026-11-23", 40, 94.4, waistCm = 88.5)
         assertTrue(water.insert(w)); assertTrue(training.insert(t)); assertTrue(signs.insert(s)); assertTrue(weights.insert(k))
         assertFalse(water.insert(w.copy(halfBottles = 9)))
         assertEquals(listOf(w), water.onDay("2026-11-23"))
         assertEquals(listOf(t), training.between("2026-11-20", "2026-11-23"))
         assertEquals(s, signs.get("s-1"))
         assertEquals(k, weights.get("k-1"))
-        weights.upsert(k.copy(kg = 78.0, waistCm = null))
-        assertEquals(k.copy(kg = 78.0, waistCm = null), weights.get("k-1"))
+        weights.upsert(k.copy(kg = 94.0, waistCm = null))
+        assertEquals(k.copy(kg = 94.0, waistCm = null), weights.get("k-1"))
         assertTrue(training.onDay("2026-11-24").isEmpty())
         assertTrue(signs.delete("s-1"))
         assertEquals(0, signs.count())
@@ -248,7 +248,7 @@ abstract class AgencyStoreContract {
     }
 
     @Test fun baselinesAndMediaRoundTrip() = test {
-        val b = Baseline(Baseline.JOIN, 171.0, 79.0, "m-f", "m-s", "m-b", "m-r", 12, 45, listOf("PLANK"), "PUSHUPS", 99)
+        val b = Baseline(Baseline.JOIN, 187.0, 95.0, "m-f", "m-s", "m-b", "m-r", 12, 45, listOf("PLANK"), "PUSHUPS", 99)
         assertTrue(baselines.insert(b))
         assertFalse(baselines.insert(b.copy(weightKg = 1.0)))
         assertEquals(b, baselines.get("join"))

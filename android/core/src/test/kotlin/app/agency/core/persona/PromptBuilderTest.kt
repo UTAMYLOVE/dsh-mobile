@@ -69,10 +69,10 @@ class PromptBuilderTest {
     }
 
     @Test fun rulesComeFromCompanyRules() {
-        val s = PromptBuilder.rules(CompanyRules(quotaKcal = 1800, mealCapKcal = 750, goalsKg = listOf(68.0, 75.0)))
+        val s = PromptBuilder.rules(CompanyRules(quotaKcal = 1800, mealCapKcal = 750, goalsKg = listOf(84.0, 91.0)))
         assertTrue(s.contains("每日 1800 大卡"))
         assertTrue(s.contains("單餐不超過 750 大卡"))
-        assertTrue(s.contains("75 公斤，再來 68 公斤"))
+        assertTrue(s.contains("91 公斤，再來 84 公斤"))
     }
 
     @Test fun modesAndKinds() {
