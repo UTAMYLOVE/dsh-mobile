@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
@@ -172,9 +173,13 @@ class InAppPhotoTest {
     }
 
     @Test fun theCameraPermissionIsAskedOnceNeededAndARefusalSaysWhatToDo() {
+        // The notification question (asked once 入社建檔 is done) answered beforehand, as on a phone where he said yes.
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         open()
         app.agency.send("刮好了") // any line reloads the screen with the buttons
         rule.waitForTag(MealTags.MENU, 30_000)
+        // The chips wait while the company answers 「刮好了」.
+        rule.waitUntil(30_000) { runCatching { rule.onNodeWithTag(MealTags.MENU).assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag(MealTags.MENU).performScrollTo().performClick()
         // The notification question may come first (入社建檔 is done): wait for the camera's.
         rule.waitUntil(10_000) {
