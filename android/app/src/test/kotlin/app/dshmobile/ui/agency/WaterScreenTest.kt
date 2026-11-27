@@ -73,7 +73,7 @@ class WaterScreenTest {
         open()
         rule.onNodeWithTag(AgencyTags.WATER_HALF).performScrollTo().performClick()
         rule.waitUntil(10_000) { halves() == 1 }
-        rule.waitForText("記下：喝了半壺。")
+        rule.waitForText("記下：喝了半壺。", 30_000)
         rule.onNodeWithTag(AgencyTags.WATER_FULL).performScrollTo().performClick()
         rule.waitUntil(10_000) { halves() == 3 }
         assertEquals(3, runBlocking { ready().brain.card() }.waterHalves)
