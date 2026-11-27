@@ -7,26 +7,37 @@ import java.time.LocalDate
 /**
  * 一週結束 (agency-links L20), pure: what code counts over the days of a Mon–Sun week (only the days, and the slots, after the
  * reminders started): the required items due and done, the training ones, the breaches, the polaroids added and the week's
- * real-person task. A week is on target when at least [TARGET_PCT]% of what was due is done, with no breach and the
- * real-person task done. The level itself moves with the month-end evaluation (stage 4); this only counts the weeks.
+ * real-person task. A week is on target (owner 2026-11-27 「達標」) when at least [TARGET_PCT]% of what was due is done, with no
+ * breach and the real-person task done (once that task is open in the rollout). Only weeks on target in a row count toward
+ * the level and open the next rollout week ([weeksOnTarget] is that streak); a week off target starts it again.
  */
 object WeekReport {
-    const val TARGET_PCT = 80
+    const val TARGET_PCT = 90
     val TRAINING = setOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.CARDIO, SlotKey.STRETCH, SlotKey.WALK)
 
     /** One day of the week: its slots with their status (as the day ended), its breaches and polaroids. */
     data class Day(val day: LocalDate, val slots: List<SlotState>, val breaches: Int, val photocards: Int)
 
-    fun of(id: String, at: Long, monday: LocalDate, days: List<Day>, since: Instant, realTask: Boolean, earlierOnTarget: Int, level: String): Signal.WeekEnded {
+    fun of(
+        id: String, at: Long, monday: LocalDate, days: List<Day>, since: Instant, realTask: Boolean, earlierOnTarget: Int, level: String,
+        realTaskRequired: Boolean = true,
+    ): Signal.WeekEnded {
         val due = days.flatMap { d -> d.slots.filter { it.slot.required && !it.dueAt.isBefore(since) } }
         val done = due.count { it.status == SlotStatus.DONE }
         val training = due.filter { it.key in TRAINING }
         val breaches = days.sumOf { it.breaches }
-        val on = onTarget(done, due.size, breaches, realTask)
+        val on = onTarget(done, due.size, breaches, realTask || !realTaskRequired)
         return Signal.WeekEnded(
             id, at, monday.toString(), due.size, done, training.size, training.count { it.status == SlotStatus.DONE }, breaches,
-            days.sumOf { it.photocards }, realTask, on, earlierOnTarget + if (on) 1 else 0, level = level,
+            days.sumOf { it.photocards }, realTask, on, if (on) earlierOnTarget + 1 else 0, level = level, realTaskRequired = realTaskRequired,
         )
+    }
+
+    /** The weeks on target in a row up to the last one counted ([weeks]: the earlier week ends, any order). */
+    fun streak(weeks: List<Signal.WeekEnded>): Int {
+        var n = 0
+        for (w in weeks.sortedByDescending { it.monday }) if (w.onTarget) n++ else break
+        return n
     }
 
     fun onTarget(done: Int, due: Int, breaches: Int, realTask: Boolean): Boolean = due > 0 && done * 100 >= due * TARGET_PCT && breaches == 0 && realTask

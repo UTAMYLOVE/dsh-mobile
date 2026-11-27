@@ -200,7 +200,7 @@ class SignT19Test {
         assertTrue(summary[1], summary[1].startsWith("完成率 "))
         assertEquals("真人任務：做到了", summary[5])
         assertTrue(summary.last().contains("這週沒達標"))
-        assertTrue(summary.last().contains("等級 C，達標週數 0 週"))
+        assertTrue(summary.last().contains("等級 C，連續達標 0 週"))
         assertTrue(out.contains(RealTasks.line(day)))
         // Once.
         assertTrue(lines("09:00", "簽到").none { it.startsWith("一週結果") })

@@ -153,6 +153,8 @@ sealed interface Signal {
         val weeksOnTarget: Int = 0,
         /** His level now (C in stage 1). */
         val level: String = "C",
+        /** Whether the real-person task counted this week (it opens in its rollout week). */
+        val realTaskRequired: Boolean = true,
         override val source: String = "clock",
     ) : Signal
 

@@ -237,8 +237,10 @@ class Brain(
         }
         val signals = store.nerve.signals(monday.minusDays(WEEKS_LOOKBACK_DAYS).toString(), sunday.toString())
         val real = signals.any { it.type == "real_task_done" && it.day >= monday.toString() }
-        val earlier = signals.filter { it.type == "week_ended" }.count { (Signal.decode(it.json) as? Signal.WeekEnded)?.onTarget == true }
-        return nerve.emit(app.agency.core.engine.WeekReport.of(id, clock.millis(), monday, days, since, real, earlier, profile.level))
+        // Only weeks on target in a row count (owner 2026-11-27): the streak before this one.
+        val earlier = app.agency.core.engine.WeekReport.streak(signals.filter { it.type == "week_ended" }.mapNotNull { Signal.decode(it.json) as? Signal.WeekEnded })
+        val realRequired = rollout().open(app.agency.core.schedule.Feature.REAL_TASK)
+        return nerve.emit(app.agency.core.engine.WeekReport.of(id, clock.millis(), monday, days, since, real, earlier, profile.level, realRequired))
     }
 
     /**

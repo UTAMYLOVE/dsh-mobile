@@ -579,9 +579,10 @@ object Links {
                 append("訓練 ${w.trainingDone}/${w.trainingDue}\n")
                 append("違規 ${w.breaches} 次\n")
                 append("照片牆加了 ${w.photocards} 張\n")
-                append("真人任務：").append(if (w.realTask) "做到了" else "沒做到").append("\n")
-                append(if (w.onTarget) "這週達標。" else "這週沒達標（要完成率 ${WeekReport.TARGET_PCT}% 以上、沒有違規、真人任務做到）。")
-                append("等級 ${w.level}，達標週數 ${w.weeksOnTarget} 週；升級看月末評鑑。")
+                if (w.realTaskRequired) append("真人任務：").append(if (w.realTask) "做到了" else "沒做到").append("\n")
+                val need = if (w.realTaskRequired) "、真人任務做到" else ""
+                append(if (w.onTarget) "這週達標。" else "這週沒達標（要該做的 ${WeekReport.TARGET_PCT}% 以上、沒有違規$need）。")
+                append("等級 ${w.level}，連續達標 ${w.weeksOnTarget} 週；連續達標才累積，升級看月末評鑑。")
             }
         }
 

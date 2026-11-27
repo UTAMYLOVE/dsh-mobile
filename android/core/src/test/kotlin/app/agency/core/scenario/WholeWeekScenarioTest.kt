@@ -205,7 +205,7 @@ class WholeWeekScenarioTest {
         assertEquals("違規 0 次", summary[3])
         assertEquals("照片牆加了 7 張", summary[4])
         assertEquals("真人任務：做到了", summary[5])
-        assertEquals("這週達標。等級 C，達標週數 1 週；升級看月末評鑑。", summary[6])
+        assertEquals("這週達標。等級 C，連續達標 1 週；連續達標才累積，升級看月末評鑑。", summary[6])
         assertTrue(lines.contains(RealTasks.line(day)))
         val week = runBlocking { store.nerve.signal("week:$monday") }!!.let { Signal.decode(it.json) as Signal.WeekEnded }
         assertTrue(week.onTarget && week.realTask)
