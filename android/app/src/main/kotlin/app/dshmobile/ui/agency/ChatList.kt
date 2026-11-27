@@ -48,7 +48,6 @@ import app.dshmobile.ui.kit.Sakura
 import app.dshmobile.ui.kit.LocalAccent
 import app.dshmobile.ui.kit.Type
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -164,13 +163,13 @@ private fun Bubble(m: Message, chips: Boolean, memory: Map<String, MemoryEvent>,
                 Who.COMPANY -> Sakura.White
                 Who.SYSTEM -> Sakura.MilkTeaSoft
             }
-            BoxWithConstraints {
-                val max = if (mine) maxWidth * 0.86f else maxWidth
-                Text(
-                    m.text, style = Type.Chat.copy(color = if (mine) accent.onFill else Sakura.Text),
-                    modifier = Modifier.widthIn(max = max).background(color, shape).padding(horizontal = 14.dp, vertical = 10.dp),
-                )
-            }
+            // No subcomposition here (a BoxWithConstraints per bubble kept the emulator re-laying out): the widths come from the
+            // screen, his at most 78% of it, hers at most 86% with her face.
+            val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+            Text(
+                m.text, style = Type.Chat.copy(color = if (mine) accent.onFill else Sakura.Text),
+                modifier = Modifier.widthIn(max = screen * if (mine) 0.78f else 0.72f).background(color, shape).padding(horizontal = 14.dp, vertical = 10.dp),
+            )
             if (mine && m.unsent) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.ag_unsent), color = Sakura.RoseBrown, fontSize = 12.sp, modifier = Modifier.testTag(ChatTags.UNSENT + m.id))
