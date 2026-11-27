@@ -43,9 +43,17 @@ class FakeMic(private val app: Context) : RecorderEngine {
  */
 class E2eClock : java.time.Clock() {
     @Volatile var fixed: java.time.Instant? = null
+
+    /** A clock that starts at a chosen moment and runs on (each line keeps its own time, unlike [fixed]). */
+    @Volatile var offset: java.time.Duration? = null
+
+    fun startAt(at: java.time.Instant) {
+        offset = java.time.Duration.between(java.time.Instant.now(), at)
+    }
+
     override fun getZone(): java.time.ZoneId = java.time.ZoneOffset.UTC
     override fun withZone(zone: java.time.ZoneId?): java.time.Clock = this
-    override fun instant(): java.time.Instant = fixed ?: java.time.Instant.now()
+    override fun instant(): java.time.Instant = fixed ?: offset?.let { java.time.Instant.now().plus(it) } ?: java.time.Instant.now()
 
     companion object {
         val instance = E2eClock()

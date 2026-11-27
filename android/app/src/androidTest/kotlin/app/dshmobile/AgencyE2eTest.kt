@@ -113,6 +113,7 @@ class AgencyE2eTest {
         app.keyVault.clear(Provider.DEEPSEEK)
         fake.reset()
         clock.fixed = null
+        clock.offset = null
     }
 
     private fun asset(name: String): ByteArray =
@@ -565,8 +566,9 @@ class AgencyE2eTest {
      * polaroid), 簽退 opens the bedtime review, whose answers make the 檢討卡 (no key: code lines only).
      */
     @Test fun e13_signInCoreTimerAndBedtimeReview() {
-        // A fixed clock (TAG-e2e-investigation): the same messages and the same layout on every run.
-        clock.fixed = java.time.LocalDate.parse("2026-12-12").atTime(10, 0).atZone(AgencyClock.TAIPEI).toInstant()
+        // A set start (TAG-e2e-investigation): the same day and hour, so the same messages and layout on every run; the clock
+        // runs on from there (a stopped clock gives every line the same time and their order is lost).
+        clock.startAt(java.time.LocalDate.parse("2026-12-12").atTime(10, 0).atZone(AgencyClock.TAIPEI).toInstant())
         open()
         runBlocking {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))

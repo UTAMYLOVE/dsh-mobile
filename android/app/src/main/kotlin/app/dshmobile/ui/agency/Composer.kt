@@ -46,6 +46,8 @@ fun Composer(busy: Boolean, onSend: (String) -> Unit, text: String? = null, onTe
     val value = text ?: own
     val set: (String) -> Unit = onText ?: { own = it }
     val accent = LocalAccent.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     Column(Modifier.fillMaxWidth().background(Sakura.Page).padding(start = 16.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)) {
         if (busy) Text(stringResource(R.string.ag_answering), style = Type.Caption, modifier = Modifier.padding(bottom = 4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -69,6 +71,9 @@ fun Composer(busy: Boolean, onSend: (String) -> Unit, text: String? = null, onTe
                     if (t.isNotEmpty()) {
                         onSend(t)
                         set("")
+                        // The keyboard goes once a line is sent: the 今天 card and the conversation get their room back.
+                        focus.clearFocus()
+                        keyboard?.hide()
                     }
                 },
                 enabled = enabled,

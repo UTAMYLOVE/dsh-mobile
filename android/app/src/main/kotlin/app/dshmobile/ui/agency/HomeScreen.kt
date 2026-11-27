@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -258,7 +259,9 @@ fun HomeScreen(
         // rest (never less than 40%), the chips and the composer are always on screen.
         // The conversation keeps at least 40% of the room after the line, the chips and the composer (about [FIXED] together).
         val cap = minOf(room * PANEL_SHARE, maxOf(room * PANEL_MIN_SHARE, room * (1f - CHAT_SHARE) - FIXED))
-        Column(Modifier.fillMaxWidth().heightIn(max = cap).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
+        // While he types (the keyboard up) the conversation has the screen; the card comes back when the line is sent.
+        val typing = imeVisible()
+        if (!typing) Column(Modifier.fillMaxWidth().heightIn(max = cap).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
             notice?.let { NoticeBar(it, agency::dismissNotice) }
             MediaLine(agency)
             ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
@@ -298,6 +301,11 @@ fun HomeScreen(
         )
     }
 }
+
+/** The keyboard is up. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun imeVisible(): Boolean = androidx.compose.foundation.layout.WindowInsets.isImeVisible
 
 /** 「入社建檔 還差：…」 with 去補 (it opens the 入社建檔 page). */
 @Composable
