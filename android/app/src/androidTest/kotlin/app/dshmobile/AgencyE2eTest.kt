@@ -176,6 +176,19 @@ class AgencyE2eTest {
         rule.onNodeWithTag(tag, useUnmergedTree = true).performClick()
     }
 
+    /**
+     * [tap] until [done] holds: a tap that landed while the layout moved (a line just written, the next frame scrolling) did
+     * nothing, so it is tried again, at most three times.
+     */
+    private fun tapUntil(tag: String, done: () -> Boolean) {
+        repeat(3) {
+            tap(tag)
+            if (runCatching { rule.waitUntil(10_000) { done() } }.isSuccess) return
+            rule.waitForIdle()
+        }
+        throw AssertionError("the tap on $tag did nothing")
+    }
+
     /** Scrolls [tag] into view (see [tap]). */
     private fun reveal(tag: String, timeoutMs: Long = 30_000) {
         rule.waitUntil(timeoutMs) { rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
@@ -509,17 +522,22 @@ class AgencyE2eTest {
      * polaroid), 簽退 opens the bedtime review, whose answers make the 檢討卡 (no key: code lines only).
      */
     @Test fun e13_signInCoreTimerAndBedtimeReview() {
+        // A fixed clock (TAG-e2e-investigation): the same messages and the same layout on every run.
+        clock.fixed = java.time.LocalDate.parse("2026-12-12").atTime(10, 0).atZone(AgencyClock.TAIPEI).toInstant()
         open()
         runBlocking {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
             ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 186.0, weightKg = 94.0, completedAt = 1))
         }
-        // A day without a run (the phone's real clock): the core may be done any time (on a delivery day it waits for 收工).
+        // A day without a run: the core may be done any time (on a delivery day it waits for 收工).
         say("今天休息")
         rule.waitUntil(60_000) { runBlocking { ready().store.messages.recent(5) }.any { it.text.startsWith("好，今天換成休息日") } }
         say("刮好了")
+        // The company answers before the next tap (the layout settles after its line, TAG-e2e-investigation).
+        rule.waitUntil(60_000) { runBlocking { ready().store.messages.recent(5) }.any { it.text.startsWith("記下：刮鬍子") } }
+        rule.waitForIdle()
         rule.waitUntil(60_000) { rule.onAllNodesWithTag(SignTags.SIGN_IN).fetchSemanticsNodes().isNotEmpty() }
-        tap(SignTags.SIGN_IN)
+        tapUntil(SignTags.SIGN_IN) { runBlocking { ready().store.messages.recent(10) }.any { it.who == Who.OWNER && it.text == "簽到" } }
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.PICKER).fetchSemanticsNodes().isNotEmpty() }
         tap(SignTags.SCORE + "3")
         tap(SignTags.SEND)
@@ -532,7 +550,7 @@ class AgencyE2eTest {
         rule.waitUntil(30_000) { runBlocking { ready().store.training.count() } == 1 }
         rule.waitUntil(30_000) { runBlocking { ready().brain.photocards() }.size == 1 }
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.SIGN_OUT).fetchSemanticsNodes().isNotEmpty() }
-        tap(SignTags.SIGN_OUT)
+        tapUntil(SignTags.SIGN_OUT) { runBlocking { ready().store.messages.recent(10) }.any { it.who == Who.OWNER && it.text == "簽退" } }
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.REVIEW).fetchSemanticsNodes().isNotEmpty() }
         reveal(SignTags.GOOD)
         rule.onNodeWithTag(SignTags.GOOD).performTextInput("核心照計時做完")

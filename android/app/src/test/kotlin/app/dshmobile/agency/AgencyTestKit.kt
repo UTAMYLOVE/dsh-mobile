@@ -124,6 +124,8 @@ class AgencyTestKit(private val dir: File) {
                     synchronized(bodies) { bodies += body }
                     val content = if (body.contains("資料整理員")) {
                         JSONObject().put("kind", kind).toString()
+                    } else if (body.contains("你是審稿員")) {
+                        JSONObject().put("violation", false).put("class", "none").put("reason", "").toString()
                     } else {
                         JSONObject().put("text", reply).put("ask", JSONObject.NULL).put("options", org.json.JSONArray())
                             .put("recommended", JSONObject.NULL).put("memory", org.json.JSONArray()).toString()

@@ -280,13 +280,17 @@ class AgencyApp(
      * what is due and re-arms. Called from the receivers, off the main thread.
      */
     suspend fun onAlarm() {
-        // A safety alarm first (S2): a slow database, a lock held, a timeout or a throw below never ends the chain; a tick
-        // that gets through replaces it with the right one.
-        armFallback()
-        start()
-        val ready = withTimeoutOrNull(OPEN_WAIT_MS) { _start.first { it is StartState.Ready || it is StartState.Locked } } as? StartState.Ready ?: return
-        remind(ready)
-        checkRelease()
+        // A slow database, a lock held, the receiver's time running out or a throw never ends the chain (S2): unless a tick
+        // armed the next alarm, a safety alarm is armed on the way out (cancellation included).
+        var armed = false
+        try {
+            start()
+            val ready = withTimeoutOrNull(OPEN_WAIT_MS) { _start.first { it is StartState.Ready || it is StartState.Locked } } as? StartState.Ready ?: return
+            armed = remind(ready)
+            checkRelease()
+        } finally {
+            if (!armed) armFallback()
+        }
     }
 
     /**
@@ -294,7 +298,7 @@ class AgencyApp(
      * when nothing is missing, the next alarm armed, and the model's wording asked for afterwards (within its caps). Also run
      * after each of his messages, so a filled gap clears at once. A failure is logged, never thrown.
      */
-    private suspend fun remind(ready: StartState.Ready) {
+    private suspend fun remind(ready: StartState.Ready): Boolean {
         try {
             val tick = ready.brain.tick()
             tick.posts.forEach(notifier::post)
@@ -304,11 +308,13 @@ class AgencyApp(
             tick.posts.filter { it.word }.forEach { p ->
                 runCatching { WordingWorker.enqueue(context, p) }.onFailure { errorLog.append(TAG, "wording not queued (${it.javaClass.simpleName})") }
             }
+            return true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             errorLog.append(TAG, "reminders failed (${e.javaClass.simpleName})")
             armFallback()
+            return false
         }
     }
 

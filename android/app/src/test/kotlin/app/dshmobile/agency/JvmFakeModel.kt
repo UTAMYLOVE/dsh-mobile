@@ -102,6 +102,8 @@ class JvmFakeModel {
         when {
             system.contains("資料整理員") -> message.put("content", intakeJson ?: JSONObject().put("kind", intakeKind).toString())
             system.contains("理論課的出題老師") -> message.put("content", quizJson ?: "{}")
+            // The second-pass judge: a clean verdict (it never fails open, so it must answer).
+            system.startsWith("你是審稿員") -> message.put("content", JSONObject().put("violation", false).put("class", "none").put("reason", "").toString())
             toolFirst && req.has("tools") && last?.optString("role") != "tool" -> message.put("content", "")
                 .put("reasoning_content", "先看今天的紀錄")
                 .put("tool_calls", JSONArray().put(JSONObject().put("id", "call_${ids.incrementAndGet()}").put("type", "function")

@@ -77,11 +77,11 @@ class WordingWorkerTest {
     private fun shown() = shadowOf(shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS)).contentText.toString()
 
     @Test fun theWordsReplaceTheTemplateOnTheSameNotificationSilently() {
-        val s = AgencyTestKit.fakeDeepSeek("午餐時間到了，吃完拍照給我。").also { server = it }
+        val s = AgencyTestKit.fakeDeepSeek("時間到了，做完跟我說。").also { server = it }
         val ready = open(AgencyTestKit.MemoryKeys(Provider.DEEPSEEK to "sk-test-0123456789abcdef"), s)
         val p = pushed(ready)
         run(p)
-        assertEquals("午餐時間到了，吃完拍照給我。", shown())
+        assertEquals("時間到了，做完跟我說。", shown())
         val n = shadowOf(nm).getNotification(AgencyNotifier.ID_GAPS)
         assertTrue(n.flags and android.app.Notification.FLAG_ONLY_ALERT_ONCE != 0)
         assertEquals(WordedBy.MODEL, runBlocking { ready.store.nudges.get(p.nudgeId) }!!.wordedBy)
