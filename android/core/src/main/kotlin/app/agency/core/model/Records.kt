@@ -82,7 +82,8 @@ data class WaterLog(
     val photoMediaId: String? = null,
 ) : DayRecord
 
-enum class TrainingKind { CORE7, STRENGTH, STRETCH, WALK }
+/** [CARDIO] is the 10-minute 體能 (開合跳、波比跳、深蹲跳), three days a week (owner 2026-11-26). */
+enum class TrainingKind { CORE7, STRENGTH, STRETCH, WALK, CARDIO }
 
 /** One training report; [detailJson] holds reps per move, plank seconds and the last round's extra. */
 data class TrainingLog(

@@ -47,7 +47,9 @@ class RuleEngineTest {
         assertEquals(at("2026-12-07T17:50:00Z"), noRide.dueAt) // 01:50 that night
         val home = TodayRecords(d, signs = listOf(SignLog("end", d, at("2026-12-07T15:30:00Z").toEpochMilli(), SignKind.RIDE_END)))
         val s = RuleEngine.status(plan, home, at("2026-12-07T15:40:00Z"), zone).first { it.key == SlotKey.STRENGTH }
-        assertEquals(at("2026-12-07T15:45:00Z"), s.dueAt) // 15 minutes to put the helmet down
+        assertEquals(at("2026-12-07T15:55:00Z"), s.dueAt) // the core first (15 minutes to put the helmet down), then the rounds
+        val core = RuleEngine.status(plan, home, at("2026-12-07T15:40:00Z"), zone).first { it.key == SlotKey.CORE }
+        assertEquals(at("2026-12-07T15:45:00Z"), core.dueAt)
         assertEquals(SlotStatus.LATER, s.status)
         val done = home.copy(training = listOf(TrainingLog("t", d, at("2026-12-07T16:00:00Z").toEpochMilli(), TrainingKind.STRENGTH, rounds = 3)))
         val stretch = RuleEngine.status(plan, done, at("2026-12-07T16:10:00Z"), zone).first { it.key == SlotKey.STRETCH }

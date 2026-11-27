@@ -205,9 +205,9 @@ class MealTalkT16Test {
 
     @Test fun thePreMealSuggestionComesOnceBeforeDinnerAndNeverForTheClassDayLunch() {
         val b = brain(ScriptedLlm())
-        // Before 17:05 the alarms are the core's (17:00) and then the suggestion's.
+        // Before 17:05 the next alarm is the suggestion's (the core is after 收工).
         at("16:00")
-        assertEquals(day.atStartOfDay(AgencyClock.TAIPEI).plusHours(17).toInstant(), runBlocking { b.nextFire() }!!.at)
+        assertEquals(day.atStartOfDay(AgencyClock.TAIPEI).plusHours(17).plusMinutes(5).toInstant(), runBlocking { b.nextFire() }!!.at)
         at("17:05")
         val post = runBlocking { b.tick() }.posts.single { it.key == "premeal" }
         // Nothing eaten yet today: the floor (1200) needs 890 besides the 21:00 portion, the cap allows 800.

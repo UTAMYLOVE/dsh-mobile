@@ -877,6 +877,8 @@ class Brain(
 
     suspend fun stretchDone(seconds: Int): List<Message> = trainingLocked { training.stretch(fromTimer = true, seconds = seconds) }
 
+    suspend fun cardioDone(seconds: Int): List<Message> = trainingLocked { training.cardio(fromTimer = true, seconds = seconds) }
+
     /** 快走完成 (a tap on a no-class day). */
     suspend fun walkDone(): List<Message> = trainingLocked { training.walk() }
 
@@ -893,6 +895,7 @@ class Brain(
             app.agency.core.model.TrainingKind.STRENGTH -> plan.slot(SlotKey.STRENGTH)?.let { app.agency.core.engine.Routine.strength(plan.progressionStep, plan.strengthRounds) }
             app.agency.core.model.TrainingKind.STRETCH -> app.agency.core.engine.Routine.stretch(plan.stretchMin)
             app.agency.core.model.TrainingKind.WALK -> null
+            app.agency.core.model.TrainingKind.CARDIO -> plan.slot(SlotKey.CARDIO)?.let { app.agency.core.engine.Routine.cardio(plan.cardioMin) }
         }
     }
 

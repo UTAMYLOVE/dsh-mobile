@@ -608,6 +608,8 @@ class AgencyApp(
 
     fun stretchDone(seconds: Int) = talk { it.stretchDone(seconds) }
 
+    fun cardioDone(seconds: Int) = talk { it.cardioDone(seconds) }
+
     fun walkDone() = talk { it.walkDone() }
 
     /** The 狀態打分 picker and the bedtime review sheet (T19). */

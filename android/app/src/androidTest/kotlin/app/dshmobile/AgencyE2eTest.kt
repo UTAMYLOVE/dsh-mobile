@@ -439,6 +439,10 @@ class AgencyE2eTest {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
             ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
         }
+        // A day without a run (the phone's real clock): the core may be done any time (on a delivery day it waits for 收工).
+        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("今天休息")
+        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        rule.waitUntil(60_000) { runBlocking { ready().store.messages.recent(5) }.any { it.text.startsWith("好，今天換成休息日") } }
         rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("刮好了")
         rule.onNodeWithTag(AgencyTags.SEND).performClick()
         rule.waitUntil(60_000) { rule.onAllNodesWithTag(SignTags.SIGN_IN).fetchSemanticsNodes().isNotEmpty() }

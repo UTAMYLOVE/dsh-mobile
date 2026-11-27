@@ -319,6 +319,9 @@
     <string name="ag_train_strength_button">肌力</string>
     <string name="ag_train_stretch_button">伸展</string>
     <string name="ag_train_walk_button">快走完成</string>
+    <string name="ag_train_cardio_button">體能</string>
+    <string name="ag_train_cardio">體能十分鐘</string>
+    <string name="ag_train_pain">痠可以繼續；刺痛或關節痛算受傷，馬上停下來，跟經紀人說。</string>
     <string name="ag_train_core">核心七分鐘</string>
     <string name="ag_train_strength">肌力</string>
     <string name="ag_train_stretch">伸展</string>

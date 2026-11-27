@@ -57,6 +57,8 @@ class BrainTest {
     @Test fun aTrainingTheClerkFindsIsRecordedByTheBodyTeacher() {
         // Training reports have their handler since T18 (typed: 未證實); meals since T14.
         val llm = ScriptedLlm(intake("training"))
+        // After the latest departure with no run started (on a delivery day the rounds wait for 收工 until then).
+        clock.now = Instant.parse("2026-11-23T15:00:00Z") // 23:00 in Taipei
         val out = runBlocking { brain(llm).onText("今天的肌力三輪做完了") }
         assertEquals(1, llm.requests.size)
         assertEquals(Purpose.INTAKE, llm.requests[0].purpose)

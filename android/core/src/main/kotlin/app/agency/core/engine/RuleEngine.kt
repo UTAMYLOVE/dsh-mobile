@@ -34,11 +34,15 @@ object RuleEngine {
         val signedOut = r.signs.filter { it.kind == SignKind.OUT }.minByOrNull { it.at }?.let { Instant.ofEpochMilli(it.at) }
         val rideEnd = r.signs.filter { it.kind == SignKind.RIDE_END }.maxByOrNull { it.at }?.let { Instant.ofEpochMilli(it.at) }
         val strength = r.training.filter { it.kind == TrainingKind.STRENGTH }.minByOrNull { it.at }
+        val cardio = r.training.filter { it.kind == TrainingKind.CARDIO }.minByOrNull { it.at }
+        val cardioPlanned = plan.slot(SlotKey.CARDIO) != null
         return plan.slots.map { sl ->
             val latest = instant(plan.day, sl.minute, zone)
             val due = when {
-                sl.key == SlotKey.STRETCH && strength != null -> Instant.ofEpochMilli(strength.at).plusSeconds(30L * 60)
-                sl.afterRide && rideEnd != null -> minOf(rideEnd.plusSeconds(15L * 60), latest)
+                // The stretch closes the block: due a while after its last item (the rounds, or the cardio on its days).
+                sl.key == SlotKey.STRETCH && cardioPlanned && cardio != null -> Instant.ofEpochMilli(cardio.at).plusSeconds(15L * 60)
+                sl.key == SlotKey.STRETCH && !cardioPlanned && strength != null -> Instant.ofEpochMilli(strength.at).plusSeconds(30L * 60)
+                sl.afterRide && rideEnd != null -> minOf(rideEnd.plusSeconds(sl.afterRideMin * 60L), latest)
                 else -> latest
             }
             val ids = records(sl.key, r)
@@ -61,6 +65,7 @@ object RuleEngine {
         SlotKey.STRENGTH -> r.training.filter { it.kind == TrainingKind.STRENGTH }.map { it.id }
         SlotKey.STRETCH -> r.training.filter { it.kind == TrainingKind.STRETCH }.map { it.id }
         SlotKey.WALK -> r.training.filter { it.kind == TrainingKind.WALK }.map { it.id }
+        SlotKey.CARDIO -> r.training.filter { it.kind == TrainingKind.CARDIO }.map { it.id }
         SlotKey.LESSONS -> r.lessonsPassed.map { it.id }
         SlotKey.LESSON_REVIEW -> r.lessonsReviewed.map { it.id }
         else -> r.meals.filter { it.slotKey == key.name }.map { it.id }

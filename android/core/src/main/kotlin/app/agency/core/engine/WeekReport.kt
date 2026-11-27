@@ -12,7 +12,7 @@ import java.time.LocalDate
  */
 object WeekReport {
     const val TARGET_PCT = 80
-    val TRAINING = setOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.STRETCH, SlotKey.WALK)
+    val TRAINING = setOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.CARDIO, SlotKey.STRETCH, SlotKey.WALK)
 
     /** One day of the week: its slots with their status (as the day ended), its breaches and polaroids. */
     data class Day(val day: LocalDate, val slots: List<SlotState>, val breaches: Int, val photocards: Int)

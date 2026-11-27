@@ -57,8 +57,8 @@ class NudgerTest {
         // Then the phone was off all day: at 18:30 five items are missing, one notification says so.
         val tk = tick(b, "18:30")
         val gap = tk.posts.single { it.key == Nudger.GAP_KEY }
-        assertEquals("還缺：起床簽到、午餐、核心七分鐘。還有 2 項。", gap.text)
-        assertEquals(listOf(SlotKey.WAKE, SlotKey.LUNCH, SlotKey.CORE, SlotKey.DINNER, SlotKey.RIDE_OUT), gap.gapKeys)
+        assertEquals("還缺：起床簽到、午餐、晚餐。還有 1 項。", gap.text)
+        assertEquals(listOf(SlotKey.WAKE, SlotKey.LUNCH, SlotKey.DINNER, SlotKey.RIDE_OUT), gap.gapKeys)
         assertTrue(gap.alert)
         assertEquals(PostChannel.SCHEDULE, gap.channel)
         assertEquals(1, runBlocking { store.nudges.between(0, Long.MAX_VALUE) }.count { it.gapKeys.isNotEmpty() })
@@ -97,11 +97,12 @@ class NudgerTest {
         // He finished 入社建檔 at 13:00: the wake slot and lunch before it are not chased; dinner at 17:35 is.
         val first = tick(b, "13:05")
         assertTrue(first.posts.none { it.key == Nudger.GAP_KEY })
-        // The next fires: the water check at 15:00 (L10, T17), the core at 17:00, then the body teacher's suggestion before
-        // dinner (T16, 17:05).
+        // The next fires: the water check at 15:00 (L10, T17), the body teacher's suggestion before dinner (T16, 17:05), then
+        // dinner at 17:35 (the core is after 收工 now).
         assertEquals(Fire(t("15:00"), FireKind.NOTE), first.next)
-        assertEquals(Fire(t("17:00"), FireKind.SLOT), tick(b, "15:00").next)
-        assertEquals("核心七分鐘時間到了，做完回報。", tick(b, "17:00").posts.single { it.key == Nudger.GAP_KEY }.text)
+        assertEquals(Fire(t("17:05"), FireKind.NOTE), tick(b, "15:00").next)
+        assertEquals(Fire(t("17:35"), FireKind.SLOT), tick(b, "17:05").next)
+        assertEquals("晚餐時間到了，做完回報。", tick(b, "17:35").posts.single { it.key == Nudger.GAP_KEY }.text)
     }
 
     @Test fun yesterdaysGapsAreNeverNotified() {

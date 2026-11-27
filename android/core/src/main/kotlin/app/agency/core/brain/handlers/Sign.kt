@@ -108,7 +108,11 @@ class Sign(
     suspend fun rideEnd(plan: DayPlan, at: Long): Done {
         val log = SignLog(newId(), plan.day.toString(), at, SignKind.RIDE_END)
         store.signs.insert(log)
-        val strength = plan.slot(SlotKey.STRENGTH) != null && store.training.onDay(plan.day.toString()).none { it.kind == app.agency.core.model.TrainingKind.STRENGTH }
-        return Done(if (strength) "收工了。放下安全帽，接著肌力。" else "收工了。", Signal.RideEnd(log.id, at))
+        val done = store.training.onDay(plan.day.toString()).map { it.kind }.toSet()
+        // The block after 收工 (owner 2026-11-26): what is still owed, in order, the stretch last.
+        val owed = listOf(SlotKey.CORE to "核心", SlotKey.STRENGTH to "肌力", SlotKey.CARDIO to "體能", SlotKey.STRETCH to "伸展")
+            .filter { (k, _) -> plan.slot(k) != null && TrainingDesk.kindOf(k) !in done }.map { it.second }
+        val next = if (owed.isEmpty()) "收工了。" else "收工了。放下安全帽，接著訓練：${owed.joinToString("、")}。"
+        return Done(next, Signal.RideEnd(log.id, at))
     }
 }

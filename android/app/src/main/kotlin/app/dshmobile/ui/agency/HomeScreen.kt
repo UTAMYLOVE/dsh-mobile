@@ -152,6 +152,7 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
                 when (open.kind) {
                     TrainingKind.CORE7 -> agency.coreDone(seconds)
                     TrainingKind.STRENGTH -> report?.let(agency::strengthDone)
+                    TrainingKind.CARDIO -> agency.cardioDone(seconds)
                     else -> agency.stretchDone(seconds)
                 }
             },
@@ -259,8 +260,8 @@ private fun QuickButtons(card: IdolCardFacts?, busy: Boolean, onPhoto: () -> Uni
 private data class TrainingOpen(val kind: TrainingKind, val steps: List<RoutineStep>, val moves: List<StrengthMove>)
 
 /**
- * The training buttons (T18), only for what today's plan still owes: 核心 (the 7 minutes), 肌力 (the rounds), 伸展 (any day, a
- * rest day's too) and 快走完成 on a no-class day. Each timer reports by itself when it is done.
+ * The training buttons (T18), only for what today's plan still owes: 核心 (the 7 minutes), 肌力 (the rounds), 體能 (its three
+ * days), 伸展 and 快走完成 on a no-class day. Each timer reports by itself when it is done.
  */
 @Composable
 private fun TrainingButtons(card: IdolCardFacts?, busy: Boolean, onWalk: () -> Unit, onOpen: (TrainingKind) -> Unit) {
@@ -269,6 +270,7 @@ private fun TrainingButtons(card: IdolCardFacts?, busy: Boolean, onWalk: () -> U
     val items = buildList {
         if (open(SlotKey.CORE)) add(Triple(R.string.ag_train_core_button, TrainingTags.CORE) { onOpen(TrainingKind.CORE7) })
         if (open(SlotKey.STRENGTH)) add(Triple(R.string.ag_train_strength_button, TrainingTags.STRENGTH) { onOpen(TrainingKind.STRENGTH) })
+        if (open(SlotKey.CARDIO)) add(Triple(R.string.ag_train_cardio_button, TrainingTags.CARDIO) { onOpen(TrainingKind.CARDIO) })
         if (open(SlotKey.STRETCH)) add(Triple(R.string.ag_train_stretch_button, TrainingTags.STRETCH) { onOpen(TrainingKind.STRETCH) })
         if (open(SlotKey.WALK)) add(Triple(R.string.ag_train_walk_button, TrainingTags.WALK, onWalk))
     }

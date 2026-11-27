@@ -1,7 +1,7 @@
 package app.agency.core.engine
 
 /** The simple built-in picture of a move (the screen draws it; no picture is ever fetched). */
-enum class MoveIcon { HALF_BOAT, HALF_SITUP, KNEE_HUG, BICYCLE, LEG_RAISE, SIDE_PLANK_LEFT, SIDE_PLANK_RIGHT, PUSH_UP, SQUAT, PLANK, ROW, BRIDGE, REST, HIP, LEG, CHEST, BACK }
+enum class MoveIcon { HALF_BOAT, HALF_SITUP, KNEE_HUG, BICYCLE, LEG_RAISE, SIDE_PLANK_LEFT, SIDE_PLANK_RIGHT, PUSH_UP, SQUAT, PLANK, ROW, BRIDGE, REST, HIP, LEG, CHEST, BACK, JUMPING_JACK, BURPEE, SQUAT_JUMP }
 
 /**
  * One step of a guided routine: a move held for [seconds] (a timed step moves on by itself) or done [reps] times (he taps
@@ -43,8 +43,9 @@ object Routine {
     )
 
     val PUSH_UP = StrengthMove("push_up", "伏地挺身", MoveIcon.PUSH_UP, "雙手比肩寬，身體成一直線，胸口降到快碰地再推起來。", reps = 15)
-    val SQUAT = StrengthMove("squat", "慢速深蹲", MoveIcon.SQUAT, "雙腳與肩同寬，三秒慢慢蹲下、膝蓋對腳尖，再站起來。", reps = 12)
-    val PLANK = StrengthMove("plank", "棒式", MoveIcon.PLANK, "手肘撐地，身體成一直線，肚子收緊，不要塌腰。", seconds = 45)
+    /** Owner 2026-11-26: 20 slow squats (3 seconds down, a second at the bottom) and a 60-second plank. */
+    val SQUAT = StrengthMove("squat", "慢速深蹲", MoveIcon.SQUAT, "雙腳與肩同寬，三秒慢慢蹲下、最低點停一秒，再站起來；膝蓋對腳尖。", reps = 20)
+    val PLANK = StrengthMove("plank", "棒式", MoveIcon.PLANK, "手肘撐地，身體成一直線，肚子收緊，不要塌腰。", seconds = 60)
     val ROW = StrengthMove("row", "背包划船", MoveIcon.ROW, "背包裝書或水，彎腰背打直，把背包往肚子拉，再慢慢放下。", reps = 12)
     val BRIDGE = StrengthMove("bridge", "臀橋", MoveIcon.BRIDGE, "躺著屈膝，腳踩地，屁股往上推到身體成一直線，夾緊再放下。", reps = 15)
 
@@ -73,6 +74,28 @@ object Routine {
         )
         val total = minutes.coerceAtLeast(1) * 60
         return parts.mapIndexed { i, p -> p.copy(seconds = total / parts.size + if (i < total % parts.size) 1 else 0) }
+    }
+
+    /** One minute of the cardio: [work] seconds of the move, the rest of the minute to breathe. */
+    const val CARDIO_WORK_SECONDS = 45
+
+    /**
+     * The 10-minute 體能 (owner 2026-11-26: 開合跳、波比跳、深蹲跳): [minutes] minutes, each one move of [work] seconds then a
+     * rest to the full minute, the three moves in turn.
+     */
+    fun cardio(minutes: Int = 10, work: Int = CARDIO_WORK_SECONDS): List<RoutineStep> {
+        val moves = listOf(
+            RoutineStep("開合跳", MoveIcon.JUMPING_JACK, "雙腳跳開、手舉過頭，再跳回併攏、手放下；落地輕一點。"),
+            RoutineStep("波比跳", MoveIcon.BURPEE, "蹲下手撐地，雙腳往後跳成伏地挺身姿勢，再跳回來站起、往上跳。"),
+            RoutineStep("深蹲跳", MoveIcon.SQUAT_JUMP, "蹲下到大腿約平行地面，往上跳，落地時膝蓋微彎直接蹲下。"),
+        )
+        val w = work.coerceIn(10, 60)
+        return buildList {
+            for (i in 0 until minutes.coerceAtLeast(1)) {
+                add(moves[i % moves.size].copy(seconds = w, round = i + 1))
+                if (w < 60 && i < minutes - 1) add(RoutineStep("休息", MoveIcon.REST, "喘口氣，下一個馬上來。", 60 - w, round = i + 1, rest = true))
+            }
+        }
     }
 
     /** The timed seconds of [steps] (what a timer takes at least, reps not counted). */

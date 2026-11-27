@@ -44,8 +44,9 @@ import org.junit.Test
  * suggestion, a violation at dinner (L13, and the judge on for the rest of the day), the 21:00 portion on the run with its
  * photo, and the bottle: half by the afternoon (no 15:00 reminder) and finished before he leaves (no pre-ride reminder).
  * Batch 5 (T18–T19) adds the start and the end of the day and the training: the morning score after the sign-in, the fever's
- * stretch-only proposal that he turns down (the plan stands), the core 7 minutes by the timer (the day's one 撒嬌 and the
- * polaroid, L11), the strength rounds and the stretch after 收工 (no second 撒嬌), and the bedtime review at sign-out (two
+ * stretch-only proposal that he turns down (the plan stands), the training block after 收工 (owner 2026-11-26: the core
+ * before the run is refused; then the core 7 minutes by the timer with the polaroid and no 撒嬌 on a day with a breach, L11,
+ * the strength rounds and the stretch), and the bedtime review at sign-out (two
  * questions, the 檢討卡, her one guarded sentence, tomorrow's fix as a proposal, reminded at tomorrow's sign-in, L19).
  * Batch 5b (T19c) adds 理論課: 「找影片」 in the morning (real search results only; nothing listed before his 好), two lessons in
  * class: the first passes its three questions at once (two right) and his note opens the second; the second has a wrong answer
@@ -249,12 +250,9 @@ class WholeDayScenarioTest {
         // 15:00 the water check (L10): half of the bottle is in, so there is nothing to say.
         assertTrue(tick("15:00").posts.isEmpty())
 
-        // 16:57–17:04 the core 7 minutes by the timer (T18): the body teacher's line, then the day's one 撒嬌 and its polaroid (L11).
-        val core = runBlocking { at("17:04"); brain.coreDone(seconds = 425) }.filter { it.who == Who.COMPANY }
-        assertEquals("記下：核心七分鐘（照計時做完）。", core[0].text)
-        assertEquals(app.agency.core.engine.Links.L11Completion.sweetLine(app.agency.core.model.TrainingKind.CORE7, null), core[1].text)
-        assertEquals(RoleKey.MANAGER, core[1].role)
-        assertEquals(1, state().sweetToday)
+        // 17:04 the core before the run: refused (owner 2026-11-26: the block is after 收工, sore legs make riding unsafe).
+        assertEquals(listOf(app.agency.core.brain.handlers.TrainingDesk.BEFORE_RIDE), runBlocking { at("17:04"); brain.coreDone(seconds = 425) }.filter { it.who == Who.COMPANY }.map { it.text })
+        assertTrue(runBlocking { store.training.onDay(monday.toString()) }.isEmpty())
         // 17:05 the body teacher's suggestion for dinner (17:35), sized by L5 (code's numbers; the model may only word it).
         val pre = tick("17:05").posts.single()
         assertEquals("premeal", pre.key)
@@ -265,7 +263,6 @@ class WholeDayScenarioTest {
         assertEquals("記一次違規：休假餐以外吃了禁止的東西。今天第 1 次，會算進評鑑。下一餐照計畫。", dinner[1])
         assertTrue(dinner.none { it.contains("少吃") })
         assertEquals("照片收到，晚餐已證實。", photo("17:37", "photo-dinner"))
-        assertEquals(1, state().sweetToday) // the 撒嬌 of 17:04 stays the only one
         // 17:38 the rest of the bottle, before he leaves: done, so the 17:40 pre-ride reminder has nothing to say.
         assertTrue(say("17:38", "喝了半壺").single().endsWith("今天的水達標了。"))
         assertTrue(tick("17:40").posts.isEmpty())
@@ -287,18 +284,25 @@ class WholeDayScenarioTest {
         assertTrue(tick("21:35").posts.isEmpty())
 
         // 23:30 home: no 宵夜 tonight (L9), then the floor check (L6): 1597 is above 1200, nothing to remind. The rounds next.
-        assertEquals(listOf("收工了。放下安全帽，接著肌力。"), say("23:30", "收工"))
+        assertEquals(listOf("收工了。放下安全帽，接著訓練：核心、肌力、伸展。"), say("23:30", "收工"))
         assertTrue(DayFlag.LATE_SNACK_OFF in state().flags)
         assertFalse(state().riding)
         assertTrue(tick("23:31").posts.isEmpty())
-        // 23:32–23:52 the three rounds by the timer, then the last round's report: no second 撒嬌 and no second polaroid.
+        // 23:33–23:40 the core 7 minutes by the timer (T18): the body teacher's line and the day's polaroid (L11); no 撒嬌 on a
+        // day with a breach (dinner).
+        val core = runBlocking { at("23:40"); brain.coreDone(seconds = 425) }.filter { it.who == Who.COMPANY }
+        assertEquals("記下：核心七分鐘（照計時做完）。", core[0].text)
+        assertEquals(app.agency.core.engine.Links.L11Completion.PLAIN, core[1].text)
+        assertEquals(RoleKey.MANAGER, core[1].role)
+        assertEquals(0, state().sweetToday)
+        // 23:42–23:54 the three rounds by the timer, then the last round's report: no second polaroid.
         val rounds = runBlocking {
-            at("23:52")
-            brain.strengthDone(app.agency.core.brain.handlers.StrengthReport(3, mapOf("push_up" to 15, "squat" to 12, "plank" to 45), extra = 2, seconds = 1150))
+            at("23:54")
+            brain.strengthDone(app.agency.core.brain.handlers.StrengthReport(3, mapOf("push_up" to 15, "squat" to 20, "plank" to 60), extra = 2, seconds = 1150))
         }.filter { it.who == Who.COMPANY }.map { it.text }
-        assertEquals(listOf("記下：肌力 3 輪（最後一輪：伏地挺身 15 下、慢速深蹲 12 下、棒式 45 秒；還能多做 2 下；照計時做完）。\n接著伸展 10 分鐘。"), rounds)
-        assertEquals(1, state().sweetToday)
-        // 23:53–00:03 the stretch.
+        assertEquals(listOf("記下：肌力 3 輪（最後一輪：伏地挺身 15 下、慢速深蹲 20 下、棒式 60 秒；還能多做 2 下；照計時做完）。\n接著伸展 10 分鐘。"), rounds)
+        assertEquals(0, state().sweetToday)
+        // 23:55–00:03 the stretch.
         assertEquals(listOf("記下：伸展 10 分鐘（照計時做完）。\n今天的訓練都做完了。"), runBlocking { at("00:03"); brain.stretchDone(600) }.filter { it.who == Who.COMPANY }.map { it.text })
         assertTrue(tick("00:04").posts.isEmpty())
 
@@ -325,7 +329,7 @@ class WholeDayScenarioTest {
         val review = say("01:02", "明天不吃炸的")
         val card = review[0].lines()
         assertEquals("今天的檢討卡", card[0])
-        assertEquals("做到：起床簽到、午餐、理論課、核心七分鐘、晚餐、出門跑單、21:00 那份蛋白質、肌力三輪、伸展、簽退", card[1])
+        assertEquals("做到：起床簽到、午餐、理論課、晚餐、出門跑單、21:00 那份蛋白質、核心七分鐘、肌力三輪、伸展、簽退", card[1])
         assertEquals("沒做到：沒有，全部做到", card[2])
         assertEquals("違規：1 次", card[3])
         assertEquals("你說做得好：三輪和伸展都照計時做完", card[4])
@@ -358,13 +362,13 @@ class WholeDayScenarioTest {
         assertEquals(setOf("L1", "L2", "L3", "L3b", "L5", "L8", "L9", "L10", "L11", "L12", "L13", "L17", "L19", "L20", "L24"), byLink.keys)
         // 理論課: both lessons recorded for the month-end evaluation (L24); never chased (both were in by 16:00).
         assertEquals(listOf("lesson", "lesson"), byLink.getValue("L24").map { it.because })
-        // The training of the day: all three by the timer, one 撒嬌 and one polaroid.
+        // The training of the day: all three by the timer after 收工, no 撒嬌 (a breach) and one polaroid.
         assertEquals(
             listOf(app.agency.core.model.TrainingKind.CORE7, app.agency.core.model.TrainingKind.STRENGTH, app.agency.core.model.TrainingKind.STRETCH),
             runBlocking { store.training.onDay(monday.toString()) }.map { it.kind },
         )
         assertTrue(runBlocking { store.training.onDay(monday.toString()) }.all { it.verified })
-        assertEquals(1, byLink.getValue("L11").count { it.because == app.agency.core.engine.Links.L11Completion.SWEET })
+        assertEquals(0, byLink.getValue("L11").count { it.because == app.agency.core.engine.Links.L11Completion.SWEET })
         assertEquals(1, runBlocking { brain.card() }.photocards)
         assertEquals(3, runBlocking { store.conditions.get(monday.toString()) }!!.score)
         assertEquals("三輪和伸展都照計時做完" to "明天不吃炸的", runBlocking { store.signs.onDay(monday.toString()) }.single { it.kind == app.agency.core.model.SignKind.OUT }.let { it.reviewGood to it.reviewFix })

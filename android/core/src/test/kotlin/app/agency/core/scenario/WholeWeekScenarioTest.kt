@@ -101,7 +101,7 @@ class WholeWeekScenarioTest {
         }
     }
 
-    private val full = mapOf("push_up" to 15, "squat" to 12, "plank" to 45, "row" to 12, "bridge" to 15)
+    private val full = mapOf("push_up" to 15, "squat" to 20, "plank" to 60, "row" to 12, "bridge" to 15)
 
     /** One day as he lives it; [rest] declares 「今天休息」. Returns what the evening's rounds said. */
     private fun live(rest: Boolean = false): List<String> {
@@ -113,16 +113,19 @@ class WholeWeekScenarioTest {
         meal(if (cls) "12:15" else "13:05", if (cls) "午餐吃了南加州烤雞腿" else "第一餐吃了南加州烤雞腿", item("南加州烤雞腿", 714, 48))
         lessons()
         if (!cls) runBlocking { at("16:50"); brain.walkDone() }
-        if (!rest) runBlocking { at("17:07"); brain.coreDone(seconds = 425) }
-        meal("17:20", "晚餐吃了雞胸沙拉", item("雞胸沙拉", 500, 80))
+        meal("17:40", "晚餐吃了雞胸沙拉", item("雞胸沙拉", 500, 80))
+        val cardio = plan0.slot(SlotKey.CARDIO) != null
         var rounds = emptyList<String>()
         if (!rest) {
             say("18:05", "出門跑單")
             meal("21:05", "跑單路上吃了即食雞胸和統一高纖豆漿", item("即食雞胸", 130, 20), item("統一高纖豆漿", 200, 15))
             say("23:30", "收工")
+            // The block after 收工 (owner 2026-11-26): core, rounds, the cardio on its days, the stretch.
+            runBlocking { at("23:40"); brain.coreDone(seconds = 425) }
             rounds = runBlocking { at("23:52"); brain.strengthDone(StrengthReport(null, full, extra = 2, seconds = 1150)) }.filter { it.who == Who.COMPANY }.map { it.text }
             if (rounds.any { it.contains("可以加量了") }) assertTrue(say("23:55", "好").single().startsWith("好，下一次肌力開始："))
-            runBlocking { at("00:03"); brain.stretchDone(600) }
+            if (cardio) runBlocking { at("00:06"); brain.cardioDone(600) }
+            runBlocking { at("00:18"); brain.stretchDone(600) }
         } else {
             // The rest day trains as always, in the no-run block after dinner; the evening after it is free.
             runBlocking { at("18:31"); brain.coreDone(seconds = 425) }
@@ -196,8 +199,9 @@ class WholeWeekScenarioTest {
         assertEquals("一週結果（12/14–12/20）", summary[0])
         // 理論課 is one of each day's items (seven more than before T19c).
         // The rest day owes its core, rounds and stretch too (three more than before 2026-11-26).
-        assertEquals("完成率 100%（該做 72 項，做到 72 項）", summary[1])
-        assertEquals("訓練 24/24", summary[2])
+        // 體能 three days a week (Tuesday, Thursday, Saturday) since 2026-11-26.
+        assertEquals("完成率 100%（該做 75 項，做到 75 項）", summary[1])
+        assertEquals("訓練 27/27", summary[2])
         assertEquals("違規 0 次", summary[3])
         assertEquals("照片牆加了 7 張", summary[4])
         assertEquals("真人任務：做到了", summary[5])

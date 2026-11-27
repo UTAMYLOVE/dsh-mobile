@@ -65,6 +65,8 @@ class TrainingScreenTest {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
             ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
         }
+        // A day without a run (the clock is the real one): the block may be done any time (on a delivery day it waits for 收工).
+        app.agency.send("今天休息")
         app.agency.send("刮好了")
         rule.waitForTag(TrainingTags.STRETCH, 30_000)
     }
@@ -116,6 +118,6 @@ class TrainingScreenTest {
         val log = logs().single()
         assertEquals(3, log.rounds)
         assertTrue(log.detailJson!!, log.detailJson!!.contains("\"push_up\":16") && log.detailJson!!.contains("\"extra\":2"))
-        rule.waitForText("記下：肌力 3 輪（最後一輪：伏地挺身 16 下、慢速深蹲 12 下、棒式 45 秒；還能多做 2 下")
+        rule.waitForText("記下：肌力 3 輪（最後一輪：伏地挺身 16 下、慢速深蹲 20 下、棒式 60 秒；還能多做 2 下")
     }
 }

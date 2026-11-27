@@ -11,7 +11,10 @@ object BodyWords {
         "發燒", "發高燒", "感冒", "流鼻水", "鼻塞", "喉嚨痛", "咳嗽", "拉肚子", "腹瀉", "腸胃炎", "腸胃不舒服", "胃痛", "肚子痛",
         "想吐", "吐了", "頭痛", "偏頭痛", "頭暈", "生病了", "生病", "病了", "腸胃",
     )
-    private val INJURY = listOf("受傷", "扭到", "拉傷", "跌倒", "摔車", "骨折", "撞到", "割到", "燙到", "破皮", "腳踝痛", "膝蓋痛")
+    /** Owner 2026-11-26: a sharp pain or joint pain counts as an injury, and he stops at once (soreness never does). */
+    val PAIN = listOf("刺痛", "關節痛", "關節很痛", "手腕痛", "肩膀刺痛", "膝蓋刺痛", "下背刺痛")
+    private val INJURY = listOf("受傷", "扭到", "拉傷", "跌倒", "摔車", "骨折", "撞到", "割到", "燙到", "破皮", "腳踝痛", "膝蓋痛") + PAIN
+
     private val UNCLEAR = listOf("不舒服", "身體怪怪", "人不太好", "身體不太好")
     private val NEGATION = Regex("(?:沒有|沒|不是|不會|沒在)$")
 
@@ -41,6 +44,9 @@ object BodyWords {
         found(text, UNCLEAR)?.let { return IllKind.UNKNOWN to it }
         return null
     }
+
+    /** The word was a sharp or joint pain: stop now. */
+    fun isPain(word: String): Boolean = word in PAIN
 
     fun moodLow(text: String): Boolean = found(text, MOOD) != null
 

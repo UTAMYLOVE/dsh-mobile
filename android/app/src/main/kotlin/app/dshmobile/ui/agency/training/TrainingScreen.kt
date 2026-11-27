@@ -54,6 +54,8 @@ object TrainingTags {
     const val STRENGTH = "ag-train-strength"
     const val STRETCH = "ag-train-stretch"
     const val WALK = "ag-train-walk"
+    const val CARDIO = "ag-train-cardio"
+    const val PAIN = "ag-train-pain"
     const val SCREEN = "ag-train-screen"
     const val START = "ag-train-start"
     const val PAUSE = "ag-train-pause"
@@ -124,6 +126,7 @@ fun TrainingScreen(
         when (kind) {
             TrainingKind.CORE7 -> R.string.ag_train_core
             TrainingKind.STRENGTH -> R.string.ag_train_strength
+            TrainingKind.CARDIO -> R.string.ag_train_cardio
             else -> R.string.ag_train_stretch
         },
     )
@@ -138,6 +141,7 @@ fun TrainingScreen(
             }
             !runner.started -> {
                 Text(stringResource(R.string.ag_train_intro, steps.count { !it.rest }), color = Sakura.TextSecondary, fontSize = 15.sp)
+                Text(stringResource(R.string.ag_train_pain), color = Sakura.Text, fontSize = 15.sp, modifier = Modifier.testTag(TrainingTags.PAIN))
                 steps.filter { !it.rest }.distinctBy { it.name }.forEach { s ->
                     Text("${s.name}　${s.amount}", color = Sakura.Text, fontSize = 15.sp)
                 }

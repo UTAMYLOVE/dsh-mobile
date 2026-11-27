@@ -17,6 +17,8 @@ enum class SlotKey(val zh: String, val kind: SlotKind) {
     /** The 21:00 portion: 雞胸＋豆漿 or a swap of the same protein (on the run on a delivery day). */
     RIDE_MEAL("21:00 那份蛋白質", SlotKind.MEAL),
     STRENGTH("肌力三輪", SlotKind.TRAINING),
+    /** 體能 10 分鐘 (開合跳、波比跳、深蹲跳), on [app.agency.core.schedule.TrainingSpec.cardioDays]. */
+    CARDIO("體能十分鐘", SlotKind.TRAINING),
     STRETCH("伸展", SlotKind.TRAINING),
     SIGN_OUT("簽退", SlotKind.SIGN),
 
@@ -47,6 +49,8 @@ data class Slot(
     val untilMinute: Int? = null,
     val note: String? = null,
     val count: Int? = null,
+    /** An [afterRide] item is due this long after 收工 (the block in order: core, rounds, cardio, stretch). */
+    val afterRideMin: Int = 15,
 ) {
     val label: String get() = key.zh
     val time: String get() = DayClock.hhmm(minute)

@@ -45,12 +45,26 @@ class TrainingDesk(
 
     private suspend fun done(plan: DayPlan, kind: TrainingKind) = store.training.onDay(plan.day.toString()).any { it.kind == kind }
 
-    /** Why [key] is not owed today, or null when it is in today's plan. */
-    private fun notToday(plan: DayPlan, key: SlotKey, what: String): String? = when {
-        plan.slot(key) != null -> null
+    /**
+     * Why [key] is not owed today or not now, or null when it may be done. On a delivery day the core, the rounds and the
+     * cardio wait for 收工 (owner 2026-11-26: sore legs make riding unsafe): not before the ride, not while riding.
+     */
+    private suspend fun notToday(plan: DayPlan, key: SlotKey, what: String): String? = when {
+        plan.slot(key) != null -> if (key in BLOCK && beforeHome(plan)) BEFORE_RIDE else null
         plan.reduction != null -> "今天只改這一天：${what}停一天，伸展照做就好。不用補做。"
         key == SlotKey.WALK -> "今天沒有排快走（上課日走路上學就算）。"
         else -> "今天沒有排$what。"
+    }
+
+    /** A delivery day whose run is still ahead (before the latest departure) or under way. */
+    private suspend fun beforeHome(plan: DayPlan): Boolean {
+        if (!plan.delivery) return false
+        val signs = store.signs.onDay(plan.day.toString())
+        val start = signs.filter { it.kind == app.agency.core.model.SignKind.RIDE_START }.maxOfOrNull { it.at }
+        val end = signs.filter { it.kind == app.agency.core.model.SignKind.RIDE_END }.maxOfOrNull { it.at }
+        if (start != null) return end == null || end < start
+        val until = plan.slot(SlotKey.RIDE_OUT)?.let { it.untilMinute ?: it.minute } ?: return false
+        return app.agency.core.engine.Links.minuteOf(plan.day, clock.millis(), clock.zone) < until
     }
 
     private fun verified(fromTimer: Boolean, seconds: Int?, timed: Int) = fromTimer && seconds != null && seconds >= timed * PROOF_SHARE
@@ -118,7 +132,31 @@ class TrainingDesk(
             val unit = if (m.seconds != null) "秒" else "下"
             lines += "最後一輪${m.name} $n $unit，表定 ${m.reps ?: m.seconds} $unit，下次做滿。"
         }
-        if (plan.slot(SlotKey.STRETCH) != null && !done(plan, TrainingKind.STRETCH)) lines += "接著伸展 ${plan.stretchMin} 分鐘。"
+        lines += nextLine(plan, after = TrainingKind.STRENGTH)
+        return MealOutcome(null, lines, listOf(signal))
+    }
+
+    /** What comes next in the block after [after]: the cardio on its days, then the stretch. */
+    private suspend fun nextLine(plan: DayPlan, after: TrainingKind): List<String> = when {
+        after == TrainingKind.STRENGTH && plan.slot(SlotKey.CARDIO) != null && !done(plan, TrainingKind.CARDIO) -> listOf("接著體能 ${plan.cardioMin} 分鐘。")
+        plan.slot(SlotKey.STRETCH) != null && !done(plan, TrainingKind.STRETCH) -> listOf("接著伸展 ${plan.stretchMin} 分鐘。")
+        else -> emptyList()
+    }
+
+    /** The 10-minute cardio (開合跳、波比跳、深蹲跳), three days a week, after the rounds. */
+    suspend fun cardio(fromTimer: Boolean, seconds: Int?): MealOutcome {
+        val plan = plan()
+        notToday(plan, SlotKey.CARDIO, "體能")?.let { return MealOutcome(null, listOf(it)) }
+        if (done(plan, TrainingKind.CARDIO)) return MealOutcome(null, listOf("今天的體能已經記過了。"))
+        val ok = verified(fromTimer, seconds, Routine.timedSeconds(Routine.cardio(plan.cardioMin)))
+        val detail = buildJsonObject {
+            put("minutes", plan.cardioMin)
+            seconds?.let { put("seconds", it) }
+            put("timer", fromTimer)
+        }.toString()
+        val signal = write(plan, TrainingKind.CARDIO, null, detail, ok)
+        val lines = mutableListOf("記下：體能 ${plan.cardioMin} 分鐘（${proof(fromTimer, ok, seconds)}）。")
+        lines += nextLine(plan, after = TrainingKind.CARDIO)
         return MealOutcome(null, lines, listOf(signal))
     }
 
@@ -134,7 +172,7 @@ class TrainingDesk(
         }.toString()
         val signal = write(plan, TrainingKind.STRETCH, null, detail, ok)
         val lines = mutableListOf("記下：伸展 ${plan.stretchMin} 分鐘（${proof(fromTimer, ok, seconds)}）。")
-        val owed = listOf(SlotKey.CORE to TrainingKind.CORE7, SlotKey.STRENGTH to TrainingKind.STRENGTH)
+        val owed = listOf(SlotKey.CORE to TrainingKind.CORE7, SlotKey.STRENGTH to TrainingKind.STRENGTH, SlotKey.CARDIO to TrainingKind.CARDIO)
             .filter { (k, t) -> plan.slot(k) != null && !done(plan, t) }
         if (owed.isEmpty()) lines += "今天的訓練都做完了。"
         return MealOutcome(null, lines, listOf(signal))
@@ -162,6 +200,7 @@ class TrainingDesk(
             TrainingKind.STRENGTH -> strength(StrengthReport(TrainingWords.rounds(text) ?: said?.rounds, extra = TrainingWords.extra(text) ?: said?.lastRoundExtra))
             TrainingKind.STRETCH -> stretch(fromTimer = false, seconds = null)
             TrainingKind.WALK -> walk()
+            TrainingKind.CARDIO -> cardio(fromTimer = false, seconds = null)
         }
     }
 
@@ -169,8 +208,21 @@ class TrainingDesk(
         /** A timer run is proof when it ran at least this share of its timed seconds (paused time not counted). */
         const val PROOF_SHARE = 0.8
 
-        const val START = "按首頁的「核心」「肌力」或「伸展」開計時，照著做，做完會自動回報。"
-        const val WHICH = "說清楚做了哪一項：核心、肌力、伸展還是快走。"
+        const val START = "按首頁的「核心」「肌力」「體能」或「伸展」開計時，照著做，做完會自動回報。"
+        const val WHICH = "說清楚做了哪一項：核心、肌力、體能、伸展還是快走。"
+
+        /** The items of the block that wait for 收工 on a delivery day (the stretch may be done any time). */
+        val BLOCK = setOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.CARDIO)
+        const val BEFORE_RIDE = "今天有跑單：核心、肌力、體能收工回家再做。先做完腿會痠，騎車不好控車。"
+
+        fun kindOf(key: SlotKey): TrainingKind? = when (key) {
+            SlotKey.CORE -> TrainingKind.CORE7
+            SlotKey.STRENGTH -> TrainingKind.STRENGTH
+            SlotKey.CARDIO -> TrainingKind.CARDIO
+            SlotKey.STRETCH -> TrainingKind.STRETCH
+            SlotKey.WALK -> TrainingKind.WALK
+            else -> null
+        }
 
         fun minutes(seconds: Int): String = if (seconds < 60) "$seconds 秒" else "${seconds / 60} 分鐘"
     }
@@ -179,7 +231,7 @@ class TrainingDesk(
 /** His words about training (code rules on top of the data clerk, arch T18 「negation rules kept」). */
 object TrainingWords {
     private val NOT_DONE = Regex("還沒(?:有)?(?:做|練)|沒(?:有)?(?:做|練)(?!完)|不(?:做|練)了|等(?:一)?下(?:再)?(?:做|練)|待會|晚點(?:再)?(?:做|練)|要去(?:做|練)")
-    private val STARTED = Regex("^(?:核心|肌力|伸展)開始$")
+    private val STARTED = Regex("^(?:核心|肌力|體能|伸展)開始$")
     private val ROUNDS = Regex("([0-9一二兩三四五六])\\s*輪")
     private val EXTRA = Regex("(?:還能|還可以|可以再)多做\\s*([0-9一二兩三四五六七八九十]+)\\s*下")
 
@@ -191,6 +243,7 @@ object TrainingWords {
         text.contains("核心") -> TrainingKind.CORE7
         text.contains("伸展") || text.contains("拉筋") -> TrainingKind.STRETCH
         text.contains("快走") || text.contains("散步") -> TrainingKind.WALK
+        Regex("體能|開合跳|波比跳|深蹲跳").containsMatchIn(text) -> TrainingKind.CARDIO
         Regex("肌力|伏地挺身|深蹲|棒式|划船|臀橋|輪").containsMatchIn(text) -> TrainingKind.STRENGTH
         else -> null
     }
@@ -200,6 +253,7 @@ object TrainingWords {
         "strength" -> TrainingKind.STRENGTH
         "stretch" -> TrainingKind.STRETCH
         "walk" -> TrainingKind.WALK
+        "cardio" -> TrainingKind.CARDIO
         else -> null
     }
 

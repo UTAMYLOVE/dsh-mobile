@@ -61,7 +61,7 @@ class TrainingT18Test {
     }
 
     // Every move of every step: a step's report reads only its own moves.
-    private val full = mapOf("push_up" to 15, "squat" to 12, "plank" to 45, "row" to 12, "bridge" to 15)
+    private val full = mapOf("push_up" to 15, "squat" to 20, "plank" to 60, "row" to 12, "bridge" to 15)
     private fun rounds(hhmm: String, extra: Int?, last: Map<String, Int> = full, rounds: Int? = 3): List<String> {
         at(hhmm)
         return lines(runBlocking { brain().strengthDone(StrengthReport(rounds, last, extra, seconds = 900)) })
@@ -84,15 +84,17 @@ class TrainingT18Test {
         val base = Routine.strength(0, 3)
         assertEquals(3 * 3 + 8, base.size) // three moves a round, a rest between two moves, none after the last
         assertEquals(listOf("伏地挺身", "休息", "慢速深蹲", "休息", "棒式", "休息"), base.take(6).map { it.name })
-        assertEquals(listOf(15, null, 12, null, null), base.take(5).map { it.reps })
-        assertEquals(45, base[4].seconds)
+        // Owner 2026-11-26: 伏地挺身 15, 慢深蹲 20 (3 seconds down, a second at the bottom), 棒式 60 秒.
+        assertEquals(listOf(15, null, 20, null, null), base.take(5).map { it.reps })
+        assertEquals(60, base[4].seconds)
+        assertTrue(base[2].how.contains("三秒慢慢蹲下、最低點停一秒"))
         assertTrue(base.filter { it.rest }.all { it.seconds == 20 })
         assertEquals("棒式", base.last().name)
         assertEquals(listOf("伏地挺身", "慢速深蹲", "棒式", "背包划船"), Routine.moves(1).map { it.name })
         assertEquals(listOf("伏地挺身", "慢速深蹲", "棒式", "背包划船", "臀橋"), Routine.moves(2).map { it.name })
         assertEquals(4, Progression.rounds(TrainingSpec(progressionStep = 3)))
-        assertEquals("3 輪：伏地挺身 15 下、慢速深蹲 12 下、棒式 45 秒", Progression.note(TrainingSpec()))
-        assertEquals("4 輪：伏地挺身 15 下、慢速深蹲 12 下、棒式 45 秒、背包划船 12 下、臀橋 15 下", Progression.note(TrainingSpec(progressionStep = 3)))
+        assertEquals("3 輪：伏地挺身 15 下、慢速深蹲 20 下、棒式 60 秒", Progression.note(TrainingSpec()))
+        assertEquals("4 輪：伏地挺身 15 下、慢速深蹲 20 下、棒式 60 秒、背包划船 12 下、臀橋 15 下", Progression.note(TrainingSpec(progressionStep = 3)))
         val stretch = Routine.stretch(10)
         assertEquals(listOf("髖部伸展", "腿後伸展", "胸口伸展", "背部伸展"), stretch.map { it.name })
         assertEquals(600, Routine.timedSeconds(stretch))
@@ -119,15 +121,20 @@ class TrainingT18Test {
         r.tick(10_000)
         r.pause()
         assertTrue(r.tick(60_000).isEmpty())
-        assertEquals(35, r.remainingSeconds)
+        assertEquals(50, r.remainingSeconds)
         r.resume()
-        assertEquals(listOf(RunnerEvent.Finished), r.tick(35_000))
+        assertEquals(listOf(RunnerEvent.Finished), r.tick(50_000))
         assertTrue(r.finished)
-        assertEquals(30_000L + 20_000 + 20_000 + 10_000 + 35_000, r.elapsedMs)
+        assertEquals(30_000L + 20_000 + 20_000 + 10_000 + 50_000, r.elapsedMs)
     }
 
     @Test fun aTimedCoreRecordsOnceWithTheBodyTeachersLineThePhotocardAndTheOneSweetLine() {
-        at("17:08")
+        // On a delivery day the block waits for 收工 (owner 2026-11-26).
+        assertEquals(listOf(TrainingDesk.BEFORE_RIDE), say("17:08", "核心完成"))
+        assertEquals(listOf("出門了。騎車小心，提醒只響一聲。21:00 記得吃雞胸。"), say("18:00", "出門跑單"))
+        assertEquals(listOf(TrainingDesk.BEFORE_RIDE), lines(runBlocking { at("20:00"); brain().coreDone(seconds = 425) }))
+        assertEquals(listOf("收工了。放下安全帽，接著訓練：核心、肌力、伸展。"), say("23:00", "收工"))
+        at("23:20")
         val out = runBlocking { brain().coreDone(seconds = 425) }.filter { it.who == Who.COMPANY }
         assertEquals("記下：核心七分鐘（照計時做完）。", out[0].text)
         assertEquals(RoleKey.BODY, out[0].role)
@@ -138,21 +145,21 @@ class TrainingT18Test {
         assertEquals(1, runBlocking { brain().nerve.state(day) }.sweetToday)
         // The second big completion of the day earns neither a second 撒嬌 nor a second photocard.
         val second = rounds("23:50", extra = 1)
-        assertTrue(second.single(), second.single().startsWith("記下：肌力 3 輪（最後一輪：伏地挺身 15 下、慢速深蹲 12 下、棒式 45 秒；還能多做 1 下；照計時做完）。"))
+        assertTrue(second.single(), second.single().startsWith("記下：肌力 3 輪（最後一輪：伏地挺身 15 下、慢速深蹲 20 下、棒式 60 秒；還能多做 1 下；照計時做完）。"))
         assertEquals(1, runBlocking { brain().photocards() }.size)
         assertEquals(1, runBlocking { brain().card() }.photocards)
         // Again: already recorded.
         at("23:55")
         assertEquals(listOf("今天的核心已經記過了。"), lines(runBlocking { brain().coreDone(420) }))
-        // A timer skipped through is no proof.
+        // A timer skipped through is no proof (the next day, after the latest departure without a run).
         day = day.plusDays(1)
-        at("17:03")
+        at("19:30")
         assertEquals("記下：核心七分鐘（計時只跑了 1 分鐘，未證實）。", lines(runBlocking { brain().coreDone(seconds = 70) }).first())
     }
 
     @Test fun onADayWithABreachTheCardIsAddedButThereIsNoSweetLine() {
         runBlocking { at("12:30"); brain().signal(Signal.MealLogged("meal-1", t("12:30"), SlotKey.LUNCH, 600, 20.0, breaches = listOf("PROCESSED"))) }
-        at("17:08")
+        at("23:08")
         val out = lines(runBlocking { brain().coreDone(420) })
         assertEquals(Links.L11Completion.PLAIN, out[1])
         assertEquals(0, runBlocking { brain().nerve.state(day) }.sweetToday)
@@ -163,7 +170,7 @@ class TrainingT18Test {
         assertEquals(listOf("今天照表：肌力要做滿 3 輪才算完成。做完再回報。"), rounds("23:40", extra = null, last = emptyMap(), rounds = 2))
         assertTrue(training().isEmpty())
         // Short reps are recorded as they were, with the plan's number.
-        val short = rounds("23:50", extra = 0, last = mapOf("push_up" to 12, "squat" to 12, "plank" to 45))
+        val short = rounds("23:50", extra = 0, last = mapOf("push_up" to 12, "squat" to 20, "plank" to 60))
         assertTrue(short.first().lines().contains("最後一輪伏地挺身 12 下，表定 15 下，下次做滿。"))
         assertTrue(short.first().lines().contains("接著伸展 10 分鐘。"))
         // A rest day is only a day without the run (owner 2026-11-26): the core, the rounds and the stretch are owed as always.
@@ -172,14 +179,18 @@ class TrainingT18Test {
         val rest = runBlocking { brain().nerve.plan(day) }
         assertTrue(rest.rest)
         assertNull(rest.slot(SlotKey.RIDE_OUT))
-        assertEquals(listOf("18:30", "18:40", "19:05"), listOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.STRETCH).map { rest.slot(it)!!.time })
-        assertTrue(listOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.STRETCH).all { rest.slot(it)!!.required && !rest.slot(it)!!.afterRide })
+        // A Tuesday: a cardio day, so the block is the core, the rounds, the cardio, then the stretch (any time from 17:00).
+        val block = listOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.CARDIO, SlotKey.STRETCH)
+        assertEquals(listOf("18:30", "18:40", "19:05", "19:20"), block.map { rest.slot(it)!!.time })
+        assertTrue(block.all { rest.slot(it)!!.required && !rest.slot(it)!!.afterRide })
         at("18:31")
         assertTrue(lines(runBlocking { brain().coreDone(420) }).first().startsWith("記下：核心七分鐘（照計時做完）。"))
-        assertTrue(rounds("18:50", extra = 3).first().startsWith("記下：肌力 3 輪"))
-        at("19:10")
+        assertTrue(rounds("18:50", extra = 3).first().endsWith("接著體能 10 分鐘。"))
+        at("19:05")
+        assertEquals("記下：體能 10 分鐘（照計時做完）。\n接著伸展 10 分鐘。", lines(runBlocking { brain().cardioDone(600) }).first())
+        at("19:20")
         assertEquals("記下：伸展 10 分鐘（照計時做完）。\n今天的訓練都做完了。", lines(runBlocking { brain().stretchDone(600) }).first())
-        assertEquals(listOf(TrainingKind.CORE7, TrainingKind.STRENGTH, TrainingKind.STRETCH), training().map { it.kind })
+        assertEquals(listOf(TrainingKind.CORE7, TrainingKind.STRENGTH, TrainingKind.CARDIO, TrainingKind.STRETCH), training().map { it.kind })
         // A walk is a no-class day's: a class day has none to tap.
         day = LocalDate.parse("2026-11-26") // Thursday
         at("16:30")
@@ -209,15 +220,17 @@ class TrainingT18Test {
     }
 
     @Test fun beingIllAfterTheCoreProposesToStopOnlyWhatIsStillOwed() {
-        at("17:08")
+        say("18:00", "出門跑單")
+        say("22:40", "收工")
+        at("22:58")
         runBlocking { brain().coreDone(420) }
-        val ill = say("19:00", "我發燒了")
+        val ill = say("23:00", "我發燒了")
         assertTrue(ill.first(), ill.first().startsWith("先照顧身體。發燒的話，今天的訓練我提一個調整：今天肌力先停，伸展照做十分鐘。"))
-        assertEquals(listOf("好，只改今天：今天肌力先停，伸展照做十分鐘。不用明天補做，好好休息。"), say("19:01", "好"))
+        assertEquals(listOf("好，只改今天：今天肌力先停，伸展照做十分鐘。不用明天補做，好好休息。"), say("23:01", "好"))
         val plan = runBlocking { brain().nerve.plan(day) }
         assertNull(plan.slot(SlotKey.STRENGTH))
         assertTrue(plan.slot(SlotKey.STRETCH)!!.required)
-        assertEquals(listOf("今天只改這一天：肌力停一天，伸展照做就好。不用補做。"), rounds("23:00", extra = 2))
+        assertEquals(listOf("今天只改這一天：肌力停一天，伸展照做就好。不用補做。"), rounds("23:10", extra = 2))
     }
 
     /** A week of easy rounds at [step] (Monday to Sunday, [rest] a rest day), protein 140 every day before [day]. */
@@ -249,7 +262,7 @@ class TrainingT18Test {
         rounds("23:50", extra = 3)
         assertEquals(1, pending().size)
         // His 「好」 (it waits across days): the training plan's next version, changed by the proposal.
-        assertEquals(listOf("好，下一次肌力開始：3 輪：伏地挺身 15 下、慢速深蹲 12 下、棒式 45 秒、背包划船 12 下。加量的日子蛋白質一定要吃夠 140 克。"), say("23:59", "好"))
+        assertEquals(listOf("好，下一次肌力開始：3 輪：伏地挺身 15 下、慢速深蹲 20 下、棒式 60 秒、背包划船 12 下。加量的日子蛋白質一定要吃夠 140 克。"), say("23:59", "好"))
         val section = runBlocking { store.rules.section(PlanSectionKey.TRAINING) }!!
         assertEquals(1, runBlocking { PlanStore(store).specs() }.training.progressionStep)
         assertEquals(p.id, section.changedBy)

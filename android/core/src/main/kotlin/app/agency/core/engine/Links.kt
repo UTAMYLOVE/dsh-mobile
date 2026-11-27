@@ -69,6 +69,7 @@ object Links {
         override val zh = "生病或受傷：問一題，提今天的調整"
         override val dailyCap = 3
         const val ASK = "哪裡不舒服？是發燒、感冒、腸胃不舒服，還是受傷？"
+        const val PAIN_STOP = "刺痛或關節痛算受傷：現在馬上停下來，不要硬做。痠不算，刺痛才算。"
         val RED_FLAGS = setOf("頭暈", "暈")
 
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
@@ -79,10 +80,13 @@ object Links {
             val owed = listOfNotNull(
                 "核心".takeIf { state.plan.slot(SlotKey.CORE) != null && TrainingKind.CORE7 !in state.training },
                 "肌力".takeIf { state.plan.slot(SlotKey.STRENGTH) != null && TrainingKind.STRENGTH !in state.training },
+                "體能".takeIf { state.plan.slot(SlotKey.CARDIO) != null && TrainingKind.CARDIO !in state.training },
             )
+            // A sharp pain or joint pain (owner 2026-11-26) is an injury: stop the move now, before anything else.
+            if (app.agency.core.brain.handlers.BodyWords.isPain(signal.word)) out += Effect.Say(PAIN_STOP)
             if (!state.reductionProposed && owed.isNotEmpty()) {
                 val reduction = if (signal.kind == IllKind.INJURY) Reduction.INJURY else Reduction.SICK
-                val what = owed.joinToString("和")
+                val what = if (owed.size > 2) owed.dropLast(1).joinToString("、") + "和" + owed.last() else owed.joinToString("和")
                 val change = if (reduction == Reduction.INJURY) "今天${what}先停，伸展照做，避開受傷的地方。" else "今天${what}先停，伸展照做十分鐘。"
                 out += Effect.Say("先照顧身體。${signal.word}的話，今天的訓練我提一個調整：${change}你說「好」才改；不回就照原本的表。")
                 out += Effect.Proposal(todayOnly = true, change = change, because = "因為你說${signal.word}，所以只改今天：$change", reduction = reduction)

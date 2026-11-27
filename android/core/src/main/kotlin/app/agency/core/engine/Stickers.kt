@@ -15,6 +15,7 @@ enum class StickerKind(val zh: String) {
     STRENGTH("肌力"),
     STRETCH("伸展"),
     WALK("快走"),
+    CARDIO("體能"),
     RIDE("跑單"),
     SIGN_OUT("簽退"),
     LESSON("理論課"),
@@ -57,6 +58,7 @@ object Stickers {
             SlotKey.CORE -> StickerKind.CORE
             SlotKey.STRENGTH -> StickerKind.STRENGTH
             SlotKey.WALK -> StickerKind.WALK
+            SlotKey.CARDIO -> StickerKind.CARDIO
             else -> StickerKind.STRETCH
         }
     }
@@ -66,5 +68,6 @@ object Stickers {
         TrainingKind.STRENGTH -> StickerKind.STRENGTH
         TrainingKind.STRETCH -> StickerKind.STRETCH
         TrainingKind.WALK -> StickerKind.WALK
+        TrainingKind.CARDIO -> StickerKind.CARDIO
     }
 }

@@ -49,7 +49,7 @@ data class Intake(
             "meal", "craving", "weight", "label", "training", "water", "sign_in", "sign_out", "condition", "rest_day",
             "cheat_declare", "hungry_morning", "unwell", "mood", "discuss", "chat",
         )
-        val TRAINING_KINDS = listOf("core7", "strength", "stretch", "walk")
+        val TRAINING_KINDS = listOf("core7", "strength", "stretch", "walk", "cardio")
         const val MAX_ITEMS = 12
 
         /** The data clerk's prompt (no persona, no facts): the word json and an example are there for JSON mode. */

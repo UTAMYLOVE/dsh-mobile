@@ -45,6 +45,9 @@ internal object Poses {
         MoveIcon.LEG -> Pose(o(.7f, .54f), chain(o(.6f, .6f), o(.34f, .84f), o(.88f, .86f)) + chain(o(.6f, .62f), o(.82f, .74f)), floor)
         MoveIcon.CHEST -> Pose(o(.55f, .2f), chain(o(.55f, .32f), o(.55f, .6f), o(.48f, .88f)) + chain(o(.55f, .6f), o(.62f, .88f)) + chain(o(.55f, .36f), o(.2f, .34f)), o(.18f, .1f) to o(.18f, .9f))
         MoveIcon.BACK -> Pose(o(.28f, .78f), chain(o(.38f, .74f), o(.7f, .66f), o(.62f, .86f), o(.86f, .88f)) + chain(o(.38f, .76f), o(.12f, .86f)), floor)
+        MoveIcon.JUMPING_JACK -> Pose(o(.5f, .16f), chain(o(.5f, .28f), o(.5f, .58f), o(.3f, .88f)) + chain(o(.5f, .58f), o(.7f, .88f)) + chain(o(.5f, .32f), o(.28f, .12f)) + chain(o(.5f, .32f), o(.72f, .12f)), floor)
+        MoveIcon.BURPEE -> Pose(o(.2f, .5f), chain(o(.3f, .56f), o(.58f, .64f), o(.88f, .84f)) + chain(o(.3f, .56f), o(.3f, .86f)), floor)
+        MoveIcon.SQUAT_JUMP -> Pose(o(.5f, .14f), chain(o(.5f, .26f), o(.5f, .52f), o(.4f, .66f), o(.46f, .8f)) + chain(o(.5f, .52f), o(.62f, .66f), o(.56f, .8f)) + chain(o(.5f, .3f), o(.34f, .14f)) + chain(o(.5f, .3f), o(.66f, .14f)), floor)
     }
 }
 

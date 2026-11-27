@@ -53,12 +53,15 @@ data class TrainingSpec(
     val walkMin: Int = 30,
     /** Steps of the progression rule already taken (0 = the three original moves; T18). */
     val progressionStep: Int = 0,
-    /** After 收工 he puts the helmet down first: strength is due this long after the ride ends. */
+    /** After 收工 he puts the helmet down first: the block (core first) is due this long after the ride ends. */
     val strengthAfterRideMin: Int = 15,
+    /** ISO days of the 10-minute 體能 (開合跳、波比跳、深蹲跳): three a week (owner 2026-11-26); 二、四、六 by default. */
+    val cardioDays: List<Int> = listOf(2, 4, 6),
+    val cardioMin: Int = 10,
     /**
-     * A day without a run (a rest day: owner 2026-11-26 「休息日只是不跑單」): the core, the rounds and the stretch still happen,
-     * the core due at this time (after class, an hour after dinner), the rounds and the stretch after it; the evening after is
-     * free time.
+     * A day without a run (a rest day: owner 2026-11-26 「休息日只是不跑單」): the core, the rounds (the cardio) and the stretch
+     * still happen, any time after 17:00; due from this time (an hour after dinner), the rest of the block after it; the
+     * evening after is free time. On a delivery day the block is after 收工 (riding with sore legs is unsafe).
      */
     val noRideTrainingAt: String = "18:30",
 )
