@@ -176,6 +176,12 @@ class InAppPhotoTest {
         app.agency.send("刮好了") // any line reloads the screen with the buttons
         rule.waitForTag(MealTags.MENU, 30_000)
         rule.onNodeWithTag(MealTags.MENU).performScrollTo().performClick()
+        // The notification question may come first (入社建檔 is done): wait for the camera's.
+        rule.waitUntil(10_000) {
+            var asked = false
+            scenario!!.onActivity { a -> asked = shadowOf(a).lastRequestedPermission?.requestedPermissions?.contains(Manifest.permission.CAMERA) == true }
+            asked
+        }
         scenario!!.onActivity { a ->
             val req = shadowOf(a).lastRequestedPermission!!
             assertTrue(req.requestedPermissions.contains(Manifest.permission.CAMERA))

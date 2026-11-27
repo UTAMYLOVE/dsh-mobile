@@ -256,7 +256,9 @@ fun HomeScreen(
         c?.let { IdolLine(agency, it, onOpen = { sheet = true }) }
         // The pickers, proposals and the 今天 card share at most [PANEL_SHARE] of the room and scroll; the conversation keeps the
         // rest (never less than 40%), the chips and the composer are always on screen.
-        Column(Modifier.fillMaxWidth().heightIn(max = room * PANEL_SHARE).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
+        // The conversation keeps at least 40% of the room after the line, the chips and the composer (about [FIXED] together).
+        val cap = minOf(room * PANEL_SHARE, maxOf(room * PANEL_MIN_SHARE, room * (1f - CHAT_SHARE) - FIXED))
+        Column(Modifier.fillMaxWidth().heightIn(max = cap).verticalScroll(rememberScrollState()).testTag(AgencyTags.PANELS)) {
             notice?.let { NoticeBar(it, agency::dismissNotice) }
             MediaLine(agency)
             ProposalStrip(proposals, busy) { id, yes -> scope.launch { withContext(Dispatchers.IO) { runCatching { ready.brain.decide(id, yes) } } } }
@@ -331,6 +333,15 @@ private const val PAGE = 500
 
 /** The most of the room the pickers, proposals and the 今天 card take before they scroll (the conversation keeps the rest). */
 private const val PANEL_SHARE = 0.45f
+
+/** On a small screen (or with the keyboard up) they still get this much, scrolling. */
+private const val PANEL_MIN_SHARE = 0.2f
+
+/** The conversation's share of the room it keeps. */
+private const val CHAT_SHARE = 0.4f
+
+/** The trainee line, the chips and the composer together. */
+private val FIXED = 200.dp
 
 /** A guided timer to show: its routine and, for the rounds, the moves the report asks about. */
 private data class TrainingOpen(val kind: TrainingKind, val steps: List<RoutineStep>, val moves: List<StrengthMove>)

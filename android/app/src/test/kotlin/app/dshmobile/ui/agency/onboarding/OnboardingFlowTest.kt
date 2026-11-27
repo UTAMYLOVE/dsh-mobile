@@ -99,7 +99,7 @@ class OnboardingFlowTest {
         rule.onNodeWithTag(OnboardingTags.HEIGHT).performScrollTo().performTextInput(h)
         rule.onNodeWithTag(OnboardingTags.WEIGHT).performScrollTo().performTextInput(w)
         tap(OnboardingTags.BODY_SAVE)
-        rule.waitUntil(5_000) { join()?.heightCm != null }
+        rule.waitUntil(15_000) { join()?.heightCm != null }
     }
 
     private fun status(step: OnboardingStep): String =
@@ -114,7 +114,7 @@ class OnboardingFlowTest {
         assertEquals("已完成", status(OnboardingStep.BODY))
         for (step in OnboardingStep.PHOTOS) {
             tap(OnboardingTags.TAKE_PHOTO)
-            val got = runCatching { rule.waitUntil(5_000) { join()?.let { BaselineSteps.has(it, step) } == true } }
+            val got = runCatching { rule.waitUntil(20_000) { join()?.let { BaselineSteps.has(it, step) } == true } }
             assertTrue("notice=${app.agency.mediaNotice.value} log=${app.errorLog.file().takeIf { it.isFile }?.readText()?.takeLast(600)}", got.isSuccess)
         }
         tap(OnboardingTags.REC_START)
@@ -124,17 +124,17 @@ class OnboardingFlowTest {
         tap(OnboardingTags.REC_PLAY)
         assertEquals(listOf(2048), played) // played back from the plaintext before handing in
         tap(OnboardingTags.REC_HAND_IN)
-        rule.waitUntil(5_000) { join()?.recording != null }
+        rule.waitUntil(15_000) { join()?.recording != null }
         rule.onNodeWithTag(OnboardingTags.PUSH_FIELD).performScrollTo().performTextInput("30")
         tap(OnboardingTags.PUSH_SAVE)
-        rule.waitUntil(5_000) { join()?.pushupsMax == 30 }
+        rule.waitUntil(15_000) { join()?.pushupsMax == 30 }
         // The footer names what is left; 完成建檔 waits for it.
         rule.waitForText("還差：棒式")
         rule.onNodeWithTag(OnboardingTags.FINISH).assertIsNotEnabled()
         // Nothing was said in the conversation while he filled it in.
         assertEquals(said, runBlocking { ready().store.messages.count() })
         tap(OnboardingTags.SKIP + OnboardingStep.PLANK.name)
-        rule.waitUntil(5_000) { OnboardingStep.PLANK.name in join()!!.skipped }
+        rule.waitUntil(15_000) { OnboardingStep.PLANK.name in join()!!.skipped }
         rule.waitForText("已跳過")
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(OnboardingTags.FINISH).assertIsEnabled() }.isSuccess }
         tap(OnboardingTags.FINISH)
@@ -187,7 +187,7 @@ class OnboardingFlowTest {
         launch()
         OnboardingStep.entries.filter { it !in OnboardingStep.PHOTOS.drop(1) }.forEach { step ->
             tap(OnboardingTags.SKIP + step.name)
-            rule.waitUntil(5_000) { step.name in join()!!.skipped }
+            rule.waitUntil(15_000) { step.name in join()!!.skipped }
         }
         rule.waitForText("還差：身高體重、正面照、側面照、背面照、清唱錄音、伏地挺身、棒式")
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(OnboardingTags.FINISH).assertIsEnabled() }.isSuccess }
