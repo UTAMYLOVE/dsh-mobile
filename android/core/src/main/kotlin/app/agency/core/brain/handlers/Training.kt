@@ -212,6 +212,7 @@ class TrainingDesk(
             TrainingKind.STRETCH -> stretch(fromTimer = false, seconds = null)
             TrainingKind.WALK -> walk()
             TrainingKind.CARDIO -> cardio(fromTimer = false, seconds = null)
+            else -> MealOutcome(null, listOf(WHICH))
         }
     }
 

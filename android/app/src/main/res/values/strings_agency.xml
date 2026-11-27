@@ -516,4 +516,32 @@
     <string name="ag_bk_restore_sure">現在手機裡的資料會全部被換掉，不能復原。確定嗎？</string>
     <string name="ag_bk_restore_yes">確定覆蓋</string>
     <string name="ag_bk_restored">匯回好了，公司重新打開中。</string>
+    <!-- 心情 (rollout week 3) -->
+    <string name="ag_mood_title">今天的心情</string>
+    <string name="ag_mood_low">低落</string>
+    <string name="ag_mood_ok">普通</string>
+    <string name="ag_mood_good">不錯</string>
+    <!-- 每週評鑑／月評 -->
+    <string name="ag_eval_weekly">每週評鑑</string>
+    <string name="ag_eval_monthly">月評</string>
+    <string name="ag_eval_close">先離開</string>
+    <string name="ag_eval_rule">一次拍完，不能重來，像在台上。</string>
+    <string name="ag_eval_song">唱：這週的歌（月評是獨唱一首）</string>
+    <string name="ag_eval_song_done">歌收到了</string>
+    <string name="ag_eval_dance">跳：這週的舞（月評是完整一支）</string>
+    <string name="ag_eval_dance_take">錄舞蹈</string>
+    <string name="ag_eval_dance_done">舞收到了</string>
+    <string name="ag_eval_rotating">輪替一項</string>
+    <string name="ag_eval_rot_rap">饒舌</string>
+    <string name="ag_eval_rot_genre">另一種曲風的歌</string>
+    <string name="ag_eval_rot_remix">自己改編一段</string>
+    <string name="ag_eval_rotating_done">輪替項目收到了</string>
+    <string name="ag_eval_numbers">體重、腰圍、體能測試</string>
+    <string name="ag_eval_weight">體重（公斤）</string>
+    <string name="ag_eval_waist">腰圍（公分）</string>
+    <string name="ag_eval_pushups">伏地挺身最多幾下</string>
+    <string name="ag_eval_plank">棒式最多幾秒</string>
+    <string name="ag_eval_self">自評（程式算不出來、人工智慧也沒給建議時才用）</string>
+    <string name="ag_eval_body_hint">全身照用今天的「全身對比照」，先拍好再交月評。</string>
+    <string name="ag_eval_send">交出</string>
 </resources>

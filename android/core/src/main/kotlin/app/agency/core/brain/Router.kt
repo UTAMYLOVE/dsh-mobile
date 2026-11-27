@@ -45,6 +45,9 @@ object Router {
     const val INCOME = "income"
     const val INCOME_TARGET = "income_target"
 
+    /** The kind prefix of a practice item's words (「防曬擦好了」 → `practice:SUNSCREEN`). */
+    const val PRACTICE = "practice:"
+
     /** The kind prefix of a grooming report (「刮好了」 → `grooming:SHAVE`). */
     const val GROOMING = "grooming:"
 
@@ -85,6 +88,7 @@ object Router {
         listOf("指甲剪好了", "剪指甲了", "指甲剪了").forEach { put(it, GROOMING + "NAILS") }
         listOf("眉毛修好了", "修眉了", "修好眉毛了").forEach { put(it, GROOMING + "BROWS") }
         listOf("頭髮剪好了", "剪頭髮了", "剪好頭髮了").forEach { put(it, GROOMING + "HAIR") }
+        (app.agency.core.engine.Practice.TAP_WORDS + app.agency.core.engine.Practice.DONE_WORDS).forEach { (w, k) -> put(w, PRACTICE + k.name) }
     }
 
     /** A 休假餐 declaration starts with one of these (「休假餐 星期四晚餐」, 「這週休假餐是明天晚餐」). */

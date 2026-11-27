@@ -37,6 +37,7 @@ object SignTags {
     const val GOOD = "ag-review-good"
     const val FIX = "ag-review-fix"
     const val REVIEW_SEND = "ag-review-send"
+    const val MOOD = "ag-mood-"
 }
 
 /** 好 / 普通 / 不好 as the 1–5 the record keeps. */

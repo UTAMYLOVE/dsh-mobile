@@ -516,9 +516,116 @@ class AgencyApp(
                 val meal = line.refs.records.firstOrNull()?.let { runCatching { ready.store.meals.get(it) }.getOrNull() }
                 if (meal != null && meal.items.isEmpty() && meal.photoMediaId == media.id) readPhoto(ready, v, app.agency.core.model.PhotoReadKind.MEAL, media)
             }
+            app.dshmobile.agency.media.PhotoTarget.Check -> runCatching { ready.brain.handInPractice(app.agency.core.model.TrainingKind.SURPRISE_CHECK, media) }
+                .onFailure { runCatching { if (ready.store.media.get(media.id) == null) v.delete(media.id) } }
+            app.dshmobile.agency.media.PhotoTarget.Body -> {
+                // The Sunday 全身對比照 (when it is due today) goes on the timeline, then the teacher's words as always.
+                runCatching { ready.brain.handInPractice(app.agency.core.model.TrainingKind.BODY_PHOTO, media) }
+                readPhoto(ready, v, app.agency.core.model.PhotoReadKind.BODY, media)
+            }
             else -> readPhoto(ready, v, target.read ?: return, media)
         }
     }
+
+    /** A practice timer finished, a practice tap, the 心情 tap (rollout weeks 3 and 4). */
+    fun practiceDone(kind: app.agency.core.model.TrainingKind, seconds: Int) = talk { it.practiceDone(kind, seconds) }
+
+    fun practiceTap(kind: app.agency.core.model.TrainingKind) = talk { it.practiceTap(kind) }
+
+    fun mood(level: Int) = talk { it.mood(level) }
+
+    /** An evaluation recording (每週評鑑, 月評): sealed into the vault, its media (not written yet), or null. */
+    suspend fun sealEvalAudio(file: File): Media? = sealFile(file, MediaKind.AUDIO, AudioRecorder.MIME)
+
+    private suspend fun sealFile(file: File, kind: MediaKind, mime: String): Media? {
+        val v = vault ?: return null.also { file.delete() }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val id = UUID.randomUUID().toString()
+            try {
+                val sealed = v.putFile(id, file)
+                Media(id, kind, MediaPurpose.EVAL, mime, sealed.bytes, sealed.sha256, clock.millis())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                errorLog.append(TAG, "eval media not sealed (${e.javaClass.simpleName})")
+                _mediaNotice.value = MediaNotice.NOT_SAVED
+                null
+            } finally {
+                file.delete()
+            }
+        }
+    }
+
+    private var videoFile: File? = null
+    private val _evalVideo = MutableStateFlow<Media?>(null)
+
+    /** The dance take of an evaluation, once the camera app gave it (sealed); the screen takes it with [takeEvalVideo]. */
+    val evalVideo: StateFlow<Media?> = _evalVideo.asStateFlow()
+
+    /** Still frames of the last dance take (cleaned, in memory only) for the 月評 suggestion; cleared when used. */
+    private var danceFrames: List<app.agency.core.vision.VisionImage> = emptyList()
+
+    /** Where the camera app writes the dance take (`cache/camera/`, through the FileProvider). */
+    fun videoUri(): android.net.Uri? = runCatching {
+        val dir = MediaVault.cameraDir(context).apply { mkdirs() }
+        val f = File(dir, "eval-${UUID.randomUUID()}.mp4")
+        videoFile = f
+        FileProvider.getUriForFile(context, "${context.packageName}.export", f)
+    }.getOrNull()
+
+    /** The camera app's answer for the dance take: two frames are kept in memory for the 月評, the file sealed and deleted. */
+    fun onVideoResult(ok: Boolean) {
+        val f = videoFile ?: return
+        videoFile = null
+        scope.launch {
+            if (!ok || !f.isFile || f.length() == 0L) {
+                f.delete()
+                return@launch
+            }
+            danceFrames = runCatching { frames(f) }.getOrDefault(emptyList())
+            _evalVideo.value = sealFile(f, MediaKind.VIDEO, "video/mp4")
+        }
+    }
+
+    fun takeEvalVideo(): Media? = _evalVideo.value.also { _evalVideo.value = null }
+
+    private fun frames(f: File): List<app.agency.core.vision.VisionImage> {
+        val r = android.media.MediaMetadataRetriever()
+        return try {
+            r.setDataSource(f.path)
+            val ms = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: return emptyList()
+            listOf(ms / 3, ms * 2 / 3).mapNotNull { t ->
+                val bmp = r.getFrameAtTime(t * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: return@mapNotNull null
+                val out = java.io.ByteArrayOutputStream()
+                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+                bmp.recycle()
+                app.dshmobile.agency.media.PhotoBytes.forModel(out.toByteArray())
+            }
+        } finally {
+            runCatching { r.release() }
+        }
+    }
+
+    fun weeklyEval(song: Media, dance: Media) = talk { it.weeklyEval(song, dance) }
+
+    /**
+     * 月評 handed in: the image model's suggestions (today's 全身對比照 and the dance frames, only when he chose a provider that
+     * sees photos), then code's scores and the announcement.
+     */
+    fun monthlyEval(handIn: app.agency.core.engine.MonthlyResult, media: List<Media>, self: Map<app.agency.core.engine.EvalItem, Int>) = talk { brain ->
+        val v = vault
+        val body = runCatching { brain.bodyTimeline().lastOrNull()?.takeIf { it.first == brain.today().toString() }?.second }.getOrNull()
+        val images = if (v == null || !brain.photosReadable()) emptyList() else {
+            listOfNotNull(body?.let { b -> runCatching { app.dshmobile.agency.media.PhotoBytes.forModel(v.get(b)) }.getOrNull() }) + danceFrames.take(2)
+        }
+        danceFrames = emptyList()
+        val looks = if (images.isEmpty() || body == null) emptyList() else brain.evalLooks(images, hasDance = images.size > 1)
+        val vocal = handIn.song?.let { id -> runCatching { songPitch(v, id) }.getOrNull() }
+        brain.monthlyEval(handIn.copy(bodyPhoto = body), media, self, vocal, looks)
+    }
+
+    /** The solo song's 音準 share by code (T19d; null until the recording can be decoded). */
+    private fun songPitch(v: MediaVault?, mediaId: String): Int? = null
 
     /** The image model's read of [media] (T15b): the cleaned vault copy, and for 身體照 the 入社建檔 front photo to compare. */
     private suspend fun readPhoto(ready: StartState.Ready, v: MediaVault, kind: app.agency.core.model.PhotoReadKind, media: Media) {
@@ -581,6 +688,7 @@ class AgencyApp(
                 captured.media.purpose == MediaPurpose.MENU -> app.dshmobile.agency.media.PhotoTarget.Menu
                 captured.media.purpose == MediaPurpose.RECEIPT -> app.dshmobile.agency.media.PhotoTarget.Receipt
                 captured.media.purpose == MediaPurpose.BODY -> app.dshmobile.agency.media.PhotoTarget.Body
+                captured.media.purpose == MediaPurpose.CHECK -> app.dshmobile.agency.media.PhotoTarget.Check
                 else -> app.dshmobile.agency.media.PhotoTarget.Meal
             }
             handPhoto(ready, v, target, captured.media)

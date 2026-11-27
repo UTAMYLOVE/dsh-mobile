@@ -85,7 +85,13 @@ data class WaterLog(
 ) : DayRecord
 
 /** [CARDIO] is the 10-minute 體能 (開合跳、波比跳、深蹲跳), three days a week (owner 2026-11-26). */
-enum class TrainingKind { CORE7, STRENGTH, STRETCH, WALK, CARDIO }
+enum class TrainingKind {
+    CORE7, STRENGTH, STRETCH, WALK, CARDIO,
+
+    /** The practice items of rollout weeks 3 and 4 ([app.agency.core.engine.Practice]), one per [app.agency.core.schedule.SlotKey] of the same name. */
+    MORNING_STRETCH, VOCAL_BASICS, POSTURE, SUNSCREEN, DANCE, VOCAL_PRACTICE, EXPRESSION, PERSONAL_TASK, HABIT, THEME_TASK,
+    SURPRISE_CHECK, BODY_PHOTO, WEEKLY_EVAL, MONTHLY_EVAL,
+}
 
 /** One training report; [detailJson] holds reps per move, plank seconds and the last round's extra. */
 data class TrainingLog(
@@ -155,9 +161,10 @@ data class Baseline(
     }
 }
 
-enum class MediaKind { PHOTO, AUDIO }
+enum class MediaKind { PHOTO, AUDIO, VIDEO }
 /** [MENU], [RECEIPT] and [BODY] (T15b/T15c) are the photos the image-capable model may read; recordings never leave the phone. */
-enum class MediaPurpose { MEAL, BASELINE, LABEL, WATER, AVATAR, LESSON, MENU, RECEIPT, BODY }
+/** [EVAL]: a 每週評鑑／月評 recording or video; [CHECK]: a 突擊檢查 photo (both stay on the phone); [SINGING]: a take for 唱歌分析. */
+enum class MediaPurpose { MEAL, BASELINE, LABEL, WATER, AVATAR, LESSON, MENU, RECEIPT, BODY, EVAL, CHECK, SINGING }
 
 /** A media file's record; the encrypted bytes live in the vault as `<id>.bin`. [bytes] and [sha256] are of the plaintext. */
 data class Media(

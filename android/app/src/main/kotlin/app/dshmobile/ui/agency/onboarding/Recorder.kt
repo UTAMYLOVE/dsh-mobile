@@ -41,7 +41,7 @@ import kotlinx.coroutines.launch
  * unfinished one away. [handIn] is 入社建檔's by default; a 理論課 實作 (T19c) hands it to its lesson.
  */
 @Composable
-fun Recorder(agency: AgencyApp, handIn: suspend (java.io.File, Long) -> Boolean = agency::handInRecording) {
+fun Recorder(agency: AgencyApp, handIn: suspend (java.io.File, Long) -> Boolean = agency::handInRecording, redo: Boolean = true) {
     val context = LocalContext.current
     val recorder = remember { AudioRecorder(AudioRecorder.recordDir(context), agency.recorderEngine()) }
     val player = remember { agency.playerEngine() }
@@ -103,7 +103,7 @@ fun Recorder(agency: AgencyApp, handIn: suspend (java.io.File, Long) -> Boolean 
                     },
                     modifier = Modifier.testTag(OnboardingTags.REC_PLAY),
                 )
-                SoftButton(stringResource(R.string.ag_ob_rec_redo), onClick = {
+                if (redo) SoftButton(stringResource(R.string.ag_ob_rec_redo), onClick = {
                     player.stop()
                     playing = false
                     recorder.redo()

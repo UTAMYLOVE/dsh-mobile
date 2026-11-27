@@ -84,6 +84,48 @@ object DayPlanner {
     /** The 21:00 portion and its swaps (owner 2026-11-26), one 雞胸 a day at most. */
     const val RIDE_MEAL_NOTE = "雞胸加豆漿，一定要吃；可以換成福樂蛋白飲加茶葉蛋、義美高蛋白奶加茶葉蛋或低脂鮮奶（雞胸一天最多一包）"
 
+    /**
+     * The practice items of rollout weeks 3 and 4 ([app.agency.core.engine.Practice]): 起床伸展 and 聲樂基本功 after the wake,
+     * 靠牆站姿, 防曬 before the run, on no-class days 舞蹈 and 聲樂 before the first meal (表情鏡頭 on its two days), Sunday's
+     * 全身對比照 and 每週評鑑 (the last Sunday of a month: 月評), Saturday's 主題週 practical, the week's 突擊檢查 (ten minutes),
+     * the month's 個人任務 and the 學了就用 habits. Features not open yet are filtered out by the caller like any slot.
+     */
+    fun practice(day: LocalDate, specs: PlanSpecs, wake: Int, firstMeal: Int, sleep: Int, cls: Boolean, noRun: Boolean, reduced: Boolean): List<Slot> = buildList {
+        val p = specs.practice
+        val dow = day.dayOfWeek.value
+        add(Slot(SlotKey.MORNING_STRETCH, wake + p.morningStretchAfterWakeMin, note = "${p.morningStretchMin} 分鐘"))
+        add(Slot(SlotKey.VOCAL_BASICS, wake + p.vocalBasicsAfterWakeMin, note = "${p.vocalBasicsMin} 分鐘：彈唇、滑音、音階、咬字"))
+        add(Slot(SlotKey.POSTURE, DayClock.minute(p.posture), note = "${p.postureMin} 分鐘"))
+        if (!noRun) add(Slot(SlotKey.SUNSCREEN, DayClock.minute(specs.schedule.rideOut), untilMinute = DayClock.minute(specs.schedule.rideOutUntil), note = "出門前擦好"))
+        if (!cls) {
+            // An illness change takes the dance off with the rest of the training (only illness or injury lightens it).
+            if (!reduced) add(Slot(SlotKey.DANCE, firstMeal, note = "${p.danceMin} 分鐘，第一餐前"))
+            add(Slot(SlotKey.VOCAL_PRACTICE, firstMeal, note = "${p.vocalPracticeMin} 分鐘，第一餐前"))
+            if (dow in p.expressionDays) add(Slot(SlotKey.EXPRESSION, firstMeal, note = "${p.expressionMin} 分鐘"))
+        }
+        if (dow == p.evalDay) {
+            val at = DayClock.minute(p.evalAt)
+            add(Slot(SlotKey.BODY_PHOTO, at, note = "同一個位置、同一個角度"))
+            if (app.agency.core.engine.Practice.monthEnd(day)) {
+                add(Slot(SlotKey.MONTHLY_EVAL, at, note = "獨唱一首、舞一支、輪替一項、全身照、體重腰圍、體能測試"))
+            } else {
+                add(Slot(SlotKey.WEEKLY_EVAL, at, note = "這週的歌和舞各一次，不能重來"))
+            }
+        }
+        if (dow == p.themeDay) app.agency.core.engine.Themes.of(day).let { add(Slot(SlotKey.THEME_TASK, DayClock.minute(p.themeAt), note = "${it.name}：${it.task}")) }
+        app.agency.core.engine.SurpriseChecks.on(day, specs.schedule)?.let {
+            add(Slot(SlotKey.SURPRISE_CHECK, it.minute, closesMinute = it.minute + p.checkWindowMin, note = "${p.checkWindowMin} 分鐘內拍：${it.what}"))
+        }
+        val taskFrom = p.personalTaskFrom?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        if (p.personalTask != null && taskFrom != null && !day.isBefore(taskFrom)) {
+            add(Slot(SlotKey.PERSONAL_TASK, sleep - 40, note = "${p.personalTaskMin} 分鐘：${app.agency.core.engine.MonthlyEval.taskText(p.personalTask)}"))
+        }
+        val habits = p.habits.filter { !LocalDate.parse(it.addedOn).isAfter(day) }
+        if (habits.isNotEmpty()) {
+            add(Slot(SlotKey.HABIT, habits.maxOf { DayClock.minute(it.at) }, note = habits.joinToString("；") { it.text }, count = habits.size))
+        }
+    }
+
     fun build(
         day: LocalDate,
         specs: PlanSpecs = PlanSpecs(),
@@ -132,6 +174,7 @@ object DayPlanner {
             // It closes the block (on a reduced day it stays as the minimum).
             add(Slot(SlotKey.STRETCH, block.getValue(SlotKey.STRETCH), afterRide = !noRun, afterRideMin = after + if (cardio) 50 else 35, note = stretchNote))
             add(Slot(SlotKey.SIGN_OUT, sleep))
+            addAll(practice(day, specs, wake, first.minute, sleep, cls, noRun, reduction != null))
             // 理論課 (T19c): class days in class (Friday's classes end at 16:00), no-class days before the walk; rest days too.
             if (lessons.lessons > 0) {
                 val due = when {

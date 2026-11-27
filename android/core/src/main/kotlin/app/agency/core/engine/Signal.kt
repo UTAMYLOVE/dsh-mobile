@@ -232,6 +232,17 @@ sealed interface Signal {
     @Serializable @SerialName("practical_handed_in")
     data class PracticalHandedIn(override val id: String, override val at: Long, val lessonId: String, val category: String, override val source: String = "lesson") : Signal
 
+    /**
+     * 心情 at sign-out (one tap, 定稿 §2/§3): [level] 1 低落, 2 普通, 3 不錯; [lowDays] the days in a row up to today with a 低落 (code
+     * counted), which L30 answers at three.
+     */
+    @Serializable @SerialName("mood")
+    data class Mood(override val id: String, override val at: Long, val day: String, val level: Int, val lowDays: Int, override val source: String = "sign") : Signal
+
+    /** Two 月評s in a row without progress (定稿 §10): the manager's 面談 (L31); id `interview:<yyyy-MM>`. */
+    @Serializable @SerialName("month_interview")
+    data class MonthInterview(override val id: String, override val at: Long, override val source: String = "eval") : Signal
+
     companion object {
         const val REMINDERS_ON = "reminders:on"
 

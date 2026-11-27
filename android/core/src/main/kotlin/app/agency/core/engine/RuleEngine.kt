@@ -47,9 +47,10 @@ object RuleEngine {
                 else -> latest
             }
             val ids = records(sl.key, r)
+            val closed = sl.closesMinute?.let { now >= instant(plan.day, it, zone) } == true
             val status = when {
                 ids.size >= (sl.count ?: 1) -> SlotStatus.DONE
-                now >= dayEnd || (signedOut != null && sl.key != SlotKey.SIGN_OUT) -> SlotStatus.MISSED
+                closed || now >= dayEnd || (signedOut != null && sl.key != SlotKey.SIGN_OUT) -> SlotStatus.MISSED
                 now < due -> SlotStatus.LATER
                 else -> SlotStatus.OPEN
             }
@@ -69,7 +70,11 @@ object RuleEngine {
         SlotKey.CARDIO -> r.training.filter { it.kind == TrainingKind.CARDIO }.map { it.id }
         SlotKey.LESSONS -> r.lessonsPassed.map { it.id }
         SlotKey.LESSON_REVIEW -> r.lessonsReviewed.map { it.id }
-        else -> r.meals.filter { it.slotKey == key.name }.map { it.id }
+        else -> if (key.kind == app.agency.core.schedule.SlotKind.PRACTICE) {
+            r.training.filter { it.kind.name == key.name }.map { it.id }
+        } else {
+            r.meals.filter { it.slotKey == key.name }.map { it.id }
+        }
     }
 
     /** The required slots that are due and missing now. */

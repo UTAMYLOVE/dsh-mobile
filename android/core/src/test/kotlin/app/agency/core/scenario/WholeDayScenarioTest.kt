@@ -1,5 +1,6 @@
 package app.agency.core.scenario
 
+import app.agency.core.practiceOff
 import app.agency.core.brain.Brain
 import app.agency.core.engine.DayState
 import app.agency.core.engine.Fire
@@ -55,7 +56,7 @@ import org.junit.Test
  * At the end: the day state, the plan, the proposals, the reminders and the lines; the emulator plays it last.
  */
 class WholeDayScenarioTest {
-    private val store = InMemoryAgencyStore()
+    private val store = InMemoryAgencyStore().practiceOff()
     private val clock = MutableClock()
     // The model is asked only for the conversation (T12): the clerk and the manager's tool loop; every other line is code's.
     private val llm = ScriptedLlm(

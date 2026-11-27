@@ -1,5 +1,6 @@
 package app.agency.core.engine
 
+import app.agency.core.practiceOff
 import app.agency.core.brain.Brain
 import app.agency.core.llm.Fail
 import app.agency.core.llm.ProviderChoice
@@ -24,7 +25,7 @@ import org.junit.Test
 
 /** Reminders (arch 1.6, T13, links L8/L12): when the next alarm fires and what one fire posts. Invented Monday. */
 class NudgerTest {
-    private val store = InMemoryAgencyStore()
+    private val store = InMemoryAgencyStore().practiceOff()
     private val clock = MutableClock()
     private var n = 0
     private val monday = LocalDate.parse("2026-12-07")

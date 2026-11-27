@@ -2,7 +2,8 @@ package app.agency.core.schedule
 
 import kotlinx.serialization.Serializable
 
-enum class SlotKind { SIGN, MEAL, TRAINING, RIDE, STUDY }
+/** [PRACTICE]: the items of rollout weeks 3 and 4 (聲樂、站姿、防曬、舞蹈、評鑑、突擊檢查…; [app.agency.core.engine.Practice]). */
+enum class SlotKind { SIGN, MEAL, TRAINING, RIDE, STUDY, PRACTICE }
 
 /** The slots of a day (arch 1.5 / plan v3 §4); [zh] is the label he reads. */
 enum class SlotKey(val zh: String, val kind: SlotKind) {
@@ -27,6 +28,22 @@ enum class SlotKey(val zh: String, val kind: SlotKind) {
 
     /** 兩天後複習考 (T19c): on the days a review is due; recorded only, never chased. */
     LESSON_REVIEW("複習考", SlotKind.STUDY),
+
+    // 分週上線 第 3 週起 and 第 4 週起 (owner 2026-11-27; [app.agency.core.engine.Practice] says how each is handed in).
+    MORNING_STRETCH("起床伸展", SlotKind.PRACTICE),
+    VOCAL_BASICS("聲樂基本功", SlotKind.PRACTICE),
+    POSTURE("靠牆站姿", SlotKind.PRACTICE),
+    SUNSCREEN("擦防曬", SlotKind.PRACTICE),
+    DANCE("舞蹈練習", SlotKind.PRACTICE),
+    VOCAL_PRACTICE("聲樂練習", SlotKind.PRACTICE),
+    EXPRESSION("表情鏡頭", SlotKind.PRACTICE),
+    PERSONAL_TASK("個人任務", SlotKind.PRACTICE),
+    HABIT("小習慣", SlotKind.PRACTICE),
+    THEME_TASK("主題週實作", SlotKind.PRACTICE),
+    SURPRISE_CHECK("突擊檢查", SlotKind.PRACTICE),
+    BODY_PHOTO("全身對比照", SlotKind.PRACTICE),
+    WEEKLY_EVAL("每週評鑑", SlotKind.PRACTICE),
+    MONTHLY_EVAL("月評", SlotKind.PRACTICE),
     ;
 
     companion object {
@@ -51,6 +68,8 @@ data class Slot(
     val count: Int? = null,
     /** An [afterRide] item is due this long after 收工 (the block in order: core, rounds, cardio, stretch). */
     val afterRideMin: Int = 15,
+    /** After this minute the slot is over (a 突擊檢查 gives ten minutes): not done by then is 沒做到, never chased. */
+    val closesMinute: Int? = null,
 ) {
     val label: String get() = key.zh
     val time: String get() = DayClock.hhmm(minute)

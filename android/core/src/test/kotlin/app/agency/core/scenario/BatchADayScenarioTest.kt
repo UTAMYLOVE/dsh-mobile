@@ -1,5 +1,6 @@
 package app.agency.core.scenario
 
+import app.agency.core.practiceOff
 import app.agency.core.brain.Brain
 import app.agency.core.brain.handlers.IncomeDesk
 import app.agency.core.brain.handlers.StrengthReport
@@ -38,7 +39,7 @@ import org.junit.Test
  * warning on the run; the block after 收工 in order (core, rounds, cardio, stretch); a sign-out after 03:45 is a breach.
  */
 class BatchADayScenarioTest {
-    private val store = InMemoryAgencyStore()
+    private val store = InMemoryAgencyStore().practiceOff()
     private val clock = MutableClock()
     private val saturday = LocalDate.parse("2026-12-12")
     private val meals = ArrayDeque<String>()
@@ -58,7 +59,7 @@ class BatchADayScenarioTest {
     init {
         runBlocking {
             store.profile.put(Profile(joinDate = "2026-11-01", onboardingDone = true))
-            val r = RolloutSpec(week = 4, openedOn = mapOf("4" to "2026-12-07"))
+            val r = app.agency.core.PracticeOff.ROLLOUT.copy(openedOn = mapOf("4" to "2026-12-07"))
             store.rules.putSection(PlanSectionKey.ROLLOUT, PlanSpecs.JSON.encodeToString(RolloutSpec.serializer(), r), PlanSection.BY_OWNER_SETTINGS, 0)
         }
     }

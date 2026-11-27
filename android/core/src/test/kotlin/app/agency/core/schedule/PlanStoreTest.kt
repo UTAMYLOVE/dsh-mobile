@@ -12,7 +12,7 @@ class PlanStoreTest {
     @Test fun theDefaultsAreSeededOnceAndAStoredChangeWins() = runBlocking {
         val store = InMemoryAgencyStore()
         val plans = PlanStore(store)
-        assertEquals(5, plans.seedIfMissing(10L))
+        assertEquals(7, plans.seedIfMissing(10L))
         // A new install starts in week 1 of the rollout (only lessons).
         assertEquals(1, plans.specs().rollout.week)
         assertEquals(0, plans.seedIfMissing(20L))

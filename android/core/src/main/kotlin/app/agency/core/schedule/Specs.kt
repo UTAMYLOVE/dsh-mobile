@@ -92,6 +92,38 @@ data class WaterSpec(
     val stepWeeks: Int = 2,
 )
 
+/** A small daily habit from a passed lesson (學了就用, owner 2026-11-23): added on his yes, one at a time. */
+@Serializable
+data class Habit(val id: String, val text: String, val category: String, val addedOn: String, val at: String, val lessonId: String? = null)
+
+/**
+ * The practice items of rollout weeks 3 and 4 (owner 2026-11-27 定稿 §3, §6, §10, §11) and what the evaluations set: times are
+ * `HH:mm` on the coach day, days ISO (一 = 1). [personalTask] is the month's one weak point (code-set by the 月評, from
+ * [personalTaskFrom]); [habits] are the 學了就用 habits he said yes to.
+ */
+@Serializable
+data class PracticeSpec(
+    val morningStretchMin: Int = 5,
+    val morningStretchAfterWakeMin: Int = 20,
+    val vocalBasicsMin: Int = 10,
+    val vocalBasicsAfterWakeMin: Int = 40,
+    val postureMin: Int = 3,
+    val posture: String = "17:20",
+    val danceMin: Int = 40,
+    val vocalPracticeMin: Int = 20,
+    val expressionMin: Int = 10,
+    val expressionDays: List<Int> = listOf(3, 6),
+    val evalDay: Int = 7,
+    val evalAt: String = "15:30",
+    val themeDay: Int = 6,
+    val themeAt: String = "15:30",
+    val checkWindowMin: Int = 10,
+    val personalTaskMin: Int = 10,
+    val personalTask: String? = null,
+    val personalTaskFrom: String? = null,
+    val habits: List<Habit> = emptyList(),
+)
+
 /** The sections together; [rollout] is 上線週數 (a store never seeded has none: everything open, [RolloutSpec.ALL_OPEN]). */
 data class PlanSpecs(
     val schedule: ScheduleSpec = ScheduleSpec(),
@@ -99,6 +131,8 @@ data class PlanSpecs(
     val training: TrainingSpec = TrainingSpec(),
     val water: WaterSpec = WaterSpec(),
     val rollout: RolloutSpec = RolloutSpec.ALL_OPEN,
+    val practice: PracticeSpec = PracticeSpec(),
+    val levels: LevelSpec = LevelSpec(),
 ) {
     fun json(key: PlanSectionKey): String = when (key) {
         PlanSectionKey.SCHEDULE -> JSON.encodeToString(ScheduleSpec.serializer(), schedule)
@@ -106,6 +140,8 @@ data class PlanSpecs(
         PlanSectionKey.TRAINING -> JSON.encodeToString(TrainingSpec.serializer(), training)
         PlanSectionKey.WATER -> JSON.encodeToString(WaterSpec.serializer(), water)
         PlanSectionKey.ROLLOUT -> JSON.encodeToString(RolloutSpec.serializer(), rollout)
+        PlanSectionKey.PRACTICE -> JSON.encodeToString(PracticeSpec.serializer(), practice)
+        PlanSectionKey.LEVELS -> JSON.encodeToString(LevelSpec.serializer(), levels)
     }
 
     fun open(f: Feature): Boolean = rollout.open(f)
@@ -124,7 +160,21 @@ data class PlanSpecs(
                 // Missing: never seeded (everything open); unreadable: week 1 (the safe side).
                 sections[PlanSectionKey.ROLLOUT]?.let { j -> runCatching { JSON.decodeFromString(RolloutSpec.serializer(), j) }.getOrDefault(RolloutSpec.SEED) }
                     ?: RolloutSpec.ALL_OPEN,
+                read(PlanSectionKey.PRACTICE, PracticeSpec()) { JSON.decodeFromString(PracticeSpec.serializer(), it) },
+                read(PlanSectionKey.LEVELS, LevelSpec()) { JSON.decodeFromString(LevelSpec.serializer(), it) },
             )
         }
     }
+}
+
+/**
+ * 每科等級 (T19e, owner 2026-11-23): each subject's level on 入門 → 基礎 → 中級 → 進階 → 專業 ([app.agency.core.engine.Levels]),
+ * by subject name, and the day it reached it. Never lower (no level-down); only code moves it up.
+ */
+@Serializable
+data class SubjectLevel(val level: Int = 0, val since: String? = null)
+
+@Serializable
+data class LevelSpec(val subjects: Map<String, SubjectLevel> = emptyMap()) {
+    fun of(subject: String): SubjectLevel = subjects[subject] ?: SubjectLevel()
 }

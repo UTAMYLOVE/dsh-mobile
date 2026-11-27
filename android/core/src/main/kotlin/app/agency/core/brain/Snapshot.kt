@@ -103,7 +103,8 @@ class SnapshotReader(
             summaries = summaries(today),
             history = history,
             zone = clock.zone,
-            slots = slots(today, records, profile).map { SlotFact(it.key.name.lowercase(), it.slot.label, it.slot.time, it.status.name.lowercase()) },
+            // 突擊檢查 is a surprise: its time is never in a prompt before it starts.
+            slots = slots(today, records, profile).filterNot { it.key == app.agency.core.schedule.SlotKey.SURPRISE_CHECK && it.status == app.agency.core.engine.SlotStatus.LATER }.map { SlotFact(it.key.name.lowercase(), it.slot.label, it.slot.time, it.status.name.lowercase()) },
             waterTargetHalves = app.agency.core.engine.WaterPlan.target(today, plans.specs().water, profile.joinDate),
         )
     }

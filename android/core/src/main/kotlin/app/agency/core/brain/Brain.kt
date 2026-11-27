@@ -70,6 +70,7 @@ import app.agency.core.persona.PromptBuilder
 import app.agency.core.persona.PromptInput
 import app.agency.core.persona.ReplyKind
 import app.agency.core.schedule.SlotKey
+import app.agency.core.schedule.feature
 import app.agency.core.structured.NudgeLine
 import app.agency.core.persona.Roles
 import app.agency.core.rules.FoodTable
@@ -144,6 +145,7 @@ class Brain(
     private val weights = WeightDesk(store, snapshot, clock, newId)
     private val water = WaterDesk(store, snapshot, clock, newId)
     private val training = app.agency.core.brain.handlers.TrainingDesk(store, snapshot, clock, newId)
+    private val practice = app.agency.core.brain.handlers.PracticeDesk(store, snapshot, clock, newId)
     private val income = app.agency.core.brain.handlers.IncomeDesk(store)
     private val memoDesk = app.agency.core.brain.handlers.MemoDesk(store, clock.zone, newId)
     private val photos = app.agency.core.brain.handlers.PhotoDesk(store, snapshot, clock, newId, vision, intakeLlm)
@@ -591,6 +593,8 @@ class Brain(
             val s = snapshot.plans.specs().schedule
             val w = if (r.open(app.agency.core.schedule.Feature.INCOME)) income.week(day, s.weeklyIncomeTarget, s.deliveryDaysPerWeek) else null
             c.copy(
+                // 突擊檢查 is a surprise: not on the card before it starts.
+                slots = c.slots.filterNot { it.key == SlotKey.SURPRISE_CHECK && it.status == SlotStatus.LATER },
                 photocards = photocards().size, rolloutWeek = r.week, open = app.agency.core.schedule.Feature.entries.filter(r::open).toSet(),
                 incomeWeek = w?.total, incomeTarget = w?.target,
             )
@@ -1036,7 +1040,137 @@ class Brain(
             app.agency.core.model.TrainingKind.STRETCH -> app.agency.core.engine.Routine.stretch(plan.stretchMin)
             app.agency.core.model.TrainingKind.WALK -> null
             app.agency.core.model.TrainingKind.CARDIO -> plan.slot(SlotKey.CARDIO)?.let { app.agency.core.engine.Routine.cardio(plan.cardioMin, app.agency.core.engine.Routine.cardioWork(plan.cardioStep)) }
+            else -> SlotKey.parse(kind.name)?.takeIf { plan.slot(it) != null && kind in app.agency.core.engine.Practice.TIMED }
+                ?.let { app.agency.core.engine.Practice.steps(kind, snapshot.plans.specs().practice) }
         }
+    }
+
+    /** A practice timer finished (聲樂基本功, 站姿, 舞蹈…; [seconds] it ran): the line, then the links. */
+    suspend fun practiceDone(kind: app.agency.core.model.TrainingKind, seconds: Int): List<Message> = trainingLocked { practice.timed(kind, fromTimer = true, seconds = seconds) }
+
+    /** A tap item from its button (防曬, 主題週實作, 小習慣). */
+    suspend fun practiceTap(kind: app.agency.core.model.TrainingKind): List<Message> = trainingLocked { practice.tap(kind) }
+
+    /**
+     * A photo for a practice item (突擊檢查; the Sunday 全身對比照 from 身體照): [media] is sealed already and written here. A body
+     * photo on a day without the 全身對比照 says nothing (it is only the teacher's words then); null.
+     */
+    suspend fun handInPractice(kind: app.agency.core.model.TrainingKind, media: Media): List<Message> = mutex.withLock {
+        val plan = snapshot.plan(snapshot.today(snapshot.profile()))
+        val key = SlotKey.parse(kind.name) ?: return@withLock emptyList()
+        if (kind == app.agency.core.model.TrainingKind.BODY_PHOTO && practice.refusal(plan, key) != null) return@withLock emptyList()
+        if (store.media.get(media.id) == null) store.media.insert(media)
+        val started = ensureDay()
+        (started + said(practice.photo(kind, media), "practice")).also { bump() }
+    }
+
+    /** 每週評鑑 handed in: the song (a recording) and the dance (a video), one take each, sealed already. */
+    suspend fun weeklyEval(song: Media, dance: Media): List<Message> = mutex.withLock {
+        listOf(song, dance).forEach { if (store.media.get(it.id) == null) store.media.insert(it) }
+        val o = practice.weekly(song.id, dance.id)
+        managerSaid(o, "eval").also { bump() }
+    }
+
+    /** What a hand-in says as the manager's line, then the links. */
+    private suspend fun managerSaid(o: MealOutcome, kind: String): List<Message> {
+        var r = NerveResult()
+        o.signals.forEach { r += nerve.emit(it) }
+        return listOf(reply(RoleKey.MANAGER, o.lines.joinToString("\n"), WordedBy.TEMPLATE, kind)) + r.messages
+    }
+
+    /**
+     * 月評 (定稿 §10): [handIn] is what he handed in (media sealed, his numbers); [self] his own scores; [vocalPct] the solo
+     * song's 音準 share from the pitch analysis (null: none); [looks] the image model's suggestions (already guarded). Code
+     * computes 態度 (the month's completion and breaches) and 聲樂 from [vocalPct]; a looked-at item takes the suggestion,
+     * else his own score. The announcement; two months without progress opens the 面談 (one question).
+     */
+    suspend fun monthlyEval(
+        handIn: app.agency.core.engine.MonthlyResult,
+        media: List<Media>,
+        self: Map<app.agency.core.engine.EvalItem, Int>,
+        vocalPct: Int?,
+        looks: List<app.agency.core.engine.EvalScore>,
+    ): List<Message> = mutex.withLock {
+        media.forEach { if (store.media.get(it.id) == null) store.media.insert(it) }
+        val (pct, breaches) = monthCompletion(snapshot.today(snapshot.profile()))
+        val scores = app.agency.core.engine.EvalItem.entries.mapNotNull { item ->
+            when (item) {
+                app.agency.core.engine.EvalItem.ATTITUDE -> app.agency.core.engine.EvalScore(item, app.agency.core.engine.MonthlyEval.attitude(pct, breaches), app.agency.core.engine.ScoreBy.CODE, "這個月完成 $pct%，違規 $breaches 次")
+                app.agency.core.engine.EvalItem.VOCAL -> vocalPct?.let { app.agency.core.engine.EvalScore(item, app.agency.core.engine.MonthlyEval.vocal(it), app.agency.core.engine.ScoreBy.CODE, "獨唱音準 $it%") }
+                    ?: self[item]?.let { app.agency.core.engine.EvalScore(item, it.coerceIn(1, 5), app.agency.core.engine.ScoreBy.SELF) }
+                else -> looks.firstOrNull { it.item == item } ?: self[item]?.let { app.agency.core.engine.EvalScore(item, it.coerceIn(1, 5), app.agency.core.engine.ScoreBy.SELF) }
+            }
+        }
+        val (o, interview) = practice.monthly(handIn.copy(scores = scores))
+        val out = managerSaid(o, "eval").toMutableList()
+        if (interview && o.signals.isNotEmpty()) {
+            out += nerve.emit(Signal.MonthInterview("interview:${handIn.month}", clock.millis())).messages
+        }
+        out.also { bump() }
+    }
+
+    /** The month of [day] so far (from the reminders' start): the share of due required items done, and the breaches. */
+    private suspend fun monthCompletion(day: java.time.LocalDate): Pair<Int, Int> {
+        val profile = snapshot.profile()
+        val since = remindersSince()?.let { snapshot.dayOf(it, profile) } ?: day
+        var due = 0
+        var done = 0
+        var breaches = 0
+        var d = maxOf(day.withDayOfMonth(1), since)
+        while (!d.isAfter(day)) {
+            val records = snapshot.records(d)
+            val states = snapshot.slots(d, records, profile).filter { it.slot.required && it.status != SlotStatus.LATER }
+            due += states.size
+            done += states.count { it.status == SlotStatus.DONE }
+            breaches += records.meals.sumOf { it.breaches.size } + records.signs.count { it.kind == app.agency.core.model.SignKind.OUT && it.onTime == false }
+            d = d.plusDays(1)
+        }
+        return (if (due == 0) 100 else done * 100 / due) to breaches
+    }
+
+    /** Today's coach day. */
+    suspend fun today(): java.time.LocalDate = snapshot.today(snapshot.profile())
+
+    /** The image model's 月評 suggestions (舞蹈, 視覺表現, 明星潛力), guarded; none without a provider that sees photos. */
+    suspend fun evalLooks(images: List<app.agency.core.vision.VisionImage>, hasDance: Boolean): List<app.agency.core.engine.EvalScore> {
+        val v = vision?.takeIf { it.supported() } ?: return emptyList()
+        if (images.isEmpty()) return emptyList()
+        val r = v.see(app.agency.core.vision.EvalReads.request(images.take(app.agency.core.vision.VisionRequest.MAX_IMAGES), hasDance))
+        return (r as? app.agency.core.vision.VisionResult.Ok)?.let { app.agency.core.vision.EvalReads.parse(it.text) }.orEmpty()
+    }
+
+    /** The 月評s so far (oldest first) and the Sunday 全身對比照 timeline (day, media id). */
+    suspend fun months(): List<app.agency.core.engine.MonthlyResult> = practice.months()
+
+    suspend fun bodyTimeline(): List<Pair<String, String>> = practice.bodyTimeline()
+
+    /** Whether the 心情 tap is waiting: open, signed out today, none yet today. */
+    suspend fun moodDue(): Boolean {
+        if (!rollout().open(app.agency.core.schedule.Feature.MOOD)) return false
+        val day = snapshot.today(snapshot.profile()).toString()
+        if (store.signs.onDay(day).none { it.kind == app.agency.core.model.SignKind.OUT }) return false
+        return store.nerve.signal("mood:$day") == null
+    }
+
+    /** 心情 (one tap: 1 低落, 2 普通, 3 不錯): the days of 低落 in a row are counted by code; L30 answers the third. */
+    suspend fun mood(level: Int): List<Message> = mutex.withLock {
+        if (!moodDue()) return@withLock emptyList()
+        val today = snapshot.today(snapshot.profile())
+        val lv = level.coerceIn(1, 3)
+        var low = 0
+        if (lv == 1) {
+            low = 1
+            var d = today.minusDays(1)
+            while ((store.nerve.signal("mood:$d")?.json?.let(Signal::decode) as? Signal.Mood)?.level == 1) {
+                low++
+                d = d.minusDays(1)
+            }
+        }
+        val at = clock.millis()
+        val r = nerve.emit(Signal.Mood("mood:$today", at, today.toString(), lv, low))
+        if (lv == 1) nerve.emit(Signal.MoodLow(newId(), at))
+        val line = reply(RoleKey.MANAGER, if (lv == 1) "記下了：今天心情低落。辛苦了。" else "記下了今天的心情。", WordedBy.TEMPLATE, "mood")
+        (listOf(line) + r.messages).also { bump() }
     }
 
     /** The strength moves of today's step (the report form asks the last round of each). */
@@ -1258,6 +1392,7 @@ class Brain(
             route.kind == Router.REAL_TASK -> app.agency.core.schedule.Feature.REAL_TASK
             route.kind.startsWith(Router.GROOMING) -> app.agency.core.schedule.Feature.GROOMING
             route.kind == Router.EXAM_WEEK -> app.agency.core.schedule.Feature.EXAM_WEEK
+            route.kind.startsWith(Router.PRACTICE) -> SlotKey.valueOf(route.kind.removePrefix(Router.PRACTICE)).feature()
             route.kind == Router.INCOME || route.kind == Router.INCOME_TARGET -> app.agency.core.schedule.Feature.INCOME
             route.kind.startsWith(Router.WEATHER) -> app.agency.core.schedule.Feature.WEATHER
             else -> null
@@ -1270,6 +1405,11 @@ class Brain(
         }
         // 「核心完成」「伸展完成」 (T18): typed, so 「未證實」; 「核心開始」 points at the timer.
         if (route.kind == "training") return said(training.typed(owner.text, null), "training")
+        if (route.kind.startsWith(Router.PRACTICE)) {
+            val kind = app.agency.core.model.TrainingKind.valueOf(route.kind.removePrefix(Router.PRACTICE))
+            val o = if (kind in app.agency.core.engine.Practice.TIMED) practice.timed(kind, fromTimer = false, seconds = null) else practice.tap(kind)
+            return said(o, "practice")
+        }
         // 理論課 (T19c): 「找影片」 searches (real results only, as cards), 「理論課」「再一支」 says where today stands.
         if (route.kind == Router.FIND_VIDEOS) return lessonSaid(lessons.find(app.agency.core.lessons.LessonPlan.categoryIn(owner.text)))
         if (route.kind == Router.LESSON_STATUS) return lessonSaid(app.agency.core.brain.handlers.LessonOutcome(listOf(lessonStatus())))

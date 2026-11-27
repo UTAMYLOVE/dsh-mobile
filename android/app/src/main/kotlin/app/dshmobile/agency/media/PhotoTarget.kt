@@ -32,6 +32,11 @@ sealed interface PhotoTarget {
         override val read = PhotoReadKind.BODY
     }
 
+    /** 突擊檢查: a photo within ten minutes (stays on the phone). */
+    data object Check : PhotoTarget {
+        override val purpose = MediaPurpose.CHECK
+    }
+
     data class Lesson(val lessonId: String) : PhotoTarget {
         override val purpose = MediaPurpose.LESSON
     }

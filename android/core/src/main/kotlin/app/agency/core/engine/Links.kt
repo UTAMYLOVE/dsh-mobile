@@ -25,6 +25,7 @@ object Links {
         L1WakeLate, L2Illness, L3Gentle, NoReduction, L4HungryMorning, L5NextMeal, L6Floor, L7CheatMeal, L8Riding, L9RideEnd, L10Water,
         L11Completion, L12Chase, L13Violation, L14Discuss, L15Progression, L16Spend, L17Grooming, L18NoClassDay, L19Review, L20Week,
         L21WeightStop, L22TiredRiding, L23WeightTrend, L24Lessons, L25Rollout, L26Interview, L27Attendance, L28Weather, L29Caffeine,
+        L30MoodCare, L31MonthInterview,
     ) + Pending.all
 
     /** Minutes of [at] from 00:00 of the coach day's date (after midnight is past 24 × 60, like a slot's minute). */
@@ -366,12 +367,16 @@ object Links {
         const val SHOWN = 3
 
         /** The latest departure passed without 「出門跑單」 (owner 2026-11-27): the chase says what to do before leaving. */
+        /** 突擊檢查 (定稿 §11): ten minutes, a photo, no warning before. */
+        const val SURPRISE = "突擊檢查！十分鐘內拍照交上來，按首頁的「突擊檢查」。"
+
         const val RIDE_LATE = "最晚出門的時間到了：擦防曬、水喝完，出門前按「出門跑單」。想睡就不准騎車，先跟我說。"
 
         fun text(keys: List<SlotKey>, index: Int): String {
             val names = keys.map { it.zh }
             val head = when {
                 keys == listOf(SlotKey.RIDE_OUT) -> RIDE_LATE
+                SlotKey.SURPRISE_CHECK in keys -> SURPRISE
                 index == 0 && keys.size == 1 -> "${names[0]}時間到了，做完回報。"
                 else -> "還缺：${names.take(SHOWN).joinToString("、")}。"
             }
@@ -857,6 +862,37 @@ object Links {
                     Effect.Record(CARD, signal.days.toString()),
                     Effect.Say("全勤小卡：連續 ${signal.days} 天，該做的全部做到。小卡貼上照片牆了。"),
                 )
+            } else {
+                emptyList()
+            }
+    }
+
+    /**
+     * L30 心情 (定稿 §2): three days in a row of 低落 at sign-out → the manager asks first, gently, without taking any of the plan
+     * away (and without making him need her: she points at sleep and someone he trusts too).
+     */
+    object L30MoodCare : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MOOD
+        override val id = "L30"
+        override val zh = "連三天心情低落：小葵姐主動關心"
+        override val dailyCap = 1
+        const val DAYS = 3
+        const val LINE = "小雨，這是第三天心情低落了。辛苦了。想說的話我在聽；也可以找一個信任的朋友或家人聊聊。今天先早點睡，明天的事明天再說。"
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> =
+            if (signal is Signal.Mood && signal.level == 1 && signal.lowDays > 0 && signal.lowDays % DAYS == 0) listOf(Effect.Say(LINE), Effect.Record("gentle", "MOOD")) else emptyList()
+    }
+
+    /** L31 月評面談 (定稿 §10): two months in a row without progress → 討論, one question, his choice (feedback in private). */
+    object L31MonthInterview : Link {
+        override val feature get() = app.agency.core.schedule.Feature.MONTHLY_EVAL
+        override val id = "L31"
+        override val zh = "月評連兩個月沒進步：小葵姐面談"
+        override val dailyCap = 1
+
+        override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> =
+            if (signal is Signal.MonthInterview) {
+                listOf(Effect.Say(app.agency.core.brain.handlers.PracticeDesk.INTERVIEW, discuss = true, options = app.agency.core.brain.handlers.PracticeDesk.INTERVIEW_OPTIONS))
             } else {
                 emptyList()
             }

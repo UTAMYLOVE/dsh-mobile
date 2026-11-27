@@ -1,5 +1,6 @@
 package app.agency.core.engine
 
+import app.agency.core.practiceOff
 import app.agency.core.brain.Brain
 import app.agency.core.llm.ProviderChoice
 import app.agency.core.metering.MutableClock
@@ -21,7 +22,7 @@ import org.junit.Test
  * or a long day only warns when he leaves (L22, through the brain); sleepy means no riding. Invented data only.
  */
 class DepartureTest {
-    private val store = InMemoryAgencyStore()
+    private val store = InMemoryAgencyStore().practiceOff()
     private val clock = MutableClock()
     private var n = 0
     private val monday = LocalDate.parse("2026-12-07")

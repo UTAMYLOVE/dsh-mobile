@@ -27,6 +27,8 @@ enum class Feature(val zh: String, val defaultWeek: Int) {
     POSTURE("站姿", 3),
     SUNSCREEN("防曬", 3),
     MOOD("心情", 3),
+    /** 學了就用 (owner 2026-11-23): a passed lesson becomes a small daily habit, one at a time, on his yes. */
+    HABITS("學了就用的小習慣", 3),
     GROOMING("儀容", 3),
     CAFFEINE("晚上不喝咖啡和茶", 3),
     DANCE("舞蹈", 4),
@@ -103,4 +105,14 @@ fun SlotKey.feature(): Feature = when (this) {
     SlotKey.CARDIO -> Feature.CARDIO
     SlotKey.RIDE_OUT -> Feature.RIDE
     SlotKey.LESSONS, SlotKey.LESSON_REVIEW -> Feature.LESSONS
+    SlotKey.MORNING_STRETCH -> Feature.MORNING_STRETCH
+    SlotKey.VOCAL_BASICS -> Feature.VOCAL_BASICS
+    SlotKey.POSTURE -> Feature.POSTURE
+    SlotKey.SUNSCREEN -> Feature.SUNSCREEN
+    SlotKey.DANCE, SlotKey.VOCAL_PRACTICE, SlotKey.EXPRESSION -> Feature.DANCE
+    SlotKey.PERSONAL_TASK, SlotKey.MONTHLY_EVAL -> Feature.MONTHLY_EVAL
+    SlotKey.HABIT -> Feature.HABITS
+    SlotKey.THEME_TASK -> Feature.THEME_WEEK
+    SlotKey.SURPRISE_CHECK -> Feature.SURPRISE
+    SlotKey.BODY_PHOTO, SlotKey.WEEKLY_EVAL -> Feature.WEEKLY_EVAL
 }

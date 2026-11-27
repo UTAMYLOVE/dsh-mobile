@@ -19,6 +19,13 @@ enum class StickerKind(val zh: String) {
     RIDE("跑單"),
     SIGN_OUT("簽退"),
     LESSON("理論課"),
+    VOCAL("聲樂"),
+    DANCE("舞蹈"),
+    POSTURE("站姿"),
+    BEAUTY("防曬保養"),
+    EVAL("評鑑"),
+    CHECK("突擊檢查"),
+    HABIT("小習慣"),
 }
 
 /** A sticker earned today; [ref] is the record (or slot) it stands for, so the same item never earns two. */
@@ -54,6 +61,7 @@ object Stickers {
         SlotKind.RIDE -> StickerKind.RIDE
         SlotKind.SIGN -> if (key == SlotKey.WAKE) StickerKind.SIGN_IN else StickerKind.SIGN_OUT
         SlotKind.STUDY -> StickerKind.LESSON
+        SlotKind.PRACTICE -> practice(key)
         SlotKind.TRAINING -> when (key) {
             SlotKey.CORE -> StickerKind.CORE
             SlotKey.STRENGTH -> StickerKind.STRENGTH
@@ -69,5 +77,17 @@ object Stickers {
         TrainingKind.STRETCH -> StickerKind.STRETCH
         TrainingKind.WALK -> StickerKind.WALK
         TrainingKind.CARDIO -> StickerKind.CARDIO
+        else -> SlotKey.parse(k.name)?.let(::practice) ?: StickerKind.STRETCH
+    }
+
+    private fun practice(key: SlotKey): StickerKind = when (key) {
+        SlotKey.VOCAL_BASICS, SlotKey.VOCAL_PRACTICE -> StickerKind.VOCAL
+        SlotKey.DANCE, SlotKey.EXPRESSION -> StickerKind.DANCE
+        SlotKey.POSTURE -> StickerKind.POSTURE
+        SlotKey.SUNSCREEN -> StickerKind.BEAUTY
+        SlotKey.WEEKLY_EVAL, SlotKey.MONTHLY_EVAL, SlotKey.BODY_PHOTO -> StickerKind.EVAL
+        SlotKey.SURPRISE_CHECK -> StickerKind.CHECK
+        SlotKey.HABIT, SlotKey.THEME_TASK, SlotKey.PERSONAL_TASK -> StickerKind.HABIT
+        else -> StickerKind.STRETCH
     }
 }

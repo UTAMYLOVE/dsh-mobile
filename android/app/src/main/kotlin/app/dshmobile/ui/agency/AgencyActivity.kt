@@ -55,6 +55,26 @@ class AgencyActivity : ComponentActivity() {
         if (uri != null) agency.onPicked(t, uri)
     }
 
+    /** The dance take of an evaluation (每週評鑑, 月評): the camera app records into cache/camera/, then it is sealed. */
+    private val video = registerForActivityResult(ActivityResultContracts.CaptureVideo()) { ok -> agency.onVideoResult(ok) }
+
+    /** The camera app needs the camera permission the app declares: asked first, then the take. */
+    private val videoPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) takeVideo() else agency.cameraDenied() }
+
+    private fun takeVideo() {
+        if (!agency.hasCameraSeam() && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            return runCatching { videoPermission.launch(Manifest.permission.CAMERA) }.let { }
+        }
+        val uri = agency.videoUri() ?: return agency.cameraMissing()
+        try {
+            video.launch(uri)
+        } catch (_: ActivityNotFoundException) {
+            agency.cameraMissing()
+        } catch (_: SecurityException) {
+            agency.cameraDenied()
+        }
+    }
+
     /** Reminders need notifications (asked at run time); asked once, 設定 › 權限檢查 shows it afterwards. */
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -69,7 +89,7 @@ class AgencyActivity : ComponentActivity() {
                     agency,
                     AgencyActions(
                         takePhoto = ::takePhoto, askNotifications = ::askNotificationsOnce, takeMealPhoto = ::takeMealPhoto, openLink = ::openLink,
-                        takeLessonPhoto = ::takeLessonPhoto, photo = ::photo, pick = ::pick,
+                        takeLessonPhoto = ::takeLessonPhoto, photo = ::photo, pick = ::pick, takeVideo = ::takeVideo,
                     ),
                 )
                 // The in-app camera over everything while it is open (T15b).
@@ -181,4 +201,6 @@ class AgencyActions(
     val photo: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
     /** 從相簿選 (T15c): the system photo picker for the same targets. */
     val pick: (app.dshmobile.agency.media.PhotoTarget) -> Unit = {},
+    /** The dance take of an evaluation: the camera app records a video. */
+    val takeVideo: () -> Unit = {},
 )

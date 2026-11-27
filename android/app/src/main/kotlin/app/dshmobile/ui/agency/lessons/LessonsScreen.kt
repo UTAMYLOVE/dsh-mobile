@@ -208,7 +208,7 @@ private fun Practical(l: LessonView, kind: PracticalKind, agency: AgencyApp, act
             SoftButton(stringResource(R.string.ag_lesson_practical_photo), onClick = { actions.takeLessonPhoto(l.id) }, modifier = Modifier.testTag(LessonTags.PRACTICAL + l.id))
         !recording ->
             SoftButton(stringResource(R.string.ag_lesson_practical_record), onClick = { recording = true }, modifier = Modifier.testTag(LessonTags.PRACTICAL + l.id))
-        else -> Recorder(agency) { file, ms -> agency.handInLessonRecording(l.id, file, ms) }
+        else -> Recorder(agency, handIn = { file, ms -> agency.handInLessonRecording(l.id, file, ms) })
     }
 }
 

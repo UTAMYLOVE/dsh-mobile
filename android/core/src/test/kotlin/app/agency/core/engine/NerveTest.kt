@@ -1,5 +1,6 @@
 package app.agency.core.engine
 
+import app.agency.core.practiceOff
 import app.agency.core.metering.MutableClock
 import app.agency.core.model.CompanyRules
 import app.agency.core.model.EffectKind
@@ -24,7 +25,7 @@ import org.junit.Test
 
 /** 連動中樞 (agency-links): the hub's rules (de-dup, depth, caps, bounds, cancel, proposals) and every link of batch 2. */
 class NerveTest {
-    private val store = InMemoryAgencyStore()
+    private val store = InMemoryAgencyStore().practiceOff()
     private val clock = MutableClock(Instant.parse("2026-12-07T00:00:00Z")) // Monday 08:00 Taipei
     private var n = 0
     private fun id() = "x-${++n}"
@@ -114,7 +115,7 @@ class NerveTest {
 
     @Test fun everyLinkOfTheTableIsRegistered() {
         val ids = Links.all().map { it.id }
-        assertEquals((1..29).map { "L$it" }.toSet(), ids.filter { it.matches(Regex("L\\d+")) }.toSet())
+        assertEquals((1..31).map { "L$it" }.toSet(), ids.filter { it.matches(Regex("L\\d+")) }.toSet())
         // Every link of the table has its data now (T19 brought L19 and L20; T19c adds L24, 理論課).
         assertTrue(Links.Pending.all.isEmpty())
         Links.Pending.all.forEach { assertTrue(it.id, it.batch.isNotBlank()) }

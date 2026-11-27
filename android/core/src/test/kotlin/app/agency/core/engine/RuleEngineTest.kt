@@ -24,7 +24,7 @@ class RuleEngineTest {
     private val zone = ZoneId.of("Asia/Taipei")
     private val day = LocalDate.parse("2026-12-07")
     private val d = day.toString()
-    private val plan = DayPlanner.build(day)
+    private val plan = DayPlanner.build(day, app.agency.core.PracticeOff.SPECS)
     private fun at(s: String) = Instant.parse(s) // UTC; Taipei is +8
     private fun status(r: TodayRecords, now: String) = RuleEngine.status(plan, r, at(now), zone).associate { it.key to it.status }
     private fun meal(id: String, slot: SlotKey) = Meal(id, d, at("2026-12-07T04:20:00Z").toEpochMilli(), slotKey = slot.name, text = "午餐",
@@ -74,7 +74,7 @@ class RuleEngineTest {
     }
 
     @Test fun aRestDaysTrainingIsOwedAtItsTime() {
-        val rest = DayPlanner.build(day, override = app.agency.core.model.DayOverride(d, restDay = true, declaredAt = 1))
+        val rest = DayPlanner.build(day, app.agency.core.PracticeOff.SPECS, override = app.agency.core.model.DayOverride(d, restDay = true, declaredAt = 1))
         val early = RuleEngine.status(rest, TodayRecords(d), at("2026-12-07T10:00:00Z"), zone) // 18:00
         assertFalse(early.first { it.key == SlotKey.CORE }.isGap)
         val states = RuleEngine.status(rest, TodayRecords(d), at("2026-12-07T14:30:00Z"), zone) // 22:30

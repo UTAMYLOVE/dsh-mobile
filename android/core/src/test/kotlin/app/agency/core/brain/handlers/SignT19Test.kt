@@ -1,5 +1,6 @@
 package app.agency.core.brain.handlers
 
+import app.agency.core.practiceOff
 import app.agency.core.brain.Brain
 import app.agency.core.engine.ConditionPolicy
 import app.agency.core.engine.IllKind
@@ -32,7 +33,7 @@ import org.junit.Test
 
 /** T19: sign-in and its score, sign-out with the bedtime review (L19), the 「提早起床」 run, the week's end (L20). Invented data. */
 class SignT19Test {
-    private val store = InMemoryAgencyStore()
+    private val store = InMemoryAgencyStore().practiceOff()
     private val clock = MutableClock()
     private var n = 0
     private var day = LocalDate.parse("2026-11-23") // a Monday (class day)

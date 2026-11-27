@@ -1,5 +1,6 @@
 package app.agency.core.scenario
 
+import app.agency.core.practiceOff
 import app.agency.core.brain.Brain
 import app.agency.core.brain.handlers.ReviewDesk
 import app.agency.core.brain.handlers.StrengthReport
@@ -42,7 +43,7 @@ import org.junit.Test
  * each quiz passed and its note written), and Monday's two 複習考 on Wednesday (day +2), recorded only.
  */
 class WholeWeekScenarioTest {
-    private val store = InMemoryAgencyStore()
+    private val store = InMemoryAgencyStore().practiceOff()
     private val clock = MutableClock()
     private val monday = LocalDate.parse("2026-12-14")
     private var day = monday

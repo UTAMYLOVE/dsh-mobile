@@ -156,12 +156,22 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
                     TrainingKind.CORE7 -> agency.coreDone(seconds)
                     TrainingKind.STRENGTH -> report?.let(agency::strengthDone)
                     TrainingKind.CARDIO -> agency.cardioDone(seconds)
+                    in app.agency.core.engine.Practice.TIMED -> agency.practiceDone(open.kind, seconds)
                     else -> agency.stretchDone(seconds)
                 }
             },
             onClose = { training = null },
         )
         return
+    }
+    // 每週評鑑 / 月評 take the whole screen while he hands them in.
+    var eval by remember { mutableStateOf<SlotKey?>(null) }
+    eval?.let { key ->
+        app.dshmobile.ui.agency.eval.EvalScreen(agency, monthly = key == SlotKey.MONTHLY_EVAL, takeVideo = actions.takeVideo, onClose = { eval = null })
+        return
+    }
+    val moodDue by produceState(false, revision) {
+        onMain { value = withContext(Dispatchers.IO) { runCatching { ready.brain.moodDue() }.getOrDefault(false) } }
     }
     Column(Modifier.fillMaxSize().imePadding().testTag(AgencyTags.HOME)) {
         card?.let { IdolCardView(agency, it, onboarding, onSaved = { cardRevision++ }) }
@@ -182,6 +192,7 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
         if (onboarding?.completed == true) {
             if (conditionDue) ConditionPicker { score, sleep, energy, ill -> agency.condition(score, sleep, energy, ill) }
             reviewOpen?.let { open -> key(open) { BedtimeReviewSheet(open) { good, fix -> agency.review(good, fix) } } }
+            if (moodDue) app.dshmobile.ui.agency.sign.MoodPicker(agency::mood)
             MediaLine(agency)
             QuickButtons(card, busy, onPhoto = actions.takeMealPhoto, onTarget = actions.photo, onPick = actions.pick) { agency.send(it) }
             TrainingButtons(card, busy, onWalk = agency::walkDone) { kind ->
@@ -192,6 +203,18 @@ fun HomeScreen(agency: AgencyApp, ready: StartState.Ready, actions: AgencyAction
                     training = open
                 }
             }
+            PracticeButtons(
+                card, busy,
+                onTimer = { kind ->
+                    scope.launch {
+                        training = withContext(Dispatchers.IO) { runCatching { ready.brain.routine(kind)?.let { TrainingOpen(kind, it, emptyList()) } }.getOrNull() }
+                    }
+                },
+                onTap = agency::practiceTap,
+                onCheck = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Check) },
+                onBody = { actions.photo(app.dshmobile.agency.media.PhotoTarget.Body) },
+                onEval = { eval = it },
+            )
         }
         Composer(busy = busy, onSend = agency::send)
     }
@@ -306,6 +329,49 @@ private fun TrainingButtons(card: IdolCardFacts?, busy: Boolean, onWalk: () -> U
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items.forEach { (label, tag, onClick) -> SoftButton(stringResource(label), onClick = onClick, enabled = !busy, modifier = Modifier.testTag(tag)) }
+    }
+}
+
+/** Test tags of the practice buttons: [PRACTICE] + the slot name. */
+object PracticeTags {
+    const val PRACTICE = "ag-practice-"
+}
+
+/**
+ * The practice buttons (rollout weeks 3 and 4), only for what today's plan still owes: each timed item opens its guided timer,
+ * a tap item records at once, 突擊檢查 and 全身對比照 open the camera, the evaluations their hand-in screen.
+ */
+@Composable
+private fun PracticeButtons(
+    card: IdolCardFacts?,
+    busy: Boolean,
+    onTimer: (TrainingKind) -> Unit,
+    onTap: (TrainingKind) -> Unit,
+    onCheck: () -> Unit,
+    onBody: () -> Unit,
+    onEval: (SlotKey) -> Unit,
+) {
+    val owed = card?.slots.orEmpty().filter { it.key.kind == app.agency.core.schedule.SlotKind.PRACTICE && it.status != SlotStatus.DONE && it.status != SlotStatus.MISSED && (it.key != SlotKey.SURPRISE_CHECK || it.status == SlotStatus.OPEN) }
+    if (owed.isEmpty()) return
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        owed.map { it.key }.distinct().forEach { key ->
+            val item = app.agency.core.engine.Practice.of(key) ?: return@forEach
+            val click: () -> Unit = when (item.handIn) {
+                app.agency.core.engine.HandIn.TIMER -> ({ onTimer(item.kind) })
+                app.agency.core.engine.HandIn.TAP -> ({ onTap(item.kind) })
+                app.agency.core.engine.HandIn.PHOTO -> if (key == SlotKey.SURPRISE_CHECK) onCheck else onBody
+                app.agency.core.engine.HandIn.EVAL -> ({ onEval(key) })
+            }
+            val important = key == SlotKey.SURPRISE_CHECK || item.handIn == app.agency.core.engine.HandIn.EVAL
+            if (important) {
+                PinkButton(key.zh, onClick = click, enabled = !busy, modifier = Modifier.testTag(PracticeTags.PRACTICE + key.name))
+            } else {
+                SoftButton(key.zh, onClick = click, enabled = !busy, modifier = Modifier.testTag(PracticeTags.PRACTICE + key.name))
+            }
+        }
     }
 }
 
