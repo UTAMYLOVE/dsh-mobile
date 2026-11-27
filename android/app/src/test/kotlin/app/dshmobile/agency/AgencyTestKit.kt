@@ -4,6 +4,13 @@ import android.content.Context
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import app.agency.core.metering.Provider
 import app.agency.core.model.Message
@@ -133,6 +140,28 @@ class AgencyTestKit(private val dir: File) {
 
         fun ComposeTestRule.waitForTag(tag: String, timeoutMs: Long = 10_000) =
             waitUntil(timeoutMs) { onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
+
+        /**
+         * Scrolls [tag] into view (a sideways row, and the panels under the conversation, which scroll once everything is open)
+         * and taps it once it is enabled.
+         */
+        fun ComposeTestRule.tapTag(tag: String, timeoutMs: Long = 10_000) {
+            waitUntil(timeoutMs) { onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+            runCatching { onNodeWithTag(tag, useUnmergedTree = true).performScrollTo() }
+            for (area in listOf(app.dshmobile.ui.agency.AgencyTags.PANELS, app.dshmobile.ui.agency.AgencyTags.CARD_AREA)) {
+                if (onAllNodes(hasTestTag(tag) and hasAnyAncestor(hasTestTag(area)), useUnmergedTree = true).fetchSemanticsNodes().isEmpty()) continue
+                val panel = onNodeWithTag(area)
+                val box = panel.fetchSemanticsNode().boundsInRoot
+                val n = onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode()
+                val top = n.positionInRoot.y
+                val bottom = top + n.size.height
+                val dy = when { top < box.top -> top - box.top; bottom > box.bottom -> bottom - box.bottom; else -> 0f }
+                if (dy != 0f) panel.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.ScrollBy) { it(0f, dy) }
+                waitForIdle()
+            }
+            waitUntil(timeoutMs) { runCatching { onNodeWithTag(tag, useUnmergedTree = true).assertIsEnabled() }.isSuccess }
+            onNodeWithTag(tag, useUnmergedTree = true).performClick()
+        }
 
         fun ComposeTestRule.waitForText(text: String, timeoutMs: Long = 10_000) =
             waitUntil(timeoutMs) { onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }

@@ -111,7 +111,8 @@ class OnboardingFlowTest {
         type("伏地挺身 18 下")
         waitStep(OnboardingStep.PLANK)
         type("棒式 65 秒")
-        rule.waitForText("入社建檔完成")
+        // The line is written (the conversation may already show the day's later lines below it).
+        rule.waitUntil(10_000) { runBlocking { ready().store.messages.recent(20) }.any { it.text.contains("入社建檔完成") } }
 
         val b = join()!!
         assertNull(b.step)

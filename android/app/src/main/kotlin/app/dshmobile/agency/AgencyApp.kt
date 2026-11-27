@@ -92,6 +92,8 @@ class TestOverrides(
     val rollout: app.agency.core.schedule.RolloutSpec? = null,
     /** The in-app camera cannot run here (Robolectric has no camera): photos take the system-camera fallback. */
     val systemCamera: Boolean = false,
+    /** The company's clock (the emulator's whole-day test moves through an invented day); the phone's own clock when null. */
+    val clock: AgencyClock? = null,
 )
 
 /** A line about a photo or the recording that could not be kept (shown on the 入社建檔 panel until the next try). */
@@ -147,7 +149,7 @@ class AgencyApp(
     val costMeter: CostMeter,
     private val errorLog: ErrorLog,
     private val overrides: TestOverrides? = testOverrides,
-    private val clock: AgencyClock = AgencyClock.system(),
+    private val clock: AgencyClock = overrides?.clock ?: AgencyClock.system(),
 ) {
     private val agencyPrefs = context.getSharedPreferences(AgencyPrefKeys.NAME, Context.MODE_PRIVATE)
     private val importPrefs = context.getSharedPreferences(AgencyPrefKeys.IMPORT_NAME, Context.MODE_PRIVATE)

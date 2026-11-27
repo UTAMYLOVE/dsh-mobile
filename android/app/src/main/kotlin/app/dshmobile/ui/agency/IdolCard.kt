@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.agency.core.brain.handlers.OnboardingStatus
@@ -89,7 +90,7 @@ object IdolTags {
  * 入社資料 (缺 N 項, 補交, the file) stays on its own row under the card, folded or not.
  */
 @Composable
-fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: OnboardingStatus?, onSaved: () -> Unit = {}) {
+fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: OnboardingStatus?, onSaved: () -> Unit = {}, rowsMax: Dp = OPEN_ROWS_MAX) {
     val settingsRevision by agency.settings.revision.collectOnMain()
     val setupSkipped = remember(settingsRevision) { agency.settings.idolSetupSkipped }
     val setupDue = onboarding?.completed == true && (facts.stageName == null || facts.memberColor == null) && !setupSkipped
@@ -133,7 +134,7 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
         Box(Modifier.fillMaxWidth().height(6.dp).background(accent.fill).testTag(IdolTags.BAND))
         // The open card never takes the whole screen: its rows scroll inside it, the conversation and the composer stay.
         Column(
-            Modifier.heightIn(max = OPEN_MAX).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.heightIn(max = rowsMax).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             StickerStrip(facts)
@@ -187,8 +188,8 @@ fun IdolCardView(agency: AgencyApp, facts: IdolCardFacts, onboarding: Onboarding
     }
 }
 
-/** The most the open card's rows take before they scroll. */
-private val OPEN_MAX = 260.dp
+/** The most the open card's rows take before they scroll (less on a small screen: [IdolCardView]'s rowsMax). */
+val OPEN_ROWS_MAX = 260.dp
 
 /** The folded line (review A4). */
 @Composable

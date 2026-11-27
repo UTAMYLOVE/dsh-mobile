@@ -24,6 +24,7 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
+import app.dshmobile.agency.AgencyTestKit.Companion.tapTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.StartState
 import app.dshmobile.ui.kit.MemberColour
@@ -130,7 +131,7 @@ class IdolCardScreenTest {
         runBlocking { ready().brain.setIdol("小雨", null) } // bumps the revision
         // Done but six items missing: open by itself, with 補交; the setup asks for the colour.
         waitTag(IdolTags.SETUP)
-        rule.onNodeWithTag(IdolTags.COLOR + "6", useUnmergedTree = true).performClick()
+        rule.tapTag(IdolTags.COLOR + "6")
         rule.waitUntil(10_000) { runBlocking { ready().store.profile.get()?.memberColor } == MemberColour.PRESETS[6].second }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(IdolTags.SETUP, useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
         rule.onNodeWithTag(IdolTags.NAME, useUnmergedTree = true).performClick()
@@ -144,7 +145,7 @@ class IdolCardScreenTest {
         seedFinished(Profile())
         runBlocking { ready().brain.setIdol(null, null) }
         waitTag(IdolTags.SETUP)
-        rule.onNodeWithTag(IdolTags.SETUP_SKIP, useUnmergedTree = true).performClick()
+        rule.tapTag(IdolTags.SETUP_SKIP)
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(IdolTags.SETUP, useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
         assertTrue(app.agency.settings.idolSetupSkipped)
         rule.onNodeWithText("還沒有藝名", useUnmergedTree = true).assertExists()

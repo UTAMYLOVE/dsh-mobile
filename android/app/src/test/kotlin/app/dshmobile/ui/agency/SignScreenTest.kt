@@ -16,6 +16,7 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
+import app.dshmobile.agency.AgencyTestKit.Companion.tapTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.StartState
 import app.dshmobile.ui.agency.sign.SignTags
@@ -71,12 +72,12 @@ class SignScreenTest {
 
     @Test fun signInAsksTheScoreAndSignOutTheBedtimeReview() {
         open()
-        rule.onNodeWithTag(SignTags.SIGN_IN).performScrollTo().performClick()
+        rule.tapTag(SignTags.SIGN_IN)
         rule.waitForTag(SignTags.PICKER, 10_000)
         val day = signs().single().day
-        rule.onNodeWithTag(SignTags.SCORE + "3").performClick()
-        rule.onNodeWithTag(SignTags.SLEEP + "1").performClick()
-        rule.onNodeWithTag(SignTags.SEND).performClick()
+        rule.tapTag(SignTags.SCORE + "3")
+        rule.tapTag(SignTags.SLEEP + "1")
+        rule.tapTag(SignTags.SEND)
         rule.waitUntil(10_000) { runBlocking { ready().store.conditions.get(day) } != null }
         val c = runBlocking { ready().store.conditions.get(day) }!!
         assertEquals(4 to 3, c.score to c.sleep)
@@ -84,11 +85,11 @@ class SignScreenTest {
         rule.waitForText("記下：今天 4 分。很好，照表走。")
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(SignTags.PICKER).fetchSemanticsNodes().isEmpty() }
 
-        rule.onNodeWithTag(SignTags.SIGN_OUT).performScrollTo().performClick()
+        rule.tapTag(SignTags.SIGN_OUT)
         rule.waitForTag(SignTags.REVIEW, 10_000)
         rule.onNodeWithTag(SignTags.GOOD).performTextInput("準時簽到")
         rule.onNodeWithTag(SignTags.FIX).performTextInput("早點睡")
-        rule.onNodeWithTag(SignTags.REVIEW_SEND).performClick()
+        rule.tapTag(SignTags.REVIEW_SEND)
         rule.waitUntil(10_000) { signs().any { it.reviewFix == "早點睡" } }
         assertEquals("準時簽到", signs().single { it.reviewFix != null }.reviewGood)
         rule.waitForText("今天的檢討卡")

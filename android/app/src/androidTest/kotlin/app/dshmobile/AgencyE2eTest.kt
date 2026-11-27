@@ -1,5 +1,14 @@
 package app.dshmobile
 
+import app.dshmobile.ui.kit.MemberColour
+import app.agency.core.time.AgencyClock
+import app.agency.core.schedule.SlotKey
+import app.agency.core.model.TrainingKind
+import app.agency.core.brain.handlers.StrengthReport
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.performTextReplacement
 import app.dshmobile.ui.agency.meal.ResultTags
 import app.agency.core.model.Profile
 import app.dshmobile.ui.agency.meal.MealTags
@@ -71,6 +80,23 @@ class AgencyE2eTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
     private val app = context.applicationContext as DshMobileApp
     private val fake = FakeModel.instance
+    private val clock = E2eClock.instance
+
+    /** What the company had written when a test ended (kept by [tearDown] before the next fresh install; invented data). */
+    private var lastLines = ""
+
+    /** A failing test says what the company had written, so one CI run is enough to see why. */
+    @get:Rule val lines = org.junit.rules.TestRule { base, _ ->
+        object : org.junit.runners.model.Statement() {
+            override fun evaluate() {
+                try {
+                    base.evaluate()
+                } catch (e: Throwable) {
+                    throw AssertionError("lines at the end:\n$lastLines\nrequests: ${fake.seen.map { it.path }}", e)
+                }
+            }
+        }
+    }
     private var scenario: ActivityScenario<AgencyActivity>? = null
 
     private fun prefs(name: String) = context.getSharedPreferences(name, Context.MODE_PRIVATE)
@@ -84,6 +110,7 @@ class AgencyE2eTest {
             ?.forEach { it.deleteRecursively() }
         app.keyVault.clear(Provider.DEEPSEEK)
         fake.reset()
+        clock.fixed = null
     }
 
     private fun asset(name: String): ByteArray =
@@ -121,9 +148,62 @@ class AgencyE2eTest {
 
     private fun ready() = app.agency.start.value as StartState.Ready
 
-    @Before fun setUp() = fresh()
+    /**
+     * His line through the composer: typed, 送出 once it is enabled (it waits while the company answers), and kept in the store
+     * (tried again if the screen was redrawn while typing).
+     */
+    private fun say(text: String) {
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(AgencyTags.COMPOSER).fetchSemanticsNodes().isNotEmpty() }
+        fun mine() = runBlocking { ready().store.messages.recent(80) }.count { it.who == Who.OWNER && it.text == text }
+        val before = mine()
+        repeat(3) {
+            rule.onNodeWithTag(AgencyTags.COMPOSER).performTextReplacement(text)
+            rule.waitUntil(30_000) { runCatching { rule.onNodeWithTag(AgencyTags.SEND).assertIsEnabled() }.isSuccess }
+            rule.onNodeWithTag(AgencyTags.SEND).performClick()
+            if (runCatching { rule.waitUntil(10_000) { mine() > before } }.isSuccess) return
+        }
+        throw AssertionError("not sent: $text")
+    }
+
+    /**
+     * A tap on [tag]: scrolled into view (a sideways row; the card area and the panels under the conversation, which scroll
+     * once every rollout week is open) and tapped once it is enabled.
+     */
+    private fun tap(tag: String, timeoutMs: Long = 30_000) {
+        reveal(tag, timeoutMs)
+        rule.waitUntil(timeoutMs) { runCatching { rule.onNodeWithTag(tag, useUnmergedTree = true).assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag(tag, useUnmergedTree = true).performClick()
+    }
+
+    /** Scrolls [tag] into view (see [tap]). */
+    private fun reveal(tag: String, timeoutMs: Long = 30_000) {
+        rule.waitUntil(timeoutMs) { rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        runCatching { rule.onNodeWithTag(tag, useUnmergedTree = true).performScrollTo() }
+        for (area in listOf(AgencyTags.PANELS, AgencyTags.CARD_AREA)) {
+            if (rule.onAllNodes(hasTestTag(tag) and hasAnyAncestor(hasTestTag(area)), useUnmergedTree = true).fetchSemanticsNodes().isEmpty()) continue
+            val panel = rule.onNodeWithTag(area)
+            val box = panel.fetchSemanticsNode().boundsInRoot
+            val n = rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode()
+            val top = n.positionInRoot.y
+            val bottom = top + n.size.height
+            val dy = when { top < box.top -> top - box.top; bottom > box.bottom -> bottom - box.bottom; else -> 0f }
+            if (dy != 0f) panel.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, dy) }
+            rule.waitForIdle()
+        }
+    }
+
+    @Before fun setUp() {
+        // The notification question (asked once 入社建檔 is done) and the microphone's would cover the company: answered
+        // beforehand, as on a phone where he said yes.
+        val ui = InstrumentationRegistry.getInstrumentation().uiAutomation
+        listOf(android.Manifest.permission.POST_NOTIFICATIONS, android.Manifest.permission.RECORD_AUDIO).forEach { ui.grantRuntimePermission(context.packageName, it) }
+        fresh()
+    }
 
     @After fun tearDown() {
+        lastLines = runCatching {
+            runBlocking { ready().store.messages.recent(40) }.joinToString("\n") { "${it.who} ${it.kind} unsent=${it.unsent} ${it.text.take(160)}" }
+        }.getOrDefault("(not open)")
         watch?.cancel()
         scenario?.close()
         fresh()
@@ -131,7 +211,8 @@ class AgencyE2eTest {
 
     @Test fun e01_freshInstallOpensTheCompany() {
         open()
-        rule.onNodeWithTag(AgencyTags.TRAINEE).assertExists()
+        // The card loads after the screen (its numbers are read off the main thread).
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(AgencyTags.TRAINEE).fetchSemanticsNodes().isNotEmpty() }
         assertTrue(states.toString(), states.none { it == StartState.Importing })
         assertEquals(AgencyPrefKeys.MIGRATED_DONE, prefs(AgencyPrefKeys.NAME).getInt(AgencyPrefKeys.MIGRATED, 0))
         // 入社建檔 starts on the first open (T07): the manager's welcome and first question, written by code.
@@ -181,8 +262,7 @@ class AgencyE2eTest {
         fake.toolFirst = true
         fake.reply = "你今天還能吃 1234 大卡。現在去喝水。"
         open()
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        say("姐姐在嗎")
         rule.waitUntil(60_000) { rule.onAllNodes(hasText("現在去喝水。", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         assertTrue(rule.onAllNodes(hasText("1234", substring = true)).fetchSemanticsNodes().isEmpty())
         val reply = runBlocking { ready().store.messages.recent(5) }.last()
@@ -279,14 +359,13 @@ class AgencyE2eTest {
 
     private fun offlineThenOnline() {
         open()
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("姐姐在嗎")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        say("姐姐在嗎")
         fun mine() = runBlocking { ready().store.messages.recent(5) }.filter { it.kind != Brain.BASELINE_KIND }
         rule.waitUntil(60_000) { mine().singleOrNull()?.unsent == true }
         val stored = mine()
         assertEquals(listOf(Who.OWNER), stored.map { it.who })
         assertEquals("姐姐在嗎", stored[0].text)
-        assertEquals(Fail.OFFLINE, ready().brain.lastFail.value)
+        rule.waitUntil(10_000) { ready().brain.lastFail.value == Fail.OFFLINE }
         // The app did try and was cut off; nothing reached the model.
         assertTrue(fake.cutOff.get() > 0)
         assertTrue(fake.seen.isEmpty())
@@ -295,8 +374,7 @@ class AgencyE2eTest {
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(ChatTags.UNSENT + stored[0].id).fetchSemanticsNodes().isNotEmpty() }
         // The network is back: one tap on 重送 and the company answers; the same row, the mark gone.
         fake.online = true
-        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag(ChatTags.RESEND + stored[0].id).assertIsEnabled() }.isSuccess }
-        rule.onNodeWithTag(ChatTags.RESEND + stored[0].id).performClick()
+        tap(ChatTags.RESEND + stored[0].id)
         rule.waitUntil(60_000) { rule.onAllNodes(hasText("現在去喝水。", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(ChatTags.UNSENT + stored[0].id).fetchSemanticsNodes().isEmpty() }
         val after = mine()
@@ -316,13 +394,12 @@ class AgencyE2eTest {
         fake.toolCall = "propose_change" to """{"section":"schedule","ops":[{"path":"class_wake","value":"08:20"}],"reason":"早一點起來吃早餐"}"""
         fake.reply = "我提了一個調整，你看卡片。"
         open()
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("我想早一點起床")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        say("我想早一點起床")
         rule.waitUntil(60_000) { runBlocking { ready().store.proposals.withStatus(ProposalStatus.PENDING) }.isNotEmpty() }
         val p = runBlocking { ready().store.proposals.withStatus(ProposalStatus.PENDING) }.single()
         assertEquals(1, runBlocking { ready().store.rules.section(PlanSectionKey.SCHEDULE) }!!.version)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(ProposalTags.YES + p.id).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(ProposalTags.YES + p.id).performScrollTo().performClick()
+        tap(ProposalTags.YES + p.id)
         rule.waitUntil(30_000) { runBlocking { ready().store.rules.section(PlanSectionKey.SCHEDULE) }!!.version == 2 }
         val section = runBlocking { ready().store.rules.section(PlanSectionKey.SCHEDULE) }!!
         assertEquals(p.id, section.changedBy)
@@ -337,18 +414,17 @@ class AgencyE2eTest {
     @Test fun e06_baselinePhotosAndRecordingWithTheCameraSeam() {
         open()
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + OnboardingStep.BODY.name).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("身高 170 體重 78")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        say("身高 170 體重 78")
         for (step in OnboardingStep.PHOTOS) {
             rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + step.name).fetchSemanticsNodes().isNotEmpty() }
-            rule.onNodeWithTag(OnboardingTags.TAKE_PHOTO).performClick()
+            tap(OnboardingTags.TAKE_PHOTO)
         }
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.REC_START).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(OnboardingTags.REC_START).performClick()
+        tap(OnboardingTags.REC_START)
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.REC_STOP).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(OnboardingTags.REC_STOP).performClick()
+        tap(OnboardingTags.REC_STOP)
         rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.REC_HAND_IN).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(OnboardingTags.REC_HAND_IN).performClick()
+        tap(OnboardingTags.REC_HAND_IN)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(OnboardingTags.STEP + OnboardingStep.PUSHUPS.name).fetchSemanticsNodes().isNotEmpty() }
         val vault = MediaVault.forApp(context)
         val b = runBlocking { ready().store.baselines.get(Baseline.JOIN)!! }
@@ -370,7 +446,7 @@ class AgencyE2eTest {
         assertTrue(MediaVault.cameraDir(context).list().orEmpty().isEmpty())
         assertTrue(File(context.cacheDir, "record").list().orEmpty().isEmpty())
         // 入社資料 shows the three photos again (decrypted into memory).
-        rule.onNodeWithTag(OnboardingTags.FILE).performClick()
+        tap(OnboardingTags.FILE)
         photos.forEach { id -> rule.waitUntil(10_000) { rule.onAllNodesWithTag(OnboardingTags.THUMB + id).fetchSemanticsNodes().isNotEmpty() } }
         rule.onNodeWithTag(OnboardingTags.FILE_PLAY).assertExists()
         assertTrue(fake.seen.isEmpty())
@@ -388,13 +464,12 @@ class AgencyE2eTest {
             ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true))
             ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
         }
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("吃了即食雞胸")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        say("吃了即食雞胸")
         rule.waitUntil(60_000) { runBlocking { ready().store.meals.count() } == 1 }
         val meal = runBlocking { ready().store.meals.between("0000-01-01", "9999-12-31") }.single()
         assertFalse(meal.verified)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(MealTags.PHOTO).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(MealTags.PHOTO).performClick()
+        tap(MealTags.PHOTO)
         rule.waitUntil(30_000) { runBlocking { ready().store.meals.get(meal.id) }!!.verified }
         val photo = runBlocking { ready().store.meals.get(meal.id) }!!.photoMediaId!!
         val plain = MediaVault.forApp(context).get(photo)
@@ -419,8 +494,7 @@ class AgencyE2eTest {
         fake.reply = "附近有健康雞胸便當大安店。也可以去阿明牛肉麵店。"
         open()
         runBlocking { ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(areaText = "大安區")) }
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("附近有什麼")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        say("附近有什麼")
         rule.waitUntil(60_000) { runBlocking { ready().store.messages.recent(10) }.any { it.refs.results.size == 2 } }
         val m = runBlocking { ready().store.messages.recent(10) }.last { it.refs.results.isNotEmpty() }
         assertEquals("附近有健康雞胸便當大安店。", m.text)
@@ -440,29 +514,30 @@ class AgencyE2eTest {
             ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, completedAt = 1))
         }
         // A day without a run (the phone's real clock): the core may be done any time (on a delivery day it waits for 收工).
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("今天休息")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        say("今天休息")
         rule.waitUntil(60_000) { runBlocking { ready().store.messages.recent(5) }.any { it.text.startsWith("好，今天換成休息日") } }
-        rule.onNodeWithTag(AgencyTags.COMPOSER).performTextInput("刮好了")
-        rule.onNodeWithTag(AgencyTags.SEND).performClick()
+        say("刮好了")
         rule.waitUntil(60_000) { rule.onAllNodesWithTag(SignTags.SIGN_IN).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(SignTags.SIGN_IN).performClick()
+        tap(SignTags.SIGN_IN)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.PICKER).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(SignTags.SCORE + "3").performClick()
-        rule.onNodeWithTag(SignTags.SEND).performClick()
+        tap(SignTags.SCORE + "3")
+        tap(SignTags.SEND)
         rule.waitUntil(30_000) { runBlocking { ready().store.conditions.count() } == 1 }
-        rule.onNodeWithTag(TrainingTags.CORE).performClick()
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.PICKER).fetchSemanticsNodes().isEmpty() }
+        tap(TrainingTags.CORE)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(TrainingTags.START).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(TrainingTags.START).performClick()
-        repeat(7) { rule.onNodeWithTag(TrainingTags.NEXT).performClick() }
+        tap(TrainingTags.START)
+        repeat(7) { tap(TrainingTags.NEXT) }
         rule.waitUntil(30_000) { runBlocking { ready().store.training.count() } == 1 }
         rule.waitUntil(30_000) { runBlocking { ready().brain.photocards() }.size == 1 }
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.SIGN_OUT).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(SignTags.SIGN_OUT).performClick()
+        tap(SignTags.SIGN_OUT)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.REVIEW).fetchSemanticsNodes().isNotEmpty() }
+        reveal(SignTags.GOOD)
         rule.onNodeWithTag(SignTags.GOOD).performTextInput("核心照計時做完")
+        reveal(SignTags.FIX)
         rule.onNodeWithTag(SignTags.FIX).performTextInput("早點睡")
-        rule.onNodeWithTag(SignTags.REVIEW_SEND).performClick()
+        tap(SignTags.REVIEW_SEND)
         rule.waitUntil(30_000) { runBlocking { ready().store.messages.recent(5) }.any { it.text.startsWith("今天的檢討卡") } }
     }
 
@@ -485,23 +560,119 @@ class AgencyE2eTest {
         ).toString()
         open()
         rule.onNodeWithTag(AgencyTags.TAB + AgencyTab.LESSONS.name).performClick()
-        rule.onNodeWithTag(LessonTags.FIND).performScrollTo().performClick()
+        tap(LessonTags.FIND)
         rule.waitUntil(60_000) { runBlocking { ready().store.lessons.all() }.isNotEmpty() }
         val id = runBlocking { ready().store.lessons.all() }.single().id
         val search = fake.seen.single { it.path.endsWith("/v1/tools/search") }
-        assertTrue(search.body, search.body.contains("發聲練習 唱歌技巧 教學 影片"))
+        assertTrue(search.body, search.body.contains("發聲練習 唱歌技巧 教學 入門 初學 影片"))
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(LessonTags.YES + id).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(LessonTags.YES + id).performScrollTo().performClick()
+        tap(LessonTags.YES + id)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(LessonTags.WATCHED + id).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag(LessonTags.WATCHED + id).performScrollTo().performClick()
+        tap(LessonTags.WATCHED + id)
         rule.waitUntil(60_000) { rule.onAllNodesWithTag(LessonTags.SUBMIT).fetchSemanticsNodes().isNotEmpty() }
-        listOf("0-2", "1-1", "2-1").forEach { rule.onNodeWithTag(LessonTags.OPTION + it).performScrollTo().performClick() }
-        rule.onNodeWithTag(LessonTags.SUBMIT).performScrollTo().performClick()
+        listOf("0-2", "1-1", "2-1").forEach { tap(LessonTags.OPTION + it) }
+        tap(LessonTags.SUBMIT)
         rule.waitUntil(30_000) { rule.onAllNodesWithTag(LessonTags.NOTE).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag(LessonTags.NOTE).performScrollTo().performTextInput("嘶的聲音要維持十五秒以上，高音時氣往下沉，吸氣肩膀不要抬起來，每天早上練五分鐘。")
-        rule.onNodeWithTag(LessonTags.NOTE_SEND).performScrollTo().performClick()
+        tap(LessonTags.NOTE_SEND)
         rule.waitUntil(30_000) { runBlocking { ready().store.lessons.get(id) }!!.passed }
         assertEquals(3, runBlocking { ready().store.lessons.get(id) }!!.score)
+    }
+
+    @Test fun e15_aWholeDayAcrossTheFeatures() = wholeDay()
+
+    /**
+     * 整天情境 on the phone, every rollout week open (week 4): an invented Saturday (no class, a delivery day) on the company's
+     * test clock. 簽到 with 生病 on the score picker (L2's today-only proposal; he keeps the plan), the first meal reported in
+     * words and then photographed, his line kept as 「沒送出」 while offline and answered after 重送, dinner, 出門跑單, 收工,
+     * the core on its timer and the rest of the block reported, and a 簽退 after tonight's latest time: one breach (the bedtime review sheet is e13's).
+     */
+    fun wholeDay() {
+        val day = java.time.LocalDate.parse("2026-12-12")
+        fun at(hhmm: String) {
+            val (h, m) = hhmm.split(":").map { it.toInt() }
+            val d = if (h < 5) day.plusDays(1) else day
+            clock.fixed = d.atTime(h, m).atZone(AgencyClock.TAIPEI).toInstant()
+        }
+        fun company() = runBlocking { ready().store.messages.recent(60) }.filter { it.who == Who.COMPANY }.map { it.text }
+        fun meal(kcal: Int, protein: Int, name: String) {
+            fake.intakeJson = """{"kind":"meal","items":[{"name":"$name","portion":1,"fried":false,"processed":false,"zero_cal":false,"kcal_low":${kcal - 50},"kcal_high":$kcal,"protein_low":$protein,"protein_high":$protein}]}"""
+        }
+        at("10:50")
+        open()
+        runBlocking {
+            ready().store.profile.put((ready().store.profile.get() ?: Profile()).copy(onboardingDone = true, joinDate = "2026-11-01"))
+            ready().store.baselines.upsert(Baseline(Baseline.JOIN, heightCm = 170.0, weightKg = 78.0, pushupsMax = 18, plankMaxSec = 65, completedAt = 1))
+            ready().brain.setIdol("小雨", MemberColour.PRESETS[0].second)
+        }
+        val plan = runBlocking { ready().brain.nerve.plan(day) }
+        val signOutBy = plan.slot(SlotKey.SIGN_OUT)!!.time
+        // 11:30 簽到, then the score picker: 3 and 生病. L2 proposes today's change; he keeps the plan (不要).
+        at("11:30")
+        say("簽到")
+        rule.waitUntil(30_000) { rule.onAllNodesWithTag(SignTags.PICKER).fetchSemanticsNodes().isNotEmpty() }
+        tap(SignTags.SCORE + "2")
+        tap(SignTags.BODY + "1")
+        tap(SignTags.SEND)
+        rule.waitUntil(30_000) { runBlocking { ready().store.conditions.count() } == 1 }
+        rule.waitUntil(30_000) { runBlocking { ready().store.proposals.withStatus(ProposalStatus.PENDING) }.isNotEmpty() }
+        val sick = runBlocking { ready().store.proposals.withStatus(ProposalStatus.PENDING) }.single()
+        tap(ProposalTags.NO + sick.id)
+        rule.waitUntil(30_000) { runBlocking { ready().store.proposals.get(sick.id) }!!.status == ProposalStatus.REJECTED }
+        // 13:05 the first meal in words (「未證實」), then 拍這餐 puts the photo on it.
+        at("13:05")
+        meal(690, 44, "烤鮭魚便當")
+        say("第一餐吃了烤鮭魚便當")
+        rule.waitUntil(60_000) { runBlocking { ready().store.meals.count() } == 1 }
+        val first = runBlocking { ready().store.meals.between("0000-01-01", "9999-12-31") }.single()
+        assertFalse(first.verified)
+        tap(MealTags.PHOTO)
+        rule.waitUntil(30_000) { runBlocking { ready().store.meals.get(first.id) }!!.verified }
+        // 15:00 no network: his line is kept as 「沒送出」; back online, 重送 gets the answer on the same row.
+        at("15:00")
+        fake.intakeJson = null
+        fake.online = false
+        say("姐姐在嗎")
+        rule.waitUntil(60_000) { runBlocking { ready().store.messages.recent(60) }.any { it.who == Who.OWNER && it.text == "姐姐在嗎" && it.unsent } }
+        val unsent = runBlocking { ready().store.messages.recent(60) }.last { it.who == Who.OWNER && it.text == "姐姐在嗎" }
+        rule.waitUntil(10_000) { ready().brain.lastFail.value == Fail.OFFLINE }
+        fake.online = true
+        tap(ChatTags.RESEND + unsent.id)
+        rule.waitUntil(60_000) { runBlocking { ready().store.messages.get(unsent.id) }!!.unsent.not() }
+        rule.waitUntil(30_000) { company().any { it.contains("現在去喝水。") } }
+        // 17:40 dinner.
+        at("17:40")
+        meal(545, 35, "雞腿便當")
+        say("晚餐吃了雞腿便當")
+        rule.waitUntil(60_000) { runBlocking { ready().store.meals.count() } == 2 }
+        // 19:10 out on the run; 02:30 收工.
+        at("19:10")
+        tap(AgencyTags.RIDE_START)
+        rule.waitUntil(30_000) { runBlocking { ready().brain.nerve.state(day) }.riding }
+        at("02:30")
+        tap(AgencyTags.RIDE_END)
+        rule.waitUntil(30_000) { !runBlocking { ready().brain.nerve.state(day) }.riding }
+        // The block after 收工: the core on its timer, the rounds, the cardio and the stretch reported.
+        at("02:38")
+        tap(TrainingTags.CORE)
+        tap(TrainingTags.START)
+        repeat(7) { tap(TrainingTags.NEXT) }
+        rule.waitUntil(30_000) { runBlocking { ready().store.training.onDay(day.toString()) }.any { it.kind == TrainingKind.CORE7 } }
+        runBlocking {
+            at("02:50"); ready().brain.strengthDone(StrengthReport(3, mapOf("push_up" to 15, "squat" to 20, "plank" to 60), extra = 2, seconds = 900))
+            at("03:03"); ready().brain.cardioDone(590)
+            at("03:15"); ready().brain.stretchDone(600)
+        }
+        val kinds = runBlocking { ready().store.training.onDay(day.toString()) }.map { it.kind }.toSet()
+        assertTrue(kinds.toString(), kinds.containsAll(listOf(TrainingKind.CORE7, TrainingKind.STRENGTH, TrainingKind.STRETCH)))
+        // 簽退 ten minutes after tonight's latest time: one breach.
+        val (h, m) = signOutBy.split(":").map { it.toInt() }
+        val late = java.time.LocalTime.of(h, m).plusMinutes(10)
+        at("%02d:%02d".format(late.hour, late.minute))
+        tap(SignTags.SIGN_OUT)
+        rule.waitUntil(30_000) { company().any { it.contains("記一次違規：超過最晚簽退的時間（$signOutBy）") } }
+        assertEquals(1, runBlocking { ready().brain.nerve.state(day) }.breaches)
+        assertEquals(2, runBlocking { ready().store.meals.count() })
     }
 
     private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }

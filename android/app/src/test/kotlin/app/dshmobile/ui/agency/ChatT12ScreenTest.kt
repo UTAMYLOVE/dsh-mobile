@@ -25,6 +25,7 @@ import app.dshmobile.DshMobileApp
 import app.dshmobile.agency.AgencyApp
 import app.dshmobile.agency.AgencyTestKit
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForTag
+import app.dshmobile.agency.AgencyTestKit.Companion.tapTag
 import app.dshmobile.agency.AgencyTestKit.Companion.waitForText
 import app.dshmobile.agency.StartState
 import app.dshmobile.ui.settings.MemoryTags
@@ -146,7 +147,7 @@ class ChatT12ScreenTest {
         rule.waitForTag(ProposalTags.CARD + "p-1")
         rule.waitForText("上課日起床：08:30 → 08:20")
         assertEquals("08:30", runBlocking { PlanStore(ready().store).specs() }.schedule.classWake)
-        rule.onNodeWithTag(ProposalTags.YES + "p-1").performScrollTo().performClick()
+        rule.tapTag(ProposalTags.YES + "p-1")
         rule.waitForText("好，改了：上課日起床 08:30 → 08:20。")
         assertEquals("08:20", runBlocking { PlanStore(ready().store).specs() }.schedule.classWake)
         assertEquals(ProposalStatus.ACCEPTED, runBlocking { ready().store.proposals.get("p-1") }!!.status)

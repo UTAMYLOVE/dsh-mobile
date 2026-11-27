@@ -51,6 +51,10 @@ object AgencyTags {
     const val UNAVAILABLE = "ag-unavailable"
     const val RETRY = "ag-retry"
     const val HOME = "ag-home"
+    /** The panels under the conversation (proposals, 入社建檔, pickers, buttons): at most half the room, scrolling. */
+    const val PANELS = "ag-panels"
+    /** The trainee card's area at the top (it scrolls when the open card is taller than half the screen). */
+    const val CARD_AREA = "ag-card-area"
     const val WAR_ROOM = "ag-war-room"
     const val SETTINGS = "ag-settings"
     const val TAB = "ag-tab-"

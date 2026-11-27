@@ -1,6 +1,7 @@
 package app.dshmobile
 
 import app.agency.core.schedule.RolloutSpec
+import app.agency.core.time.AgencyClock
 import android.app.Application
 import androidx.test.runner.AndroidJUnitRunner
 import app.dshmobile.agency.AgencyApp
@@ -36,12 +37,30 @@ class FakeMic(private val app: Context) : RecorderEngine {
     override fun release() = Unit
 }
 
+/**
+ * The company's clock in this run: the phone's own clock until a test sets [fixed] (the whole-day test walks an invented day);
+ * every test that does sets it back to null.
+ */
+class E2eClock : java.time.Clock() {
+    @Volatile var fixed: java.time.Instant? = null
+    override fun getZone(): java.time.ZoneId = java.time.ZoneOffset.UTC
+    override fun withZone(zone: java.time.ZoneId?): java.time.Clock = this
+    override fun instant(): java.time.Instant = fixed ?: java.time.Instant.now()
+
+    companion object {
+        val instance = E2eClock()
+    }
+}
+
 class E2eRunner : AndroidJUnitRunner() {
     override fun callApplicationOnCreate(app: Application) {
         val model = FakeModel()
         thread(name = "e2e-fake-model-start") { model.start() }.join() // binding a socket on the main thread is not allowed
         FakeModel.instance = model
-        AgencyApp.testOverrides = TestOverrides(modelBase = model.base, camera = ::drawShot, recorder = { FakeMic(app) }, rollout = RolloutSpec.ALL_OPEN)
+        AgencyApp.testOverrides = TestOverrides(
+            modelBase = model.base, camera = ::drawShot, recorder = { FakeMic(app) }, rollout = RolloutSpec.ALL_OPEN,
+            clock = AgencyClock.of(E2eClock.instance),
+        )
         super.callApplicationOnCreate(app)
     }
 }
