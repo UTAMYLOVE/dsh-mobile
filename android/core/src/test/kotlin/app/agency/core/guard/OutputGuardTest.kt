@@ -219,13 +219,26 @@ class OutputGuardTest {
 
     @Test fun compensationAfterAnOverrunIsCaughtWhateverTheWords() {
         for (s in listOf("今天超過額度，明天補回來。", "今天超過太多，明天中午不吃。", "今天爆卡，明天清淡一點、少一點。", "熱量超標，晚餐只喝湯。",
-            "多吃了一塊雞排，今天就不要再吃了。", "今天吃超過了，晚餐吃一點點就好。", "晚餐乾脆不要吃。", "今晚份量少一點。", "吃多了，下一頓減量。",
+            "多吃了一塊雞排，今天就不要再吃了。", "今天吃超過了，晚餐吃一點點就好。", "晚餐乾脆不要吃。", "明晚份量少一點。", "吃多了，下一頓減量。",
             "吃多了，晚上那份減量。", "今天吃太多了，晚餐份量砍半。", "今天超過了，晚上不要再吃東西。", "今天吃超過了，明天晚餐飯吃半碗。",
             "吃過頭了，明天一整天只喝豆漿。", "吃多了，晚上多做兩輪。")) {
             assertTrue(s, OutputGuard.check(s, cev, GuardMode.NORMAL).hard.isNotEmpty())
         }
         assertFalse(cflag("今天狀態差，肌力可以減量。"))
         assertFalse(cflag("吃牛肉湯麵，麵吃一半就好。"))
+    }
+
+    /** Owner 2026-11-26: the same day's next meal or dinner may be 「少一點」; skipping, none, tomorrow and exercise stay banned. */
+    @Test fun aSameDaySmallerNextMealPassesAndEverythingElseStaysBanned() {
+        for (s in listOf("午餐吃多了，晚餐少一點。", "今天吃超過了，下一餐少一點就好，不要跳過。", "晚餐份量小一點，蛋白質照吃。", "下一餐吃少一點，還是要吃。", "今晚份量少一點。")) {
+            assertFalse(s, cflag(s))
+        }
+        for (s in listOf("明天晚餐少一點。", "今天吃超過了，晚餐少一點，明天再少吃一點。", "吃多了，晚餐不吃了。", "吃太多了，下一餐跳過。",
+            "吃多了，去多跑兩圈把熱量燒掉。", "今天超標，明天少吃補回來。", "吃多了，下一餐只吃一半。")) {
+            assertTrue(s, cflag(s))
+        }
+        assertTrue(SecondPassJudge.SYSTEM.contains("同一天的下一餐或晚餐「少一點」"))
+        assertTrue(SecondPassJudge.SYSTEM.contains("明天或之後少吃來補回來"))
     }
 
     @Test fun dishNamesOutsideTheLexiconPass() {

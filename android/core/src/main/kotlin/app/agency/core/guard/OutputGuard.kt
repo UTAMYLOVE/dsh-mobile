@@ -270,7 +270,9 @@ object OutputGuard {
     private val R1 = Regex(
         "(?<![多至很較])(吃少一點|吃少點|少吃(?:一點|點|一些|些|一口|幾口|半|一半|一餐|一份|一碗|飯))|(?<![$PART])(吃一半|吃半份)|只吃一點|減一半|減少一半|少一半" +
             "|(餐|頓|飯|吃|食量|份量|分量|那份).{0,4}(減量|減半|砍半)|份量少一點|份量少點|少一餐|省一餐|點少一點" +
-            "|(?<![多至很較])少吃(?!$STEER)",
+            "|(?<![多至很較])少吃(?!$STEER)" +
+            // A later day made smaller (owner 2026-11-26: only the same day's next meal may be a little less).
+            "|(?:明天|明早|明晚|隔天|後天|之後幾天|接下來幾天|這幾天).{0,6}(?:少一點|少點|少一些|小一點)",
     )
 
     /** R3: exercise to burn it off, in any tone. Making up a photo or a missed set (「補拍」「補做」) is not this. */
@@ -316,6 +318,23 @@ object OutputGuard {
         Ban("下醫療診斷", Regex("(我|幫你|替你)(來|先)?(幫你)?診斷|診斷(結果)?(是|為)|你得了|你罹患"), negatable = true),
         Ban("下醫療診斷", Regex("((應該|可能|大概|八成|一定|就)是|像是?)\\p{script=Han}{0,6}($CONDITION)")),
     )
+
+    /**
+     * Owner 2026-11-26: a same-day 「下一餐少一點」「晚餐少一點」 is allowed (the code's budget keeps the floor). Only a little
+     * less, today, for the next meal or dinner: never none, never half, never tomorrow (a 明天／隔天 in the clause before it
+     * keeps it banned). These spans are blanked before the eat-less and overrun checks; everything else stays as it was.
+     */
+    private val SAME_DAY_SMALLER = Regex(
+        "(?:下一餐|下一頓|晚餐|今晚|今天晚餐)(?:的|就|也|可以|稍微|吃得|吃)?(?:的|就|也|可以|稍微|吃得|吃)?" +
+            "(?:份量|分量)?(?:少一點|少點|少一些|小一點|少吃一點|吃少一點)",
+    )
+    private val LATER_DAY = Regex("明天|明早|明晚|隔天|後天|之後幾天|接下來幾天|這幾天")
+
+    /** [s] with its allowed same-day 「下一餐少一點」 spans blanked. */
+    fun maskSameDaySmaller(s: String): String = SAME_DAY_SMALLER.replace(s) { m ->
+        val clauseStart = s.lastIndexOfAny(CLAUSE_BREAK, m.range.first - 1) + 1
+        if (LATER_DAY.containsMatchIn(s.substring(clauseStart, m.range.first)) || LATER_DAY.containsMatchIn(m.value)) m.value else "　".repeat(m.value.length)
+    }
 
     /** Comfort words: banned in COLD and SWEET; in GENTLE only when the sentence excuses a slip. */
     private val COMFORT = Regex("沒關係|不用在意|別在意|不要緊")
@@ -376,8 +395,11 @@ object OutputGuard {
         return sentences(text).firstNotNullOfOrNull { bans(it, list).firstOrNull() } ?: if (full) overrunCut(text) else null
     }
 
-    private fun bans(s: String, list: List<Ban>): List<String> = list.mapNotNull { b ->
-        b.re.findAll(s).firstOrNull { m -> !b.negatable || !negated(s, m.range) }?.let { "${b.label}：「${it.value}」" }
+    private fun bans(s0: String, list: List<Ban>): List<String> {
+        val s = maskSameDaySmaller(s0)
+        return list.mapNotNull { b ->
+            b.re.findAll(s).firstOrNull { m -> !b.negatable || !negated(s, m.range) }?.let { "${b.label}：「${it.value}」" }
+        }
     }
 
     private fun comfort(s: String, tone: Tone, ev: Evidence): String? {
@@ -392,7 +414,8 @@ object OutputGuard {
         return if (excuses) "替違規找台階的安慰：「${m.value}」" else null
     }
 
-    private fun overrunCut(text: String): String? {
+    private fun overrunCut(text0: String): String? {
+        val text = maskSameDaySmaller(text0)
         OVERRUN.findAll(text).firstOrNull { !negated(text, it.range) } ?: return null
         val cut = R4_CUT.findAll(text).firstOrNull { !negated(text, it.range) } ?: return null
         return "吃超過了只能說明天回到額度，不准少吃、跳餐或補回來：「${cut.value}」"
