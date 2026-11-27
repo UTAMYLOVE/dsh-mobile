@@ -9,8 +9,9 @@ import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 
 /**
- * 「今天休息」 (plan v3 §4): today becomes a rest day (no delivery, no strength, no core; stretch allowed; times of the day's
- * kind; 1700 unchanged). At most [app.agency.core.schedule.ScheduleSpec.restDaysPerWeek] a Mon–Sun week: a second request
+ * 「今天休息」 (owner 2026-11-26): today becomes a rest day, which only means no delivery: classes, the core, the rounds, the
+ * stretch and the 理論課 stay (the training in the no-run block); times of the day's kind; 1700 unchanged; the evening after the
+ * training is free time. At most [app.agency.core.schedule.ScheduleSpec.restDaysPerWeek] a Mon–Sun week: a second request
  * changes nothing and the manager asks why (code).
  */
 class RestDay(private val store: AgencyStore, private val plans: PlanStore) {
@@ -25,8 +26,9 @@ class RestDay(private val store: AgencyStore, private val plans: PlanStore) {
             return "這週已經休過一天了（星期${CoachRules.weekdayZh(d.dayOfWeek)}）。為什麼還要休？先說原因。"
         }
         store.days.put((o ?: DayOverride(today.toString(), declaredAt = at)).copy(restDay = true, declaredAt = at))
-        val type = plans.plan(today).type
-        return "好，今天換成休息日：不跑單、不做肌力和核心，伸展可以做。時間照${type.zh}走，熱量照樣算，吃飯照常回報。" +
-            "去運動、出去玩、見朋友都可以，回來說一聲做了什麼。"
+        val plan = plans.plan(today)
+        val at = plan.slot(app.agency.core.schedule.SlotKey.CORE)?.time ?: plans.specs().training.noRideTrainingAt
+        return "好，今天換成休息日：只是不跑單。有課照上，核心、肌力、伸展、理論課照做（訓練 $at 開始）。時間照${plan.type.zh}走，熱量照樣算，吃飯照常回報。" +
+            "訓練做完，晚上是自由時間：唱歌、運動、出去玩、見朋友都可以，我不排也不催。"
     }
 }

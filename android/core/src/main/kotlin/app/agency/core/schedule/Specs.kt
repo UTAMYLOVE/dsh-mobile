@@ -51,6 +51,12 @@ data class TrainingSpec(
     val progressionStep: Int = 0,
     /** After 收工 he puts the helmet down first: strength is due this long after the ride ends. */
     val strengthAfterRideMin: Int = 15,
+    /**
+     * A day without a run (a rest day: owner 2026-11-26 「休息日只是不跑單」): the core, the rounds and the stretch still happen,
+     * the core due at this time (after class, an hour after dinner), the rounds and the stretch after it; the evening after is
+     * free time.
+     */
+    val noRideTrainingAt: String = "18:30",
 )
 
 @Serializable

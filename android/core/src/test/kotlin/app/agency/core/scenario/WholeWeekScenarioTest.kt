@@ -34,8 +34,8 @@ import org.junit.Test
 /**
  * 一週情境 (agency-links L15, L19, L20): one invented Mon–Sun week played through the brain, every day from the sign-in and
  * its score to the bedtime review: the meals (protein 143 g a day), the core by the timer, the strength rounds (easy every
- * time: 2 more on the last round) and the stretch, the rest day on Wednesday (no core and no rounds, the walk and the stretch
- * still), the real-person task on Thursday, tomorrow's fix said yes to every night. Sunday's rounds earn the one progression
+ * time: 2 more on the last round) and the stretch, the rest day on Wednesday (only no run: the walk, the core, the rounds and the
+ * stretch still, in the no-run block), the real-person task on Thursday, tomorrow's fix said yes to every night. Sunday's rounds earn the one progression
  * proposal (背包划船, his yes changes the training plan); the next Monday's start brings the week's evaluation: on target, the
  * first week on target, the photocard wall, and the next real-person task.
  * Batch 5b (T19c): 理論課 every day (fourteen videos found by search and said 好 to on Monday morning; two lessons a day,
@@ -124,8 +124,11 @@ class WholeWeekScenarioTest {
             if (rounds.any { it.contains("可以加量了") }) assertTrue(say("23:55", "好").single().startsWith("好，下一次肌力開始："))
             runBlocking { at("00:03"); brain.stretchDone(600) }
         } else {
+            // The rest day trains as always, in the no-run block after dinner; the evening after it is free.
+            runBlocking { at("18:31"); brain.coreDone(seconds = 425) }
+            rounds = runBlocking { at("18:50"); brain.strengthDone(StrengthReport(null, full, extra = 2, seconds = 1150)) }.filter { it.who == Who.COMPANY }.map { it.text }
+            runBlocking { at("19:10"); brain.stretchDone(600) }
             meal("21:05", "吃了即食雞胸和統一高纖豆漿", item("即食雞胸", 130, 20), item("統一高纖豆漿", 200, 15))
-            runBlocking { at("22:10"); brain.stretchDone(600) }
         }
         assertEquals(listOf("簽退了。", ReviewDesk.ASK_GOOD), say("00:30", "簽退"))
         assertEquals(listOf(ReviewDesk.ASK_FIX), say("00:31", "訓練都照計時做完"))
@@ -177,12 +180,12 @@ class WholeWeekScenarioTest {
         val progression = runBlocking { store.proposals.withStatus(ProposalStatus.ACCEPTED) }.filter { it.kind == ProposalKind.PROGRESSION }
         assertEquals(1, progression.size)
         assertEquals(1, runBlocking { PlanStore(store).specs() }.training.progressionStep)
-        // The rest day had no core and no rounds; every other day had all three, each by the timer.
+        // The rest day had everything but the run; every day had all three, each by the timer.
         val wed = monday.plusDays(2).toString()
-        assertEquals(listOf(TrainingKind.WALK, TrainingKind.STRETCH), runBlocking { store.training.onDay(wed) }.map { it.kind })
-        assertEquals(6, runBlocking { store.training.between(monday.toString(), monday.plusDays(6).toString()) }.count { it.kind == TrainingKind.STRENGTH })
-        // The photocard wall: one polaroid for each day with the core (the first big completion), none on the rest day.
-        assertEquals(6, runBlocking { brain.photocards() }.size)
+        assertEquals(listOf(TrainingKind.WALK, TrainingKind.CORE7, TrainingKind.STRENGTH, TrainingKind.STRETCH), runBlocking { store.training.onDay(wed) }.map { it.kind })
+        assertEquals(7, runBlocking { store.training.between(monday.toString(), monday.plusDays(6).toString()) }.count { it.kind == TrainingKind.STRENGTH })
+        // The photocard wall: one polaroid for each day with the core (the first big completion), the rest day too.
+        assertEquals(7, runBlocking { brain.photocards() }.size)
 
         // The next Monday's first alarm: the week's evaluation (L20), once.
         day = monday.plusDays(7)
@@ -192,10 +195,11 @@ class WholeWeekScenarioTest {
         val summary = lines.single { it.startsWith("一週結果") }.lines()
         assertEquals("一週結果（12/14–12/20）", summary[0])
         // 理論課 is one of each day's items (seven more than before T19c).
-        assertEquals("完成率 100%（該做 69 項，做到 69 項）", summary[1])
-        assertEquals("訓練 21/21", summary[2])
+        // The rest day owes its core, rounds and stretch too (three more than before 2026-11-26).
+        assertEquals("完成率 100%（該做 72 項，做到 72 項）", summary[1])
+        assertEquals("訓練 24/24", summary[2])
         assertEquals("違規 0 次", summary[3])
-        assertEquals("照片牆加了 6 張", summary[4])
+        assertEquals("照片牆加了 7 張", summary[4])
         assertEquals("真人任務：做到了", summary[5])
         assertEquals("這週達標。等級 C，達標週數 1 週；升級看月末評鑑。", summary[6])
         assertTrue(lines.contains(RealTasks.line(day)))

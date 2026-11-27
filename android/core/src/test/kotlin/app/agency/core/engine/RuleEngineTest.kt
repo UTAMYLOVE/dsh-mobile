@@ -71,10 +71,12 @@ class RuleEngineTest {
         assertEquals(day.plusDays(1), CoachRules.coachDay(at("2026-12-07T21:00:00Z"), zone, 5))
     }
 
-    @Test fun aRestDaysStretchIsNeverAGap() {
+    @Test fun aRestDaysTrainingIsOwedAtItsTime() {
         val rest = DayPlanner.build(day, override = app.agency.core.model.DayOverride(d, restDay = true, declaredAt = 1))
+        val early = RuleEngine.status(rest, TodayRecords(d), at("2026-12-07T10:00:00Z"), zone) // 18:00
+        assertFalse(early.first { it.key == SlotKey.CORE }.isGap)
         val states = RuleEngine.status(rest, TodayRecords(d), at("2026-12-07T14:30:00Z"), zone) // 22:30
-        assertFalse(states.first { it.key == SlotKey.STRETCH }.isGap)
+        assertTrue(listOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.STRETCH).all { k -> states.first { it.key == k }.isGap })
     }
 
     @Test fun signInOnTimeIsTenMinutes() {

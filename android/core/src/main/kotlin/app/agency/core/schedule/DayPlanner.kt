@@ -8,8 +8,9 @@ import java.time.LocalDate
 enum class Reduction(val zh: String) { SICK("生病"), INJURY("受傷") }
 
 /**
- * Today's plan. [type] is the day's kind; [rest] says 「今天休息」 was declared (no delivery, no strength, no core; stretch
- * allowed; 1700 unchanged). [cheatSlot] is the declared 休假餐; [soyMorning] the 「早上很餓」 swap. [reduction] is the accepted
+ * Today's plan. [type] is the day's kind; [rest] says 「今天休息」 was declared: only no delivery (owner 2026-11-26); classes,
+ * the core, the rounds, the stretch and the 理論課 stay, in the no-run block ([TrainingSpec.noRideTrainingAt]); 1700 unchanged.
+ * [cheatSlot] is the declared 休假餐; [soyMorning] the 「早上很餓」 swap. [reduction] is the accepted
  * illness/injury change of today (no core and no strength; stretch stays, avoiding an injured part).
  */
 data class DayPlan(
@@ -39,11 +40,13 @@ data class DayPlan(
  * Builds a day's plan from the stored sections (arch 1.5, plan v3 §4): pure. Class day: 08:30 起床簽到, 12:10 午餐 (蛋白質至少
  * 45 克), 17:00 核心 (星期五 16:05), 17:15 晚餐, 18:00–19:00 出門, 21:00 雞胸加豆漿 on the run (mandatory), after 收工 肌力三輪
  * (latest start 01:50) and 伸展, latest sign-out 02:30. No-class day: wake by 12:00, 13:00 第一餐, 16:20 快走 30 分鐘, 17:00 核心,
- * 17:15 晚餐, delivery, 21:00, 肌力 and 伸展, sign-out by 04:00. A rest day keeps those times without delivery, strength and core.
+ * 17:15 晚餐, delivery, 21:00, 肌力 and 伸展, sign-out by 04:00. A rest day keeps those times without the delivery; its core,
+ * rounds and stretch are owed as on any day, due from [TrainingSpec.noRideTrainingAt] (not after a ride: there is none).
  */
 object DayPlanner {
-    /** A rest day's stretch (allowed, not owed) is shown at 22:00. */
-    private val REST_STRETCH = DayClock.minute("22:00")
+    /** On a day without a run: the rounds this long after the core, the stretch this long after the core. */
+    const val NO_RIDE_STRENGTH_AFTER_MIN = 10
+    const val NO_RIDE_STRETCH_AFTER_MIN = 35
 
     fun build(
         day: LocalDate,
@@ -70,17 +73,19 @@ object DayPlanner {
             if (soy) add(Slot(SlotKey.MORNING_SOY, wake + m.soyAfterWakeMin, note = "高纖豆漿"))
             add(first)
             if (!cls) add(Slot(SlotKey.WALK, DayClock.minute(t.walkNoClass), note = "${t.walkMin} 分鐘"))
-            val core = DayClock.minute(if (day.dayOfWeek == DayOfWeek.FRIDAY) t.coreFriday else t.core)
-            if (!rest && reduction == null) add(Slot(SlotKey.CORE, core, note = "半船式、半仰臥起坐、抱膝、單車捲腹、進階抬腿、側棒式左右"))
+            val noRide = DayClock.minute(t.noRideTrainingAt)
+            val core = if (rest) noRide else DayClock.minute(if (day.dayOfWeek == DayOfWeek.FRIDAY) t.coreFriday else t.core)
+            if (reduction == null) add(Slot(SlotKey.CORE, core, note = "半船式、半仰臥起坐、抱膝、單車捲腹、進階抬腿、側棒式左右"))
             add(Slot(SlotKey.DINNER, DayClock.minute(m.dinner)))
             if (!rest) add(Slot(SlotKey.RIDE_OUT, DayClock.minute(s.rideOut), untilMinute = DayClock.minute(s.rideOutUntil)))
             add(Slot(SlotKey.RIDE_MEAL, DayClock.minute(m.rideMeal), note = if (soy) "雞胸（豆漿早上喝過了）" else "雞胸加豆漿，一定要吃"))
-            if (!rest && reduction == null) {
-                add(Slot(SlotKey.STRENGTH, strengthLatest, afterRide = true, note = app.agency.core.engine.Progression.note(t)))
+            if (reduction == null) {
+                val at = if (rest) noRide + NO_RIDE_STRENGTH_AFTER_MIN else strengthLatest
+                add(Slot(SlotKey.STRENGTH, at, afterRide = !rest, note = app.agency.core.engine.Progression.note(t)))
             }
             val stretchNote = if (reduction == Reduction.INJURY) "${t.stretchMin} 分鐘，避開受傷的地方" else "${t.stretchMin} 分鐘"
-            // Rest day: stretch is allowed, not owed. Otherwise it follows the rounds (or, on a reduced day, stays as the minimum).
-            add(Slot(SlotKey.STRETCH, if (rest) REST_STRETCH else strengthLatest + 20, required = !rest, afterRide = !rest, note = stretchNote))
+            // It follows the rounds (on a reduced day it stays as the minimum); a rest day's is owed too, after its block.
+            add(Slot(SlotKey.STRETCH, if (rest) noRide + NO_RIDE_STRETCH_AFTER_MIN else strengthLatest + 20, afterRide = !rest, note = stretchNote))
             add(Slot(SlotKey.SIGN_OUT, sleep))
             // 理論課 (T19c): class days in class (Friday's classes end at 16:00), no-class days before the walk; rest days too.
             if (lessons.lessons > 0) {

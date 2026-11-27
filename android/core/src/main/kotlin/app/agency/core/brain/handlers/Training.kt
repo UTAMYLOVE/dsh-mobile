@@ -30,7 +30,8 @@ data class StrengthReport(
 /**
  * 訓練 (plan v3 §7, arch T18), code only: the core 7 minutes, the strength rounds of the current progression step, the 10-minute
  * stretch and the no-class day's brisk walk, from the guided timers or his words. The rules are fixed (owner: 「照女團，死的」):
- * no core and no rounds on a rest day, nor on a day the illness change was accepted (the stretch stays, the minimum); the
+ * a rest day is only a day without the run (core, rounds and stretch as always); no core and no rounds only on a day the
+ * illness change was accepted (the stretch stays, the minimum); the
  * rounds count only when all of them are done (「今天照表」 otherwise); one of each a day. A timer run counts as proof when it ran
  * at least [PROOF_SHARE] of its timed seconds; typed reports are 「未證實」. Each record emits `training_done` (L11, L14, L15).
  */
@@ -47,7 +48,6 @@ class TrainingDesk(
     /** Why [key] is not owed today, or null when it is in today's plan. */
     private fun notToday(plan: DayPlan, key: SlotKey, what: String): String? = when {
         plan.slot(key) != null -> null
-        plan.rest -> "今天是休息日，不做$what。伸展可以做。"
         plan.reduction != null -> "今天只改這一天：${what}停一天，伸展照做就好。不用補做。"
         key == SlotKey.WALK -> "今天沒有排快走（上課日走路上學就算）。"
         else -> "今天沒有排$what。"
@@ -122,7 +122,7 @@ class TrainingDesk(
         return MealOutcome(null, lines, listOf(signal))
     }
 
-    /** The stretch (any day: a rest day's is allowed, a sick day's is the minimum). */
+    /** The stretch (any day: a sick day's is the minimum). */
     suspend fun stretch(fromTimer: Boolean, seconds: Int?): MealOutcome {
         val plan = plan()
         if (done(plan, TrainingKind.STRETCH)) return MealOutcome(null, listOf("今天的伸展已經記過了。"))

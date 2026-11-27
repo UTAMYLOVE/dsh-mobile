@@ -33,10 +33,12 @@ class DayCommandsTest {
 
     @Test fun aRestDayOnceAWeekAndTheSecondAsksWhy() {
         val first = say("今天休息")
-        assertTrue(first.text, first.text.startsWith("好，今天換成休息日：不跑單、不做肌力和核心，伸展可以做。時間照上課日走"))
+        assertTrue(first.text, first.text.startsWith("好，今天換成休息日：只是不跑單。有課照上，核心、肌力、伸展、理論課照做（訓練 18:30 開始）。時間照上課日走"))
         assertTrue(day("2026-12-07")!!.restDay)
         val plan = runBlocking { PlanStore(store).plan(LocalDate.parse("2026-12-07")) }
-        assertNull(plan.slot(SlotKey.STRENGTH))
+        // Only the run is off: the rounds stay.
+        assertNull(plan.slot(SlotKey.RIDE_OUT))
+        assertTrue(plan.slot(SlotKey.STRENGTH)!!.required)
         assertEquals("今天已經是休息日了。", say("今天休息").text)
         clock.advance(Duration.ofDays(2)) // Wednesday, same week
         assertEquals("這週已經休過一天了（星期一）。為什麼還要休？先說原因。", say("今天休息").text)

@@ -159,22 +159,27 @@ class TrainingT18Test {
         assertEquals(1, runBlocking { brain().photocards() }.size)
     }
 
-    @Test fun theRoundsCountOnlyWhenAllAreDoneAndRestOrSickDaysHaveNone() {
+    @Test fun theRoundsCountOnlyWhenAllAreDoneAndARestDayStillTrains() {
         assertEquals(listOf("今天照表：肌力要做滿 3 輪才算完成。做完再回報。"), rounds("23:40", extra = null, last = emptyMap(), rounds = 2))
         assertTrue(training().isEmpty())
         // Short reps are recorded as they were, with the plan's number.
         val short = rounds("23:50", extra = 0, last = mapOf("push_up" to 12, "squat" to 12, "plank" to 45))
         assertTrue(short.first().lines().contains("最後一輪伏地挺身 12 下，表定 15 下，下次做滿。"))
         assertTrue(short.first().lines().contains("接著伸展 10 分鐘。"))
-        // A rest day: no core and no rounds (the stretch is allowed).
+        // A rest day is only a day without the run (owner 2026-11-26): the core, the rounds and the stretch are owed as always.
         day = day.plusDays(1)
         assertTrue(say("09:00", "今天休息").isNotEmpty())
-        at("17:05")
-        assertEquals(listOf("今天是休息日，不做核心。伸展可以做。"), lines(runBlocking { brain().coreDone(420) }))
-        assertEquals(listOf("今天是休息日，不做肌力。伸展可以做。"), rounds("23:00", extra = 3))
-        at("22:10")
+        val rest = runBlocking { brain().nerve.plan(day) }
+        assertTrue(rest.rest)
+        assertNull(rest.slot(SlotKey.RIDE_OUT))
+        assertEquals(listOf("18:30", "18:40", "19:05"), listOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.STRETCH).map { rest.slot(it)!!.time })
+        assertTrue(listOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.STRETCH).all { rest.slot(it)!!.required && !rest.slot(it)!!.afterRide })
+        at("18:31")
+        assertTrue(lines(runBlocking { brain().coreDone(420) }).first().startsWith("記下：核心七分鐘（照計時做完）。"))
+        assertTrue(rounds("18:50", extra = 3).first().startsWith("記下：肌力 3 輪"))
+        at("19:10")
         assertEquals("記下：伸展 10 分鐘（照計時做完）。\n今天的訓練都做完了。", lines(runBlocking { brain().stretchDone(600) }).first())
-        assertEquals(listOf(TrainingKind.STRETCH), training().map { it.kind })
+        assertEquals(listOf(TrainingKind.CORE7, TrainingKind.STRENGTH, TrainingKind.STRETCH), training().map { it.kind })
         // A walk is a no-class day's: a class day has none to tap.
         day = LocalDate.parse("2026-11-26") // Thursday
         at("16:30")
@@ -220,12 +225,10 @@ class TrainingT18Test {
         val out = mutableListOf<List<String>>()
         for (i in 0 until 7) {
             day = start.plusDays(i.toLong())
-            if (day == rest) {
-                say("09:00", "今天休息")
-            } else {
-                protein("17:30", proteinG)
-                out += rounds("23:50", extra = extra)
-            }
+            // A rest day trains too (only the run is off), in the no-run block.
+            if (day == rest) say("09:00", "今天休息")
+            protein("17:30", proteinG)
+            out += rounds(if (day == rest) "18:50" else "23:50", extra = extra)
         }
         return out
     }

@@ -40,7 +40,7 @@ object Progression {
 
     /**
      * Whether the week up to [today] earns the next step from [step]: each of the [WEEK_DAYS] days had an easy session at
-     * [step], or owed none ([noStrength]: a rest day, a day he was ill or hurt); at least [MIN_SESSIONS] sessions.
+     * [step], or owed none ([noStrength]: a day he was ill or hurt; a rest day owes the rounds too); at least [MIN_SESSIONS] sessions.
      */
     fun weekEasy(today: LocalDate, step: Int, sessions: Map<LocalDate, Session>, noStrength: Set<LocalDate>): Boolean {
         var easy = 0

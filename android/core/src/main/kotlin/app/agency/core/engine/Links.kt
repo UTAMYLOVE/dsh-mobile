@@ -394,7 +394,7 @@ object Links {
             val step = ctx.specs.training.progressionStep
             val next = Progression.next(step) ?: return emptyList()
             if (signal.step != step || state.pendingProgression) return emptyList()
-            if (!Progression.weekEasy(state.day, step, state.strengthSessions, state.restDays + state.illDays)) return emptyList()
+            if (!Progression.weekEasy(state.day, step, state.strengthSessions, state.illDays)) return emptyList()
             val protein = state.proteinByDay[state.day.minusDays(1)] ?: 0.0
             if (protein < ctx.rules.proteinG) return emptyList()
             val change = Progression.change(next)
@@ -469,7 +469,7 @@ object Links {
     }
 
     /**
-     * L18: a no-class day (not a rest day) → the 30-minute walk placed in the gap before the core, and (once the course has
+     * L18: a no-class day (a rest day too: it only has no run) → the 30-minute walk placed in the gap before the core, and (once the course has
      * started, T19c) the 理論課 in the gap after the first meal, done before the walk.
      */
     object L18NoClassDay : Link {
@@ -481,7 +481,7 @@ object Links {
         const val LESSONS_BEFORE_WALK_MIN = 20
 
         override fun fire(signal: Signal, state: DayState, ctx: LinkContext): List<Effect> {
-            if (signal !is Signal.DayStarted || state.plan.type != DayType.NO_CLASS || state.plan.rest) return emptyList()
+            if (signal !is Signal.DayStarted || state.plan.type != DayType.NO_CLASS) return emptyList()
             val walk = state.plan.slot(SlotKey.WALK) ?: return emptyList()
             val first = state.plan.slot(SlotKey.FIRST_MEAL)?.minute ?: return emptyList()
             val core = state.plan.slot(SlotKey.CORE)?.minute ?: return emptyList()

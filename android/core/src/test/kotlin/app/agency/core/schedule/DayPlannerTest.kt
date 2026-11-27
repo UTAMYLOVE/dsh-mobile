@@ -52,16 +52,23 @@ class DayPlannerTest {
         }
     }
 
-    @Test fun aRestDayDropsDeliveryStrengthAndCoreAndKeepsTheTimes() {
+    @Test fun aRestDayDropsOnlyTheDeliveryAndKeepsTheTraining() {
         val d = day(0)
         val p = DayPlanner.build(d, override = DayOverride(d.toString(), restDay = true, declaredAt = 1))
         assertTrue(p.rest)
-        assertEquals(listOf("08:30 WAKE", "12:10 LUNCH", "17:15 DINNER", "21:00 RIDE_MEAL", "22:00 STRETCH", "02:30 SIGN_OUT"), times(p))
-        assertFalse(p.slot(SlotKey.STRETCH)!!.required) // allowed, not owed
+        assertEquals(
+            listOf("08:30 WAKE", "12:10 LUNCH", "17:15 DINNER", "18:30 CORE", "18:40 STRENGTH", "19:05 STRETCH", "21:00 RIDE_MEAL", "02:30 SIGN_OUT"),
+            times(p),
+        )
+        // Owed like any day, due at their time (no ride to come home from).
+        assertTrue(listOf(SlotKey.CORE, SlotKey.STRENGTH, SlotKey.STRETCH).all { p.slot(it)!!.required && !p.slot(it)!!.afterRide })
         assertFalse(p.delivery)
         // A no-class rest day keeps its walk and its own times.
         val w = DayPlanner.build(day(2), override = DayOverride(day(2).toString(), restDay = true, declaredAt = 1))
-        assertEquals(listOf("12:00 WAKE", "13:00 FIRST_MEAL", "16:20 WALK", "17:15 DINNER", "21:00 RIDE_MEAL", "22:00 STRETCH", "04:00 SIGN_OUT"), times(w))
+        assertEquals(
+            listOf("12:00 WAKE", "13:00 FIRST_MEAL", "16:20 WALK", "17:15 DINNER", "18:30 CORE", "18:40 STRENGTH", "19:05 STRETCH", "21:00 RIDE_MEAL", "04:00 SIGN_OUT"),
+            times(w),
+        )
     }
 
     @Test fun hungryMorningMovesTheSoyMilkAndKeepsTheChickenAt2100() {
