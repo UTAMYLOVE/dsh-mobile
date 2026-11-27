@@ -56,10 +56,11 @@ Ask him for it at the start; never commit its contents here.
    - the guard must allow same-day "next meal a bit smaller" but still ban skipping meals and next-day compensation;
    - only illness or injury may reduce training; progression is AUTOMATIC once truly stable (no confirmation);
    - first day after illness: reduced strength, full the next day.
-2. Staged rollout: everything is built, but features switch on week by week (week 1: sign-in/out, meal photos, water,
-   core+strength; week 2: lessons+quizzes, morning stretch, vocal basics; week 3: cardio, dance, posture, sunscreen, mood;
-   week 4+: weekly evaluation, surprise checks, theme weeks, earlier bedtime, first monthly evaluation). Next week opens only
-   when the current week is stable. Features not yet open are not scheduled, chased or counted.
+2. Staged rollout: everything is built, but features switch on week by week. Week 1: lessons only (theory videos, quizzes,
+   notes, "I want to learn X"). Week 2: + sign-in/out, meal photos, water, core + strength. Week 3: + morning stretch, vocal
+   basics, cardio, posture, sunscreen, mood. Week 4+: + dance, weekly evaluation, surprise checks, theme weeks, earlier
+   bedtime, first monthly evaluation. Next week opens only when the current week is stable. Features not yet open are not
+   scheduled, chased or counted.
 3. Camera inside the app (CameraX) + pick from gallery; images (meal, menu, body) may go to an image-capable model after
    downscale and EXIF strip; recordings never leave the phone except opt-in speech-to-text for lyrics.
 4. Memo (「幫我記」「提醒我」), file import (CSV/XLSX/JSON + paste; bookkeeping, meals, weight, memos; preview, confirm, undo),
