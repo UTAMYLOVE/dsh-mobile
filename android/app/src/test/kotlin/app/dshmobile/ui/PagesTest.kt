@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.printToString
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import app.dshmobile.ui.pages.EvalPage
@@ -178,15 +180,16 @@ class PagesTest {
         rule.mainClock.advanceTimeBy(100)
         rule.until { rule.count("timer_start") > 0 }
         rule.onNodeWithTag("timer_start").performClick()
-        rule.mainClock.advanceTimeBy(50)
-        repeat(8) {
+        rule.mainClock.advanceTimeBy(100)
+        repeat(10) {
             if (rule.count("timer_skip") > 0) {
                 rule.onNodeWithTag("timer_skip").performClick()
-                rule.mainClock.advanceTimeBy(50)
+                rule.mainClock.advanceTimeBy(100)
             }
         }
         rule.mainClock.autoAdvance = true
-        rule.until { rule.count("timer_done") > 0 }
+        rule.waitForIdle()
+        assertTrue("the timer never finished:\n" + rule.onRoot(useUnmergedTree = true).printToString(), rule.count("timer_done") > 0)
         rule.onNodeWithTag("feel_HARD").performClick()
         rule.until { finished.get() }
         assertEquals(listOf("CORE:2:3:HARD:0"), timer.finished.toList())

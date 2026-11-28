@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import app.dshmobile.ui.onboarding.OnboardingFlow
 import app.dshmobile.ui.settings.SettingsPage
 import app.dshmobile.ui.settings.SettingsRoot
@@ -83,7 +84,7 @@ class OnboardingSettingsTest {
         rule.show { SettingsRoot(settings, DemoBackup(), DemoOldData(), {}, startAt = SettingsPage.RULES) }
         rule.until { rule.count("rule_wake") > 0 }
         rule.onNodeWithTag("rules_save").assertIsNotEnabled()
-        rule.onNodeWithTag("rule_wake").performTextInput("5")
+        rule.onNodeWithTag("rule_wake").performTextReplacement("07:30")
         rule.onNodeWithTag("rules_save").assertIsEnabled()
         rule.onNodeWithTag("rules_save").performClick()
         rule.onNodeWithTag("confirm_1").assertIsDisplayed()
@@ -92,7 +93,7 @@ class OnboardingSettingsTest {
         assertTrue(settings.saved.isEmpty())
         rule.onNodeWithTag("confirm_yes").performClick()
         rule.until { settings.saved.size == 1 }
-        assertEquals(mapOf("wake" to "07:005"), settings.saved[0])
+        assertEquals(mapOf("wake" to "07:30"), settings.saved[0])
         rule.until { rule.has("已存好。") }
     }
 
@@ -100,7 +101,7 @@ class OnboardingSettingsTest {
         val settings = DemoSettings()
         rule.show { SettingsRoot(settings, DemoBackup(), DemoOldData(), {}, startAt = SettingsPage.RULES) }
         rule.until { rule.count("rule_wake") > 0 }
-        rule.onNodeWithTag("rule_wake").performTextInput("5")
+        rule.onNodeWithTag("rule_wake").performTextReplacement("07:30")
         rule.onNodeWithTag("rules_save").performClick()
         rule.onNodeWithTag("confirm_cancel").performClick()
         assertTrue(settings.saved.isEmpty())
