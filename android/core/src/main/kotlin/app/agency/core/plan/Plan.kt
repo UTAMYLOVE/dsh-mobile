@@ -115,4 +115,6 @@ data class WeekSoFar(
     val restDayUsed: Boolean = false,
     val rideIncome: Int = 0,
     val rideDays: Int = 0,
+    /** Added for grooming: the last day each `rules.grooming` item (by name) was done; a missing name is due now. */
+    val groomed: Map<String, LocalDate> = emptyMap(),
 )
