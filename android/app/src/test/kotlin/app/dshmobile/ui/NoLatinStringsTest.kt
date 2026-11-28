@@ -17,8 +17,11 @@ class NoLatinStringsTest {
     private val latin = Regex("[A-Za-zＡ-Ｚａ-ｚ]")
     private val entry = Regex("<string\\s+name=\"([a-z0-9_]+)\"[^>]*>(.*?)</string>", RegexOption.DOT_MATCHES_ALL)
 
+    /** The two key names are the only Latin words on screen: he must match them to the two websites he gets keys from. */
+    private val brands = listOf("Claude", "DeepSeek")
+
     private fun visibleLatin(s: String): Boolean {
-        val t = level.replace(placeholder.replace(escape.replace(s, ""), ""), "")
+        val t = level.replace(placeholder.replace(escape.replace(brands.fold(s) { acc, b -> acc.replace(b, "") }, ""), ""), "")
         return latin.containsMatchIn(t)
     }
 
@@ -39,7 +42,9 @@ class NoLatinStringsTest {
         assertFalse(visibleLatin("%1\$s 的 B 級課"))
         assertFalse(visibleLatin("音準 %1\$d%%"))
         assertFalse(visibleLatin("해나"))
+        assertFalse(visibleLatin("主要金鑰（Claude）和第二把（DeepSeek）"))
         assertTrue(visibleLatin("下載 APK"))
+        assertTrue(visibleLatin("Claudex"))
         assertTrue(visibleLatin("ok"))
         assertTrue(visibleLatin("CBA"))
     }

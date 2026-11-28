@@ -75,6 +75,8 @@ class OnboardingAdapter(
 
     override fun keysSaved(): Boolean = keys.has(Provider.ANTHROPIC)
 
+    override fun deepSeekSaved(): Boolean = keys.has(Provider.DEEPSEEK)
+
     override suspend fun saveKeys(claude: String, deepseek: String): Boolean = withContext(Dispatchers.IO) {
         if (claude.isBlank() && keys.has(Provider.ANTHROPIC)) {
             // The key an older version saved stays; only a new DeepSeek key is taken.

@@ -535,6 +535,45 @@ class Company(
         return line
     }
 
+    override fun logMeal(slot: String, picks: List<MealPick>, photoId: String?, fromGallery: Boolean): String? {
+        rollover()
+        if (picks.isEmpty()) return null
+        val tool = Tools.named("log_meal") ?: return null
+        val args = buildJsonObject {
+            put("slot", slot.lowercase())
+            put("source", "label")
+            put("attach_photo", photoId != null)
+            put("free_meal", false)
+            put(
+                "items",
+                kotlinx.serialization.json.buildJsonArray {
+                    picks.forEach { p -> add(buildJsonObject { put("name", p.name); put("kcal", p.kcal); put("protein_g", p.proteinG) }) }
+                },
+            )
+        }
+        val out = runBlocking { tool.run(args, ctx(listOfNotNull(photoId), listOfNotNull(photoId?.let { fromGallery }))) }
+        if (!out.ok) return null
+        val line = Tools.noteLine(tool, out)
+        note(line, out.cards)
+        return line
+    }
+
+    override fun realTaskNow(): app.agency.core.store.RealTask? {
+        if (!Feature.REAL_TASK.openAt(moment().stage.stage)) return null
+        return app.agency.core.extras.RealTasks(store, clock).current(Days.today(clock))
+    }
+
+    override fun realTaskDone(): String? {
+        rollover()
+        if (!Feature.REAL_TASK.openAt(moment().stage.stage)) return null
+        val tool = Tools.named("real_task") ?: return null
+        val out = runBlocking { tool.run(buildJsonObject { put("text", ""); put("done", true) }, ctx()) }
+        if (!out.ok) return null
+        val line = Tools.noteLine(tool, out)
+        note(line)
+        return line
+    }
+
     override fun bodyPhoto(photoId: String): String {
         BodyPhotos(store, clock).record(photoId)
         val line = "✓ 已存全身對比照"

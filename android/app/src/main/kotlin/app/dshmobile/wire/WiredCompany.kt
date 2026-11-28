@@ -81,6 +81,11 @@ class WiredCompany(
     override fun openLesson(id: Long): String? = changed { c().openLesson(id) }
     override fun backFromLesson(id: Long, watched: Boolean): LessonResult = changed { c().backFromLesson(id, watched) }
     override suspend fun quizFor(id: Long): Quiz? = c().quizFor(id)
+    override suspend fun quizStatus(id: Long): app.agency.core.agent.QuizStatus = c().quizStatus(id)
+    override fun logMeal(slot: String, picks: List<app.agency.core.agent.MealPick>, photoId: String?, fromGallery: Boolean): String? =
+        changed { c().logMeal(slot, picks, photoId, fromGallery) }
+    override fun realTaskNow(): app.agency.core.store.RealTask? = c().realTaskNow()
+    override fun realTaskDone(): String? = changed { c().realTaskDone() }
     override fun answerQuiz(id: Long, answers: List<Int>): QuizResult = changed { c().answerQuiz(id, answers) }
     override fun writeNote(id: Long, text: String): LessonResult = changed { c().writeNote(id, text) }
     override suspend fun reviewQuizFor(id: Long): Quiz? = c().reviewQuizFor(id)

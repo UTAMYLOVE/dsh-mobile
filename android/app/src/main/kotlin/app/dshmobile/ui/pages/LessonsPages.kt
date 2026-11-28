@@ -123,6 +123,15 @@ fun QuizPage(lessons: LessonsUi, lessonId: Long, startWithNote: Boolean, onBack:
     val q = quiz
     PageFrame(q?.title?.ifBlank { null } ?: stringResource(R.string.quiz_title), onBack) {
         if (q == null) return@PageFrame
+        if (q.unavailable != null) {
+            // No quiz can be made right now (the model could not be reached): the lesson stays as it is.
+            Block(Modifier.testTag("quiz_unavailable"), fill = Pal.Butter) { KText(q.unavailable, bold = true) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PillButton(stringResource(R.string.quiz_retry), { attempt++ }, Modifier.testTag("quiz_again"), Pal.Mint, Type.Small)
+                PillButton(stringResource(R.string.quiz_back), onBack, Modifier.testTag("quiz_leave"), Pal.White, Type.Small)
+            }
+            return@PageFrame
+        }
         val noteMode = startWithNote || q.questions.isEmpty() || result?.passed == true
         if (!noteMode) {
             q.questions.forEachIndexed { qi, qq ->

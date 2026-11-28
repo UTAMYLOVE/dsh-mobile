@@ -46,7 +46,7 @@ enum class LessonState { PROPOSED, APPROVED, WATCHED, PASSED, NOTED, REVIEW_DUE 
 class QuizQuestion(val question: String, val options: List<String>)
 
 /** [lessonId] null never happens; [questions] empty means "no quiz for this lesson: write three lines of notes". */
-class QuizView(val lessonId: Long, val title: String, val questions: List<QuizQuestion>)
+class QuizView(val lessonId: Long, val title: String, val questions: List<QuizQuestion>, val unavailable: String? = null)
 
 /** [wrong] holds the indexes of the questions answered wrongly. */
 class QuizResult(val correct: Int, val total: Int, val passed: Boolean, val wrong: List<Int>)
@@ -74,7 +74,15 @@ interface LessonsUi {
 class TimerMove(val name: String, val seconds: Int)
 
 /** [rounds] repeats of [moves], with [restSeconds] between rounds. [title] is the task's name. */
-class TimerPlan(val task: String, val title: String, val rounds: Int, val moves: List<TimerMove>, val restSeconds: Int)
+class TimerPlan(
+    val task: String,
+    val title: String,
+    val rounds: Int,
+    val moves: List<TimerMove>,
+    val restSeconds: Int,
+    /** Not empty = a checklist instead of a countdown (grooming: the items that are due). */
+    val checklist: List<String> = emptyList(),
+)
 
 /** The training timer. */
 interface TimerUi {
@@ -83,6 +91,12 @@ interface TimerUi {
 
     /** [feel] is "EASY", "OK" or "HARD"; [awaySeconds] is how long the app was in the background while it ran. */
     fun finish(task: String, rounds: Int, minutes: Int, feel: String, awaySeconds: Int)
+
+    /** He left the app while the timer was running: after a short while a quiet notice may be posted. */
+    fun leftWhileRunning() {}
+
+    /** He is back (or the page closed): the notice is taken away. */
+    fun cameBack() {}
 }
 
 class MemoRow(val id: Long, val text: String, val due: String?, val done: Boolean)
@@ -98,10 +112,16 @@ interface MemoUi {
 
 /** The weekly weigh-in sheet. */
 interface BodyUi {
-    /** Plain lines about the last weigh-in ("上次 68.4 公斤"), empty when none. */
+    /** Plain lines about the last weigh-in ("上次 71.3 公斤"), empty when none. */
     fun last(): List<String>
     suspend fun log(kg: Double?, waistCm: Double?, photo: Attachment.Photo?): String
+
+    /** Every body photo in date order (the 全身照 page). Called on an IO thread. */
+    fun timeline(): List<BodyShotRow> = emptyList()
 }
+
+/** One point of the body-photo timeline: [date] is already in his words ("11/23"), [note] a short line (weight, waist) or blank. */
+class BodyShotRow(val date: String, val photoId: String, val note: String = "")
 
 /** [bucket] is "LIVING", "FUN" or "INCOME". */
 interface MoneyUi {
@@ -128,8 +148,29 @@ interface TraineeUi {
     fun card(): TraineeCard
 }
 
-/** One singing take's numbers (all computed by code). */
-class SongResult(val inTunePct: Int, val range: String, val longestPhraseSec: Int, val loudness: String, val comment: String)
+/**
+ * One singing take's numbers (all computed by code). [shift] is the "higher / lower by N semitones" line when the comparison
+ * with a reference gave one; [chart] is the pitch-curve picture (PNG bytes) of this take; [compare] the comparison lines.
+ */
+class SongResult(
+    val inTunePct: Int,
+    val range: String,
+    val longestPhraseSec: Int,
+    val loudness: String,
+    val comment: String,
+    val shift: String = "",
+    val chart: ByteArray? = null,
+    val compare: List<String> = emptyList(),
+)
+
+/** An imported reference melody, as listed. */
+class SongRefRow(val id: String, val title: String, val source: String)
+
+/** What importing a reference came to: [title] when it worked, else [failure] in his words (both null when he backed out). */
+class RefImport(val title: String?, val failure: String?)
+
+/** What the lyric check came to: [lines] to show, or [failure] in his words. */
+class LyricsOutcome(val lines: List<String>, val failure: String?)
 
 interface SingingUi {
     /** Starts recording; false when the microphone is refused. */
@@ -138,6 +179,27 @@ interface SingingUi {
     /** Stops, analyses on the phone, returns the numbers; null when nothing usable was recorded. */
     suspend fun stop(): SongResult?
     fun history(): List<SongResult>
+
+    /** The references he imported so far. */
+    fun references(): List<SongRefRow> = emptyList()
+
+    /** The file picker, then the import of a recorded demo, a melody file (MIDI) or a karaoke text file. */
+    suspend fun importReference(): RefImport = RefImport(null, null)
+
+    /** The reference the next take is compared with (null = none). */
+    fun chooseReference(id: String?) {}
+
+    /** True = 嚴格 (the default), false = 一般. */
+    fun setStrict(strict: Boolean) {}
+
+    /** True when a DeepSeek key exists, so the lyric check can be offered at all. */
+    fun lyricsAvailable(): Boolean = false
+
+    /**
+     * Sends the LAST take to speech-to-text and compares it with [lyrics]. Nothing is sent unless [consent] is true (he ticked the
+     * box for this one time).
+     */
+    suspend fun checkLyrics(lyrics: String, consent: Boolean): LyricsOutcome = LyricsOutcome(emptyList(), null)
 }
 
 class EvalItem(val key: String, val label: String, val recorded: Boolean, val suggested: Int?, val reason: String)
@@ -151,6 +213,9 @@ interface EvalUi {
 
     /** His confirmed 1..5 score per [EvalItem.key]. */
     fun confirm(monthly: Boolean, scores: Map<String, Int>)
+
+    /** The monthly fitness test (push-ups in one go, plank seconds), kept for [confirm]. Null = not done. */
+    fun setFitness(pushUps: Int?, plankSeconds: Int?) {}
 }
 
 class PermissionState(val notifications: Boolean, val exactAlarms: Boolean)
@@ -177,6 +242,9 @@ interface OnboardingUi {
 
     /** True when a Claude key is already saved (an older version's key carried over): the keys step may then be left blank. */
     fun keysSaved(): Boolean = false
+
+    /** True when a DeepSeek key is saved too (the second key). */
+    fun deepSeekSaved(): Boolean = false
 }
 
 class RuleField(val key: String, val label: String, val value: String, val hint: String = "")
@@ -232,6 +300,41 @@ interface OldDataUi {
     fun delete(): Boolean
 }
 
+/** What the photo is for, once he has taken one (the camera knows its purpose from where it was opened). */
+interface PhotoUi {
+    /** A photo answering a spot check: the NOTE line, or null when no check is open. */
+    fun spot(photoId: String): String? = null
+
+    /** A photo for a meal already recorded without one: the NOTE line, or null when there is no such meal (it then goes to chat). */
+    fun mealPhoto(slot: String, photoId: String, fromGallery: Boolean): String? = null
+
+    /** The Sunday same-angle body photo: the NOTE line. */
+    fun bodyPhoto(photoId: String): String? = null
+}
+
+/** One row of his own food table. */
+class FoodRow(val name: String, val kcal: Int, val proteinG: Double)
+
+/** Recording a meal by hand (no model). */
+interface MealUi {
+    /** His own food table. */
+    fun foods(): List<FoodRow> = emptyList()
+
+    /** Runs the direct meal path; the NOTE line (the meal card is in the conversation), or null when it could not be recorded. */
+    fun log(slot: String, picks: List<FoodRow>, photo: Attachment.Photo?): String? = null
+}
+
+/** This week's real-person task. */
+class RealTaskView(val text: String, val done: Boolean)
+
+/** The plan items that must work without the model. */
+interface PracticeUi {
+    fun realTask(): RealTaskView? = null
+
+    /** He did it: the NOTE line, or null when the feature is closed. */
+    fun realTaskDone(): String? = null
+}
+
 /** Remembers the folded / unfolded state of the three home panels. */
 interface PanelPrefs {
     /** [name] is "stickers", "handbook" or "chips". */
@@ -256,6 +359,9 @@ class UiGraph(
     val backup: BackupUi,
     val oldData: OldDataUi,
     val panels: PanelPrefs? = null,
+    val photos: PhotoUi? = null,
+    val meals: MealUi? = null,
+    val practice: PracticeUi? = null,
 )
 
 interface UiGraphProvider {

@@ -145,12 +145,14 @@ fun ProposalView(card: Card.Proposal, modifier: Modifier, onAnswer: (String) -> 
         KText(card.title, size = 17.sp, bold = true)
         if (card.body.isNotBlank()) KText(card.body, Modifier.padding(top = 2.dp), size = Type.Small)
         Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            // A single-action card (an import's 「復原」) has its own word on the yes button and no 不要.
+            val single = card.yesLabel.isNotBlank()
             when (card.answer) {
                 Card.Answer.OPEN -> {
-                    PillButton(stringResource(R.string.card_yes), { onAnswer("yes") }, Modifier.testTag("proposal_yes"), fill = Pal.Mint)
-                    PillButton(stringResource(R.string.card_no), { onAnswer("no") }, Modifier.testTag("proposal_no"), fill = Pal.Paper)
+                    PillButton(if (single) card.yesLabel else stringResource(R.string.card_yes), { onAnswer("yes") }, Modifier.testTag("proposal_yes"), fill = Pal.Mint)
+                    if (!single) PillButton(stringResource(R.string.card_no), { onAnswer("no") }, Modifier.testTag("proposal_no"), fill = Pal.Paper)
                 }
-                Card.Answer.YES -> Mark(stringResource(R.string.card_yes_done), Pal.Mint)
+                Card.Answer.YES -> Mark(if (single) stringResource(R.string.card_done_with, card.yesLabel) else stringResource(R.string.card_yes_done), Pal.Mint)
                 Card.Answer.NO -> Mark(stringResource(R.string.card_no_done), Pal.Paper)
             }
         }
@@ -174,13 +176,12 @@ fun VideosView(card: Card.Videos, modifier: Modifier, actions: CardActions, mess
                     when {
                         approved -> {
                             Mark(stringResource(R.string.card_added), Pal.Mint)
-                            ChipLink(stringResource(R.string.card_watch)) { actions.watch(v.lessonId) }
+                            ChipLink(stringResource(R.string.card_watch), Pal.Lavender, Modifier.testTag("video_watch_${v.lessonId}")) { actions.watch(v.lessonId) }
                         }
                         declined -> Mark(stringResource(R.string.card_declined), Pal.Paper)
                         else -> {
                             ChipLink(stringResource(R.string.card_add), Pal.Mint, Modifier.testTag("video_add_${v.lessonId}")) { actions.answer(messageId, index, "approve:${v.lessonId}") }
                             ChipLink(stringResource(R.string.card_no), Pal.Paper, Modifier.testTag("video_no_${v.lessonId}")) { actions.answer(messageId, index, "decline:${v.lessonId}") }
-                            ChipLink(stringResource(R.string.card_watch), Pal.Lavender, Modifier.testTag("video_watch_${v.lessonId}")) { actions.openUrl(v.url) }
                         }
                     }
                 }

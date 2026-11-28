@@ -146,13 +146,13 @@ fun PillButton(
 
 /** A small quick-reply style chip. */
 @Composable
-fun ChipPill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, fill: Color = Pal.Butter) {
+fun ChipPill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, fill: Color = Pal.Butter, enabled: Boolean = true) {
     Box(
         modifier = modifier
-            .sticker(fill, PillShape, shadow = 2.dp)
-            .tap(onClick)
+            .sticker(if (enabled) fill else Pal.Paper, PillShape, shadow = if (enabled) 2.dp else 0.dp)
+            .tap(onClick, enabled = enabled)
             .padding(horizontal = 13.dp, vertical = 7.dp),
-    ) { KText(text, size = 14.5.sp) }
+    ) { KText(text, size = 14.5.sp, alpha = if (enabled) 1f else 0.4f) }
 }
 
 /** A numbered dot (score 1..5). */

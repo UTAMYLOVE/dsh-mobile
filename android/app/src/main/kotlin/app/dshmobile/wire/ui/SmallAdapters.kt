@@ -40,9 +40,28 @@ object TimerPlans {
     private const val REST = 30
     private const val DEFAULT_MINUTES = 5
 
-    fun of(task: String, t: TrainingRule): TimerPlan {
+    /** The weekly theme practice: [themeName] is the theme's Chinese name, [themeMinutes] its length. */
+    const val THEME_TASK = "THEME_PRACTICE"
+
+    /** The personal task of the month is ten minutes unless the company says otherwise. */
+    const val PERSONAL_MINUTES = 10
+
+    fun of(
+        task: String,
+        t: TrainingRule,
+        themeName: String? = null,
+        themeMinutes: Int = DEFAULT_MINUTES,
+        personalMinutes: Int = PERSONAL_MINUTES,
+        groomingDue: List<String> = emptyList(),
+    ): TimerPlan {
+        if (task == THEME_TASK) {
+            val name = themeName ?: "主題週"
+            return TimerPlan(task, name, 1, listOf(TimerMove(name, minutes(themeMinutes) * 60)), 0)
+        }
         val id = TaskId.entries.firstOrNull { it.name == task }
         val title = id?.title ?: task
+        if (id == TaskId.GROOMING) return TimerPlan(task, title, 1, listOf(TimerMove(title, 60)), 0, checklist = groomingDue.ifEmpty { listOf(title) })
+        if (id == TaskId.PERSONAL_TASK) return TimerPlan(task, title, 1, listOf(TimerMove(title, minutes(personalMinutes) * 60)), 0)
         return when (id) {
             TaskId.STRENGTH -> TimerPlan(
                 task, title, t.strengthRounds.coerceAtLeast(1),
@@ -80,11 +99,25 @@ object TimerPlans {
 }
 
 /** The training timer: the plan comes from the rules in force (levels included), and finishing writes the task through the company. */
-class TimerAdapter(private val admin: CompanyAdmin, private val store: Store) : TimerUi {
+class TimerAdapter(
+    private val admin: CompanyAdmin,
+    private val store: Store,
+    private val api: CompanyApi? = null,
+    private val away: TimerAway? = null,
+) : TimerUi {
     override fun plan(task: String): TimerPlan {
         val training = Progression.effective(admin.rules(), app.agency.core.stage.Today.levels(store))
-        return TimerPlans.of(task, training)
+        val theme = api?.item("theme")?.title?.substringBefore('：')?.takeIf { it.isNotBlank() }
+        val due = api?.item("task:GROOMING")?.detail.orEmpty().split('、').map { it.trim() }.filter { it.isNotEmpty() }
+        return TimerPlans.of(
+            task, training, themeName = theme,
+            personalMinutes = admin.evalView().personalTask?.minutes ?: TimerPlans.PERSONAL_MINUTES, groomingDue = due,
+        )
     }
+
+    override fun leftWhileRunning() { away?.left() }
+
+    override fun cameBack() { away?.back() }
 
     override fun finish(task: String, rounds: Int, minutes: Int, feel: String, awaySeconds: Int) {
         admin.timerDone(task, rounds, minutes, Feel.entries.firstOrNull { it.name == feel.uppercase() }, awaySeconds)
@@ -128,6 +161,17 @@ class BodyAdapter(
             kg?.let { context.getString(R.string.body_last_kg, num(it)) },
             waist?.let { context.getString(R.string.body_last_waist, num(it)) },
         )
+    }
+
+    override fun timeline(): List<app.dshmobile.ui.BodyShotRow> {
+        val fmt = java.time.format.DateTimeFormatter.ofPattern("M/d")
+        return app.agency.core.extras.BodyPhotos(store, clock()).timeline().map { s ->
+            val note = listOfNotNull(
+                s.weightKg?.let { context.getString(R.string.body_last_kg, num(it)) },
+                s.waistCm?.let { context.getString(R.string.body_last_waist, num(it)) },
+            ).joinToString("，")
+            app.dshmobile.ui.BodyShotRow(s.day.format(fmt), s.photoId, note)
+        }
     }
 
     override suspend fun log(kg: Double?, waistCm: Double?, photo: Attachment.Photo?): String = withContext(Dispatchers.IO) {

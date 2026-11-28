@@ -44,11 +44,11 @@ class CardsTest {
     }
 
     @Test fun mealCardShowsComputedNumbersAndMarks() {
-        card(Card.MealCard(1, "午餐　記好了", 650, 40.0, 650, 1700, 40.0, 100, estimated = true, needsPhoto = true, warnings = listOf("比單餐上限多")))
+        card(Card.MealCard(1, "午餐　記好了", 650, 40.0, 650, 2100, 40.0, 110, estimated = true, needsPhoto = true, warnings = listOf("比單餐上限多")))
         rule.onNodeWithText("午餐　記好了").assertIsDisplayed()
         rule.onNodeWithText("650 大卡").assertIsDisplayed()
         rule.onNodeWithText("蛋白質 40 克").assertIsDisplayed()
-        rule.onNodeWithText("今天 650／1700").assertIsDisplayed()
+        rule.onNodeWithText("今天 650／2100").assertIsDisplayed()
         rule.onNodeWithText("估算").assertIsDisplayed()
         rule.onNodeWithText("缺照片").assertIsDisplayed()
         rule.onNodeWithText("比單餐上限多").assertIsDisplayed()
@@ -74,8 +74,9 @@ class CardsTest {
         rule.onNodeWithText("聲樂 · 12 分鐘").assertIsDisplayed()
         rule.onNodeWithTag("video_add_31").performClick()
         rule.onNodeWithTag("video_no_31").performClick()
-        rule.onNodeWithTag("video_watch_31").performClick()
-        assertEquals(listOf("answer:7:2:approve:31", "answer:7:2:decline:31", "url:https://example.org/a"), log.toList())
+        // 去看 only appears after 加入清單
+        assertEquals(0, rule.onAllNodesWithTagCount("video_watch_31"))
+        assertEquals(listOf("answer:7:2:approve:31", "answer:7:2:decline:31"), log.toList())
     }
 
     @Test fun approvedVideoOffersWatchThroughTheLessons() {

@@ -75,14 +75,14 @@ class PagesTest {
         val body = DemoBody()
         val done = AtomicBoolean()
         rule.show { BodySheet(body, DemoMedia(), {}, { done.set(true) }) }
-        rule.until { rule.has("上次體重 68.4 公斤") }
-        rule.onNodeWithTag("body_kg").performTextInput("68.1")
+        rule.until { rule.has("上次體重 71.3 公斤") }
+        rule.onNodeWithTag("body_kg").performTextInput("71.0")
         rule.onNodeWithTag("body_waist").performTextInput("73")
         rule.onNodeWithTag("body_photo").performClick()
         rule.until { rule.has("已附照片") }
         rule.onNodeWithTag("body_save").performClick()
         rule.until { done.get() }
-        assertEquals(listOf("body:68.1:73.0:true"), body.log.toList())
+        assertEquals(listOf("body:71.0:73.0:true"), body.log.toList())
     }
 
     @Test fun moneySheetRecordsAmountBucketAndNote() {

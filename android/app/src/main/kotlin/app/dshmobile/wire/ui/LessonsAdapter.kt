@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import app.agency.core.agent.CompanyAdmin
+import app.agency.core.agent.QuizStatus
 import app.agency.core.agent.LessonRow as CoreRow
 import app.agency.core.lessons.Quiz
 import app.agency.core.lessons.LessonState as CoreState
@@ -82,13 +83,19 @@ class LessonsAdapter(
     override suspend fun quiz(lessonId: Long): QuizView = withContext(Dispatchers.IO) {
         val row = admin.lessons().let { v -> v.reviews.firstOrNull { it.id == lessonId } ?: v.byState.values.flatten().firstOrNull { it.id == lessonId } }
         val title = row?.title.orEmpty()
+        var unavailable: String? = null
         val quiz: Quiz? = when {
             row == null -> null
             isReview(lessonId) -> admin.reviewQuizFor(lessonId)
-            row.state == CoreState.WATCHED -> admin.quizFor(lessonId)
+            row.state == CoreState.WATCHED -> when (val st = admin.quizStatus(lessonId)) {
+                is QuizStatus.Ready -> st.quiz
+                QuizStatus.NotesOnly -> null
+                // The model could not be reached: the lesson stays as it is; the page says so.
+                is QuizStatus.Unavailable -> { unavailable = st.message; null }
+            }
             else -> null // passed: only the note is left
         }
-        QuizView(lessonId, title, quiz?.questions.orEmpty().map { QuizQuestion(it.q, it.options) })
+        QuizView(lessonId, title, quiz?.questions.orEmpty().map { QuizQuestion(it.q, it.options) }, unavailable)
     }
 
     override fun grade(lessonId: Long, answers: List<Int>): QuizResult {

@@ -20,7 +20,11 @@ import app.agency.core.plan.Screen
 import app.dshmobile.ui.home.HomeScreen
 import app.dshmobile.ui.home.HomeViewModel
 import app.dshmobile.ui.onboarding.OnboardingFlow
+import app.dshmobile.R
+import app.dshmobile.ui.pages.BodyPhotosPage
 import app.dshmobile.ui.pages.EvalPage
+import app.dshmobile.ui.sheets.MealLogSheet
+import app.dshmobile.ui.sheets.RealTaskSheet
 import app.dshmobile.ui.pages.LessonsPage
 import app.dshmobile.ui.pages.MemoPage
 import app.dshmobile.ui.pages.QuizPage
@@ -43,12 +47,18 @@ sealed interface Route {
     data object Memo : Route
     data object Trainee : Route
     data object Settings : Route
-    data object Eval : Route
+    /** [monthly] opens the monthly tab. */
+    data class Eval(val monthly: Boolean = false) : Route
     data object Singing : Route
     data object CheckIn : Route
     data object CheckOut : Route
-    data object Body : Route
+
+    /** [photo] opens the body sheet on its photo part. */
+    data class Body(val photo: Boolean = false) : Route
     data object Money : Route
+    data object BodyPhotos : Route
+    data class MealLog(val slot: String, val photo: app.agency.core.agent.Attachment.Photo?) : Route
+    data object RealTask : Route
 }
 
 /** Panel state kept in plain app preferences (a per-viewer convenience, nothing private). */
@@ -60,8 +70,6 @@ class SharedPrefsPanelPrefs(context: Context) : PanelPrefs {
     }
 }
 
-private val StageRegex = Regex("第[ 　]*([0-9]+)[ 　]*階段")
-
 /** The root: onboarding while `today().ready` is false, else home with pages and sheets on top. */
 @Composable
 fun UiRoot(graph: UiGraph, startRoutes: List<Route> = emptyList()) {
@@ -71,7 +79,11 @@ fun UiRoot(graph: UiGraph, startRoutes: List<Route> = emptyList()) {
     LaunchedEffect(graph) { ready = withContext(io) { graph.company.today().ready } }
     when (ready) {
         null -> Box(Modifier.fillMaxSize().paper())
-        false -> OnboardingFlow(graph.onboarding, onFinished = { ready = true })
+        false -> OnboardingFlow(
+            graph.onboarding, onFinished = { ready = true },
+            backup = graph.backup,
+            onRestored = { withContext(io) { graph.company.today().ready } },
+        )
         true -> MainContent(graph, startRoutes, context)
     }
 }
@@ -81,10 +93,11 @@ private fun MainContent(graph: UiGraph, startRoutes: List<Route>, context: Conte
     val scope = rememberCoroutineScope()
     val io = LocalIo.current
     val panels = graph.panels ?: remember { SharedPrefsPanelPrefs(context) }
-    val vm = remember(graph) { HomeViewModel(graph.company, scope, panels, io) }
+    val vm = remember(graph) { HomeViewModel(graph.company, scope, panels, io, photos = graph.photos) }
     val stack = remember { mutableStateListOf<Route>().also { it.addAll(startRoutes) } }
     val today by vm.today.collectAsState()
-    val moodOpen = today?.moodOpen ?: ((today?.stageLabel?.let { StageRegex.find(it)?.groupValues?.get(1)?.toIntOrNull() } ?: 1) >= 3)
+    // The mood dots belong on check-out only when the company says the mood feature is open.
+    val moodOpen = today?.moodOpen == true
 
     fun pop() {
         if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex)
@@ -98,8 +111,8 @@ private fun MainContent(graph: UiGraph, startRoutes: List<Route>, context: Conte
             Screen.TIMER -> stack.add(Route.Timer(arg))
             Screen.CHECK_IN -> stack.add(Route.CheckIn)
             Screen.CHECK_OUT -> stack.add(Route.CheckOut)
-            Screen.BODY -> stack.add(Route.Body)
-            Screen.EVAL -> stack.add(Route.Eval)
+            Screen.BODY -> stack.add(Route.Body(photo = arg == "photo"))
+            Screen.EVAL -> stack.add(Route.Eval(monthly = arg == "monthly"))
             Screen.SINGING -> stack.add(Route.Singing)
             Screen.MEMO -> stack.add(Route.Memo)
             Screen.MONEY -> stack.add(Route.Money)
@@ -108,7 +121,12 @@ private fun MainContent(graph: UiGraph, startRoutes: List<Route>, context: Conte
     }
 
     Box(Modifier.fillMaxSize()) {
-        HomeScreen(vm, graph, onOpen = ::open, onTrainee = { stack.add(Route.Trainee) }, onSettings = { stack.add(Route.Settings) })
+        HomeScreen(
+            vm, graph, onOpen = ::open, onTrainee = { stack.add(Route.Trainee) }, onSettings = { stack.add(Route.Settings) },
+            onBodyPhotos = { stack.add(Route.BodyPhotos) },
+            onMealLog = { slot, photo -> stack.add(Route.MealLog(slot, photo)) },
+            onRealTask = { stack.add(Route.RealTask) },
+        )
         val top = stack.lastOrNull()
         if (top != null) {
             Box(Modifier.fillMaxSize().pointerInput(Unit) {}.testTag("overlay")) {
@@ -118,12 +136,43 @@ private fun MainContent(graph: UiGraph, startRoutes: List<Route>, context: Conte
                     is Route.Timer -> TimerPage(graph.timer, top.task, ::pop, ::pop)
                     Route.Memo -> MemoPage(graph.memo, ::pop)
                     Route.Trainee -> TraineePage(graph.trainee, graph.media, ::pop)
-                    Route.Settings -> SettingsRoot(graph.settings, graph.backup, graph.oldData, ::pop)
-                    Route.Eval -> EvalPage(graph.eval, ::pop, ::pop)
+                    Route.Settings -> SettingsRoot(
+                        graph.settings, graph.backup, graph.oldData, ::pop, media = graph.media,
+                        onImportFile = { file ->
+                            // Back to home, where 小葵 answers with what she read.
+                            stack.clear()
+                            vm.addAttachments(listOf(file))
+                            vm.send(context.getString(R.string.say_import_file))
+                        },
+                    )
+                    is Route.Eval -> EvalPage(graph.eval, ::pop, ::pop, startMonthly = top.monthly)
                     Route.Singing -> SingingPage(graph.singing, ::pop)
+                    Route.BodyPhotos -> BodyPhotosPage(
+                        graph.body, graph.media, ::pop,
+                        onTake = { stack.removeAt(stack.lastIndex); stack.add(Route.Body(photo = true)) },
+                    )
+                    is Route.MealLog -> {
+                        val meals = graph.meals
+                        if (meals != null) {
+                            MealLogSheet(
+                                meals, graph.media, top.slot, top.photo, ::pop, ::pop,
+                                onAsk = { pop(); vm.send(context.getString(R.string.say_meal_by_words)) },
+                            )
+                        } else {
+                            LaunchedEffect(Unit) { pop() }
+                        }
+                    }
+                    Route.RealTask -> {
+                        val practice = graph.practice
+                        if (practice != null) {
+                            RealTaskSheet(practice, ::pop, ::pop, onAsk = { pop(); vm.send(context.getString(R.string.say_real_task)) })
+                        } else {
+                            LaunchedEffect(Unit) { pop() }
+                        }
+                    }
                     Route.CheckIn -> CheckInSheet(graph.company, ::pop, ::pop)
                     Route.CheckOut -> CheckOutSheet(graph.company, moodOpen, ::pop, ::pop)
-                    Route.Body -> BodySheet(graph.body, graph.media, ::pop, ::pop)
+                    is Route.Body -> BodySheet(graph.body, graph.media, ::pop, ::pop, startOnPhoto = top.photo)
                     Route.Money -> MoneySheet(graph.money, ::pop, ::pop)
                 }
             }

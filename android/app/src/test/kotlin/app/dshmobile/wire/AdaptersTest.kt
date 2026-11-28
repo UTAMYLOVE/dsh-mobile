@@ -68,9 +68,9 @@ class AdaptersTest {
     }
 
     @Test fun bodyLogsKgAndShowsItAgain() {
-        val line = runBlocking { ui.body.log(68.4, null, null) }
+        val line = runBlocking { ui.body.log(71.3, null, null) }
         assertTrue(line, line.isNotBlank())
-        assertTrue(ui.body.last().any { it.contains("68.4") })
+        assertTrue(ui.body.last().any { it.contains("71.3") })
         assertEquals(1, runBlocking { ui.body.log(null, null, null) }.lines().size) // nothing to log: a plain sentence, no crash
     }
 
