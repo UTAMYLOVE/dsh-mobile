@@ -126,3 +126,10 @@ data class Drink(val type: DrinkType)
 /** A day note 小葵 wrote for her own memory. */
 @Serializable
 data class Note(val text: String)
+
+/**
+ * The one real-person task of a calendar week (stage 4). [text] only ever names people he already knows; [done] is set by him.
+ * Stored on the Monday of its week.
+ */
+@Serializable
+data class RealTask(val text: String, val done: Boolean = false)
