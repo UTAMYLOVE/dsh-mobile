@@ -120,7 +120,7 @@ class HomeScreenTest {
         rule.onNodeWithTag("toggle_handbook").performClick()
         rule.onNodeWithTag("item_lesson:1").performClick()
         rule.until { rule.onAllNodesWithTagCount("overlay") > 0 }
-        rule.onNodeWithText("理論課").assertExists()
+        rule.onNode(androidx.compose.ui.test.hasTestTag("page_title") and androidx.compose.ui.test.hasText("理論課")).assertExists()
     }
 
     @Test fun aFailedMessageShowsResendAndResends() {

@@ -84,9 +84,7 @@ fun MealLogSheet(
         if (all != null && all.isEmpty()) {
             KText(stringResource(R.string.meal_no_foods), modifier = Modifier.testTag("meal_empty"))
             PillButton(stringResource(R.string.meal_ask), onAsk, Modifier.testTag("meal_ask"), Pal.Lavender)
-            return@SheetFrame
-        }
-        if (all != null) {
+        } else if (all != null) {
             if (all.size > 8) InkField(query, { query = it }, stringResource(R.string.meal_search), tag = "meal_search")
             Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 all.forEachIndexed { i, f ->

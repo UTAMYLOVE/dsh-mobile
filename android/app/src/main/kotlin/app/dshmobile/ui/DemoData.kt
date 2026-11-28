@@ -334,10 +334,11 @@ class DemoSinging(private val key: Boolean = true) : SingingUi {
     val log = CopyOnWriteArrayList<String>()
     private val refs = mutableListOf<SongRefRow>()
     private var strict = true
+    private val modeWord get() = if (strict) "嚴格" else "一般"
     override suspend fun start() = true
     override suspend fun stop() = SongResult(
         82, "中音到高音", 9, "適中", "音準穩，長句尾巴有點虛。",
-        shift = "整首比原調高 2 個半音，可以把調升 2 個半音再唱", chart = null, compare = listOf("比對（${if (strict) "嚴格" else "一般"}）：音準 80%"),
+        shift = "整首比原調高 2 個半音，可以把調升 2 個半音再唱", chart = null, compare = listOf("比對（$modeWord）：音準 80%"),
     )
 
     override fun history(): List<SongResult> = emptyList()
