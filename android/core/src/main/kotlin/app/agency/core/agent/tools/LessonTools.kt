@@ -21,14 +21,15 @@ import kotlinx.serialization.json.put
 internal class FindVideosTool : BaseTool(
     "find_videos",
     "用真的網路搜尋找教學影片，給他挑。subject 是科目（例如「語言」「聲樂」），query 是他想學的具體內容（沒有就空字串）。" +
-        "程式會依他這科的程度加上搜尋字，把最多四支影片放進清單等他按「加入清單」或「不要」。只能說回傳裡的影片標題，不要自己寫網址。",
+        "程式會依他這科的程度加上搜尋字，把最多四個結果放進清單等他按「加入清單」或「不要」。影片優先；影片不夠時會補上真的教學文章（回傳裡標「文章」），" +
+        "照實告訴他哪些是影片、哪些是文章。只能說回傳裡的標題，不要自己寫網址。找不到時不要自己一直重試，問他要不要換個方向或貼連結。",
     S.obj("subject" to S.str("科目"), "query" to S.str("他想學的具體內容；沒有就空字串")),
     Feature.LESSONS,
 ) {
     override suspend fun exec(a: Args, ctx: ToolCtx): ToolOut {
         val subject = a.str("subject", "科目")
         val search = ctx.ports.search ?: return ToolOut.error(NO_SEARCH)
-        val q = listOf(subject, SubjectLevels(ctx.store).searchWords(subject), a.text("query")).filter { it.isNotBlank() }.joinToString(" ")
+        val q = listOf(subject, SubjectLevels(ctx.store).searchWords(subject), a.text("query"), "教學影片").filter { it.isNotBlank() }.joinToString(" ")
         val hits: List<Hit> = try {
             search.videos(q)
         } catch (e: CancellationException) {
@@ -43,7 +44,7 @@ internal class FindVideosTool : BaseTool(
         for (h in hits) {
             if (videos.size >= MAX) break
             val r = book.propose(h, subject)
-            if (r is LessonResult.Ok) videos += Card.Video(r.id, subject, r.lesson.title, r.lesson.url, r.lesson.minutes)
+            if (r is LessonResult.Ok) videos += Card.Video(r.id, subject, r.lesson.title, r.lesson.url, r.lesson.minutes, page = !h.video)
         }
         if (videos.isEmpty()) {
             return ToolOut(F.obj {
@@ -55,8 +56,8 @@ internal class FindVideosTool : BaseTool(
         return ToolOut(F.obj {
             put("found", videos.size)
             put("subject", subject)
-            put("videos", F.arr(videos.map { v -> F.obj { put("lesson_id", v.lessonId); put("title", v.title) } }))
-            put("note", "找到 ${videos.size} 支影片，清單在卡片上，請他按「加入清單」或「不要」。")
+            put("videos", F.arr(videos.map { v -> F.obj { put("lesson_id", v.lessonId); put("title", v.title); put("kind", if (v.page) "文章" else "影片") } }))
+            put("note", "找到 ${videos.size} 個結果（影片 ${videos.count { !it.page }}、文章 ${videos.count { it.page }}），清單在卡片上，請他按「加入清單」或「不要」。")
         }, listOf(Card.Videos(videos)))
     }
 

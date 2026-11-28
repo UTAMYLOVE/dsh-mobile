@@ -47,8 +47,16 @@ sealed class Card {
         val yesLabel: String = "",
     ) : Card()
 
+    /** [page] marks a teaching page that is not a video (an article or a course page). */
     @Serializable
-    data class Video(val lessonId: Long, val subject: String, val title: String, val url: String, val minutes: Int? = null)
+    data class Video(
+        val lessonId: Long,
+        val subject: String,
+        val title: String,
+        val url: String,
+        val minutes: Int? = null,
+        val page: Boolean = false,
+    )
 
     /** Real search results for lessons; he approves each before it joins the list. */
     @Serializable

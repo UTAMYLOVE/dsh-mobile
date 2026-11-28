@@ -45,7 +45,8 @@ class Ports(
     val search: SearchPort? = null,
 )
 
-data class Hit(val title: String, val url: String, val summary: String = "", val content: String = "")
+/** [video] is false for a teaching page that is not on a video site (an article, a course page): still a real result. */
+data class Hit(val title: String, val url: String, val summary: String = "", val content: String = "", val video: Boolean = true)
 
 /** Real web search. A tool may only show what this returned: nothing a model wrote counts as a place or a video. */
 interface SearchPort {

@@ -120,4 +120,6 @@
     <string name="wire_sing_no_take">還沒有錄音，先唱一段。</string>
     <string name="wire_ref_bad">這個檔案讀不出旋律。</string>
     <string name="wire_ref_demo">示範錄音</string>
+    <string name="card_kind_video">影片</string>
+    <string name="card_kind_page">文章</string>
 </resources>

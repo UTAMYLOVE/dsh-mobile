@@ -91,17 +91,18 @@ class DeepSeekSearchClient(
         val q = words(query, MAX_QUERY).ifEmpty { return SearchResult.Ok("", emptyList()) }
         checks.takeBudget()?.let { return SearchResult.Failed(it) }
         val url = base.newBuilder().addPathSegments("v1/tools/search").build()
-        val body = buildJsonObject { put("query", q); put("count", REQUEST_COUNT); put("need_content", true) }
+        val body = buildJsonObject { put("query", q); put("count", VIDEO_REQUEST_COUNT); put("need_content", true) }
         val outcome = transport.postJson(url, mapOf("Authorization" to "Bearer ${CallChecks.usableKey(k)}"), body.toString())
         Fail.of(outcome)?.let { return SearchResult.Failed(it) }
         val o = UsageParser.parseObject((outcome as HttpOutcome.Response).body) ?: return SearchResult.Failed(Fail.BAD_RESPONSE)
         val results = o["results"] as? JsonArray ?: return SearchResult.Failed(Fail.BAD_RESPONSE)
         if (results.isNotEmpty()) runCatching { usage.record(Provider.DEEPSEEK, METER_MODEL, Usage(0, 0, webSearchRequests = 1)) }
-        val hits = filter(results, withContent = true)
-        return SearchResult.Ok(q, hits.sortedBy { if (videoSite(it.url)) 0 else 1 })
+        // Ask for more and keep more than a place search: video sites are a small share of what comes back, and they go first.
+        val hits = filter(results, withContent = true, max = Int.MAX_VALUE)
+        return SearchResult.Ok(q, hits.sortedBy { if (videoSite(it.url)) 0 else 1 }.take(VIDEO_MAX_HITS))
     }
 
-    private fun filter(results: JsonArray, withContent: Boolean = false): List<SearchHit> {
+    private fun filter(results: JsonArray, withContent: Boolean = false, max: Int = MAX_HITS): List<SearchHit> {
         val seen = HashSet<String>()
         return results.asSequence().mapNotNull { it as? JsonObject }.mapNotNull { r ->
             val url = r.str("url")?.trim()?.toHttpUrlOrNull()?.toString() ?: return@mapNotNull null
@@ -118,7 +119,7 @@ class DeepSeekSearchClient(
                 rerank = rerank,
                 content = if (withContent) takeCodePoints(clean(r.str("content").orEmpty()), MAX_CONTENT) else "",
             )
-        }.take(MAX_HITS).toList()
+        }.take(max).toList()
     }
 
     private fun JsonObject.str(k: String): String? = (get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -126,6 +127,8 @@ class DeepSeekSearchClient(
     companion object {
         const val DEFAULT_MIN_RERANK = 1.0
         const val MAX_HITS = 5
+        const val VIDEO_REQUEST_COUNT = 20
+        const val VIDEO_MAX_HITS = 8
         const val MAX_SUMMARY = 120
         const val MAX_TITLE = 80
         const val MAX_QUERY = 128

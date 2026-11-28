@@ -167,8 +167,10 @@ fun VideosView(card: Card.Videos, modifier: Modifier, actions: CardActions, mess
             val declined = v.lessonId in card.declined
             Column(Modifier.padding(top = if (i == 0) 0.dp else 10.dp).fillMaxWidth()) {
                 KText(v.title, size = 16.sp, bold = true, alpha = if (declined) 0.45f else 1f)
+                val kind = stringResource(if (v.page) R.string.card_kind_page else R.string.card_kind_video)
                 val meta = buildString {
                     append(v.subject)
+                    append(" · "); append(kind)
                     v.minutes?.let { append(" · "); append(stringResource(R.string.card_minutes, it)) }
                 }
                 KText(meta, size = Type.Tiny, alpha = 0.7f)
