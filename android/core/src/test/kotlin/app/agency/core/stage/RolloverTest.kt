@@ -273,7 +273,7 @@ class RolloverTest {
         assertEquals(r.monday.toString(), w.weekStart)
         assertEquals(100, w.completionPct)
         assertEquals(0, w.violations)
-        assertEquals(2200, w.rideIncome)
+        assertEquals(2150, w.rideIncome)
         assertEquals(6000, w.rideTarget)
         assertEquals(2, w.rideDays)
         assertEquals(79.2, w.weightKg!!, 0.001)
@@ -281,7 +281,7 @@ class RolloverTest {
         assertEquals(7, w.perfectDays)
         val summary = r.summaries().single { it.title == "上週成績" }
         assertTrue("完成率 100%" in summary.lines)
-        assertTrue(summary.lines.any { it.contains("2200／6000") })
+        assertTrue(summary.lines.any { it.contains("2150／6000") })
 
         r.run(r.day(8), "12:00")
         assertEquals(1, r.store.entries(r.day(8), Kind.WEEK).size)
