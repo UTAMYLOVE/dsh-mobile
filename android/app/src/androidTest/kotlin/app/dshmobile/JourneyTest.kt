@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
 import app.dshmobile.ui.MainActivity
@@ -57,8 +58,15 @@ class JourneyTest {
 
     private fun overlayShown() = rule.onAllNodes(hasTestTag("overlay")).fetchSemanticsNodes().isNotEmpty()
 
-    private fun cameras() = listOf(Stage.CREATED, Stage.STARTED, Stage.RESUMED).flatMap {
-        ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(it).filterIsInstance<CameraActivity>()
+    /** The monitor may only be asked on the main thread. */
+    private fun cameras(): List<CameraActivity> {
+        var found = emptyList<CameraActivity>()
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            found = listOf(Stage.CREATED, Stage.STARTED, Stage.RESUMED).flatMap {
+                ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(it).filterIsInstance<CameraActivity>()
+            }
+        }
+        return found
     }
 
     private fun cameraShown() = cameras().isNotEmpty()
@@ -109,6 +117,6 @@ class JourneyTest {
         } catch (e: Throwable) {
             throw AssertionError("the next-thing tap did nothing visible ($e):\n" + outline() + " seen=" + model.seen, e)
         }
-        runCatching { cameras().forEach { c -> rule.runOnUiThread { c.finish() } } }
+        runCatching { cameras().forEach { c -> c.finish() } }
     }
 }
