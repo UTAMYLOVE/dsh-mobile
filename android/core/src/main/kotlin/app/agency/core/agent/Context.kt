@@ -80,7 +80,7 @@ class Context(private val store: Store, private val clock: Clock, private val ru
         val dayType = if (plan.type == DayType.CLASS) "上課日" else "假日"
         line("現在：${m.day}（${RulesText.weekday(m.day.dayOfWeek.value)}）${hm(m.now.atZone(zone).toLocalTime())}，$dayType")
         line("階段：${Stages.label(m.stage, m.day)}（加入第 ${st.dayNumber} 天）" + roundLine())
-        val open = Stages.open(m.stage).filter { it.stage > 0 || true }
+        val open = Stages.open(m.stage).toList()
         line("開放的功能：" + open.joinToString("、") { it.label })
         val fresh = if (stage >= 2 && app.agency.core.day.StageDays.openedOn(m.stage, stage) == m.day) Stages.opensAt(stage) else emptyList()
         if (fresh.isNotEmpty()) line("剛開放（今天起）：" + fresh.joinToString("、") { it.label })
@@ -141,8 +141,8 @@ class Context(private val store: Store, private val clock: Clock, private val ru
         if (plan.adjustments.isNotEmpty()) line("今天改了什麼（程式自動調整）：" + plan.adjustments.joinToString("；") { "${it.what}（${it.why}）" })
         val flags = buildList {
             if (st.injured) add("受傷中：程式已暫停所有訓練")
-            else if (st.sick) add("生病中（第 ${st.sickDays} 天）：程式已減量（體能免做、肌力少一輪）")
-            else if (st.firstDayBack) add("剛康復：程式讓肌力少一輪")
+            else if (st.sick) add("生病中（第 ${st.sickDays} 天）：程式已依規則減量（看「今天改了什麼」）")
+            else if (st.firstDayBack) add("剛康復：程式已依規則減量（看「今天改了什麼」）")
             if (st.restDay) add("今天是休息日（只是不跑單，訓練照常）")
             if (st.examWeek) add("考試週：理論課減量")
             if (!st.unwell && !st.firstDayBack) add("訓練沒有減量：他累、痠、想睡都照原計畫")

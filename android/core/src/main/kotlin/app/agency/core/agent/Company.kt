@@ -380,6 +380,18 @@ class Company(
         )
     }
 
+    override fun approveLesson(id: Long): LessonResult {
+        val r = book().approve(id)
+        if (r is LessonResult.Ok) note("✓ 加入清單：${r.lesson.title}")
+        return r
+    }
+
+    override fun declineLesson(id: Long): LessonResult {
+        val r = book().decline(id)
+        if (r is LessonResult.Ok) note("✓ 不要這支：${r.lesson.title}")
+        return r
+    }
+
     override fun openLesson(id: Long): String? {
         val b = book()
         val l = b.get(id) ?: return null

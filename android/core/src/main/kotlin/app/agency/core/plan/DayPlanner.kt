@@ -163,18 +163,22 @@ object DayPlanner {
                 for (s in lessons) {
                     val title = when {
                         s.review -> "複習${s.subject}"
+                        s.lessonId == null && s.proposed -> "${s.subject}：影片等你決定"
                         s.lessonId == null -> "${s.subject}：等小葵找影片"
                         s.title.isBlank() -> s.subject
                         else -> "${s.subject}：${s.title}"
                     }
                     val tap = when {
+                        // A video is waiting for his yes or no: the lessons page decides it; searching again would pile up more.
+                        s.lessonId == null && s.proposed -> Tap.Open(Screen.LESSONS)
                         s.lessonId == null -> Tap.Say("幫我找今天的${s.subject}影片")
                         s.review -> Tap.Open(Screen.QUIZ, s.lessonId.toString())
                         else -> Tap.Open(Screen.LESSONS)
                     }
                     add(
                         lessonKey, "lesson:${s.n}", Feature.LESSONS, title, null, null,
-                        status(s.done, false, null, null), tap, if (s.lessonId == null && !s.done) "找影片" else "",
+                        status(s.done, false, null, null), tap,
+                        if (s.lessonId == null && !s.done) (if (s.proposed) "等你決定" else "找影片") else "",
                     )
                 }
                 for (h in habits) {
@@ -422,8 +426,13 @@ object DayPlanner {
             if (state.injured) {
                 adjustments += Adjustment("今天所有訓練暫停", "受傷中，康復之前由系統停掉訓練")
             } else if (state.sick) {
-                adjustments += Adjustment("體能今天免做，肌力少一輪", "生病中，由系統調降訓練量")
-            } else if (state.firstDayBack) {
+                // Name only what is open today: a closed feature never shows up, not even as "skipped".
+                val what = listOfNotNull(
+                    if (open(Feature.CARDIO)) "體能今天免做" else null,
+                    if (open(Feature.STRENGTH)) "肌力少一輪" else null,
+                )
+                if (what.isNotEmpty()) adjustments += Adjustment(what.joinToString("，"), "生病中，由系統調降訓練量")
+            } else if (state.firstDayBack && open(Feature.STRENGTH)) {
                 adjustments += Adjustment("肌力今天少一輪", "剛康復的第一天，由系統調降訓練量")
             }
             if (state.sickDays >= 3) {

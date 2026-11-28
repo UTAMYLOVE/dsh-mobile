@@ -132,7 +132,7 @@ data class EvalView(
  * Which screen finishes which plan item (no dead ends): CHECK_IN / CHECK_OUT / BODY (weight) → [CompanyApi.direct] with
  * `check_in` / `check_out` / `log_body`; TIMER → [timerDone]; CAMERA → [mealPhoto] (a meal already logged without a photo) or
  * [CompanyApi.say] with the photo (a new meal); CAMERA "spot" → [spotAnswer]; BODY "photo" → [bodyPhoto]; LESSONS →
- * [openLesson], [backFromLesson], [quizFor], [answerQuiz], [writeNote]; QUIZ (a review) → [reviewQuizFor], [answerReview];
+ * [approveLesson], [openLesson], [backFromLesson], [quizFor], [answerQuiz], [writeNote]; QUIZ (a review) → [reviewQuizFor], [answerReview];
  * EVAL → [submitWeeklyEval] / [submitMonthlyEval]; SINGING → [recordSong]; MEMO → [memos], [memoDone], [memoRemove];
  * MONEY → [moneyView] and [CompanyApi.direct] with `log_money`.
  */
@@ -152,6 +152,11 @@ interface CompanyAdmin {
     fun reminders(log: app.agency.core.remind.ReminderLog): app.agency.core.remind.Decision
 
     fun lessons(): LessonsView
+
+    /** He took a found video into his list (from the lessons page; the video card uses [CompanyApi.answerCard]). */
+    fun approveLesson(id: Long): app.agency.core.lessons.LessonResult
+
+    fun declineLesson(id: Long): app.agency.core.lessons.LessonResult
 
     /** He tapped 「去看」: returns the URL to open, or null when the lesson cannot be opened now. */
     fun openLesson(id: Long): String?
