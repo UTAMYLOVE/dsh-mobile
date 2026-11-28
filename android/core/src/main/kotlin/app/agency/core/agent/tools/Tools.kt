@@ -19,6 +19,7 @@ object Tools {
         FindVideosTool(), AddVideoTool(), FindPlacesTool(), LessonWishTool(), LessonsTodayTool(),
         ProposeTool(), GetDayTool(), GetWeekTool(), ReadRulesTool(),
         RealTaskTool(), EvalStatusTool(), SongSummaryTool(), OpenScreenTool(),
+        ImportPreviewTool(), UndoImportTool(),
     )
 
     private val byName: Map<String, Tool> by lazy { all().associateBy { it.spec.name } }

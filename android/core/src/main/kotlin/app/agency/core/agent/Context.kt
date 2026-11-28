@@ -242,12 +242,15 @@ class Context(
             Kind.VIOLATION -> r { e.read<Violation>().let { v -> "違規：" + (ViolationCode.values().firstOrNull { it.name == v.code }?.label ?: v.code) + if (v.note.isNotBlank()) "（${v.note}）" else "" } }
             else -> null
         } ?: return null
-        return "#${e.id} $t $what"
+        val imported = (e.data["batch"] as? kotlinx.serialization.json.JsonPrimitive)?.content != null
+        return "#${e.id} $t $what" + if (imported) "（匯入的舊紀錄）" else ""
     }
 
     private fun proposals(): List<String> =
         store.entries(m.day.minusDays(30), m.day, Kind.PROPOSAL).mapNotNull { e ->
-            runCatching { e.read<ProposalRec>() }.getOrNull()?.takeIf { it.answer == Card.Answer.OPEN }?.let { "#${e.id} ${it.title}" }
+            runCatching { e.read<ProposalRec>() }.getOrNull()
+                ?.takeIf { it.answer == Card.Answer.OPEN && it.kind != app.agency.core.importing.Importer.UNDO_KIND }
+                ?.let { "#${e.id} ${it.title}" }
         }
 
     private fun lessonLines(): List<String> {

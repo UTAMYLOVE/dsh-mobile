@@ -221,6 +221,7 @@ class Company(
             ?: return SayResult.NotSent("找不到這則訊息。")
         val card = msg.cards.getOrNull(cardIndex) ?: return SayResult.NotSent("找不到這張卡片。")
         val a = answer.trim()
+        var noteCards: List<Card> = emptyList()
         val (updated, line) = when (card) {
             is Card.Score -> {
                 if (card.picked != null) return SayResult.NotSent("已經選過了。")
@@ -240,7 +241,8 @@ class Company(
                 val yes = a.lowercase() in YES
                 if (!yes && a.lowercase() !in NO) return SayResult.NotSent("請選好或不要。")
                 val res = answerProposal(card.entryId, yes) ?: return SayResult.NotSent("這個提案現在不能接受了。")
-                card.copy(answer = if (yes) Card.Answer.YES else Card.Answer.NO) to res
+                noteCards = res.second
+                card.copy(answer = if (yes) Card.Answer.YES else Card.Answer.NO) to res.first
             }
             is Card.Videos -> {
                 val (verb, idText) = a.split(':', '：').let { it[0].trim().lowercase() to it.getOrNull(1)?.trim() }
@@ -262,18 +264,36 @@ class Company(
             else -> return SayResult.NotSent("這張卡片不用回答。")
         }
         store.updateMessage(msg.copy(cards = msg.cards.toMutableList().also { it[cardIndex] = updated }))
-        note(line)
+        note(line, noteCards)
         return SayResult.Ok
     }
 
-    /** Applies a yes / no to a stored proposal; returns the NOTE line, or null when it cannot be applied. */
-    private fun answerProposal(entryId: Long, yes: Boolean): String? = store.tx {
+    /**
+     * Applies a yes / no to a stored proposal; returns the NOTE line and the cards it carries (an import's 「復原」 card), or
+     * null when it cannot be applied.
+     */
+    private fun answerProposal(entryId: Long, yes: Boolean): Pair<String, List<Card>>? = store.tx {
         val e = store.entry(entryId)?.takeIf { it.kind == Kind.PROPOSAL } ?: return@tx null
         val p = runCatching { e.read<ProposalRec>() }.getOrNull() ?: return@tx null
         if (p.answer != Card.Answer.OPEN) return@tx null
+        when (p.kind) {
+            app.agency.core.importing.Importer.KIND -> if (yes) {
+                val applied = app.agency.core.importing.Importer.apply(store, clock, entryId) ?: return@tx null
+                return@tx applied.line to listOf(applied.undoCard)
+            }
+            app.agency.core.importing.Importer.UNDO_KIND -> {
+                if (!yes) {
+                    store.update(entryId, p.copy(answer = Card.Answer.NO))
+                    return@tx "✓ 保留這次匯入" to emptyList()
+                }
+                val batch = app.agency.core.importing.Importer.undoTarget(p) ?: return@tx null
+                val n = app.agency.core.importing.Importer.undo(store, batch) ?: return@tx null
+                return@tx "✓ 已復原：刪掉 $n 筆匯入的紀錄" to emptyList()
+            }
+        }
         if (!yes) {
             store.update(entryId, p.copy(answer = Card.Answer.NO))
-            return@tx "✗ 不要：${p.title}"
+            return@tx "✗ 不要：${p.title}" to emptyList()
         }
         val line = when (p.kind) {
             "habit" -> {
@@ -294,7 +314,7 @@ class Company(
             else -> return@tx null
         }
         store.update(entryId, p.copy(answer = Card.Answer.YES))
-        line
+        line to emptyList()
     }
 
     // ---------------------------------------------------------------- housekeeping
@@ -611,7 +631,7 @@ class Company(
     }
 
     companion object {
-        private val YES = setOf("yes", "y", "好", "好啊", "同意", "ok", "是")
+        private val YES = setOf("yes", "y", "好", "好啊", "同意", "ok", "是", "復原", "undo")
         private val NO = setOf("no", "n", "不要", "不", "不同意", "否")
     }
 }
