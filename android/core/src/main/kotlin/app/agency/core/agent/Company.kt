@@ -276,7 +276,8 @@ class Company(
         }
         val line = when (p.kind) {
             "habit" -> {
-                Habits(store, clock).add(p.title) ?: return@tx null
+                // A plan change from tomorrow on: today's plan stays as he knew it this morning.
+                Habits(store, clock).add(p.title, Days.today(clock).plusDays(1)) ?: return@tx null
                 "✓ 新習慣：${p.title}（明天起每天一次）"
             }
             "note" -> {
