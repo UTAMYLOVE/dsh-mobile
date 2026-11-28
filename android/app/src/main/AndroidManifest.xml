@@ -49,6 +49,23 @@
             </intent-filter>
         </activity>
 
+        <!-- The one armed alarm: only our own PendingIntent reaches it. -->
+        <receiver
+            android:name=".platform.alarm.AlarmReceiver"
+            android:exported="false" />
+
+        <!-- Arms the alarm again after a reboot, a clock or time-zone change and an update (system broadcasts only). -->
+        <receiver
+            android:name=".platform.alarm.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Shares go out as content:// URIs under cache/export/, and the system camera writes into cache/camera/
              (res/xml/file_paths.xml); no storage permission is needed. -->
         <provider
