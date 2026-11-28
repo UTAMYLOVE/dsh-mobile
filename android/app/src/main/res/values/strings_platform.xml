@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Words of the data and platform layer (attachments, notifications, backup, update). Traditional Chinese only, no Latin letters. -->
+<resources>
+    <!-- notification channels -->
+    <string name="channel_loud_name">提醒</string>
+    <string name="channel_loud_desc">到時間了會響鈴和震動，提醒你下一件事。</string>
+    <string name="channel_quiet_name">安靜通知</string>
+    <string name="channel_quiet_desc">不出聲也不震動，只是靜靜放在通知欄。</string>
+    <string name="notify_locked_text">小雨娛樂有一則提醒，解鎖後再看。</string>
+
+    <!-- update check -->
+    <string name="update_title">有新版本</string>
+    <string name="update_text">新版本 %1$s 可以更新了，點一下看下載頁。</string>
+
+    <!-- attachments -->
+    <string name="attach_file_default_name">檔案</string>
+    <string name="attach_refuse_type">這種檔案不能附上，只收文字檔、表格文字、資料文字和筆記。</string>
+    <string name="attach_refuse_size">檔案太大了，最多約兩百千位元組。</string>
+    <string name="attach_refuse_unreadable">讀不到這個檔案。</string>
+    <string name="attach_refuse_empty">這個檔案是空的。</string>
+    <string name="attach_refuse_photo">這張圖打不開，換一張試試。</string>
+    <string name="attach_refuse_photo_size">這張圖太大了，換一張小一點的。</string>
+    <string name="attach_refuse_vault">照片存不進加密保管箱，請再試一次。</string>
+
+    <!-- backup -->
+    <string name="backup_weak_password">密碼太短，至少要八個字。</string>
+    <string name="backup_not_a_backup">這不是小雨娛樂的備份檔。</string>
+    <string name="backup_newer_version">這份備份是比較新的版本做的，請先更新程式。</string>
+    <string name="backup_older_version">這份備份太舊，讀不了。</string>
+    <string name="backup_wrong_password">密碼不對，或是備份檔壞掉了。</string>
+    <string name="backup_truncated">備份檔不完整，可能沒有存完。</string>
+    <string name="backup_failed">備份沒有做成，請再試一次。</string>
+</resources>

@@ -23,6 +23,10 @@ android {
         versionCode = providers.gradleProperty("dshm.versionCode").map(String::toInt).getOrElse(20)
         versionName = providers.gradleProperty("dshm.versionName").getOrElse("1.0.0")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // The public releases repository (owner/name) the daily update check reads; the same gradle.properties value the release
+        // workflow publishes to. Only api.github.com is ever contacted for it.
+        val releasesRepo = providers.gradleProperty("dshm.releasesRepo").getOrElse("UTAMYLOVE/dsh-mobile-releases")
+        buildConfigField("String", "RELEASES_REPO", "\"$releasesRepo\"")
 
         if (abiProp != null) ndk { abiFilters += abiProp }
     }
