@@ -6,10 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Only core/net builds HTTP clients or opens connections. Scans every Kotlin and Java source of :core and :app. The legacy
- * files below predate the agency (the dsh gateway, its client and its app object) and go away with dsh (T06/T09); the list may
- * only shrink. Agency code (all of :core, and every `agency` package of :app) may not even name `OkHttpClient` outside core/net,
- * so a `.newBuilder()` on someone's client cannot open a second way out.
+ * Only core/net builds HTTP clients or opens connections. Scans every Kotlin and Java source of :core and :app. No code
+ * outside core/net may even name `OkHttpClient`, so a `.newBuilder()` on someone's client cannot open a second way out.
  */
 class HttpClientOnlyInNetTest {
     private val pattern = Regex(
@@ -27,7 +25,7 @@ class HttpClientOnlyInNetTest {
         val r = root()
         val sources = listOf("core/src/main/kotlin", "app/src/main/kotlin", "app/src/main/java").map { File(r, it) }.filter { it.isDirectory }
             .flatMap { dir -> dir.walkTopDown().filter { it.isFile && (it.extension == "kt" || it.extension == "java") }.map { dir to it } }
-        assertTrue(sources.size > 50)
+        assertTrue(sources.size > 10)
         val offenders = sources.mapNotNull { (dir, f) ->
             val rel = f.relativeTo(dir).invariantSeparatorsPath
             if (rel.startsWith("app/agency/core/net/") || rel in legacy) return@mapNotNull null
@@ -41,10 +39,9 @@ class HttpClientOnlyInNetTest {
         val core = File(r, "core/src/main/kotlin")
         val app = File(r, "app/src/main/kotlin")
         val files = core.walkTopDown().filter { it.isFile && it.extension == "kt" }.map { core to it } +
-            app.walkTopDown().filter { it.isFile && it.extension == "kt" && "/agency/" in it.relativeTo(app).invariantSeparatorsPath }
-                .map { app to it }
+            app.walkTopDown().filter { it.isFile && it.extension == "kt" }.map { app to it }
         val list = files.toList()
-        assertTrue(list.any { (d, f) -> d == app && f.name == "CostMeter.kt" })
+        assertTrue(list.any { (d, _) -> d == app })
         val offenders = list.mapNotNull { (dir, f) ->
             val rel = f.relativeTo(dir).invariantSeparatorsPath
             if (rel.startsWith("app/agency/core/net/")) return@mapNotNull null

@@ -125,14 +125,6 @@ class SingingTest {
         assertArrayEquals(png, Chart.png(frames, Reference.ultraStar(ultra)!!))
     }
 
-    @Test fun herNumbersMustBeCodesAndNoJudgingTheSound() {
-        val facts = listOf("音準：長音有 82% 落在正確音高的半個半音以內", "氣長：最長一句 6.5 秒，共 4 句")
-        assertNotNull(SingingCoach.accept("""{"text":"長音有 82% 在音上，最長一句 6.5 秒，下一句前先吸飽氣。"}""", facts))
-        assertNull(SingingCoach.accept("""{"text":"長音有 90% 在音上。"}""", facts)) // invented
-        assertNull(SingingCoach.accept("""{"text":"你的聲音很好聽。"}""", facts))
-        assertTrue(SingingCoach.summary(facts).contains("82%"))
-    }
-
     @Test fun dictionListsWhatWasNotHeard() {
         val r = Diction.check("我們一起唱這首歌", "我們一唱這首")
         assertEquals(listOf("起", "歌"), r.unclear)

@@ -38,7 +38,7 @@
 
         <!-- 小雨娛樂 (arch 1.13): the only launcher. configChanges: a rotation or dark mode switch keeps the conversation. -->
         <activity
-            android:name=".ui.agency.AgencyActivity"
+            android:name=".ui.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
@@ -48,23 +48,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- The one armed alarm (T13): only our own PendingIntent reaches it. -->
-        <receiver
-            android:name=".agency.schedule.AlarmReceiver"
-            android:exported="false" />
-
-        <!-- Re-arms after a reboot, a clock or time-zone change and an update (system broadcasts only). -->
-        <receiver
-            android:name=".agency.schedule.BootReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.TIME_SET" />
-                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
 
         <!-- Shares go out as content:// URIs under cache/export/, and the system camera writes into cache/camera/
              (res/xml/file_paths.xml); no storage permission is needed. -->
@@ -76,18 +59,6 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
-        </provider>
-
-        <!-- On-demand WorkManager init: the app is the Configuration.Provider (RetiredWork.Factory), so the default startup initializer must go. -->
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            android:exported="false"
-            tools:node="merge">
-            <meta-data
-                android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup"
-                tools:node="remove" />
         </provider>
 
     </application>

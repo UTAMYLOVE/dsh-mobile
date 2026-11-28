@@ -2,8 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.room)
 }
 
 // Release inputs, all optional so a plain build (unit tests, CI's android job) is unchanged:
@@ -22,10 +20,9 @@ android {
         applicationId = "app.dshmobile"
         minSdk = 34
         targetSdk = 37
-        versionCode = providers.gradleProperty("dshm.versionCode").map(String::toInt).getOrElse(19)
-        versionName = providers.gradleProperty("dshm.versionName").getOrElse("0.9.1")
-        // Starts the fake model and points the company at it before the app's onCreate (see src/androidTest/.../E2eRunner.kt).
-        testInstrumentationRunner = "app.dshmobile.E2eRunner"
+        versionCode = providers.gradleProperty("dshm.versionCode").map(String::toInt).getOrElse(20)
+        versionName = providers.gradleProperty("dshm.versionName").getOrElse("1.0.0")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         if (abiProp != null) ndk { abiFilters += abiProp }
     }
@@ -72,19 +69,6 @@ android {
             (project.findProperty("dshm.shots") as String?)?.let { dir -> it.systemProperty("dshm.shots", dir) }
         }
     }
-
-    // The legacy coach fixtures (android/core/src/test/resources/legacy) also feed the importer's Robolectric tests.
-    // Room's exported schemas ride along as assets: an older backup is brought forward from its own schema (REVIEW-logic I4).
-    sourceSets.getByName("main") {
-        assets.srcDir("schemas")
-    }
-    sourceSets.getByName("test") {
-        resources.srcDir("../core/src/test/resources")
-    }
-    // The same fixtures reach the emulator as test-APK assets (`legacy/…`): AgencyE2eTest seeds a v0.8.3 install from them.
-    sourceSets.getByName("androidTest") {
-        assets.srcDir("../core/src/test/resources")
-    }
 }
 
 dependencies {
@@ -94,13 +78,11 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
-    // The agency store: Room over SQLCipher (main/agency/data). The native library cannot load on the JVM, so Robolectric
-    // tests open the same schema through the framework helper.
-    implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
-    ksp(libs.room.compiler)
+    // The store: one SQLCipher file (main/data/SqlStore). The native library cannot load on the JVM, so Robolectric tests open
+    // the same tables through the framework helper (sqlite-framework, test only).
     implementation(libs.sqlcipher.android)
     implementation(libs.androidx.sqlite)
+    testImplementation(libs.androidx.sqlite.framework)
 
     // The in-app camera (T15b): the app's own viewfinder; a shot goes from memory into the media vault, never to a file or the
     // gallery. auto-value's annotations (compile-time only, not from Google Maven) are left out.
@@ -126,8 +108,7 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.work.testing)
     testImplementation(libs.okhttp.mockwebserver)
-    // :core's test fixtures (android/core/src/testFixtures): the AgencyStore contract, run here against RoomAgencyStore, and
-    // the shared MutableClock.
+    // :core's test fixtures (android/core/src/testFixtures): the Store contract, invented rules and the moving clock.
     testImplementation(testFixtures(project(":core")))
 
     // Instrumentation tests (src/androidTest, AgencyE2eTest): they run on an emulator in CI, locally they only have to compile.
@@ -144,11 +125,6 @@ dependencies {
     androidTestImplementation(libs.androidx.test.espresso.core)
     // The jank gate (deleted with dsh at the cutover, back for the conversation in T21) drives screens without Compose's test rule.
     androidTestImplementation(libs.androidx.test.uiautomator)
-}
-
-// Room writes schemas/<db>/<version>.json at compile time; the files are checked in (arch 1.2).
-room {
-    schemaDirectory("$projectDir/schemas")
 }
 
 // No telemetry (arch 1.11): no analytics, crash-report or tracking library may reach the app, and no source may import one.
