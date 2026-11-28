@@ -82,8 +82,9 @@ class SimModel : LlmClient {
         }
         if ("〔前面的回覆都沒通過檢查" in text) { problems += "neutral line requested"; return ok("好。") }
         if ("〔這一輪工具已經用太多次" in text) { problems += "too many tool rounds"; return ok("好。") }
-        val owner = text.substringAfterLast("\n\n").trim()
-        val context = (r.turns.first() as Turn.User).text
+        // The last user turn is this moment's context followed by his message.
+        val owner = text.substringAfterLast("\n\n").removePrefix("〔他現在說的話〕\n").trim()
+        val context = text
         val calls = plan(owner, context, last.images.isNotEmpty())
         if (calls == null) {
             problems += "the model does not know what to do with 「$owner」"
@@ -193,7 +194,7 @@ class SimModel : LlmClient {
 
     private fun compose(r: ChatRequest): String {
         val results = r.turns.takeLastWhile { it is Turn.ToolResult }.map { it as Turn.ToolResult }
-        val context = (r.turns.first() as Turn.User).text
+        val context = r.turns.filterIsInstance<Turn.User>().lastOrNull { "〔現在的情況" in it.text }?.text.orEmpty()
         val parts = ArrayList<String>()
         var today: JsonObject? = null
         for (res in results) {

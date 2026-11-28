@@ -118,6 +118,11 @@ data class ChatRequest(
     val output: Output = Output.Text,
     val thinking: Thinking = Thinking.OFF,
     val effort: Effort = Effort.LOW,
+    /**
+     * How many leading [turns] are the stable conversation prefix (the same in the next request): a client that supports
+     * prompt caching may mark the end of that prefix. 0 = none.
+     */
+    val cacheTurns: Int = 0,
 )
 
 sealed interface ChatResult {

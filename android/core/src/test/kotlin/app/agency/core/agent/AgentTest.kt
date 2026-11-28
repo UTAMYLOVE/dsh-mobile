@@ -262,7 +262,7 @@ class AgentTest {
         assertTrue(llm.requests.last().turns.filterIsInstance<Turn.User>().last().images.single().contentEquals(jpeg))
     }
 
-    @Test fun theRequestHoldsSystemContextSummaryAndRecentTurnsInOrder() = runBlocking {
+    @Test fun theRequestHoldsSystemSummaryRecentTurnsThenContextAndHisMessageLast() = runBlocking {
         Memory.setSummary(store, "上週他說想學舞。", throughId = 0)
         store.addMessage(clock.now(), Role.OWNER, "早安")
         store.addMessage(clock.now(), Role.MANAGER, "早，先簽到。", meta = buildJsonObject { put("reasoning", "他剛起床。") })
@@ -274,17 +274,44 @@ class AgentTest {
         assertEquals("系統提示", r.system)
         assertEquals(3, r.turns.size)
         val first = (r.turns[0] as Turn.User).text
-        val iContext = first.indexOf(contextText)
-        val iSummary = first.indexOf("上週他說想學舞。")
-        val iMorning = first.indexOf("早安")
-        assertTrue(iContext in 0 until iSummary && iSummary < iMorning)
-        assertTrue(first.contains("可以演小劇場：否"))
+        assertTrue(first.indexOf("上週他說想學舞。") in 0 until first.indexOf("早安"))
+        assertFalse(first.contains(contextText))
         val reply = r.turns[1] as Turn.Assistant
         assertEquals("早，先簽到。", reply.text)
         assertEquals(Wire.OPENAI to "他剛起床。", Thoughts.of(reply))
+        // The volatile part is last: the note, then this moment's context, then his message.
         val last = (r.turns[2] as Turn.User).text
-        assertTrue(last.indexOf("〔紀錄〕✓ 已記：簽到") in 0 until last.indexOf("喝完一壺了"))
+        val iNote = last.indexOf("〔紀錄〕✓ 已記：簽到")
+        val iContext = last.indexOf(contextText)
+        assertTrue(iNote in 0 until iContext && iContext < last.indexOf("可以演小劇場：否") && last.indexOf("可以演小劇場：否") < last.indexOf("喝完一壺了"))
+        assertTrue(last.endsWith("喝完一壺了"))
         assertFalse(r.turns.any { it is Turn.User && it.text.contains("沒送出的話") })
+        assertEquals(2, r.cacheTurns) // summary + morning, and her reply: the same prefix the next request starts with
+    }
+
+    @Test fun theNextRequestStartsWithTheSamePrefix() = runBlocking {
+        store.addMessage(clock.now(), Role.OWNER, "早安")
+        store.addMessage(clock.now(), Role.MANAGER, "早，先簽到。")
+        val llm = ScriptedLlm(says("好。"), says("收到。"))
+        val a = agent(llm)
+        a.reply("簽好了", emptyList())
+        context = FakeContext("現在 07:30，完全不同的情況。")
+        a.reply("出門了", emptyList())
+        val (one, two) = llm.requests
+        assertEquals(2, one.cacheTurns)
+        assertEquals(one.turns.take(one.cacheTurns), two.turns.take(one.cacheTurns))
+        assertEquals(4, two.cacheTurns)
+        assertEquals(Turn.User("簽好了"), two.turns[2])
+        assertTrue((two.turns.last() as Turn.User).text.contains("完全不同的情況"))
+    }
+
+    @Test fun aHistoryThatStartsWithHerReplyOpensOnHisSide() = runBlocking {
+        store.addMessage(clock.now(), Role.MANAGER, "早，先簽到。")
+        val llm = ScriptedLlm(says("好。"))
+        agent(llm).reply("簽好了", emptyList())
+        val t = llm.requests.single().turns
+        assertTrue(t.first() is Turn.User)
+        assertTrue(t[1] is Turn.AssistantText)
     }
 
     @Test fun compactionFlushesMemoryThenWritesTheSummary() = runBlocking {

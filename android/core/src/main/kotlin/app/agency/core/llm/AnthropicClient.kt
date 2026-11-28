@@ -30,6 +30,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
  * - `stop_reason: refusal` is REFUSED; `claude-sonnet-5-5` and `claude-opus-5-5` also send `fallbacks: "default"` with the
  *   server-side fallback beta header (`claude-haiku-5-5` has no server-side fallback, so it never sends one);
  * - in a tool loop the whole assistant `content` (thinking and fallback blocks included) goes back unchanged.
+ * Prompt caching: `cache_control: {type: ephemeral}` on the system text block (as verified); and, when the request says where
+ * its stable conversation prefix ends ([ChatRequest.cacheTurns]), the same marker on that turn's last block if it is a text
+ * block (the same block shape as the system one; this second breakpoint was added later and not separately re-checked live).
  * Usage is priced on the model that ran each attempt. With server-side fallback the top-level `usage` covers only the attempt
  * that produced the returned message, and `usage.iterations` is the per-attempt record (a refused attempt can be billed, a
  * mid-output refusal always is). So when `iterations` is present each entry is booked on its own `model` (every entry names
@@ -98,7 +101,7 @@ class AnthropicClient(
                 put("cache_control", buildJsonObject { put("type", "ephemeral") })
             })
         })
-        put("messages", messages(request.turns))
+        put("messages", messages(request.turns, request.cacheTurns))
         put("output_config", buildJsonObject {
             (request.output as? Output.Json)?.let { j ->
                 put("format", buildJsonObject { put("type", "json_schema"); put("schema", j.schema) })
@@ -121,14 +124,22 @@ class AnthropicClient(
         if (model in SERVER_FALLBACK_MODELS) put("fallbacks", "default")
     }
 
-    /** Turns as alternating messages: consecutive entries of one side (tool results, then text) share one message. */
-    private fun messages(turns: List<Turn>): JsonArray {
+    /**
+     * Turns as alternating messages: consecutive entries of one side (tool results, then text) share one message. When
+     * [cacheTurns] > 0 and the last block of turn `cacheTurns - 1` (the end of the stable conversation prefix) is a text block,
+     * it carries the same `cache_control: {type: ephemeral}` as the system text: a second cache breakpoint, so the
+     * conversation prefix is read from the cache on the next message. Any other block there is left as it is.
+     */
+    private fun messages(turns: List<Turn>, cacheTurns: Int = 0): JsonArray {
         val out = ArrayList<Pair<String, MutableList<JsonElement>>>()
         fun append(role: String, blocks: List<JsonElement>) {
             val last = out.lastOrNull()
             if (last != null && last.first == role) last.second += blocks else out += role to blocks.toMutableList()
         }
-        ToolPairing.repair(turns).forEach { t ->
+        val repaired = ToolPairing.repair(turns)
+        // The stable prefix holds no tool turns, so repairing leaves it as it is; otherwise no breakpoint.
+        val mark = cacheTurns.takeIf { it in 1..turns.size && turns.take(it) == repaired.take(it) }?.minus(1) ?: -1
+        repaired.forEachIndexed { i, t ->
             when (t) {
                 is Turn.User -> append("user", t.images.map { Images.claudeBlock(it) } + textBlock(t.text))
                 is Turn.ToolResult -> append("user", listOf(buildJsonObject {
@@ -142,6 +153,13 @@ class AnthropicClient(
                     "assistant",
                     if (t.wire == Wire.ANTHROPIC && t.raw is JsonArray) Images.strip(t.raw) as JsonArray else rebuilt(t),
                 )
+            }
+            if (i == mark) {
+                val blocks = out.last().second
+                val b = blocks.lastOrNull() as? JsonObject
+                if (b != null && b.type() == "text") {
+                    blocks[blocks.size - 1] = JsonObject(b + ("cache_control" to buildJsonObject { put("type", "ephemeral") }))
+                }
             }
         }
         // Tool results go before any text in a user message.

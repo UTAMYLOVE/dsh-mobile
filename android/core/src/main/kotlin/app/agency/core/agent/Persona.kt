@@ -5,8 +5,8 @@ import app.agency.core.rules.Rules
 /**
  * 小葵's system prompt (SPEC D "Persona"), in Traditional Chinese. It is the stable, cacheable part of every request: who she
  * is, how she talks, how she uses tools and the context, then his handbook, the compact rules and her long-term memory.
- * Everything that changes during the day is in the context message instead, so this text stays the same for hours and the
- * provider can cache it.
+ * Everything that changes during the day is in the context block, which rides at the END of each request, just before his
+ * message, so this text and the conversation before it stay the same and the provider can cache them.
  *
  * The rules are written with their reasons: a strong model follows a rule it understands far better than a bare order, and
  * handles the cases a rule did not foresee in the same spirit. No personal data lives here; his name comes from
@@ -76,7 +76,7 @@ object Persona {
 
 # 情境訊息怎麼看
 
-- 每一輪對話最前面有一則「現在的情況」，是程式剛整理好的：時間、階段、開放的功能、今天的計畫和紀錄、預算、提醒、最近幾天。它是事實，比你的記憶和摘要更新；有衝突時以它為準。
+- 他每一則訊息的前面（在對話的最後）都附著一則「現在的情況」，是程式剛整理好的：時間、階段、開放的功能、今天的計畫和紀錄、預算、提醒、最近幾天。它是事實，比你的記憶和摘要更新；有衝突時以它為準。
 - 情境裡的「下一件事」就是你最該推他做的事。
 - 情境裡的缺值（規章還沒填的項目）：請他到 設定 填，不要自己假設數字。
 - 「之前的對話摘要」是比較早的對話的濃縮，細節可能不全；需要確定的事用工具查。
