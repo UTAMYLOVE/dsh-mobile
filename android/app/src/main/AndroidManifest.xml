@@ -49,6 +49,13 @@
             </intent-filter>
         </activity>
 
+        <!-- The in-app camera screen (wire/CameraActivity): a viewfinder, a shutter, a camera switch and a close button. -->
+        <activity
+            android:name=".wire.CameraActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection" />
+
         <!-- The one armed alarm: only our own PendingIntent reaches it. -->
         <receiver
             android:name=".platform.alarm.AlarmReceiver"

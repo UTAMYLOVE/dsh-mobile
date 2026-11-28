@@ -156,3 +156,18 @@ metadata stripped) and kept encrypted in the vault; files are read to text on th
 - `:core` unit tests per package; `Sim14Test`: fourteen scripted days on `MemStore` with a scripted model and a moving clock,
   asserting no dead ends (an open feature always has a doable item; a closed one never appears; next is never stuck).
 - `:app` Robolectric tests for `SqlStore`, view-models, screens; instrumented e2e on the CI emulator with the fake model.
+
+## Wiring (`app.dshmobile.wire`)
+
+The layer that joins the pure company to the platform and the screens. Built once by `DshMobileApp`; every member is lazy.
+
+- `ProviderWiring`: the `Providers` bundle. `ALL_CLAUDE`: chat and small on Claude at the chosen tier. `CHAT_DEEPSEEK`: chat and small on
+  DeepSeek, except a turn with photos goes to Claude when the DeepSeek chat model cannot see images. Search only with a DeepSeek key.
+  Mode, tier and keys are read at call time; everything goes through the one `Transport`.
+- `SpendMeter`: the usage sink and the spend guard. Doc `spend` holds per-day and per-month US-dollar totals; the monthly cap of the
+  settings (kept in US dollars, shown in yuan at a fixed 32 to 1) refuses calls with `Fail.CAP`. `CallChecks` carries the 30-per-minute budget.
+- `WiredCompany`: the one `CompanyApi` + `CompanyAdmin` the screens see; tells the wake handler after everything that changes the plan.
+- `CompanyWake`: rollover, reminders, notifications, doc `reminder_log`, the next exact alarm. Runs on an alarm, a reboot, the app coming to
+  the front and after every sentence or tap. A NOTE written by the rollover raises one quiet notification when no screen is in front.
+- `wire/ui/*`: one adapter per door of `ui/UiInterfaces.kt`; `CameraActivity` is the in-app camera screen; `ActivityHost` starts pickers and
+  permission questions through the screen in front; `LegacyKeys` carries 0.9's API keys over once.
