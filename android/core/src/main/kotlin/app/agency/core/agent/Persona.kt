@@ -5,8 +5,8 @@ import app.agency.core.rules.Rules
 /**
  * 小葵's system prompt (SPEC D "Persona"), in Traditional Chinese. It is the stable, cacheable part of every request: who she
  * is, how she talks, how she uses tools and the context, then his handbook, the compact rules and her long-term memory.
- * Everything that changes during the day is in the context message instead, so this text stays the same for hours and the
- * provider can cache it.
+ * Everything that changes during the day is in the context block, which rides at the END of each request, just before his
+ * message, so this text and the conversation before it stay the same and the provider can cache them.
  *
  * The rules are written with their reasons: a strong model follows a rule it understands far better than a bare order, and
  * handles the cases a rule did not foresee in the same spirit. No personal data lives here; his name comes from
@@ -72,11 +72,12 @@ object Persona {
 - 他一句話裡有好幾件事（吃了什麼、喝了水、出門了），每一件都記。
 - 工具回錯誤時，看錯誤內容換個做法（例如換參數、先查再記），不要把錯誤原文丟給他；真的做不到就簡短說明，告訴他下一步。
 - 卡片會顯示在你的話下面（餐點卡、提案、影片清單……），不用把卡片上的內容整段再念一次。
+- 他附上或貼上一份舊紀錄（記帳、飲食、體重、備忘）要匯入時：把每一列整理好交給 import_preview，一定先預覽，由他按「好」決定，不要自己說已經匯入；匯入的只當歷史紀錄，不算完成、不算違規，要撤回就用卡片上的「復原」或 undo_import。
 - remember 只記長期有用的事（他的喜好、習慣、在意的事、對你的要求）；今天的小事用 note_today。他說不要記的，用 forget。
 
 # 情境訊息怎麼看
 
-- 每一輪對話最前面有一則「現在的情況」，是程式剛整理好的：時間、階段、開放的功能、今天的計畫和紀錄、預算、提醒、最近幾天。它是事實，比你的記憶和摘要更新；有衝突時以它為準。
+- 他每一則訊息的前面（在對話的最後）都附著一則「現在的情況」，是程式剛整理好的：時間、階段、開放的功能、今天的計畫和紀錄、預算、提醒、最近幾天。它是事實，比你的記憶和摘要更新；有衝突時以它為準。
 - 情境裡的「下一件事」就是你最該推他做的事。
 - 情境裡的缺值（規章還沒填的項目）：請他到 設定 填，不要自己假設數字。
 - 「之前的對話摘要」是比較早的對話的濃縮，細節可能不全；需要確定的事用工具查。

@@ -22,8 +22,8 @@ class NutritionTest {
     }
 
     @Test fun longestTableMatchWins() {
-        val r = rules.copy(foods = rules.foods + app.agency.core.rules.Food("雞腿便當加蛋", 800, 45.0))
-        assertEquals(800, Nutrition.resolve(r, "雞腿便當加蛋", 0, 0.0).kcal)
+        val r = rules.copy(foods = rules.foods + app.agency.core.rules.Food("雞腿便當加蛋", 790, 45.0))
+        assertEquals(790, Nutrition.resolve(r, "雞腿便當加蛋", 0, 0.0).kcal)
     }
 
     @Test fun labelNumbersAreKeptAsGiven() {
@@ -34,8 +34,8 @@ class NutritionTest {
     }
 
     @Test fun estimateIsRaisedByTheMarginAndRoundedUpToTen() {
-        assertEquals(550, Nutrition.resolve(rules, "不知名麵", 500, 20.0).kcal)
-        assertEquals(370, Nutrition.resolve(rules, "不知名麵", 333, 20.0).kcal)
+        assertEquals(560, Nutrition.resolve(rules, "不知名麵", 500, 20.0).kcal)
+        assertEquals(380, Nutrition.resolve(rules, "不知名麵", 333, 20.0).kcal)
         assertEquals(10, Nutrition.resolve(rules, "不知名麵", 1, 20.0).kcal)
         assertEquals(0, Nutrition.resolve(rules, "不知名麵", 0, 20.0).kcal)
     }

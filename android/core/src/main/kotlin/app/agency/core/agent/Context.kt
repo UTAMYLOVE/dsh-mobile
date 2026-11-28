@@ -49,7 +49,13 @@ import java.time.LocalTime
  * computed by code and written the way the guard reads numbers (digits right before their unit, times as H:MM), so anything
  * she quotes from here passes. Entry ids appear as `#12` so she can fix or remove an entry.
  */
-class Context(private val store: Store, private val clock: Clock, private val rules: Rules) : ContextSource {
+class Context(
+    private val store: Store,
+    private val clock: Clock,
+    private val rules: Rules,
+    /** Whether a web search is wired; without it she must know the two ways on (a key in settings, or a pasted link). */
+    private val searchAvailable: Boolean = true,
+) : ContextSource {
     private val m: Moment = Moment.of(store, clock, rules)
     private val text: String by lazy { build() }
 
@@ -57,9 +63,12 @@ class Context(private val store: Store, private val clock: Clock, private val ru
 
     override fun facts(): String = text + "\n" + RulesText.render(rules, m.training)
 
+    override fun judgeFacts(): String = text.lines().filter { l -> JUDGE_LINES.any { l.startsWith(it) } }.joinToString("\n")
+
     override val unwellReducedByCode: Boolean get() = m.state.unwell || m.state.firstDayBack
 
-    override val closedFeatureWords: List<String> get() = closedWords(m.stage.stage)
+    override val closedFeatureWords: List<String>
+        get() = closedWords(m.stage.stage, app.agency.core.lessons.Subjects.all + rules.study.daily + rules.study.twiceWeekly + rules.study.rotation)
 
     override val neverBelowKg: Double get() = rules.body.neverBelowKg
 
@@ -116,6 +125,9 @@ class Context(private val store: Store, private val clock: Clock, private val ru
                     budgets,
             )
         }
+        if (Feature.MEALS.openAt(stage)) {
+            app.agency.core.day.FreeMeals.line(app.agency.core.day.FreeMeals.status(store, r, m.day))?.let { line(it) }
+        }
         if (Feature.WATER.openAt(stage) && r.water.bottleMl > 0) {
             val target = st.waterTargetMl(st.dayNumber)
             line(
@@ -157,6 +169,10 @@ class Context(private val store: Store, private val clock: Clock, private val ru
         val openMemos = Memos.open(store, m.day).size
         if (openMemos > 0) line("還沒完成的備忘共 $openMemos 則（memo_list 可以看）")
         if (Feature.LESSONS.openAt(stage)) lessonLines().forEach { line(it) }
+        if (!searchAvailable) {
+            line("搜尋現在不能用（還沒有搜尋用的金鑰）：找影片、找地方都不行。請他到 設定 → 小葵的模型 加上搜尋用的金鑰；" +
+                "在那之前，他可以直接把影片連結貼給你，你用 add_video 加進清單。")
+        }
 
         val week = lastDays()
         if (week.isNotEmpty()) {
@@ -226,12 +242,15 @@ class Context(private val store: Store, private val clock: Clock, private val ru
             Kind.VIOLATION -> r { e.read<Violation>().let { v -> "違規：" + (ViolationCode.values().firstOrNull { it.name == v.code }?.label ?: v.code) + if (v.note.isNotBlank()) "（${v.note}）" else "" } }
             else -> null
         } ?: return null
-        return "#${e.id} $t $what"
+        val imported = (e.data["batch"] as? kotlinx.serialization.json.JsonPrimitive)?.content != null
+        return "#${e.id} $t $what" + if (imported) "（匯入的舊紀錄）" else ""
     }
 
     private fun proposals(): List<String> =
         store.entries(m.day.minusDays(30), m.day, Kind.PROPOSAL).mapNotNull { e ->
-            runCatching { e.read<ProposalRec>() }.getOrNull()?.takeIf { it.answer == Card.Answer.OPEN }?.let { "#${e.id} ${it.title}" }
+            runCatching { e.read<ProposalRec>() }.getOrNull()
+                ?.takeIf { it.answer == Card.Answer.OPEN && it.kind != app.agency.core.importing.Importer.UNDO_KIND }
+                ?.let { "#${e.id} ${it.title}" }
         }
 
     private fun lessonLines(): List<String> {
@@ -265,6 +284,18 @@ class Context(private val store: Store, private val clock: Clock, private val ru
         Streaks.missed(store, y).forEach { out += "「${it.title}」已經連續 ${it.days} 天沒做" }
         if (Streaks.lowMood(store, m.day) >= Streaks.TALK_AT) out += "他連續 ${Streaks.lowMood(store, m.day)} 天心情低落，主動問他怎麼了"
         if (m.stage.talk) out += "上一輪違規很多，要跟他談一談"
+        if (Feature.MONTHLY_EVAL.openAt(m.stage.stage)) {
+            val stalled = runCatching { app.agency.core.extras.Evaluations(store, clock, rules).stalled() }.getOrDefault(false)
+            if (stalled) out += "月評已經連續兩個月以上沒有進步，主動跟他談怎麼調整"
+        }
+        if (Feature.WEIGHT.openAt(m.stage.stage)) {
+            val body = runCatching { app.agency.core.week.BodyTrend.flags(store, m.day, rules) }.getOrNull()
+            if (body?.floor == true) {
+                out += "體重已經到最低底線 ${num(rules.body.neverBelowKg)} 公斤：絕對不要再鼓勵他減重，先跟他確認吃得夠"
+            } else if (body?.pause == true) {
+                out += "體重低於 ${num(rules.body.pauseBelowKg)} 公斤：先停止推減重，跟他一起檢討再說"
+            }
+        }
         val from = runCatching { LocalDate.parse(m.stage.startedOn) }.getOrNull()
         if (from != null) {
             val v = store.entries(from, m.day, Kind.VIOLATION).size
@@ -281,6 +312,9 @@ class Context(private val store: Store, private val clock: Clock, private val ru
 
     companion object {
         private const val SCAN = 200
+
+        /** The block's lines [judgeFacts] keeps: totals, budgets, records (「・#」), training load, changes, flags, rules. */
+        private val JUDGE_LINES = listOf("現在：", "階段：", "吃：", "喝水：", "今天的紀錄：", "・#", "今天的訓練量", "今天改了什麼", "狀態：", "規章數字")
         /** Doc key: the logical day a sweet line was last allowed (so it happens at most once a day). */
         const val SWEET_DOC = "sweet_day"
 
@@ -328,7 +362,7 @@ class Context(private val store: Store, private val clock: Clock, private val ru
             Feature.CARDIO to listOf("體能", "有氧"),
             Feature.POSTURE to listOf("靠牆站", "站姿練習"),
             Feature.SUNSCREEN to listOf("防曬"),
-            Feature.MOOD to listOf("心情分數"),
+            Feature.MOOD to listOf("心情分數", "點心情"),
             Feature.WALK to listOf("快走"),
             Feature.SINGING to listOf("唱歌分析", "錄音分析"),
             Feature.DANCE to listOf("練舞", "舞蹈練習"),
@@ -344,13 +378,24 @@ class Context(private val store: Store, private val clock: Clock, private val ru
             Feature.BODY_PHOTO to listOf("全身對比照", "全身照"),
         )
 
-        /** Words naming the features closed at [stage], minus any that are part of an open feature's own words. */
-        fun closedWords(stage: Int): List<String> {
+        /** Labels too everyday to name the feature on their own (「心情」 is not the mood score): only the synonyms count. */
+        private val LABEL_NOT_A_KEYWORD = setOf(Feature.MOOD)
+
+        private fun words(f: Feature): List<String> =
+            (if (f in LABEL_NOT_A_KEYWORD) emptyList() else listOf(f.label)) + SYNONYMS[f].orEmpty()
+
+        /**
+         * Words naming the features closed at [stage], minus any that are part of an open feature's own words, and minus any
+         * that are (part of) a lesson subject's name in [subjects] (the subject 舞蹈 is not the dance practice).
+         */
+        fun closedWords(stage: Int, subjects: Collection<String> = app.agency.core.lessons.Subjects.all): List<String> {
             val open = Feature.values().filter { it.openAt(stage) }
             val openWords = open.flatMap { listOf(it.label) + SYNONYMS[it].orEmpty() }
+            val subjectNames = subjects.filter { it.isNotBlank() }
             return Feature.values().filter { !it.openAt(stage) }
-                .flatMap { listOf(it.label) + SYNONYMS[it].orEmpty() }
+                .flatMap(::words)
                 .filter { w -> openWords.none { it.contains(w) || w.contains(it) } }
+                .filter { w -> subjectNames.none { it.contains(w) } }
                 .distinct()
         }
     }

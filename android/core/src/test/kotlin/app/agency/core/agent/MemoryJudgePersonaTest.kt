@@ -62,7 +62,7 @@ class MemoryJudgePersonaTest {
         assertEquals(Judge.Verdict(true, ""), Judge.parse("""{"ok":true}"""))
         assertNull(Judge.parse("好"))
         val j = Judge(app.agency.core.llm.ScriptedLlm())
-        assertTrue(j.triggered("今天吃了 1200 大卡"))
+        assertTrue(j.triggered("今天吃了 1260 大卡"))
         assertTrue(j.triggered("體重記好了"))
         assertTrue(j.triggered("伏地挺身做完了嗎"))
         assertFalse(j.triggered("早安，先簽到。"))

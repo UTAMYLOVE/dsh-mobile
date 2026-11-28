@@ -19,7 +19,7 @@ class ContextTest {
         r.at("07:10")
         r.run("check_in", """{"score":4}""")
         r.run("set_status", """{"type":"SICK","note":"喉嚨痛"}""")
-        r.at("12:10")
+        r.at("11:50")
         r.run("log_meal", """{"slot":"first","items":[{"name":"雞腿便當","kcal":1,"protein_g":1},{"name":"炸物拼盤","kcal":420,"protein_g":12.5}],"source":"estimate","attach_photo":false}""")
         r.run("log_water", """{"bottles":0.5,"ml":null}""")
         r.run("memo_add", """{"text":"繳電話費","due_at":"20:15"}""")
@@ -37,11 +37,11 @@ class ContextTest {
         val b = Context(r.store, r.clock, r.rules).block()
         listOf(
             "現在：", "上課日", "階段：第 2 階段 · 第 1 天", "開放的功能：", "還沒開放：", "不要叫他做", "今天的計畫（完成", "下一件事：",
-            "今天的紀錄：", "吃：今天", "下一餐預算", "喝水：500 毫升（0.5 壺）", "跑單：跑單中", "本週收入", "今天改了什麼", "狀態：生病中",
-            "等他回覆的提案：", "今天到期的備忘：", "今天的課", "最近七天：", "規章數字", "今天的訓練量", "今天的睡覺（簽退）時間：1:00",
+            "今天的紀錄：", "吃：今天", "下一餐預算", "喝水：450 毫升（0.5 壺）", "跑單：跑單中", "本週收入", "今天改了什麼", "狀態：生病中",
+            "等他回覆的提案：", "今天到期的備忘：", "今天的課", "最近七天：", "規章數字", "今天的訓練量", "今天的睡覺（簽退）時間：0:50",
         ).forEach { assertTrue("missing 「$it」 in\n$b", b.contains(it)) }
         val meal = r.store.entries(r.monday, Kind.MEAL).single()
-        assertTrue(b.contains("#${meal.id} 12:10 第一餐"))
+        assertTrue(b.contains("#${meal.id} 11:50 第一餐"))
         assertTrue(b.contains("禁止：炸物"))
     }
 
@@ -91,7 +91,7 @@ class ContextTest {
         r.run("set_status", """{"type":"INJURED","note":"膝蓋"}""")
         val c = Context(r.store, r.clock, r.rules)
         assertTrue(c.unwellReducedByCode)
-        assertEquals(60.0, c.neverBelowKg, 0.0)
+        assertEquals(61.0, c.neverBelowKg, 0.0)
     }
 
     @Test fun aSceneOnlyBeforeTheFirstReplyOfTheDay() {

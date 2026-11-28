@@ -174,7 +174,7 @@ class Company(
             clock = clock,
             tools = { Tools.all() },
             toolCtx = { ids -> ctx(ids.ifEmpty { photoIds }, gallery) },
-            context = { Context(store, clock, rules()).also { seen += it } },
+            context = { Context(store, clock, rules(), providers.search != null).also { seen += it } },
             system = { system(rules) },
             loadPhoto = loadPhoto,
         )
@@ -221,6 +221,7 @@ class Company(
             ?: return SayResult.NotSent("找不到這則訊息。")
         val card = msg.cards.getOrNull(cardIndex) ?: return SayResult.NotSent("找不到這張卡片。")
         val a = answer.trim()
+        var noteCards: List<Card> = emptyList()
         val (updated, line) = when (card) {
             is Card.Score -> {
                 if (card.picked != null) return SayResult.NotSent("已經選過了。")
@@ -240,7 +241,8 @@ class Company(
                 val yes = a.lowercase() in YES
                 if (!yes && a.lowercase() !in NO) return SayResult.NotSent("請選好或不要。")
                 val res = answerProposal(card.entryId, yes) ?: return SayResult.NotSent("這個提案現在不能接受了。")
-                card.copy(answer = if (yes) Card.Answer.YES else Card.Answer.NO) to res
+                noteCards = res.second
+                card.copy(answer = if (yes) Card.Answer.YES else Card.Answer.NO) to res.first
             }
             is Card.Videos -> {
                 val (verb, idText) = a.split(':', '：').let { it[0].trim().lowercase() to it.getOrNull(1)?.trim() }
@@ -262,18 +264,36 @@ class Company(
             else -> return SayResult.NotSent("這張卡片不用回答。")
         }
         store.updateMessage(msg.copy(cards = msg.cards.toMutableList().also { it[cardIndex] = updated }))
-        note(line)
+        note(line, noteCards)
         return SayResult.Ok
     }
 
-    /** Applies a yes / no to a stored proposal; returns the NOTE line, or null when it cannot be applied. */
-    private fun answerProposal(entryId: Long, yes: Boolean): String? = store.tx {
+    /**
+     * Applies a yes / no to a stored proposal; returns the NOTE line and the cards it carries (an import's 「復原」 card), or
+     * null when it cannot be applied.
+     */
+    private fun answerProposal(entryId: Long, yes: Boolean): Pair<String, List<Card>>? = store.tx {
         val e = store.entry(entryId)?.takeIf { it.kind == Kind.PROPOSAL } ?: return@tx null
         val p = runCatching { e.read<ProposalRec>() }.getOrNull() ?: return@tx null
         if (p.answer != Card.Answer.OPEN) return@tx null
+        when (p.kind) {
+            app.agency.core.importing.Importer.KIND -> if (yes) {
+                val applied = app.agency.core.importing.Importer.apply(store, clock, entryId) ?: return@tx null
+                return@tx applied.line to listOf(applied.undoCard)
+            }
+            app.agency.core.importing.Importer.UNDO_KIND -> {
+                if (!yes) {
+                    store.update(entryId, p.copy(answer = Card.Answer.NO))
+                    return@tx "✓ 保留這次匯入" to emptyList()
+                }
+                val batch = app.agency.core.importing.Importer.undoTarget(p) ?: return@tx null
+                val n = app.agency.core.importing.Importer.undo(store, batch) ?: return@tx null
+                return@tx "✓ 已復原：刪掉 $n 筆匯入的紀錄" to emptyList()
+            }
+        }
         if (!yes) {
             store.update(entryId, p.copy(answer = Card.Answer.NO))
-            return@tx "✗ 不要：${p.title}"
+            return@tx "✗ 不要：${p.title}" to emptyList()
         }
         val line = when (p.kind) {
             "habit" -> {
@@ -294,7 +314,7 @@ class Company(
             else -> return@tx null
         }
         store.update(entryId, p.copy(answer = Card.Answer.YES))
-        line
+        line to emptyList()
     }
 
     // ---------------------------------------------------------------- housekeeping
@@ -336,6 +356,7 @@ class Company(
             lessonAway = LessonBook(store, clock, m.rules).away(),
             log = log,
             extra = extra,
+            anchors = anchors(m, checkInLive),
         )
         // A memo is announced once ever, not once a day.
         for (n in d.notices) {
@@ -344,6 +365,21 @@ class Company(
             runCatching { e.read<Memo>() }.getOrNull()?.let { store.update(id, it.copy(notified = true)) }
         }
         return d
+    }
+
+    /** Where today's untimed items start being reminded (see [app.agency.core.remind.Anchors]). */
+    private fun anchors(m: Moment, checkInLive: Boolean): app.agency.core.remind.Anchors {
+        val zone = clock.zone
+        val times = app.agency.core.day.DayTypes.times(m.rules, m.plan.type)
+        fun at(s: String) = Days.parse(s)?.let { Days.at(m.day, it, zone) }
+        val sign = if (checkInLive) m.state.checkInAt else at(times.wake) ?: Days.at(m.day, LocalTime.of(9, 0), zone)
+        return app.agency.core.remind.Anchors(
+            checkInAt = sign,
+            rideBackAt = m.state.rideBackAt?.takeIf { !m.state.riding },
+            rideDay = m.plan.items.any { it.id == "ride:out" && it.status != ItemStatus.OFF },
+            classEndAt = if (m.plan.type == app.agency.core.plan.DayType.CLASS) at(times.classEnd) else null,
+            quietFrom = if (m.plan.restDay) at(times.dinner) else null,
+        )
     }
 
     // ---------------------------------------------------------------- onboarding and settings
@@ -412,16 +448,28 @@ class Company(
         return r
     }
 
-    override suspend fun quizFor(id: Long): Quiz? {
+    override suspend fun quizFor(id: Long): Quiz? = (quizStatus(id) as? QuizStatus.Ready)?.quiz
+
+    override suspend fun quizStatus(id: Long): QuizStatus {
         val b = book()
-        val l = b.get(id) ?: return null
-        if (l.state != LessonState.WATCHED || l.notesOnly) return null
-        l.quiz?.let { return it }
-        val quiz = runCatching { Quizzer(providers.chat).make(l, l.level, rules().study) }.getOrNull()
-        if (quiz != null && b.setQuiz(id, quiz) is LessonResult.Ok) return quiz
+        val l = b.get(id) ?: return QuizStatus.NotesOnly
+        if (l.state != LessonState.WATCHED || l.notesOnly) return QuizStatus.NotesOnly
+        l.quiz?.let { return QuizStatus.Ready(it) }
+        if (l.material.isBlank()) {
+            // A link he pasted himself has no material to ask about: notes from the start, no model call.
+            b.notesOnly(id)
+            note("〔${l.subject}「${l.title}」沒有教材文字，看完直接寫三行筆記〕")
+            return QuizStatus.NotesOnly
+        }
+        when (val made = Quizzer(providers.chat).attempt(l, l.level, rules().study)) {
+            is Quizzer.Made.Ok -> if (b.setQuiz(id, made.quiz) is LessonResult.Ok) return QuizStatus.Ready(made.quiz)
+            // The model could not be asked: the lesson stays as it is and he tries again later.
+            is Quizzer.Made.CallFailed -> return QuizStatus.Unavailable()
+            Quizzer.Made.Invalid -> Unit
+        }
         b.notesOnly(id)
         note("〔${l.subject}「${l.title}」這次出不了合格的題目，改成直接寫三行筆記〕")
-        return null
+        return QuizStatus.NotesOnly
     }
 
     override fun answerQuiz(id: Long, answers: List<Int>): QuizResult {
@@ -577,17 +625,13 @@ class Company(
     override suspend fun submitMonthlyEval(input: MonthlyInput): EvalResult {
         val st = TodayPlan.stage(store, Days.today(clock))
         val r = evals().submitMonthly(input, st)
-        if (r is EvalResult.Ok) {
-            if (input.weightKg > 0 || input.waistCm > 0) {
-                store.add(Days.today(clock), clock.now(), Kind.BODY, Body(input.weightKg.takeIf { it > 0 }, input.waistCm.takeIf { it > 0 }))
-            }
-            note("✓ 月評交了", listOf(r.card))
-        }
+        // The evaluation itself writes the body record (weight, waist, photo) once.
+        if (r is EvalResult.Ok) note("✓ 月評交了", listOf(r.card))
         return r
     }
 
     companion object {
-        private val YES = setOf("yes", "y", "好", "好啊", "同意", "ok", "是")
+        private val YES = setOf("yes", "y", "好", "好啊", "同意", "ok", "是", "復原", "undo")
         private val NO = setOf("no", "n", "不要", "不", "不同意", "否")
     }
 }

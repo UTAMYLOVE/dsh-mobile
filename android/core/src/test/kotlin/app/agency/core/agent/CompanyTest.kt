@@ -72,16 +72,16 @@ class CompanyTest {
     @Test fun sayRunsAToolRoundAndStoresTheReplyWithItsCard() = runBlocking {
         onboard()
         stage(2)
-        llm.then(calls("log_water", """{"bottles":1,"ml":null}"""), says("記好了，水 1000 毫升，目標 1000 毫升。"))
+        llm.then(calls("log_water", """{"bottles":1,"ml":null}"""), says("記好了，水 900 毫升，目標 900 毫升。"))
         assertEquals(SayResult.Ok, company.say("喝完一壺了"))
         val reply = store.messages(1).single()
         assertEquals(Role.MANAGER, reply.role)
-        assertEquals("記好了，水 1000 毫升，目標 1000 毫升。", reply.text)
+        assertEquals("記好了，水 900 毫升，目標 900 毫升。", reply.text)
         assertTrue(reply.cards.single() is Card.Summary)
         assertEquals(ItemStatus.DONE, company.item("water")!!.status)
         // The request carried the persona, the rules and the context block.
         val req = llm.requests.first()
-        assertTrue(req.system.contains("小葵") && req.system.contains("每日 2000 大卡"))
+        assertTrue(req.system.contains("小葵") && req.system.contains("每日 2100 大卡"))
         assertTrue((req.turns.first() as Turn.User).text.contains("今天的計畫"))
         assertEquals(listOf("water"), listOf(company.today().stickers.first { it.key == "water" }.key))
         assertEquals("1／1 壺", company.today().stickers.first { it.key == "water" }.value)
@@ -126,10 +126,10 @@ class CompanyTest {
         assertTrue(Memory.lines(store).any { it.contains("早十分鐘") })
         val kcal = proposalCard(BodyTrend.KCAL_UP, "每天多吃 100 大卡", 100)
         assertEquals(SayResult.Ok, company.answerCard(kcal.id, 0, "不要"))
-        assertEquals(2000, company.rules().diet.kcal)
+        assertEquals(2100, company.rules().diet.kcal)
         val kcal2 = proposalCard(BodyTrend.KCAL_UP, "每天多吃 100 大卡", 100)
         assertEquals(SayResult.Ok, company.answerCard(kcal2.id, 0, "好"))
-        assertEquals(2100, company.rules().diet.kcal)
+        assertEquals(2200, company.rules().diet.kcal)
         assertEquals(Card.Answer.YES, (store.messages(30).first { it.id == kcal2.id }.cards[0] as Card.Proposal).answer)
         assertTrue(company.answerCard(kcal2.id, 0, "好") is SayResult.NotSent)
     }
@@ -177,7 +177,7 @@ class CompanyTest {
     @Test fun remindersWaitForCheckInOnceItIsOpen() {
         onboard()
         stage(2)
-        clock.set(TestClock.MONDAY, "12:10")
+        clock.set(TestClock.MONDAY, "11:50")
         val d = company.reminders(ReminderLog())
         assertEquals(listOf("check_in"), d.notices.map { it.key })
         company.direct("check_in", buildJsonObject { put("score", 4) })
@@ -196,7 +196,7 @@ class CompanyTest {
     @Test fun timerAndMealPhotoFinishTheirItems() {
         onboard()
         stage(2)
-        clock.set(TestClock.MONDAY, "21:00")
+        clock.set(TestClock.MONDAY, "21:15")
         assertTrue(company.timerDone("CORE", null, 5, app.agency.core.store.Feel.OK, 30).startsWith("✓"))
         assertEquals(ItemStatus.DONE, company.item("task:CORE")!!.status)
         assertNull(company.mealPhoto(app.agency.core.store.MealSlot.FIRST, "p1", true))
@@ -223,10 +223,10 @@ class CompanyTest {
 
     @Test fun savedRulesAreReadEveryCall() {
         onboard()
-        assertEquals(2000, company.rules().diet.kcal)
-        company.saveRules(Fixtures.rules().copy(diet = Fixtures.rules().diet.copy(kcal = 2200)), "", "")
-        assertEquals(2200, store.readDoc<Rules>(Doc.RULES)!!.diet.kcal)
-        assertEquals(2200, company.rules().diet.kcal)
+        assertEquals(2100, company.rules().diet.kcal)
+        company.saveRules(Fixtures.rules().copy(diet = Fixtures.rules().diet.copy(kcal = 2300)), "", "")
+        assertEquals(2300, store.readDoc<Rules>(Doc.RULES)!!.diet.kcal)
+        assertEquals(2300, company.rules().diet.kcal)
     }
 }
 

@@ -25,52 +25,52 @@ class DayStateTest {
 
     @Test fun mealTotalsAndLeftKcal() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 600)
-        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 700)
+        Kit.meal(s, monday, "11:50", MealSlot.FIRST, 640)
+        Kit.meal(s, monday, "18:25", MealSlot.DINNER, 730)
         val st = state(s)
-        assertEquals(1300, st.kcal)
-        assertEquals(700, st.leftKcal)
+        assertEquals(1370, st.kcal)
+        assertEquals(730, st.leftKcal)
         assertEquals(60.0, st.proteinG, 0.0)
         assertEquals(2, st.meals.size)
     }
 
     @Test fun budgetReservesWhatTheLaterMealsAreExpectedToTake() {
         val st = state(MemStore())
-        assertEquals(800, st.budget(MealSlot.FIRST))
-        assertEquals(900, st.budget(MealSlot.DINNER))
-        assertEquals(900, st.budget(MealSlot.NIGHT))
+        assertEquals(850, st.budget(MealSlot.FIRST))
+        assertEquals(950, st.budget(MealSlot.DINNER))
+        assertEquals(950, st.budget(MealSlot.NIGHT))
     }
 
     @Test fun aBigFirstMealShrinksDinner() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 900)
-        assertEquals(700, state(s).budget(MealSlot.DINNER))
+        Kit.meal(s, monday, "11:50", MealSlot.FIRST, 930)
+        assertEquals(770, state(s).budget(MealSlot.DINNER))
     }
 
     @Test fun budgetAfterDinnerNoLongerReservesDinner() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 800)
-        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 800)
+        Kit.meal(s, monday, "11:50", MealSlot.FIRST, 860)
+        Kit.meal(s, monday, "18:25", MealSlot.DINNER, 840)
         assertEquals(400, state(s).budget(MealSlot.NIGHT))
     }
 
     @Test fun budgetIsNeverNegative() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 900)
-        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 900)
-        Kit.meal(s, monday, "21:00", MealSlot.NIGHT, 900)
+        Kit.meal(s, monday, "11:50", MealSlot.FIRST, 930)
+        Kit.meal(s, monday, "18:25", MealSlot.DINNER, 930)
+        Kit.meal(s, monday, "21:45", MealSlot.NIGHT, 930)
         assertEquals(0, state(s).budget(MealSlot.EXTRA))
-        assertEquals(-700, state(s).leftKcal)
+        assertEquals(-690, state(s).leftKcal)
     }
 
     @Test fun waterTargetRampsUpAfterTheStartingPeriod() {
         val st = state(MemStore())
-        assertEquals(1000, st.waterTargetMl(1))
-        assertEquals(1000, st.waterTargetMl(14))
-        assertEquals(1250, st.waterTargetMl(15))
-        assertEquals(1250, st.waterTargetMl(21))
-        assertEquals(1500, st.waterTargetMl(22))
-        assertEquals(2000, st.waterTargetMl(500))
+        assertEquals(900, st.waterTargetMl(1))
+        assertEquals(900, st.waterTargetMl(10))
+        assertEquals(1125, st.waterTargetMl(11))
+        assertEquals(1125, st.waterTargetMl(17))
+        assertEquals(1350, st.waterTargetMl(18))
+        assertEquals(2700, st.waterTargetMl(500))
     }
 
     @Test fun waterTargetIsZeroWhenTheRuleIsBlank() {
@@ -91,7 +91,7 @@ class DayStateTest {
 
     @Test fun rideOutBackAndIncome() {
         val s = MemStore()
-        Kit.ride(s, monday, "19:00", RidePhase.OUT)
+        Kit.ride(s, monday, "19:45", RidePhase.OUT)
         assertTrue(state(s).riding)
         Kit.ride(s, monday, "23:00", RidePhase.BACK, income = 1100)
         val st = state(s)
@@ -104,8 +104,8 @@ class DayStateTest {
 
     @Test fun aSecondTripMakesHimRidingAgain() {
         val s = MemStore()
-        Kit.ride(s, monday, "19:00", RidePhase.OUT)
-        Kit.ride(s, monday, "21:00", RidePhase.BACK, income = 300)
+        Kit.ride(s, monday, "19:45", RidePhase.OUT)
+        Kit.ride(s, monday, "21:20", RidePhase.BACK, income = 300)
         Kit.ride(s, monday, "22:00", RidePhase.OUT)
         assertTrue(state(s).riding)
     }
@@ -113,7 +113,7 @@ class DayStateTest {
     @Test fun lastTaskRecordWins() {
         val s = MemStore()
         Kit.task(s, monday, "20:00", TaskId.STRENGTH, rounds = 2)
-        Kit.task(s, monday, "21:00", TaskId.STRENGTH, rounds = 3)
+        Kit.task(s, monday, "21:20", TaskId.STRENGTH, rounds = 3)
         assertEquals(3, state(s).tasks.getValue(TaskId.STRENGTH).rounds)
     }
 

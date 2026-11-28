@@ -41,9 +41,15 @@ internal class ToolRig(stage: Int = 2, val rules: Rules = Fixtures.rules(), val 
 
     fun at(hhmm: String) = clock.set(Days.today(clock), hhmm)
 
-    fun run(name: String, json: String, photos: List<String> = emptyList(), gallery: List<Boolean> = emptyList()): ToolOut {
+    fun run(
+        name: String,
+        json: String,
+        photos: List<String> = emptyList(),
+        gallery: List<Boolean> = emptyList(),
+        owner: String = "",
+    ): ToolOut {
         val tool = Tools.named(name) ?: error("no tool $name")
-        return runBlocking { tool.run(Json.parseToJsonElement(json).jsonObject, ctx(photos, gallery)) }
+        return runBlocking { tool.run(Json.parseToJsonElement(json).jsonObject, ctx(photos, gallery).withOwnerText(owner)) }
     }
 
     fun violations(): List<String> = store.entries(Days.today(clock), Kind.VIOLATION).map { it.read<Violation>().code }

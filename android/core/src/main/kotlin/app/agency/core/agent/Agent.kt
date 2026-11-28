@@ -27,9 +27,10 @@ import kotlinx.serialization.json.put
  *
  * One owner message:
  * 1. is stored (with a photo / file card per attachment);
- * 2. becomes a request: [system] (persona, handbook, rules, memory), then one user-side context message (this turn's
- *    [ContextSource.block] and the rolling summary), then the recent conversation (NOTE lines as short bracketed notes), then
- *    his message with its photos as image blocks and its files as fenced text;
+ * 2. becomes a request, stable parts first so the provider can cache the prefix: [system] (persona, handbook, rules,
+ *    memory), then the rolling summary and the recent conversation (NOTE lines as short bracketed notes), then ONE final
+ *    user-side turn: this moment's [ContextSource.block] immediately followed by his message, with its photos as image blocks
+ *    and its files as fenced text ([ChatRequest.cacheTurns] says where the stable prefix ends);
  * 3. runs up to [MAX_ROUNDS] tool rounds: every call is executed by code, errors and unknown tools go back as error results,
  *    cards are collected;
  * 4. her final text goes through [Guard] (on a problem she is told why and rewrites, at most twice; still wrong → only the
@@ -91,15 +92,21 @@ class Agent(
 
     private suspend fun answer(said: Said): SayResult {
         val msg = said.msg
+        val got = Collected()
         val result = try {
-            converse(said)
+            converse(said, got)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Outcome.Failed(Fail.BAD_RESPONSE)
         }
         return when (result) {
-            is Outcome.Failed -> {
+            is Outcome.Failed -> if (got.recorded.isNotEmpty()) {
+                // Something was already written this turn: sending his message again would record it twice. His message stays
+                // sent, a NOTE says what was saved, and only her words are missing.
+                store.addMessage(clock.now(), Role.NOTE, recordedNote(got.recorded))
+                SayResult.Ok
+            } else {
                 store.updateMessage(msg.copy(meta = JsonObject(msg.meta + (META_FAILED to JsonPrimitive(true)))))
                 SayResult.NotSent(reason(result.fail))
             }
@@ -122,10 +129,30 @@ class Agent(
         data class Failed(val fail: Fail) : Outcome
     }
 
-    /** What the tools of this turn produced. */
+    /** What the tools of this turn produced. [recorded] are the note lines of the calls that wrote something. */
     private class Collected {
         val cards = ArrayList<Card>()
         val facts = StringBuilder()
+        val recorded = ArrayList<String>()
+    }
+
+    /** Counts writes, so the loop knows which tool calls changed something (for [SayResult] after a failed reply). */
+    private class Counting(private val d: Store) : Store by d {
+        var writes = 0
+
+        override fun add(day: java.time.LocalDate, at: java.time.Instant, kind: String, data: JsonObject) =
+            d.add(day, at, kind, data).also { writes++ }
+
+        override fun update(id: Long, data: JsonObject) = d.update(id, data).also { if (it) writes++ }
+
+        override fun remove(id: Long) = d.remove(id).also { if (it) writes++ }
+
+        override fun putDoc(key: String, json: String?) {
+            d.putDoc(key, json)
+            writes++
+        }
+
+        override fun <T> tx(block: () -> T): T = d.tx(block)
     }
 
     private sealed interface Step {
@@ -133,16 +160,18 @@ class Agent(
         data class Failed(val fail: Fail) : Step
     }
 
-    private suspend fun converse(said: Said): Outcome {
+    private suspend fun converse(said: Said, got: Collected): Outcome {
         val before = context()
         val sys = system()
         val ownerText = (listOf(said.msg.text) + said.files.map { it.second }).joinToString("\n")
-        val turns = buildTurns(said, before).toMutableList()
+        val built = buildTurns(said, before)
+        val turns = built.turns.toMutableList()
+        val cacheTurns = built.stable
         val offered = tools()
-        val ctx = toolCtx(said.photoIds)
-        val got = Collected()
+        val counting = Counting(toolCtx(said.photoIds).store)
+        val ctx = toolCtx(said.photoIds).withOwnerText(ownerText).withStore(counting)
 
-        val first = loop(sys, turns, offered, ctx, got, MAX_ROUNDS)
+        val first = loop(sys, turns, offered, ctx, got, MAX_ROUNDS, cacheTurns)
         if (first is Step.Failed) return Outcome.Failed(first.fail)
         var last = (first as Step.Text).assistant
         var text = first.text
@@ -162,7 +191,7 @@ class Agent(
 
         suspend fun rewrite(note: String): Step {
             turns += Turn.User(note)
-            return loop(sys, turns, offered, ctx, got, REWRITE_ROUNDS)
+            return loop(sys, turns, offered, ctx, got, REWRITE_ROUNDS, cacheTurns)
         }
 
         // Guard: she rewrites at most twice; then only the offending sentences go.
@@ -180,7 +209,7 @@ class Agent(
 
         // Judge: one rewrite on a veto; a failed judge call never blocks.
         if (text.isNotBlank() && judge.triggered(text)) {
-            val v = judge.review(text, ownerText, facts())
+            val v = judge.review(text, ownerText, judgeFacts(after, got))
             if (v != null && !v.ok) {
                 val step = rewrite(judgeNote(v.reason))
                 if (step is Step.Text) {
@@ -191,7 +220,7 @@ class Agent(
             }
         }
 
-        if (text.isBlank()) text = neutralLine(sys, turns, offered, facts(), ownerText, flags)
+        if (text.isBlank()) text = neutralLine(sys, turns, offered, facts(), ownerText, flags, cacheTurns)
 
         val meta = Thoughts.of(last)?.takeIf { it.first == Wire.OPENAI }?.let { (_, reasoning) ->
             buildJsonObject { put(META_REASONING, reasoning) }
@@ -210,12 +239,13 @@ class Agent(
         ctx: ToolCtx,
         got: Collected,
         rounds: Int,
+        cacheTurns: Int,
     ): Step {
         var round = 0
         while (true) {
             val request = ChatRequest(
                 system = sys, turns = turns.toList(), purpose = Purpose.CHAT, maxTokens = MAX_TOKENS,
-                tools = offered.map { it.spec }, thinking = Thinking.LOW, effort = effort,
+                tools = offered.map { it.spec }, thinking = Thinking.LOW, effort = effort, cacheTurns = cacheTurns,
             )
             val r = llm.chat(request)
             if (r is ChatResult.Failed) return Step.Failed(r.fail)
@@ -238,14 +268,25 @@ class Agent(
                 return if (t.isEmpty()) Step.Failed(Fail.BAD_RESPONSE) else Step.Text(t, again.assistant)
             }
             round++
-            for (ran in ToolRunner.run(r.toolCalls, offered, ctx)) {
+            for (call in r.toolCalls) {
+                val before = (ctx.store as? Counting)?.writes ?: 0
+                val ran = ToolRunner.run(listOf(call), offered, ctx).single()
                 turns += ran.result
                 ran.out?.let { out ->
                     got.cards += out.cards
                     got.facts.append(out.facts.toString()).append('\n')
+                    val wrote = ((ctx.store as? Counting)?.writes ?: 0) > before
+                    val tool = offered.firstOrNull { it.spec.name == call.name }
+                    if (wrote && out.ok && tool != null) got.recorded += app.agency.core.agent.tools.Tools.noteLine(tool, out)
                 }
             }
         }
+    }
+
+    /** The judge's facts: today's totals, budgets, flags (from the context) and this turn's tool results, nothing else. */
+    private fun judgeFacts(c: ContextSource, got: Collected): String = buildString {
+        append(c.judgeFacts().trim())
+        if (got.facts.isNotBlank()) append("\n\n這一輪工具的結果：\n").append(got.facts.trim())
     }
 
     /** Everything was removed: one short neutral line of her own, checked like any other; nothing if that fails too. */
@@ -256,12 +297,13 @@ class Agent(
         facts: String,
         owner: String,
         flags: GuardFlags,
+        cacheTurns: Int,
     ): String {
         turns += Turn.User(NEUTRAL_NOTE)
         // The tools stay declared (the history holds tool calls, which Claude only accepts with tools defined); any call she
         // makes here is not run.
         val request = ChatRequest(sys, turns.toList(), Purpose.CHAT, MAX_TOKENS, offered.map { it.spec }, thinking = Thinking.LOW,
-            effort = Effort.LOW)
+            effort = Effort.LOW, cacheTurns = cacheTurns)
         val r = try {
             llm.chat(request)
         } catch (e: CancellationException) {
@@ -277,31 +319,47 @@ class Agent(
         }
     }
 
-    private fun buildTurns(said: Said, c: ContextSource): List<Turn> {
+    /** The request's turns, and how many leading ones are the stable conversation prefix (the same in the next request). */
+    private class Built(val turns: List<Turn>, val stable: Int)
+
+    /**
+     * Stable first, volatile last, so the provider can cache the conversation prefix: the rolling summary and the recent
+     * conversation, then ONE final user-side turn with this moment's context immediately followed by his message.
+     */
+    private fun buildTurns(said: Said, c: ContextSource): Built {
         val msg = said.msg
-        val out = ArrayList<Turn>()
-        out += Turn.User(buildString {
-            append("〔現在的情況（程式剛整理的事實）〕\n")
-            append(c.block().trim())
-            append("\n可以演小劇場：").append(if (c.mayPlayScene) "是" else "否")
-            append("\n可以撒嬌：").append(if (c.mayBeSweet) "是" else "否")
-            val summary = Memory.summary(store)
-            if (summary.isNotBlank()) append("\n\n〔之前的對話摘要〕\n").append(summary)
-        })
+        val history = ArrayList<Turn>()
+        val summary = Memory.summary(store)
+        if (summary.isNotBlank()) history += Turn.User("〔之前的對話摘要〕\n$summary")
         val mark = Memory.summarisedThrough(store)
         store.messages(HISTORY, beforeId = msg.id).filter { it.id > mark }.forEach { m ->
             when (m.role) {
-                Role.OWNER -> if (m.meta[META_FAILED] != JsonPrimitive(true)) out += Turn.User(historyOwner(m))
-                Role.NOTE -> out += Turn.User("〔紀錄〕" + m.text)
+                Role.OWNER -> if (m.meta[META_FAILED] != JsonPrimitive(true)) history += Turn.User(historyOwner(m))
+                Role.NOTE -> history += Turn.User("〔紀錄〕" + m.text)
                 Role.MANAGER -> {
                     val t = m.text.ifBlank { "〔只顯示了卡片〕" }
                     val reasoning = m.meta.str(META_REASONING)
-                    out += if (reasoning != null) Thoughts.replay(t, reasoning) else Turn.AssistantText(t)
+                    history += if (reasoning != null) Thoughts.replay(t, reasoning) else Turn.AssistantText(t)
                 }
             }
         }
-        out += Turn.User(currentText(msg, said.images.size, said.files), said.images)
-        return mergeUsers(out)
+        val now = Turn.User(
+            buildString {
+                append("〔現在的情況（程式剛整理的事實）〕\n")
+                append(c.block().trim())
+                append("\n可以演小劇場：").append(if (c.mayPlayScene) "是" else "否")
+                append("\n可以撒嬌：").append(if (c.mayBeSweet) "是" else "否")
+                append("\n\n〔他現在說的話〕\n")
+                append(currentText(msg, said.images.size, said.files))
+            },
+            said.images,
+        )
+        // The conversation must open on his side: a reply of hers whose question was summarised away gets a fixed opener.
+        if (history.isNotEmpty() && history.first() !is Turn.User) history.add(0, Turn.User(EARLIER))
+        val stable = mergeUsers(history)
+        // A user-side history turn right before (a note) joins the final turn, so the prefix then ends one turn earlier.
+        val keep = if (stable.lastOrNull() is Turn.User) stable.size - 1 else stable.size
+        return Built(mergeUsers(stable + now), keep)
     }
 
     private fun historyOwner(m: Message): String {
@@ -341,6 +399,9 @@ class Agent(
     private fun findMessage(id: Long): Message? =
         store.messages(1, beforeId = id + 1).firstOrNull { it.id == id }
 
+    private fun recordedNote(lines: List<String>): String =
+        "〔小葵的回覆沒有送出，但這些已經記下來了，不用重送：" + lines.distinct().joinToString("；") + "〕"
+
     private fun fixNote(problems: List<Problem>): String = buildString {
         append("〔檢查沒過：上一版回覆有下面的問題。請重寫整段要給他看的回覆，只改有問題的地方，其他照舊；不要提到檢查，也不要道歉。〕")
         problems.forEach { p -> append("\n・「").append(p.sentence).append("」：").append(p.reason) }
@@ -364,6 +425,7 @@ class Agent(
         const val META_FILES = "files"
         const val META_REASONING = "reasoning"
 
+        private const val EARLIER = "〔更早的對話〕"
         private const val TOO_MANY_ROUNDS = """{"error":"too many tool rounds in one answer"}"""
         private const val NO_MORE_TOOLS = "〔這一輪工具已經用太多次了，請直接用文字回他。〕"
         private const val NEUTRAL_NOTE = "〔前面的回覆都沒通過檢查。只寫一句很短、中性的話接住他：不含數字、不含建議、不提檢查。數字畫面上的卡片會顯示。〕"

@@ -59,7 +59,7 @@ internal class LogTaskTool : BaseTool(
         fun record(
             ctx: ToolCtx,
             task: String,
-            rounds: Int?,
+            said: Int?,
             minutes: Int?,
             feel: Feel?,
             note: String,
@@ -70,8 +70,12 @@ internal class LogTaskTool : BaseTool(
             val open = feature.openAt(ctx.stage.stage)
             val before = Moment.of(ctx.store, ctx.clock, ctx.rules)
             val full = before.training.strengthRounds
-            val reduced = task == TaskId.STRENGTH.name && open && (before.state.sick || before.state.firstDayBack) &&
-                rounds != null && rounds < full
+            val unwell = before.state.sick || before.state.firstDayBack
+            // Strength said without a number of rounds is the plan's own number: full, or the code's reduced one when unwell.
+            val rounds = said ?: if (task == TaskId.STRENGTH.name && open && full > 0) {
+                if (unwell) (full - 1).coerceAtLeast(1) else full
+            } else null
+            val reduced = task == TaskId.STRENGTH.name && open && unwell && rounds != null && rounds < full
             val rec = TaskDone(task, rounds, minutes, feel, reduced = reduced, awaySeconds = awaySeconds.coerceAtLeast(0), note = note)
             val e = F.write(ctx, Kind.TASK, rec)
             if (!open) return ToolOut(F.closed(feature, e) { put("task", title) })

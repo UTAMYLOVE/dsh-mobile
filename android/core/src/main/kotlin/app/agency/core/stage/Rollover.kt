@@ -13,7 +13,6 @@ import app.agency.core.store.DayClose
 import app.agency.core.store.Doc
 import app.agency.core.store.Kind
 import app.agency.core.store.Photocard
-import app.agency.core.store.RealTask
 import app.agency.core.store.Role
 import app.agency.core.store.Store
 import app.agency.core.store.WeekResult
@@ -124,9 +123,11 @@ object Rollover {
 
         /** Closes logical day [d] (steps 1 and 3, then the week and the round when [d] ends them). */
         fun close(d: LocalDate) {
-            Violations.onClose(store, rules, st, d, now, clock.zone)
+            // The stage that was open ON [d], never one opened later in the same catch-up.
+            val onDay = StageDays.asOf(st, d)
+            Violations.onClose(store, rules, onDay, d, now, clock.zone)
             val end = Days.at(d.plusDays(1), LocalTime.of(Days.START_HOUR, 0), clock.zone)
-            val plan = Today.planFor(store, clock, rules, st, d, end, extra(d))
+            val plan = Today.planFor(store, clock, rules, onDay, d, end, extra(d))
             val violations = store.entries(d, Kind.VIOLATION).size
             val counted = plan.items.filter { it.counts && it.status != ItemStatus.OFF }
             val missed = counted.filter { it.status != ItemStatus.DONE }.associate { it.id to it.title }
@@ -166,7 +167,13 @@ object Rollover {
             val written = sunday.plusDays(1)
             val have = store.entries(written, Kind.WEEK).any { runCatching { it.read<WeekResult>() }.getOrNull()?.weekStart == monday.toString() }
             if (have) return
-            val r = WeekReport.build(store, monday, rules)
+            val r = WeekReport.build(store, monday, rules).copy(
+                realTaskDone = if (Feature.REAL_TASK.openAt(st.stage)) {
+                    app.agency.core.extras.RealTasks(store, clock).doneWithin(monday, sunday)
+                } else null,
+                level = if (st.stage >= StageState.LAST_STAGE) st.level else "",
+                photocards = store.entries(monday, sunday, Kind.CARD).size,
+            )
             store.add(written, now, Kind.WEEK, r)
             weeks += r
             val lines = ArrayList<String>()
@@ -176,6 +183,9 @@ object Rollover {
             r.weightChangeKg?.let { lines += "體重比前一週${if (it > 0) "多" else "少"} ${Math.abs(it)} 公斤" }
             lines += "通過 ${r.lessonsPassed} 堂課"
             lines += "全部完成的日子 ${r.perfectDays} 天"
+            r.realTaskDone?.let { lines += if (it) "真人任務：完成了" else "真人任務：還沒完成" }
+            if (r.level.isNotBlank()) lines += "練習生等級：${r.level} 級"
+            if (r.photocards > 0) lines += "這週拿到 ${r.photocards} 張小卡"
             note("上週的成績出來了", Card.Summary("上週成績", lines))
         }
 
@@ -193,7 +203,7 @@ object Rollover {
             val realWhole = Feature.REAL_TASK.openAt(st.stage) &&
                 StageDays.openedOn(st, Feature.REAL_TASK.stage)?.let { !it.isAfter(from) } == true
             if (realWhole) {
-                val doneTask = store.entries(from, to, Kind.REAL_TASK).any { runCatching { it.read<RealTask>().done }.getOrNull() == true }
+                val doneTask = app.agency.core.extras.RealTasks(store, clock).doneWithin(from, to)
                 if (!doneTask) short += "這一輪的真人任務還沒完成"
             }
             val passed = short.isEmpty()
@@ -204,9 +214,10 @@ object Rollover {
             if (st.stage >= StageState.LAST_STAGE) {
                 val streak = if (passed) st.passStreak + 1 else 0
                 val weeksPassed = st.passedWeeks + if (passed) 1 else 0
+                // The level follows passed weeks in a row: a failed week starts the count again (the level itself never drops).
                 val reached = when {
-                    rules.level.weeksToA > 0 && weeksPassed >= rules.level.weeksToA -> "A"
-                    rules.level.weeksToB > 0 && weeksPassed >= rules.level.weeksToB -> "B"
+                    rules.level.weeksToA > 0 && streak >= rules.level.weeksToA -> "A"
+                    rules.level.weeksToB > 0 && streak >= rules.level.weeksToB -> "B"
                     else -> "C"
                 }
                 val level = if (LEVELS.indexOf(reached) > LEVELS.indexOf(st.level)) reached else st.level
@@ -220,7 +231,7 @@ object Rollover {
                     levelUps += level
                     note(
                         "升到 $level 級了",
-                        Card.Ceremony("level", "升到 $level 級", "累積通過 $weeksPassed 週，現在是 $level 級練習生。"),
+                        Card.Ceremony("level", "升到 $level 級", "連續通過 $streak 週，現在是 $level 級練習生。"),
                     )
                 }
             } else if (passed) {

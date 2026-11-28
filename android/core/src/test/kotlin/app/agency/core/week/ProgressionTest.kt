@@ -31,7 +31,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressionTest {
-    private val rules = Fixtures.rules() // 3 rounds, 10 push-ups, 15 squats, 40 s plank, 100 g protein
+    private val rules = Fixtures.rules() // 4 rounds, 12 push-ups, 18 squats, 50 s plank, 110 g protein
     private val day: LocalDate = TestClock.MONDAY.plusDays(60)
     private val zone = TestClock.ZONE
     private val clock = TestClock().also { it.set(day, "07:00") }
@@ -40,9 +40,9 @@ class ProgressionTest {
 
     /** A store where every condition holds for the 14 days before [day] and [extraDays] after it. */
     private fun rig(
-        rounds: Int = 3,
+        rounds: Int = 4,
         easy: Int = 2,
-        protein: Double = 100.0,
+        protein: Double = 110.0,
         skip: LocalDate? = null,
         reduced: LocalDate? = null,
         extraDays: Int = 0,
@@ -61,7 +61,7 @@ class ProgressionTest {
             }
             s.add(
                 d, at(d, 13), Kind.MEAL,
-                Meal(MealSlot.FIRST, listOf(MealItem("便當", 800, protein, FoodSource.TABLE)), "p"),
+                Meal(MealSlot.FIRST, listOf(MealItem("便當", 790, protein, FoodSource.TABLE)), "p"),
             )
         }
         return s
@@ -74,9 +74,9 @@ class ProgressionTest {
     @Test fun effectiveIsRulesPlusOffsets() {
         val l = Levels(trainingOffsets = mapOf("pushUps" to 4, "plankSeconds" to 10))
         val t = Progression.effective(rules, l)
-        assertEquals(14, t.pushUps)
-        assertEquals(15, t.squats)
-        assertEquals(50, t.plankSeconds)
+        assertEquals(16, t.pushUps)
+        assertEquals(18, t.squats)
+        assertEquals(60, t.plankSeconds)
         assertEquals(rules.training, Progression.effective(rules, Levels()))
     }
 
@@ -84,11 +84,11 @@ class ProgressionTest {
         val s = rig()
         val a = raise(s)
         assertNotNull(a)
-        assertTrue(a!!.what.contains("伏地挺身") && a.what.contains("12"))
+        assertTrue(a!!.what.contains("伏地挺身") && a.what.contains("14"))
         assertTrue(a.why.isNotBlank())
         assertEquals(mapOf("pushUps" to 2), offsets(s))
         assertEquals(day.toString(), s.readDoc<StageState>(Doc.STAGE)!!.lastRaiseOn)
-        assertEquals(12, Progression.effective(rules, s.readDoc<Levels>(Doc.LEVELS)!!).pushUps)
+        assertEquals(14, Progression.effective(rules, s.readDoc<Levels>(Doc.LEVELS)!!).pushUps)
     }
 
     @Test fun holdsFourteenDaysThenRotates() {
@@ -115,7 +115,7 @@ class ProgressionTest {
 
     @Test fun aMissedStrengthDayBlocks() = assertNull(raise(rig(skip = day.minusDays(6))))
 
-    @Test fun notFullRoundsBlocks() = assertNull(raise(rig(rounds = 2)))
+    @Test fun notFullRoundsBlocks() = assertNull(raise(rig(rounds = 3)))
 
     @Test fun aReducedDayBlocks() = assertNull(raise(rig(reduced = day.minusDays(2))))
 
@@ -125,7 +125,7 @@ class ProgressionTest {
         // keep a single EASY by turning the other one into OK
         val easies = one.entries(day.minusDays(14), day.minusDays(1), Kind.TASK).filter { it.read<TaskDone>().feel == Feel.EASY }
         assertEquals(2, easies.size)
-        one.update(easies[0].id, TaskDone("STRENGTH", rounds = 3, feel = Feel.OK))
+        one.update(easies[0].id, TaskDone("STRENGTH", rounds = 4, feel = Feel.OK))
         assertNull(raise(one))
     }
 
@@ -156,8 +156,8 @@ class ProgressionTest {
     }
 
     @Test fun lowProteinBlocksAndNinetyPercentIsEnough() {
-        assertNull(raise(rig(protein = 80.0)))
-        assertNotNull(raise(rig(protein = 90.0)))
+        assertNull(raise(rig(protein = 95.0)))
+        assertNotNull(raise(rig(protein = 99.0)))
     }
 
     @Test fun strengthMustHaveBeenOpenForTheWholeWindow() {
@@ -180,7 +180,7 @@ class ProgressionTest {
         assertNotNull(res.adjustment)
         assertNull(Rollover.run(s, clock, rules).adjustment)
         val plan = Today.plan(s, clock, rules)
-        assertTrue(plan.items.first { it.id == "task:STRENGTH" }.detail.contains("伏地挺身 12 下"))
+        assertTrue(plan.items.first { it.id == "task:STRENGTH" }.detail.contains("伏地挺身 14 下"))
         assertTrue(plan.adjustments.any { it.what.contains("訓練量提高") })
     }
 }

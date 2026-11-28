@@ -4,6 +4,7 @@ import app.agency.core.agent.Card
 import app.agency.core.agent.Moment
 import app.agency.core.agent.ToolCtx
 import app.agency.core.agent.ToolOut
+import app.agency.core.day.FreeMeals
 import app.agency.core.day.Nutrition
 import app.agency.core.stage.Feature
 import app.agency.core.store.Entry
@@ -52,9 +53,11 @@ internal object Meals {
         val kcal = meal.items.sumOf { it.kcal }
         val protein = meal.items.sumOf { it.proteinG }
         val warnings = ArrayList<String>()
-        meal.items.filter { it.banned != null }.forEach { warnings += "${it.name} 是禁止的食物（${it.banned}）" }
-        if (d.mealCapKcal > 0 && kcal > d.mealCapKcal) warnings += "這餐 $kcal 大卡，超過單餐上限 ${d.mealCapKcal} 大卡"
-        if (d.kcal > 0 && m.state.kcal > d.kcal) warnings += "今天 ${m.state.kcal} 大卡，超過每日 ${d.kcal} 大卡"
+        if (!meal.free) {
+            meal.items.filter { it.banned != null }.forEach { warnings += "${it.name} 是禁止的食物（${it.banned}）" }
+            if (d.mealCapKcal > 0 && kcal > d.mealCapKcal) warnings += "這餐 $kcal 大卡，超過單餐上限 ${d.mealCapKcal} 大卡"
+            if (d.kcal > 0 && m.state.kcal - freeKcal(m) > d.kcal) warnings += "今天 ${m.state.kcal} 大卡，超過每日 ${d.kcal} 大卡"
+        }
         val estimated = meal.items.any { it.source == FoodSource.ESTIMATE }
         val needsPhoto = meal.photoId == null
         val title = slotWord(meal.slot) + "：" + meal.items.joinToString("、") { it.name }
@@ -77,6 +80,7 @@ internal object Meals {
             }))
             put("meal_kcal", kcal)
             put("meal_protein_g", F.num(protein))
+            if (meal.free) put("free_meal", "這餐是這週的自由餐：熱量照算進今天，但不算違規")
             put("photo", !needsPhoto)
             if (meal.photoLate) put("photo_late", true)
             if (needsPhoto) put("needs_photo", "還缺這餐的照片，計畫裡這餐要有照片才算完成；可以等一下用相簿補交")
@@ -87,6 +91,8 @@ internal object Meals {
         }
         return ToolOut(facts, listOf(card))
     }
+
+    private fun freeKcal(m: Moment): Int = m.state.meals.filter { it.meal.free }.sumOf { it.kcal }
 
     /** A photo of this message not yet used by another meal today. */
     fun freePhoto(ctx: ToolCtx): Pair<String, Boolean>? {
@@ -103,24 +109,28 @@ internal class LogMealTool : BaseTool(
     "記一餐。slot：first 第一餐、dinner 晚餐、night 宵夜、extra 點心或額外的。items 每樣東西一項（name、kcal、protein_g）。" +
         "source：label 是數字從他確認過的標籤、收據、菜單讀來的；estimate 是你估的（程式會嚴格往上調）。他的食物表有的東西程式自動用表上的數字。" +
         "attach_photo：他這則訊息附了這餐的照片就 true。從照片讀出來的內容要先跟他確認才記。" +
+        "free_meal：他明確說這餐要當這週的自由餐才 true（情境會寫這週還能不能用），其他都 false。" +
         "回傳這餐和今天的熱量、蛋白質、剩多少、下一餐預算、是否缺照片、警告和新違規；餐點卡會自動顯示。",
     S.obj(
         "slot" to S.enum("哪一餐", listOf("first", "dinner", "night", "extra")),
         "items" to S.arr("吃了哪些東西", Meals.itemSchema),
         "source" to S.enum("數字的來源", listOf("label", "estimate")),
         "attach_photo" to S.bool("這則訊息附的照片是這一餐的"),
+        "free_meal" to S.bool("他說這餐要當這週的自由餐"),
     ),
     Feature.MEALS,
 ) {
     override suspend fun exec(a: Args, ctx: ToolCtx): ToolOut {
         val slot = a.enum("slot", "哪一餐", MealSlot.values())
+        val free = a.bool("free_meal")
+        if (free) FreeMeals.refusal(FreeMeals.status(ctx.store, ctx.rules, F.day(ctx)))?.let { throw BadArg(it) }
         val source = if (a.strOrNull("source")?.lowercase() == "label") FoodSource.LABEL else FoodSource.ESTIMATE
         val items = Meals.items(a, ctx, source)
         val photo = if (a.bool("attach_photo")) Meals.freePhoto(ctx) else null
         if (a.bool("attach_photo") && photo == null && ctx.photoIds.isEmpty()) {
             throw BadArg("這則訊息沒有附照片，attach_photo 要是 false。")
         }
-        val meal = Meal(slot, items, photoId = photo?.first)
+        val meal = Meal(slot, items, photoId = photo?.first, free = free)
         val e = F.write(ctx, Kind.MEAL, meal)
         if (!isOpen(ctx)) {
             return ToolOut(F.closed(Feature.MEALS, e) {
@@ -135,7 +145,7 @@ internal class LogMealTool : BaseTool(
 internal class FixMealTool : BaseTool(
     "fix_meal",
     "改正今天已記的一餐（他說記錯了、份量不對）。entry_id 是那餐的編號（情境裡的 #數字），items 是整餐正確的內容（全部重給）。" +
-        "已經產生的違規不會因此消失。",
+        "改完程式會重新檢查今天的違規：條件不再成立的會拿掉。",
     S.obj(
         "entry_id" to S.int("那一餐的編號"),
         "items" to S.arr("整餐正確的內容", Meals.itemSchema),
@@ -151,7 +161,7 @@ internal class FixMealTool : BaseTool(
         val source = if (a.strOrNull("source")?.lowercase() == "label") FoodSource.LABEL else FoodSource.ESTIMATE
         val meal = old.copy(items = Meals.items(a, ctx, source))
         ctx.store.update(id, meal)
-        val fresh = if (isOpen(ctx)) F.violations(ctx) else emptyList()
+        val fresh = if (isOpen(ctx)) F.resync(ctx) else emptyList()
         return Meals.result(ctx, ctx.store.entry(id)!!, meal, fresh, "已改")
     }
 }
@@ -193,9 +203,11 @@ internal class RemoveEntryTool : BaseTool(
         if (e.kind !in F.TODAY_ONLY) throw BadArg("#$id 這種紀錄不能刪（只能刪餐點、喝水、記帳、飲料、體重、心情）。")
         if (e.day != F.day(ctx)) throw BadArg("#$id 不是今天的紀錄，只能刪今天的。")
         ctx.store.remove(id)
+        val fresh = F.resync(ctx, e.day)
         val m = F.moment(ctx)
         return ToolOut(F.obj {
             put("removed", id)
+            if (fresh.isNotEmpty()) put("new_violations", F.strs(fresh))
             put("note", "已刪除 #$id")
             put("today", F.today(m))
         })

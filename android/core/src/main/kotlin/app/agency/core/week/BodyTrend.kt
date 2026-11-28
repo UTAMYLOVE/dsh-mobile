@@ -42,6 +42,21 @@ object BodyTrend {
         }
     }
 
+    /** The pause / floor flags of the latest weight, without writing anything (for the context block). */
+    fun flags(store: Store, day: LocalDate, rules: Rules): BodyFlags {
+        val b = rules.body
+        val latest = store.entries(day.minusDays(30), day, Kind.BODY).mapNotNull { e ->
+            runCatching { e.read<Body>().kg }.getOrNull()
+        }.lastOrNull()
+        return BodyFlags(
+            latestKg = latest,
+            pause = latest != null && b.pauseBelowKg > 0 && latest < b.pauseBelowKg,
+            floor = latest != null && b.neverBelowKg > 0 && latest <= b.neverBelowKg,
+            fastLoss = false,
+            proposed = false,
+        )
+    }
+
     /**
      * Reads the weigh-ins and, when he lost too fast two weeks running, writes ONE open `kcal_up` proposal (+100) unless one is
      * open already or was made in the last two weeks (a "no" must not be asked again tomorrow). The entry is stamped [now].

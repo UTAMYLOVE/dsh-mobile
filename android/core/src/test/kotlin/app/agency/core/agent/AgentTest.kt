@@ -68,7 +68,7 @@ class AgentTest {
     private val water = FakeTool("log_water") { _, _ ->
         ToolOut(buildJsonObject { put("water_bottles", 1); put("target_bottles", 2) }, listOf(Card.Summary("喝水", listOf("1／2 壺"))))
     }
-    private val getDay = FakeTool("get_day") { _, _ -> ToolOut(buildJsonObject { put("kcal", 1200); put("left", 800) }) }
+    private val getDay = FakeTool("get_day") { _, _ -> ToolOut(buildJsonObject { put("kcal", 1260); put("kcal_left", 740) }) }
     private val boom = FakeTool("boom") { _, _ -> error("disk on fire") }
     private val remember = FakeTool("remember") { a, ctx ->
         Memory.remember(ctx.store, a["text"]!!.jsonPrimitive.content)
@@ -144,13 +144,13 @@ class AgentTest {
     }
 
     @Test fun theGuardAsksForARewriteAndTheRewriteIsKept() = runBlocking {
-        val llm = ScriptedLlm(calls("get_day"), says("今天 1300 大卡了。"), says("今天 1200 大卡了，還剩 800 大卡。"))
+        val llm = ScriptedLlm(calls("get_day"), says("今天 1300 大卡了。"), says("今天 1260 大卡了，還剩 740 大卡。"))
         assertEquals(SayResult.Ok, agent(llm).reply("今天吃多少了", emptyList()))
         assertEquals(3, llm.requests.size)
         val note = (llm.requests[2].turns.last() as Turn.User).text
         assertTrue(note.contains("檢查沒過"))
         assertTrue(note.contains("今天 1300 大卡了。"))
-        assertEquals("今天 1200 大卡了，還剩 800 大卡。", manager().single().text)
+        assertEquals("今天 1260 大卡了，還剩 740 大卡。", manager().single().text)
         assertEquals(1, small.requests.size) // 大卡 → the judge looked once
     }
 
@@ -182,6 +182,24 @@ class AgentTest {
         val j = small.requests.single()
         assertEquals(Purpose.JUDGE, j.purpose)
         assertTrue(j.output is Output.Json)
+    }
+
+    @Test fun theJudgeSeesTodaysTotalsAndThisTurnsToolResultsNotEverything() = runBlocking {
+        context = object : ContextSource {
+            override fun block() = "現在 07:10。\n最近七天：一大段和這次無關的歷史。\n吃：今天 1260 大卡／目標 2000 大卡"
+            override fun judgeFacts() = "吃：今天 1260 大卡／目標 2000 大卡"
+            override val unwellReducedByCode = false
+            override val closedFeatureWords = emptyList<String>()
+            override val neverBelowKg = 60.0
+            override val mayPlayScene = false
+            override val mayBeSweet = false
+        }
+        val llm = ScriptedLlm(calls("get_day"), says("今天 1260 大卡了，還剩 740 大卡。"))
+        assertEquals(SayResult.Ok, agent(llm).reply("今天吃多少了", emptyList()))
+        val input = (small.requests.single().turns.single() as Turn.User).text
+        assertTrue(input.contains("吃：今天 1260 大卡／目標 2000 大卡"))
+        assertTrue(input.contains("kcal_left"))
+        assertFalse(input.contains("最近七天"))
     }
 
     @Test fun aFailedJudgeCallNeverBlocks() = runBlocking {
@@ -244,7 +262,7 @@ class AgentTest {
         assertTrue(llm.requests.last().turns.filterIsInstance<Turn.User>().last().images.single().contentEquals(jpeg))
     }
 
-    @Test fun theRequestHoldsSystemContextSummaryAndRecentTurnsInOrder() = runBlocking {
+    @Test fun theRequestHoldsSystemSummaryRecentTurnsThenContextAndHisMessageLast() = runBlocking {
         Memory.setSummary(store, "上週他說想學舞。", throughId = 0)
         store.addMessage(clock.now(), Role.OWNER, "早安")
         store.addMessage(clock.now(), Role.MANAGER, "早，先簽到。", meta = buildJsonObject { put("reasoning", "他剛起床。") })
@@ -256,17 +274,44 @@ class AgentTest {
         assertEquals("系統提示", r.system)
         assertEquals(3, r.turns.size)
         val first = (r.turns[0] as Turn.User).text
-        val iContext = first.indexOf(contextText)
-        val iSummary = first.indexOf("上週他說想學舞。")
-        val iMorning = first.indexOf("早安")
-        assertTrue(iContext in 0 until iSummary && iSummary < iMorning)
-        assertTrue(first.contains("可以演小劇場：否"))
+        assertTrue(first.indexOf("上週他說想學舞。") in 0 until first.indexOf("早安"))
+        assertFalse(first.contains(contextText))
         val reply = r.turns[1] as Turn.Assistant
         assertEquals("早，先簽到。", reply.text)
         assertEquals(Wire.OPENAI to "他剛起床。", Thoughts.of(reply))
+        // The volatile part is last: the note, then this moment's context, then his message.
         val last = (r.turns[2] as Turn.User).text
-        assertTrue(last.indexOf("〔紀錄〕✓ 已記：簽到") in 0 until last.indexOf("喝完一壺了"))
+        val iNote = last.indexOf("〔紀錄〕✓ 已記：簽到")
+        val iContext = last.indexOf(contextText)
+        assertTrue(iNote in 0 until iContext && iContext < last.indexOf("可以演小劇場：否") && last.indexOf("可以演小劇場：否") < last.indexOf("喝完一壺了"))
+        assertTrue(last.endsWith("喝完一壺了"))
         assertFalse(r.turns.any { it is Turn.User && it.text.contains("沒送出的話") })
+        assertEquals(2, r.cacheTurns) // summary + morning, and her reply: the same prefix the next request starts with
+    }
+
+    @Test fun theNextRequestStartsWithTheSamePrefix() = runBlocking {
+        store.addMessage(clock.now(), Role.OWNER, "早安")
+        store.addMessage(clock.now(), Role.MANAGER, "早，先簽到。")
+        val llm = ScriptedLlm(says("好。"), says("收到。"))
+        val a = agent(llm)
+        a.reply("簽好了", emptyList())
+        context = FakeContext("現在 07:30，完全不同的情況。")
+        a.reply("出門了", emptyList())
+        val (one, two) = llm.requests
+        assertEquals(2, one.cacheTurns)
+        assertEquals(one.turns.take(one.cacheTurns), two.turns.take(one.cacheTurns))
+        assertEquals(4, two.cacheTurns)
+        assertEquals(Turn.User("簽好了"), two.turns[2])
+        assertTrue((two.turns.last() as Turn.User).text.contains("完全不同的情況"))
+    }
+
+    @Test fun aHistoryThatStartsWithHerReplyOpensOnHisSide() = runBlocking {
+        store.addMessage(clock.now(), Role.MANAGER, "早，先簽到。")
+        val llm = ScriptedLlm(says("好。"))
+        agent(llm).reply("簽好了", emptyList())
+        val t = llm.requests.single().turns
+        assertTrue(t.first() is Turn.User)
+        assertTrue(t[1] is Turn.AssistantText)
     }
 
     @Test fun compactionFlushesMemoryThenWritesTheSummary() = runBlocking {

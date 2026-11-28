@@ -35,6 +35,23 @@ object StageDays {
         return if (level == state.stage) parse(state.startedOn) ?: joined else null
     }
 
+    /**
+     * The stage document as it stood on [day]: a day before the current round belongs to the round that covered it (its stage,
+     * its start, the rounds before it). A day of the current round or later gets [state] unchanged.
+     */
+    fun asOf(state: StageState, day: LocalDate): StageState {
+        val started = parse(state.startedOn) ?: return state
+        if (!day.isBefore(started)) return state
+        val idx = state.rounds.indexOfLast { r ->
+            val from = parse(r.from)
+            val to = parse(r.to)
+            from != null && to != null && !day.isBefore(from) && !day.isAfter(to)
+        }
+        if (idx < 0) return state
+        val r = state.rounds[idx]
+        return state.copy(stage = r.stage, startedOn = r.from, rounds = state.rounds.take(idx))
+    }
+
     /** Days since joining, 1-based (the joining day is day 1). */
     fun dayNumber(state: StageState, day: LocalDate): Int {
         val joined = parse(state.joinedOn) ?: return 1

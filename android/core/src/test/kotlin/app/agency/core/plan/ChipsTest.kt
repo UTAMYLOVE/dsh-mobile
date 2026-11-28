@@ -27,20 +27,20 @@ class ChipsTest {
         Kit.checkIn(sc.store, monday, "07:00")
         assertFalse(sc.chips("10:00").contains("我吃完了"))
         assertTrue(sc.chips("11:45").contains("我吃完了"))
-        Kit.meal(sc.store, monday, "12:10", MealSlot.FIRST, 600)
+        Kit.meal(sc.store, monday, "11:50", MealSlot.FIRST, 600)
         assertFalse(sc.chips("12:30").contains("我吃完了"))
     }
 
     @Test fun mealWithoutPhotoStillOffersTheChipBecauseItIsNotDone() {
         val sc = Scene()
-        Kit.meal(sc.store, monday, "12:10", MealSlot.FIRST, 600, photo = false)
+        Kit.meal(sc.store, monday, "11:50", MealSlot.FIRST, 600, photo = false)
         assertTrue(sc.chips("12:30").contains("我吃完了"))
     }
 
     @Test fun leavingChipBeforeTheDeparture() {
         val sc = Scene()
         assertFalse(sc.chips("15:00").contains("我出門跑單了"))
-        assertTrue(sc.chips("19:00").contains("我出門跑單了"))
+        assertTrue(sc.chips("19:30").contains("我出門跑單了"))
         Kit.ride(sc.store, monday, "19:20", RidePhase.OUT)
         assertFalse(sc.chips("19:25").contains("我出門跑單了"))
     }
@@ -48,7 +48,7 @@ class ChipsTest {
     @Test fun ridingOffersTheFinishChip() {
         val sc = Scene()
         Kit.ride(sc.store, monday, "19:20", RidePhase.OUT)
-        assertTrue(sc.chips("21:00").contains("收工了"))
+        assertTrue(sc.chips("21:10").contains("收工了"))
         Kit.ride(sc.store, monday, "23:00", RidePhase.BACK)
         assertFalse(sc.chips("23:05").contains("收工了"))
     }
@@ -94,7 +94,7 @@ class ChipsTest {
 
     @Test fun closedFeaturesNeverProduceChips() {
         val sc = Scene(stageN = 1)
-        val chips = sc.chips("19:00") + sc.chips("11:45") + sc.chips("07:30")
+        val chips = sc.chips("19:30") + sc.chips("11:45") + sc.chips("07:30")
         assertTrue(chips.isEmpty())
     }
 
@@ -107,7 +107,7 @@ class ChipsTest {
     @Test fun everyChipHasNoLatinLetters() {
         val sc = Scene()
         Kit.ride(sc.store, monday, "19:20", RidePhase.OUT)
-        for (t in listOf("07:05", "11:45", "19:00", "21:00", "23:30", "00:40")) {
+        for (t in listOf("07:05", "11:45", "19:30", "21:10", "23:30", "00:40")) {
             for (c in sc.chips(t)) assertTrue(c, c.none { it in 'a'..'z' || it in 'A'..'Z' })
         }
     }

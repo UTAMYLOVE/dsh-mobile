@@ -3,6 +3,7 @@ package app.agency.core.lessons
 import app.agency.core.base.J
 import app.agency.core.llm.ChatRequest
 import app.agency.core.llm.ChatResult
+import app.agency.core.llm.Fail
 import app.agency.core.llm.LlmClient
 import app.agency.core.llm.Output
 import app.agency.core.llm.Purpose
@@ -24,9 +25,23 @@ import kotlinx.serialization.json.putJsonObject
  * fails, the answer is null and the lesson falls back to notes only.
  */
 class Quizzer(private val llm: LlmClient) {
-    suspend fun make(lesson: Lesson, level: String, study: StudyRule = StudyRule()): Quiz? {
+    /** What one try to make a quiz came to. */
+    sealed interface Made {
+        data class Ok(val quiz: Quiz) : Made
+
+        /** The model could not be asked (offline, spending cap, refused…): nothing about the lesson is decided. */
+        data class CallFailed(val fail: Fail) : Made
+
+        /** Asked twice and never got a valid quiz (or there is no material): the lesson goes to notes only. */
+        data object Invalid : Made
+    }
+
+    suspend fun make(lesson: Lesson, level: String, study: StudyRule = StudyRule()): Quiz? =
+        (attempt(lesson, level, study) as? Made.Ok)?.quiz
+
+    suspend fun attempt(lesson: Lesson, level: String, study: StudyRule = StudyRule()): Made {
         val material = lesson.material.trim()
-        if (material.isEmpty()) return null
+        if (material.isEmpty()) return Made.Invalid
         val count = QuizCheck.questionCount(study)
         var problems: List<String> = emptyList()
         repeat(2) {
@@ -37,17 +52,23 @@ class Quizzer(private val llm: LlmClient) {
                 maxTokens = 2000,
                 output = Output.Json(schema(count)),
             )
-            val result = llm.chat(request)
-            if (result !is ChatResult.Ok) return null
-            val quiz = parse(result.text)
+            val result = try {
+                llm.chat(request)
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ChatResult.Failed(Fail.BAD_RESPONSE)
+            }
+            if (result is ChatResult.Failed) return Made.CallFailed(result.fail)
+            val quiz = parse((result as ChatResult.Ok).text)
             if (quiz == null) {
                 problems = listOf("回覆不是指定格式的 JSON")
             } else {
                 problems = QuizCheck.problems(quiz, material, study)
-                if (problems.isEmpty()) return quiz
+                if (problems.isEmpty()) return Made.Ok(quiz)
             }
         }
-        return null
+        return Made.Invalid
     }
 
     private fun parse(text: String?): Quiz? {

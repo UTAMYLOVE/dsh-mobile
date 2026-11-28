@@ -68,6 +68,10 @@ data class Meal(
     val photoId: String? = null,
     val photoLate: Boolean = false,
     val note: String = "",
+    /** The weekly free meal (rules `diet.freeMealFrom` / `freeMealsPerWeek`): counted in the day's kcal, never a violation. */
+    val free: Boolean = false,
+    /** Set when the meal came from a file he imported: shown in history, never a violation, never counted as done. */
+    val batch: String? = null,
 )
 
 @Serializable
@@ -104,7 +108,13 @@ enum class StatusType { REST_DAY, SICK, INJURED, RECOVERED, EXAM_WEEK }
 data class Status(val type: StatusType, val note: String = "")
 
 @Serializable
-data class Body(val kg: Double? = null, val waistCm: Double? = null, val photoId: String? = null)
+data class Body(
+    val kg: Double? = null,
+    val waistCm: Double? = null,
+    val photoId: String? = null,
+    /** Set when it came from a file he imported (history only: never the day's weigh-in). */
+    val batch: String? = null,
+)
 
 @Serializable
 data class Mood(val score: Int, val note: String = "")
@@ -112,11 +122,17 @@ data class Mood(val score: Int, val note: String = "")
 enum class Bucket { LIVING, FUN, INCOME }
 
 @Serializable
-data class Money(val amount: Int, val bucket: Bucket, val note: String = "")
+data class Money(val amount: Int, val bucket: Bucket, val note: String = "", val batch: String? = null)
 
 /** [dueAt] is an ISO-8601 instant or null. */
 @Serializable
-data class Memo(val text: String, val dueAt: String? = null, val done: Boolean = false, val notified: Boolean = false)
+data class Memo(
+    val text: String,
+    val dueAt: String? = null,
+    val done: Boolean = false,
+    val notified: Boolean = false,
+    val batch: String? = null,
+)
 
 /** A broken rule, written by code only. [code] is a [app.agency.core.day.ViolationCode] name. */
 @Serializable
@@ -157,6 +173,12 @@ data class WeekResult(
     val weightChangeKg: Double? = null,
     val lessonsPassed: Int = 0,
     val perfectDays: Int = 0,
+    /** The real-person task finished this week; null when that feature was not open. */
+    val realTaskDone: Boolean? = null,
+    /** The trainee level at the end of the week ("" before stage 4). */
+    val level: String = "",
+    /** Photocards earned this week. */
+    val photocards: Int = 0,
 )
 
 /** A photocard (`Kind.CARD`): [kind] is "7" or "30" (days in a row), [earnedOn] the ISO day the streak reached it. */
@@ -174,6 +196,8 @@ data class ProposalRec(
     val body: String,
     val value: Int? = null,
     val answer: Card.Answer = Card.Answer.OPEN,
+    /** Kind-specific data as JSON text (an import keeps its checked rows here until he says yes). */
+    val payload: String = "",
 )
 
 /**
@@ -181,4 +205,9 @@ data class ProposalRec(
  * Stored on the Monday of its week.
  */
 @Serializable
-data class RealTask(val text: String, val done: Boolean = false)
+data class RealTask(
+    val text: String,
+    val done: Boolean = false,
+    /** The logical day he finished it (ISO): the round is judged by this, not by the week the task belongs to. */
+    val doneOn: String? = null,
+)

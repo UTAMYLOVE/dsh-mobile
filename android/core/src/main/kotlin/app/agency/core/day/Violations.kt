@@ -43,6 +43,32 @@ object Violations {
     fun onWrite(store: Store, rules: Rules, stage: StageState, day: LocalDate, now: Instant, zone: ZoneId): List<Entry> =
         store.tx { Run(store, rules, stage, day, now, zone).also { it.writeChecks() }.written }
 
+    /**
+     * After an entry of [day] was corrected or removed: write-time violations whose condition no longer holds are removed, new
+     * ones are written. Day-close violations (too little eaten, no night meal, never signed out) are left alone. Returns what
+     * it newly wrote.
+     */
+    fun resync(store: Store, rules: Rules, stage: StageState, day: LocalDate, now: Instant, zone: ZoneId): List<Entry> =
+        store.tx {
+            val wanted = Run(store, rules, stage, day, now, zone, dry = true).also { it.writeChecks() }.wanted
+            for (e in store.entries(day, Kind.VIOLATION)) {
+                val v = runCatching { e.read<Violation>() }.getOrNull() ?: continue
+                if (!writeTime(v)) continue
+                if (wanted.none { it(v) }) store.remove(e.id)
+            }
+            Run(store, rules, stage, day, now, zone).also { it.writeChecks() }.written
+        }
+
+    /** Violations decided by [onWrite] (the late-check-out one only in its "after bedtime" form). */
+    private fun writeTime(v: Violation): Boolean = when (v.code) {
+        ViolationCode.BANNED_FOOD.name, ViolationCode.MEAL_OVER_CAP.name, ViolationCode.OVER_KCAL.name,
+        ViolationCode.CAFFEINE_LATE.name, ViolationCode.ZERO_CAL_OVER.name -> true
+        ViolationCode.LATE_CHECK_OUT.name -> v.note.startsWith(LATE_OUT_NOTE)
+        else -> false
+    }
+
+    private const val LATE_OUT_NOTE = "簽退晚於"
+
     /** The same checks plus the ones that need the whole day (too little eaten, no night meal, never signed out). */
     fun onClose(store: Store, rules: Rules, stage: StageState, day: LocalDate, now: Instant, zone: ZoneId): List<Entry> =
         store.tx { Run(store, rules, stage, day, now, zone).also { it.writeChecks(); it.closeChecks() }.written }
@@ -54,26 +80,33 @@ object Violations {
         val day: LocalDate,
         val now: Instant,
         val zone: ZoneId,
+        /** Only collect what should exist ([wanted]); write nothing. */
+        val dry: Boolean = false,
     ) {
         val written = ArrayList<Entry>()
+        val wanted = ArrayList<(Violation) -> Boolean>()
         private val existing = store.entries(day, Kind.VIOLATION).mapNotNull { runCatching { it.read<Violation>() }.getOrNull() }.toMutableList()
         private val diet = rules.diet
         private fun open(f: Feature) = f.openAt(stage.stage)
 
         private fun emit(code: ViolationCode, note: String, same: (Violation) -> Boolean = { it.code == code.name }) {
-            if (existing.any(same)) return
+            wanted += same
+            if (dry || existing.any(same)) return
             val v = Violation(code.name, note)
             existing += v
             written += store.add(day, now, Kind.VIOLATION, v)
         }
 
+        /** The day's own meals (an imported one is history only and never judged). */
         private fun meals(): List<Pair<Entry, Meal>> =
             store.entries(day, Kind.MEAL).mapNotNull { e -> runCatching { e.read<Meal>() }.getOrNull()?.let { e to it } }
+                .filter { it.second.batch == null }
 
         fun writeChecks() {
             if (open(Feature.MEALS)) {
                 val meals = meals()
                 for ((e, m) in meals) {
+                    if (m.free) continue
                     val bad = m.items.firstOrNull { it.banned != null || Nutrition.banned(rules, it.name) != null }
                     if (bad != null) {
                         val cat = bad.banned ?: Nutrition.banned(rules, bad.name).orEmpty()
@@ -82,7 +115,8 @@ object Violations {
                         }
                     }
                 }
-                val kcals = meals.map { (_, m) -> m.items.sumOf { it.kcal } }
+                // The free meal is in the day's kcal he sees, but it is never over the cap or over the target.
+                val kcals = meals.filter { !it.second.free }.map { (_, m) -> m.items.sumOf { it.kcal } }
                 if (diet.mealCapKcal > 0 && kcals.any { it > diet.mealCapKcal }) {
                     emit(ViolationCode.MEAL_OVER_CAP, "單餐 ${kcals.max()} 大卡，上限 ${diet.mealCapKcal} 大卡")
                 }
@@ -95,7 +129,7 @@ object Violations {
                 val bedtime = Bedtime.of(rules, stage, day)
                 val out = store.entries(day, Kind.CHECK_OUT).lastOrNull()
                 if (bedtime != null && out != null && out.at.isAfter(Days.at(day, bedtime, zone))) {
-                    emit(ViolationCode.LATE_CHECK_OUT, "簽退晚於睡覺時間 ${bedtime.hour}:${bedtime.minute.toString().padStart(2, '0')}")
+                    emit(ViolationCode.LATE_CHECK_OUT, "${LATE_OUT_NOTE}睡覺時間 ${bedtime.hour}:${bedtime.minute.toString().padStart(2, '0')}")
                 }
             }
         }

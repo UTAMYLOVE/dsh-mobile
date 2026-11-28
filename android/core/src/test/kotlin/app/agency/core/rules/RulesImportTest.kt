@@ -21,7 +21,7 @@ class RulesImportTest {
     /** Invented values only. */
     private val answer = """
         {"rules":{"callName":"小測","stageName":"","memberColor":"#123456","classWeekdays":[1,3,5,9],
-          "classDay":{"wake":"7:30","firstMeal":"12:00","classEnd":"","walk":"","dinner":"18:30","leaveBy":"19:00","nightMeal":"22:00","bedtime":"02:30","bedtimeGoal":"25:00"},
+          "classDay":{"wake":"7:30","firstMeal":"12:00","classEnd":"","walk":"","dinner":"18:30","leaveBy":"19:10","nightMeal":"22:00","bedtime":"02:20","bedtimeGoal":"25:00"},
           "freeDay":{"wake":"09:00","firstMeal":"","classEnd":"","walk":"","dinner":"","leaveBy":"","nightMeal":"","bedtime":"","bedtimeGoal":""},
           "diet":{"kcal":2100,"proteinG":110,"minKcal":9000,"mealCapKcal":850,"firstMealKcal":0,"dinnerKcal":0,"nightMealKcal":0,
             "banned":[{"category":"甜點","words":["蛋糕","布丁"]}],"allowed":["無糖豆漿"],"zeroCalDrinksPerWeek":2,"caffeineCutoff":"14:00",
@@ -50,7 +50,7 @@ class RulesImportTest {
         assertEquals("小測", r.rules.callName)
         assertEquals(2100, r.rules.diet.kcal)
         assertEquals("07:30", r.rules.classDay.wake)
-        assertEquals("02:30", r.rules.classDay.bedtime)
+        assertEquals("02:20", r.rules.classDay.bedtime)
         assertEquals("", r.rules.classDay.bedtimeGoal)
         assertEquals(listOf(1, 3, 5), r.rules.classWeekdays)
         assertEquals(0, r.rules.diet.minKcal)
@@ -111,9 +111,9 @@ class RulesTextTest {
         val t = RulesText.render(Fixtures.rules())
         listOf("【作息】", "【飲食】", "【常吃的食物】", "【喝水】", "【訓練】", "【跑單】", "【體重】", "【學習】", "【記帳】", "【儀容】")
             .forEach { assertTrue(it, t.contains(it)) }
-        assertTrue(t.contains("每日 2000 大卡"))
-        assertTrue(t.contains("睡覺 1:00"))
-        assertTrue(t.contains("肌力 3 輪：伏地挺身 10 下、深蹲 15 下、棒式 40 秒"))
+        assertTrue(t.contains("每日 2100 大卡"))
+        assertTrue(t.contains("睡覺 0:50"))
+        assertTrue(t.contains("肌力 4 輪：伏地挺身 12 下、深蹲 18 下、棒式 50 秒"))
         assertTrue(t.contains("上課日：星期一、星期二"))
         // Blank rules show only the app's own defaults (estimate margin, quiz and review settings), nothing of his.
         val blank = RulesText.render(Rules())
@@ -123,8 +123,8 @@ class RulesTextTest {
 
     @Test fun theEffectiveTrainingIsWhatIsShown() {
         val r = Fixtures.rules()
-        val t = RulesText.render(r, r.training.copy(pushUps = 14))
-        assertTrue(t.contains("伏地挺身 14 下"))
+        val t = RulesText.render(r, r.training.copy(pushUps = 16))
+        assertTrue(t.contains("伏地挺身 16 下"))
     }
 }
 
@@ -149,7 +149,7 @@ class RulesEditTest {
         val r = Fixtures.rules()
         assertTrue(RulesEdit.set(r, "diet.kcal", "abc") is EditResult.Bad)
         assertTrue(RulesEdit.set(r, "diet.kcal", "100") is EditResult.Bad)
-        assertEquals(2100, (RulesEdit.set(r, "diet.kcal", "2100") as EditResult.Ok).rules.diet.kcal)
+        assertEquals(2250, (RulesEdit.set(r, "diet.kcal", "2250") as EditResult.Ok).rules.diet.kcal)
         assertEquals(0, (RulesEdit.set(r, "diet.kcal", "") as EditResult.Ok).rules.diet.kcal)
         assertEquals("08:05", (RulesEdit.set(r, "classDay.wake", "8:05") as EditResult.Ok).rules.classDay.wake)
         assertTrue(RulesEdit.set(r, "classDay.wake", "八點") is EditResult.Bad)
@@ -160,6 +160,6 @@ class RulesEditTest {
         assertTrue(RulesEdit.set(r, "foods", "沒有數字") is EditResult.Bad)
         assertEquals(2, (RulesEdit.set(r, "diet.banned", "甜點：蛋糕、布丁\n油炸：炸") as EditResult.Ok).rules.diet.banned.size)
         assertTrue(RulesEdit.set(r, "nope", "1") is EditResult.Bad)
-        assertEquals("星期一", field(r, "body.weighWeekday").value)
+        assertEquals("星期三", field(r, "body.weighWeekday").value)
     }
 }

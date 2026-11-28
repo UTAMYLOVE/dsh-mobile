@@ -40,7 +40,7 @@ class Judge(private val small: LlmClient) {
     }
 
     companion object {
-        private const val FACTS_MAX = 3000
+        private const val FACTS_MAX = 4000
 
         private val topic = Regex(
             "大卡|熱量|卡路里|吃太多|吃多|吃少|少吃|份量|分量|蛋白質|體重|公斤|變瘦|減重|瘦|胖|伏地挺身|深蹲|棒式|訓練量|強度|減量|少做|少練|輪",

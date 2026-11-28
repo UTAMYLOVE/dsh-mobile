@@ -16,9 +16,10 @@ object Tools {
         LogBodyTool(), LogMoodTool(), LogMoneyTool(),
         MemoAddTool(), MemoListTool(), MemoDoneTool(), MemoRemoveTool(),
         RememberTool(), ForgetTool(), NoteTodayTool(),
-        FindVideosTool(), FindPlacesTool(), LessonWishTool(), LessonsTodayTool(),
+        FindVideosTool(), AddVideoTool(), FindPlacesTool(), LessonWishTool(), LessonsTodayTool(),
         ProposeTool(), GetDayTool(), GetWeekTool(), ReadRulesTool(),
         RealTaskTool(), EvalStatusTool(), SongSummaryTool(), OpenScreenTool(),
+        ImportPreviewTool(), UndoImportTool(),
     )
 
     private val byName: Map<String, Tool> by lazy { all().associateBy { it.spec.name } }
@@ -31,5 +32,7 @@ object Tools {
 
     /** The NOTE line a tap leaves in the conversation. */
     fun noteLine(tool: Tool, out: ToolOut): String =
-        (tool as? Noted)?.noteLine(out) ?: if (out.ok) "✓ 已記" else "沒記到"
+        (tool as? Noted)?.noteLine(out) ?: if (out.ok) {
+            "✓ " + ((out.facts["note"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "已記")
+        } else "沒記到"
 }

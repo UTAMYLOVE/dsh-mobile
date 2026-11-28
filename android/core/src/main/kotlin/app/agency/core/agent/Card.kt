@@ -38,7 +38,14 @@ sealed class Card {
     /** Something that needs his yes before it changes (a plan change from tomorrow on, a new habit, more kcal…). */
     @Serializable
     @SerialName("proposal")
-    data class Proposal(val entryId: Long, val title: String, val body: String, val answer: Answer = Answer.OPEN) : Card()
+    data class Proposal(
+        val entryId: Long,
+        val title: String,
+        val body: String,
+        val answer: Answer = Answer.OPEN,
+        /** The word on the yes button when it is not 「好」 (an import's 「復原」 card); empty = the usual 好／不要. */
+        val yesLabel: String = "",
+    ) : Card()
 
     @Serializable
     data class Video(val lessonId: Long, val subject: String, val title: String, val url: String, val minutes: Int? = null)

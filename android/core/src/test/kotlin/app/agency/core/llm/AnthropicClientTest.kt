@@ -58,6 +58,23 @@ class AnthropicClientTest {
         assertEquals("""[{"role":"user","content":[{"type":"text","text":"我吃了雞胸肉"}]}]""", body["messages"].toString())
     }
 
+    @Test fun theStablePrefixGetsASecondCacheBreakpointOnItsLastTextBlockOnly() = runBlocking {
+        val turns = listOf(Turn.User("早安"), Turn.AssistantText("早，先簽到。"), Turn.User("〔現在的情況〕…\n\n簽好了"))
+        kit.enqueue(200, message("""[{"type":"text","text":"好"}]"""))
+        kit.claude().chat(user.copy(turns = turns, cacheTurns = 2))
+        val messages = json(kit.take())["messages"]!!.jsonArray
+        assertEquals(3, messages.size)
+        val marked = messages[1].jsonObject["content"]!!.jsonArray.single().jsonObject
+        assertEquals("""{"type":"text","text":"早，先簽到。","cache_control":{"type":"ephemeral"}}""", marked.toString())
+        assertFalse(messages[0].toString().contains("cache_control"))
+        assertFalse(messages[2].toString().contains("cache_control"))
+
+        // Without a stable prefix the messages are exactly as before.
+        kit.enqueue(200, message("""[{"type":"text","text":"好"}]"""))
+        kit.claude().chat(user.copy(turns = turns))
+        assertFalse(json(kit.take())["messages"].toString().contains("cache_control"))
+    }
+
     @Test fun toolsAreStrictWithAutoChoice() = runBlocking {
         kit.enqueue(200, message("""[{"type":"text","text":"好"}]"""))
         kit.claude().chat(user.copy(tools = listOf(tool), purpose = Purpose.CHAT))
