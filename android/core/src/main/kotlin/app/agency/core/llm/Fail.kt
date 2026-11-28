@@ -4,7 +4,10 @@ import app.agency.core.net.HttpOutcome
 
 /** Why a model call or a search gave no answer. The caller answers with a template; nothing here is shown verbatim. */
 enum class Fail {
-    NO_KEY, NO_SETUP, CAP, OFFLINE, KEY_REJECTED, RATE, SERVER, REFUSED, BAD_RESPONSE, BLOCKED_HOST;
+    NO_KEY, NO_SETUP, CAP, OFFLINE, KEY_REJECTED, RATE, SERVER, REFUSED, BAD_RESPONSE, BLOCKED_HOST,
+
+    /** The message carries photos and the chosen model cannot see images: nothing was sent (never a silent drop). */
+    NO_VISION;
 
     companion object {
         /**

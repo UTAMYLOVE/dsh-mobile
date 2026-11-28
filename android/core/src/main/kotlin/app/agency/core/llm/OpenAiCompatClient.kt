@@ -29,6 +29,11 @@ data class CompatEndpoint(
     val jsonMode: Boolean,
     val tools: Boolean,
     val strictToolsBase: HttpUrl? = null,
+    /**
+     * The model takes `image_url` parts. On DeepSeek only `deepseek-flash` is documented to; a generic service is assumed not
+     * to (nothing verified), so a message with photos fails there with [Fail.NO_VISION].
+     */
+    val vision: Boolean = false,
 ) {
     companion object {
         val DEEPSEEK_BASE = "https://api.deepseek.com/".toHttpUrl()
@@ -40,6 +45,7 @@ data class CompatEndpoint(
         fun deepseek(model: String = DEEPSEEK_FLASH, base: HttpUrl = DEEPSEEK_BASE) = CompatEndpoint(
             base = base, model = model, deepseek = true, jsonMode = true, tools = true,
             strictToolsBase = base.newBuilder().addPathSegment("beta").addPathSegment("").build(),
+            vision = model == DEEPSEEK_FLASH,
         )
 
         /**
@@ -67,8 +73,11 @@ data class CompatEndpoint(
  * `/beta`, `reasoning_content` passed back on tool requests, `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`).
  *
  * - INTAKE / UTTERANCE / NUDGE (thinking OFF): `thinking: disabled`, temperature 0.2 (intake) or 0.7, JSON mode when asked.
- * - CHAT with tools and thinking LOW: strict functions on the beta base, `thinking: enabled`, `reasoning_effort: low`, no
- *   temperature (ignored in thinking mode). Every assistant message of the turn goes back exactly as it came
+ * - CHAT with tools and thinking LOW: strict functions on the beta base, `thinking: enabled`, `reasoning_effort` from the
+ *   request's [Effort] (`low` by default), no temperature (ignored in thinking mode).
+ * - Photos ([Turn.User.images]) go as `image_url` data-URL parts before the text part, only to an endpoint with
+ *   [CompatEndpoint.vision] (else [Fail.NO_VISION] before anything is sent), and with thinking off on DeepSeek (the shape the
+ *   0.9 vision client verified). Media parts inside an echoed assistant message are dropped. Every assistant message of the turn goes back exactly as it came
  *   ([Turn.Assistant.raw]: content, `reasoning_content`, `tool_calls`), otherwise DeepSeek answers 400.
  * - DeepSeek answers 400 to a thinking request with tools when any earlier assistant message lacks its `reasoning_content`
  *   (thinking_mode.md, "Tool Calls"): a [Turn.AssistantText] history line, a turn another provider made, or one made with
@@ -96,6 +105,7 @@ class OpenAiCompatClient(
         val k = key()
         checks.blocked(k)?.let { return ChatResult.Failed(it) }
         val ep = endpoint() ?: return ChatResult.Failed(Fail.NO_SETUP)
+        if (Images.any(request.turns) && !ep.vision) return ChatResult.Failed(Fail.NO_VISION)
         checks.takeBudget()?.let { return ChatResult.Failed(it) }
         if (!ep.deepseek && !takeQuota()) return ChatResult.Failed(Fail.CAP)
         val withTools = request.tools.isNotEmpty() && ep.tools
@@ -112,13 +122,16 @@ class OpenAiCompatClient(
 
     internal fun body(ep: CompatEndpoint, request: ChatRequest, withTools: Boolean): JsonObject = buildJsonObject {
         val msgs = messages(ep, request)
-        val thinking = ep.deepseek && request.thinking == Thinking.LOW && (!withTools || reasoningComplete(msgs))
+        // Photos went out with thinking off in the only DeepSeek image request verified live, so a request carrying one keeps
+        // to that shape.
+        val thinking = ep.deepseek && request.thinking == Thinking.LOW && (!withTools || reasoningComplete(msgs)) &&
+            !Images.any(request.turns)
         put("model", ep.model)
         put("max_tokens", request.maxTokens)
         put("messages", msgs)
         if (ep.deepseek) {
             put("thinking", buildJsonObject { put("type", if (thinking) "enabled" else "disabled") })
-            if (thinking) put("reasoning_effort", "low")
+            if (thinking) put("reasoning_effort", request.effort.wire)
         }
         if (!thinking) put("temperature", temperature(request.purpose))
         if (request.output is Output.Json && ep.jsonMode) put("response_format", buildJsonObject { put("type", "json_object") })
@@ -149,11 +162,19 @@ class OpenAiCompatClient(
         add(buildJsonObject { put("role", "system"); put("content", request.system) })
         ToolPairing.repair(request.turns).forEach { t ->
             when (t) {
-                is Turn.User -> add(buildJsonObject { put("role", "user"); put("content", t.text) })
+                is Turn.User -> add(buildJsonObject {
+                    put("role", "user")
+                    if (t.images.isEmpty()) {
+                        put("content", t.text)
+                    } else {
+                        put("content", JsonArray(t.images.map { Images.openAiPart(it) } +
+                            buildJsonObject { put("type", "text"); put("text", t.text) }))
+                    }
+                })
                 is Turn.AssistantText -> add(buildJsonObject { put("role", "assistant"); put("content", t.text) })
                 is Turn.Assistant -> add(when {
                     t.wire != Wire.OPENAI || t.raw !is JsonObject -> rebuilt(t)
-                    ep.deepseek -> t.raw
+                    ep.deepseek -> Images.strip(t.raw)
                     else -> rebuilt(t, reasoning = t.raw.str("reasoning_content"))
                 })
                 is Turn.ToolResult -> add(buildJsonObject {
@@ -244,7 +265,7 @@ class OpenAiCompatClient(
 
         /** Low for the data clerk, zero for the second-pass judge (a verdict, not wording), low for a quiz, 0.7 for wording. */
         fun temperature(p: Purpose): Double = when (p) {
-            Purpose.INTAKE -> 0.2
+            Purpose.INTAKE, Purpose.SUMMARY -> 0.2
             Purpose.JUDGE -> 0.0
             Purpose.QUIZ -> 0.3
             Purpose.VISION -> 0.2
