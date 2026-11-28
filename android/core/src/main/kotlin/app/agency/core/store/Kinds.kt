@@ -1,5 +1,6 @@
 package app.agency.core.store
 
+import app.agency.core.agent.Card
 import kotlinx.serialization.Serializable
 
 /** Entry kinds. One payload class each, below. Add a kind here, never an ad-hoc string elsewhere. */
@@ -26,6 +27,9 @@ object Kind {
     const val REAL_TASK = "real_task"
     const val WEEK = "week"
     const val CARD = "photocard"
+
+    /** One closed day: how much of it was done ([DayClose]). Written by rollover only. */
+    const val DAY_CLOSE = "day_close"
 
     /** A note 小葵 wrote for herself about this day (the daily memory notes). */
     const val NOTE = "note"
@@ -126,3 +130,52 @@ data class Drink(val type: DrinkType)
 /** A day note 小葵 wrote for her own memory. */
 @Serializable
 data class Note(val text: String)
+
+/**
+ * A day that rollover closed. [done] / [total] are the counted plan items; [missed] maps the id of every counted item that was not
+ * done to its title (for 「同一件事連續沒做」); [perfect] = something was counted, all of it done, and no violation.
+ */
+@Serializable
+data class DayClose(
+    val done: Int,
+    val total: Int,
+    val violations: Int,
+    val perfect: Boolean,
+    val missed: Map<String, String> = emptyMap(),
+)
+
+/** The weekly result (`Kind.WEEK`) of the calendar week starting on [weekStart] (ISO Monday). Weights are kilograms. */
+@Serializable
+data class WeekResult(
+    val weekStart: String,
+    val completionPct: Int,
+    val violations: Int,
+    val rideIncome: Int,
+    val rideTarget: Int,
+    val rideDays: Int,
+    val weightKg: Double? = null,
+    val weightChangeKg: Double? = null,
+    val lessonsPassed: Int = 0,
+    val perfectDays: Int = 0,
+)
+
+/** A photocard (`Kind.CARD`): [kind] is "7" or "30" (days in a row), [earnedOn] the ISO day the streak reached it. */
+@Serializable
+data class Photocard(val kind: String, val earnedOn: String)
+
+/** The real-person task of the week (`Kind.REAL_TASK`). */
+@Serializable
+data class RealTask(val text: String, val done: Boolean = false)
+
+/**
+ * A proposal that needs his yes (`Kind.PROPOSAL`). [kind] e.g. "kcal_up", "habit"; [value] a number it carries (kcal_up: +100);
+ * [answer] starts OPEN.
+ */
+@Serializable
+data class ProposalRec(
+    val kind: String,
+    val title: String,
+    val body: String,
+    val value: Int? = null,
+    val answer: Card.Answer = Card.Answer.OPEN,
+)

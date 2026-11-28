@@ -72,6 +72,14 @@ data class StageState(
     val passedWeeks: Int = 0,
     /** "C", "B" or "A". */
     val level: String = "C",
+    /** Last logical day that rollover closed (ISO), "" = none yet. */
+    val closedThrough: String = "",
+    /** Stage 4: the last round had many violations, so 小葵 should talk to him about it. */
+    val talk: Boolean = false,
+    /** The day training last went up (ISO), "" = never; progression holds for 14 days after it. */
+    val lastRaiseOn: String = "",
+    /** Special days already celebrated ("day30", "day100", "hol:<ISO date>"), so each happens once. */
+    val celebrated: List<String> = emptyList(),
 ) {
     companion object {
         const val LAST_STAGE = 4
