@@ -206,7 +206,7 @@ class Agent(
 
         // Judge: one rewrite on a veto; a failed judge call never blocks.
         if (text.isNotBlank() && judge.triggered(text)) {
-            val v = judge.review(text, ownerText, facts())
+            val v = judge.review(text, ownerText, judgeFacts(after, got))
             if (v != null && !v.ok) {
                 val step = rewrite(judgeNote(v.reason))
                 if (step is Step.Text) {
@@ -277,6 +277,12 @@ class Agent(
                 }
             }
         }
+    }
+
+    /** The judge's facts: today's totals, budgets, flags (from the context) and this turn's tool results, nothing else. */
+    private fun judgeFacts(c: ContextSource, got: Collected): String = buildString {
+        append(c.judgeFacts().trim())
+        if (got.facts.isNotBlank()) append("\n\n這一輪工具的結果：\n").append(got.facts.trim())
     }
 
     /** Everything was removed: one short neutral line of her own, checked like any other; nothing if that fails too. */

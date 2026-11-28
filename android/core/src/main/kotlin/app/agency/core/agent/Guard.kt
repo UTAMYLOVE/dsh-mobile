@@ -40,7 +40,7 @@ sealed interface GuardResult {
  */
 object Guard {
     /** Which numbers can vouch for which: a unit only accepts facts of its own family. */
-    enum class Family { KCAL, GRAM, KG, CM, WATER, MINUTE, SECOND, MONEY, PERCENT, COUNT }
+    enum class Family { KCAL, GRAM, KG, CM, WATER, MINUTE, SECOND, MONEY, PERCENT, COUNT, DAY, SCORE }
 
     fun familyOf(unit: String): Family = when (unit) {
         "大卡", "卡" -> Family.KCAL
@@ -52,33 +52,45 @@ object Guard {
         "秒" -> Family.SECOND
         "元" -> Family.MONEY
         "%", "％" -> Family.PERCENT
-        else -> Family.COUNT
+        "天", "週" -> Family.DAY
+        "分" -> Family.SCORE
+        else -> Family.COUNT // 輪 下 次 支 題 堂 項
     }
 
-    /** The family a JSON fact belongs to, from its key (or its parent's key); null for ids and other numbers that are not claims. */
+    /**
+     * The family of a numeric JSON fact, from its key, else its parent object's key (`income.left` is money,
+     * `next_meal_budget_kcal.晚餐` is kcal), else a plain count. Null for ids and entry numbers, which never vouch for a claim.
+     * Tools name their numeric keys so this table reads them: a unit suffix (`_kcal`, `_g`, `_kg`, `_cm`, `_ml`, `_minutes`,
+     * `_sec`/`_seconds`, `_pct`, `_days`), or one of the money words.
+     */
     internal fun familyOfKey(key: String, parent: String?): Family? {
         val k = key.lowercase()
-        if (k == "id" || k.endsWith("_id") || k.endsWith("id") && k.length <= 3 || k == "removed" || k == "entry") return null
-        fun of(s: String): Family? = when {
-            s.contains("kcal") || s.contains("calorie") -> Family.KCAL
-            s.contains("protein") || s.endsWith("_g") -> Family.GRAM
-            s == "kg" || s.endsWith("_kg") || s.contains("weight") -> Family.KG
-            s.contains("cm") || s.contains("waist") -> Family.CM
-            s.contains("ml") || s.contains("bottle") || s.contains("water") -> Family.WATER
-            s.contains("minute") -> Family.MINUTE
-            s.contains("second") -> Family.SECOND
-            s.contains("income") || s.contains("amount") || s.contains("money") || s.contains("living") || s == "fun" ||
-                s.contains("spent") || s.contains("yuan") -> Family.MONEY
-            s.contains("pct") || s.contains("percent") -> Family.PERCENT
-            else -> null
-        }
-        return of(k) ?: parent?.lowercase()?.let(::of) ?: Family.COUNT
+        if (k == "id" || k.endsWith("_id") || k == "removed" || k == "entry" || k == "n") return null
+        return specific(k) ?: parent?.lowercase()?.let(::specific) ?: Family.COUNT
+    }
+
+    private val MONEY_KEYS = setOf("income", "amount", "money", "living", "fun", "spent", "income_today")
+
+    private fun specific(s: String): Family? = when {
+        s.startsWith("per_") -> null // a per-day share: the parent says of what
+        s.contains("kcal") || s.contains("calorie") -> Family.KCAL
+        s.contains("protein") || s.endsWith("_g") -> Family.GRAM
+        s == "kg" || s.endsWith("_kg") || s.contains("weight") -> Family.KG
+        s.endsWith("cm") || s.contains("waist") -> Family.CM
+        s == "ml" || s.endsWith("_ml") || s.contains("bottle") || s.startsWith("water") -> Family.WATER
+        s.contains("minute") -> Family.MINUTE
+        s.endsWith("_sec") || s.contains("second") -> Family.SECOND
+        s.endsWith("pct") || s.contains("percent") -> Family.PERCENT
+        s in MONEY_KEYS || s.endsWith("_income") || s.endsWith("_amount") -> Family.MONEY
+        s.contains("score") -> Family.SCORE
+        s.endsWith("_days") || s.contains("days_") || s.endsWith("_weeks") -> Family.DAY
+        else -> null
     }
 
     /** Units after which a number is a claim about him. Longest first so 「分鐘」 is not read as 「分」. */
     val UNITS = listOf(
         "大卡", "公克", "公斤", "公分", "毫升", "分鐘", "卡", "克", "元", "秒", "壺", "%", "％", "輪", "下", "次", "天", "週", "支",
-        "題", "分",
+        "題", "堂", "項", "分",
     )
 
     private const val NUM = """[0-9０-９]+(?:[,，][0-9０-９]{3})*(?:[.．][0-9０-９]+)?"""
@@ -311,7 +323,7 @@ object Guard {
                     } else {
                         val v = e.content.toDoubleOrNull() ?: return
                         val f = key?.let { familyOfKey(it, parent) } ?: return
-                        put(f, v)
+                        put(f, kotlin.math.abs(v)) // 「超過 120 大卡」 is a left of -120
                     }
                 }
                 else -> Unit

@@ -17,6 +17,12 @@ interface ContextSource {
      */
     fun facts(): String = block()
 
+    /**
+     * What [Judge] needs to know, short: now, today's food and water totals and budgets, today's records, training load,
+     * today's automatic changes, the unwell / reduced flags and the rule numbers. Usually a few lines of [block].
+     */
+    fun judgeFacts(): String = block()
+
     /** Code reduced today's training (sick, injured, first day back): only then may she speak of a lighter load. */
     val unwellReducedByCode: Boolean
 

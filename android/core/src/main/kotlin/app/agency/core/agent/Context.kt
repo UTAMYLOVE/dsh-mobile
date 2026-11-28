@@ -63,9 +63,12 @@ class Context(
 
     override fun facts(): String = text + "\n" + RulesText.render(rules, m.training)
 
+    override fun judgeFacts(): String = text.lines().filter { l -> JUDGE_LINES.any { l.startsWith(it) } }.joinToString("\n")
+
     override val unwellReducedByCode: Boolean get() = m.state.unwell || m.state.firstDayBack
 
-    override val closedFeatureWords: List<String> get() = closedWords(m.stage.stage)
+    override val closedFeatureWords: List<String>
+        get() = closedWords(m.stage.stage, app.agency.core.lessons.Subjects.all + rules.study.daily + rules.study.twiceWeekly + rules.study.rotation)
 
     override val neverBelowKg: Double get() = rules.body.neverBelowKg
 
@@ -306,6 +309,9 @@ class Context(
 
     companion object {
         private const val SCAN = 200
+
+        /** The block's lines [judgeFacts] keeps: totals, budgets, records (「・#」), training load, changes, flags, rules. */
+        private val JUDGE_LINES = listOf("現在：", "階段：", "吃：", "喝水：", "今天的紀錄：", "・#", "今天的訓練量", "今天改了什麼", "狀態：", "規章數字")
         /** Doc key: the logical day a sweet line was last allowed (so it happens at most once a day). */
         const val SWEET_DOC = "sweet_day"
 
@@ -353,7 +359,7 @@ class Context(
             Feature.CARDIO to listOf("體能", "有氧"),
             Feature.POSTURE to listOf("靠牆站", "站姿練習"),
             Feature.SUNSCREEN to listOf("防曬"),
-            Feature.MOOD to listOf("心情分數"),
+            Feature.MOOD to listOf("心情分數", "點心情"),
             Feature.WALK to listOf("快走"),
             Feature.SINGING to listOf("唱歌分析", "錄音分析"),
             Feature.DANCE to listOf("練舞", "舞蹈練習"),
@@ -369,13 +375,24 @@ class Context(
             Feature.BODY_PHOTO to listOf("全身對比照", "全身照"),
         )
 
-        /** Words naming the features closed at [stage], minus any that are part of an open feature's own words. */
-        fun closedWords(stage: Int): List<String> {
+        /** Labels too everyday to name the feature on their own (「心情」 is not the mood score): only the synonyms count. */
+        private val LABEL_NOT_A_KEYWORD = setOf(Feature.MOOD)
+
+        private fun words(f: Feature): List<String> =
+            (if (f in LABEL_NOT_A_KEYWORD) emptyList() else listOf(f.label)) + SYNONYMS[f].orEmpty()
+
+        /**
+         * Words naming the features closed at [stage], minus any that are part of an open feature's own words, and minus any
+         * that are (part of) a lesson subject's name in [subjects] (the subject 舞蹈 is not the dance practice).
+         */
+        fun closedWords(stage: Int, subjects: Collection<String> = app.agency.core.lessons.Subjects.all): List<String> {
             val open = Feature.values().filter { it.openAt(stage) }
             val openWords = open.flatMap { listOf(it.label) + SYNONYMS[it].orEmpty() }
+            val subjectNames = subjects.filter { it.isNotBlank() }
             return Feature.values().filter { !it.openAt(stage) }
-                .flatMap { listOf(it.label) + SYNONYMS[it].orEmpty() }
+                .flatMap(::words)
                 .filter { w -> openWords.none { it.contains(w) || w.contains(it) } }
+                .filter { w -> subjectNames.none { it.contains(w) } }
                 .distinct()
         }
     }
