@@ -1,14 +1,15 @@
 package app.dshmobile
 
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
 import app.dshmobile.ui.MainActivity
@@ -41,10 +42,31 @@ class JourneyTest {
         rule.onNodeWithTag(tag).performTextInput(text)
     }
 
+    /** One short line per node that has a tag or a text, for the failure message. */
+    private fun outline(): String {
+        val out = StringBuilder()
+        fun walk(n: androidx.compose.ui.semantics.SemanticsNode, depth: Int) {
+            val cfg = n.config
+            val tag = cfg.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag)
+            val text = cfg.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString("|") { it.text }
+            if (tag != null || text != null) out.append("${n.boundsInRoot} ${tag.orEmpty()} ${text.orEmpty()}\n")
+            n.children.forEach { walk(it, depth + 1) }
+        }
+        walk(rule.onRoot(useUnmergedTree = true).fetchSemanticsNode(), 0)
+        return out.toString()
+    }
+
     private fun overlayShown() = rule.onAllNodes(hasTestTag("overlay")).fetchSemanticsNodes().isNotEmpty()
 
-    private fun cameras() = listOf(Stage.CREATED, Stage.STARTED, Stage.RESUMED).flatMap {
-        ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(it).filterIsInstance<CameraActivity>()
+    /** The monitor may only be asked on the main thread. */
+    private fun cameras(): List<CameraActivity> {
+        var found = emptyList<CameraActivity>()
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            found = listOf(Stage.CREATED, Stage.STARTED, Stage.RESUMED).flatMap {
+                ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(it).filterIsInstance<CameraActivity>()
+            }
+        }
+        return found
     }
 
     private fun cameraShown() = cameras().isNotEmpty()
@@ -86,15 +108,18 @@ class JourneyTest {
 
         // 4. The next-thing button is shown and can be tapped (it sends its own words and 小葵 answers again).
         waitForTag("next_pill")
-        val before = count(reply)
+        // The conversation list is only a few lines tall on the emulator, so it shows just the newest bubble: the second answer
+        // must read differently from the first, or the screen looks unchanged.
+        val second = "好，我來找今天的影片。"
+        model.reply = second
         rule.onNodeWithTag("next_pill").performClick()
         // Its words go to 小葵 (a second reply), or it opens the page that item belongs to (an overlay), or, for a meal, the in-app
         // camera screen. Either way the tap did what the plan item says.
         try {
-            rule.waitUntil(60_000) { count(reply) > before || overlayShown() || cameraShown() }
+            rule.waitUntil(60_000) { count(second) > 0 || overlayShown() || cameraShown() }
         } catch (e: Throwable) {
-            throw AssertionError("the next-thing tap did nothing visible:\n" + rule.onRoot(useUnmergedTree = true).printToString(2500), e)
+            throw AssertionError("the next-thing tap did nothing visible ($e):\n" + outline() + " seen=" + model.seen, e)
         }
-        runCatching { cameras().forEach { c -> rule.runOnUiThread { c.finish() } } }
+        runCatching { cameras().forEach { c -> c.finish() } }
     }
 }
