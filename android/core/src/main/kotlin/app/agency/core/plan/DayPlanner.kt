@@ -460,6 +460,8 @@ object DayPlanner {
             }
         }
 
+        private val LEAVE_ITEMS = setOf("ride:out", "task:SUNSCREEN")
+
         /** Sign-in first; then LATE (oldest), then what is due within 30 minutes, then an untimed one, then the next timed one. */
         private fun pickNext(sorted: List<PlanItem>): PlanItem? {
             val cand = sorted.filter { (it.status == ItemStatus.PENDING || it.status == ItemStatus.LATE) && !it.waiting }
@@ -470,8 +472,12 @@ object DayPlanner {
             val pending = cand.filter { it.status == ItemStatus.PENDING }
             pending.filter { it.at != null && !inst(it.at).isAfter(now.plus(Duration.ofMinutes(30))) && !inst(it.at).isBefore(now) }
                 .minByOrNull { inst(it.at!!) }?.let { return it }
-            pending.firstOrNull { it.at == null }?.let { return it }
-            return pending.filter { it.at != null }.minByOrNull { inst(it.at!!) }
+            // Leaving for work (and the sunscreen before it) only has a deadline. It must not be "the next thing" all morning:
+            // it becomes one in the last hour before that deadline, and otherwise waits its turn like a timed item.
+            val leaveSoon = { i: PlanItem -> i.until != null && !inst(i.until).isAfter(now.plus(Duration.ofMinutes(60))) }
+            pending.firstOrNull { it.at == null && it.id in LEAVE_ITEMS && leaveSoon(it) }?.let { return it }
+            pending.firstOrNull { it.at == null && it.id !in LEAVE_ITEMS }?.let { return it }
+            return pending.filter { it.at != null || it.id in LEAVE_ITEMS }.minByOrNull { inst((it.at ?: it.until)!!) }
         }
     }
 }

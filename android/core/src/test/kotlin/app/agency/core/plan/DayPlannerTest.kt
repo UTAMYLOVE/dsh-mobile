@@ -532,7 +532,18 @@ class DayPlannerTest {
         val p = sc.plan("09:00")
         assertEquals("water", p.next?.id)
         Kit.water(sc.store, tuesday, "09:30", 1000)
-        assertEquals("ride:out", sc.plan("09:40").next?.id)
+        // Leaving for work only has a deadline: it is not the next thing all morning…
+        assertEquals("meal:FIRST", sc.plan("09:40").next?.id)
+    }
+
+    @Test fun leavingForWorkBecomesNextOnlyInTheLastHourBeforeItsDeadline() {
+        val sc = Scene(day = tuesday)
+        Kit.checkIn(sc.store, tuesday, "07:00")
+        Kit.water(sc.store, tuesday, "09:30", 1000)
+        Kit.meal(sc.store, tuesday, "12:05", app.agency.core.store.MealSlot.FIRST, 700, photo = true)
+        Kit.meal(sc.store, tuesday, "18:05", app.agency.core.store.MealSlot.DINNER, 700, photo = true)
+        // leaveBy is 19:30 in the invented rules: inside the last hour it is the next thing.
+        assertEquals("ride:out", sc.plan("18:40").next?.id)
     }
 
     @Test fun nextAfterTheRideOutIsTheRideBackThenTraining() {
