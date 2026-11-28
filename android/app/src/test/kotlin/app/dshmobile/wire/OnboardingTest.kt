@@ -74,14 +74,22 @@ class OnboardingTest {
         assertEquals("阿星", rig.wire.company.rules().callName)
     }
 
-    @Test fun keysMustBeUsableAndABlankDeepseekKeyMeansNone() {
+    @Test fun keysMustBeUsableOneIsEnoughAndABlankFieldKeepsWhatIsSaved() {
         assertFalse(runBlocking { ob.saveKeys("   ", "") })
         assertFalse(runBlocking { ob.saveKeys("密碼不是金鑰", "") })
+        assertFalse(runBlocking { ob.saveKeys("", "密碼不是金鑰") })
         assertFalse(rig.graph.keys.has(Provider.ANTHROPIC))
-        assertTrue(runBlocking { ob.saveKeys(WireRig.CLAUDE_KEY, WireRig.DEEPSEEK_KEY) })
-        assertTrue(rig.graph.keys.has(Provider.DEEPSEEK))
-        assertTrue(runBlocking { ob.saveKeys(WireRig.CLAUDE_KEY, "") })
         assertFalse(rig.graph.keys.has(Provider.DEEPSEEK))
+        // Only the second key: enough to start (the provider that has a key answers).
+        assertTrue(runBlocking { ob.saveKeys("", WireRig.DEEPSEEK_KEY) })
+        assertTrue(rig.graph.keys.has(Provider.DEEPSEEK))
+        assertFalse(rig.graph.keys.has(Provider.ANTHROPIC))
+        assertTrue(ob.keysSaved())
+        assertFalse(ob.claudeSaved())
+        // Adding the main key later with the other field left blank keeps the second key.
+        assertTrue(runBlocking { ob.saveKeys(WireRig.CLAUDE_KEY, "") })
+        assertTrue(rig.graph.keys.has(Provider.ANTHROPIC))
+        assertTrue(rig.graph.keys.has(Provider.DEEPSEEK))
     }
 
     @Test fun anOlderVersionsKeyLetsTheKeysStepBeLeftBlank() {
