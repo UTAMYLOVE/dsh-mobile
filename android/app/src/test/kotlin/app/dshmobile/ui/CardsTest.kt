@@ -71,7 +71,7 @@ class CardsTest {
     @Test fun videosApproveDeclineAndWatch() {
         card(Card.Videos(listOf(Card.Video(31, "聲樂", "換氣的基本功", "https://example.org/a", 12))))
         rule.onNodeWithText("換氣的基本功").assertIsDisplayed()
-        rule.onNodeWithText("聲樂 · 12 分鐘").assertIsDisplayed()
+        rule.onNodeWithText("聲樂 · 影片 · 12 分鐘").assertIsDisplayed()
         rule.onNodeWithTag("video_add_31").performClick()
         rule.onNodeWithTag("video_no_31").performClick()
         // 去看 only appears after 加入清單
