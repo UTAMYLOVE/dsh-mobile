@@ -11,3 +11,6 @@ local.properties
 
 android/.kotlin/
 
+
+# Agent worktrees (local only)
+.claude/worktrees/
