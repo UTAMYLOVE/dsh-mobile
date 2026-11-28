@@ -198,7 +198,7 @@ class FixWaveScreensTest {
     @Test fun emptyFoodTableSaysSoAndOffersAskingXiaokui() {
         val asked = java.util.concurrent.atomic.AtomicBoolean()
         rule.show { MealLogSheet(DemoMeals(emptyList()), DemoMedia(), "FIRST", null, {}, {}, { asked.set(true) }) }
-        rule.until { rule.count("meal_empty") > 0 }
+        rule.until { rule.has("你的食物表是空的") } // plain text inside the sheet is merged into the sheet node, so it is found by its words, not by a tag
         rule.onNodeWithTag("meal_ask").performClick()
         assertTrue(asked.get())
     }
