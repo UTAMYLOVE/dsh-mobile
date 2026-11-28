@@ -25,7 +25,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.dshmobile.R
+import app.agency.core.agent.Attachment
 import app.dshmobile.ui.BackupUi
+import app.dshmobile.ui.MediaUi
 import app.dshmobile.ui.OldDataUi
 import app.dshmobile.ui.SettingsUi
 import app.dshmobile.ui.rememberIoRunner
@@ -61,7 +63,17 @@ enum class SettingsPage(val title: Int) {
 
 /** Settings: a menu and its pages. [startAt] opens a page directly (tests, the screenshots). */
 @Composable
-fun SettingsRoot(settings: SettingsUi, backup: BackupUi, oldData: OldDataUi, onBack: () -> Unit, startAt: SettingsPage = SettingsPage.MENU) {
+fun SettingsRoot(
+    settings: SettingsUi,
+    backup: BackupUi,
+    oldData: OldDataUi,
+    onBack: () -> Unit,
+    startAt: SettingsPage = SettingsPage.MENU,
+    /** The document picker for 匯入; null = the button is off. */
+    media: MediaUi? = null,
+    /** He picked a file of old records: the host sends it to 小葵 with 「幫我匯入這個檔案」 and shows the conversation. */
+    onImportFile: (Attachment.File) -> Unit = {},
+) {
     var page by rememberSaveable(startAt) { mutableIntStateOf(startAt.ordinal) }
     val current = SettingsPage.entries[page]
     val back = { if (current == SettingsPage.MENU) onBack() else page = SettingsPage.MENU.ordinal }
@@ -82,8 +94,11 @@ fun SettingsRoot(settings: SettingsUi, backup: BackupUi, oldData: OldDataUi, onB
             SettingsPage.SPEND -> SpendPage(settings)
             SettingsPage.MEMORY -> MemoryPage(settings)
             SettingsPage.REMIND -> RemindPage(settings)
-            SettingsPage.BACKUP -> BackupPage(backup)
-            SettingsPage.IMPORT -> ImportPage(backup)
+            SettingsPage.BACKUP -> {
+                BackupPage(backup)
+                RestoreSection(backup)
+            }
+            SettingsPage.IMPORT -> ImportPage(media, onImportFile)
             SettingsPage.OLD -> OldPage(oldData)
             SettingsPage.VERSION -> VersionPage(settings)
             SettingsPage.LICENSES -> LicensesPage(settings)
@@ -153,8 +168,12 @@ private fun ModelPage(settings: SettingsUi) {
         KText(stringResource(R.string.model_chat), bold = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ChipPill(stringResource(R.string.model_all_claude), { run { settings.setModel(false, m.tier) }; model.reload() }, Modifier.testTag("model_claude"), if (!m.useDeepSeekForChat) Pal.PinkStrong else Pal.Butter)
-            ChipPill(stringResource(R.string.model_chat_cheap), { run { settings.setModel(true, m.tier) }; model.reload() }, Modifier.testTag("model_cheap"), if (m.useDeepSeekForChat) Pal.PinkStrong else Pal.Butter)
+            ChipPill(
+                stringResource(R.string.model_chat_cheap), { run { settings.setModel(true, m.tier) }; model.reload() }, Modifier.testTag("model_cheap"),
+                if (m.useDeepSeekForChat) Pal.PinkStrong else Pal.Butter, enabled = m.deepSeekKeySet,
+            )
         }
+        if (!m.deepSeekKeySet) KText(stringResource(R.string.model_cheap_needs_key), size = Type.Small, alpha = 0.75f, modifier = Modifier.testTag("model_cheap_reason"))
     }
     Block {
         KText(stringResource(R.string.model_tier), bold = true)
@@ -166,6 +185,8 @@ private fun ModelPage(settings: SettingsUi) {
     }
     Block {
         KText(stringResource(R.string.model_keys), bold = true)
+        KText(stringResource(R.string.ob_key1_title), bold = true, size = Type.Small)
+        KText(stringResource(R.string.ob_key1_text), size = Type.Small, alpha = 0.8f)
         KText(stringResource(if (m.claudeKeySet) R.string.key_set else R.string.key_not_set), size = Type.Small, alpha = 0.75f)
         InkField(claudeKey, { claudeKey = it }, stringResource(R.string.ob_key_claude), visual = PasswordVisualTransformation(), tag = "set_key_claude")
         PillButton(stringResource(R.string.btn_save), {
@@ -174,6 +195,9 @@ private fun ModelPage(settings: SettingsUi) {
                 claudeKey = ""; model.reload()
             }
         }, Modifier.testTag("save_key_claude"), size = Type.Small, enabled = claudeKey.isNotBlank())
+        KText(stringResource(R.string.ob_key2_title), bold = true, size = Type.Small, modifier = Modifier.padding(top = 6.dp))
+        KText(stringResource(R.string.ob_key2_text), size = Type.Small, alpha = 0.8f)
+        KText(stringResource(R.string.ob_key2_without), size = Type.Small, alpha = 0.8f)
         KText(stringResource(if (m.deepSeekKeySet) R.string.key_set else R.string.key_not_set), size = Type.Small, alpha = 0.75f)
         InkField(deepKey, { deepKey = it }, stringResource(R.string.ob_key_deepseek), visual = PasswordVisualTransformation(), tag = "set_key_deepseek")
         PillButton(stringResource(R.string.btn_save), {
@@ -248,14 +272,35 @@ private fun BackupPage(backup: BackupUi) {
     result?.let { KText(it, bold = true, modifier = Modifier.testTag("backup_result")) }
 }
 
+/** 匯入: old records (記帳、吃的、體重、備忘錄) go in by giving the file to 小葵, who shows what she read before anything is written. */
 @Composable
-private fun ImportPage(backup: BackupUi) {
+private fun ImportPage(media: MediaUi?, onImportFile: (Attachment.File) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var nothing by remember { mutableStateOf(false) }
+    Block {
+        KText(stringResource(R.string.import_old_hint), size = Type.Small)
+        KText(stringResource(R.string.import_old_kinds), size = Type.Small, alpha = 0.8f)
+        KText(stringResource(R.string.import_old_safe), size = Type.Small, alpha = 0.8f)
+    }
+    PillButton(stringResource(R.string.import_old_pick), {
+        scope.launch {
+            val f = media?.pickFile()
+            if (f == null) nothing = true else onImportFile(f)
+        }
+    }, Modifier.testTag("import_file"), enabled = media != null)
+    if (nothing) KText(stringResource(R.string.import_old_none), size = Type.Small, color = Pal.Warn, modifier = Modifier.testTag("import_file_none"))
+    KText(stringResource(R.string.import_old_backup_note), size = Type.Tiny, alpha = 0.65f)
+}
+
+@Composable
+private fun RestoreSection(backup: BackupUi) {
     val scope = rememberCoroutineScope()
     var pass by remember { mutableStateOf("") }
     var preview by remember { mutableStateOf<String?>(null) }
     var failed by remember { mutableStateOf(false) }
     var asking by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<String?>(null) }
+    KText(stringResource(R.string.restore_title), bold = true, modifier = Modifier.padding(top = 10.dp))
     KText(stringResource(R.string.import_hint), size = Type.Small, alpha = 0.75f)
     InkField(pass, { pass = it; failed = false }, stringResource(R.string.backup_pass), visual = PasswordVisualTransformation(), tag = "import_pass")
     PillButton(stringResource(R.string.import_pick), {

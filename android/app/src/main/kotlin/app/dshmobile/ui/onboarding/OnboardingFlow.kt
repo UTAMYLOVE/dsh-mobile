@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.dshmobile.R
+import app.dshmobile.ui.BackupUi
 import app.dshmobile.ui.ImportOutcome
 import app.dshmobile.ui.OnboardingUi
 import app.dshmobile.ui.theme.Block
@@ -56,7 +57,15 @@ private val MemberColors = listOf("#FF8FB1", "#88AAFF", "#7EDDB0", "#FFC857", "#
  * battery guide, then day 1 starts ([onFinished]).
  */
 @Composable
-fun OnboardingFlow(ob: OnboardingUi, onFinished: () -> Unit, startAt: OnboardStep = OnboardStep.WELCOME) {
+fun OnboardingFlow(
+    ob: OnboardingUi,
+    onFinished: () -> Unit,
+    startAt: OnboardStep = OnboardStep.WELCOME,
+    /** Restoring a backup on a new phone (welcome step). Null = no such button. */
+    backup: BackupUi? = null,
+    /** Called after a restore went through; true = the company is ready (home next), false = only the keys are missing. */
+    onRestored: suspend () -> Boolean = { false },
+) {
     var step by rememberSaveable { mutableIntStateOf(startAt.ordinal) }
     val scope = rememberCoroutineScope()
     var claude by remember { mutableStateOf("") }
@@ -71,6 +80,10 @@ fun OnboardingFlow(ob: OnboardingUi, onFinished: () -> Unit, startAt: OnboardSte
     var keyError by remember { mutableStateOf(false) }
     var perms by remember { mutableStateOf(ob.permissions()) }
     val haveKeys = remember { ob.keysSaved() }
+    val haveSecond = remember { ob.deepSeekSaved() }
+    var changeKeys by remember { mutableStateOf(false) }
+    var restoring by remember { mutableStateOf(false) }
+    var restoredMode by remember { mutableStateOf(false) }
     // Back from the system's permission question: show what he decided.
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { perms = ob.permissions() }
     val current = OnboardStep.entries[step]
@@ -100,12 +113,48 @@ fun OnboardingFlow(ob: OnboardingUi, onFinished: () -> Unit, startAt: OnboardSte
                     Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) { XiaokuiAvatar(140.dp) }
                     KText(stringResource(R.string.ob_welcome_title), size = 28.sp, bold = true, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                     Block { KText(stringResource(R.string.ob_welcome_text)) }
+                    if (backup != null) {
+                        if (!restoring) {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                PillButton(stringResource(R.string.ob_restore), { restoring = true }, Modifier.testTag("ob_restore"), Pal.Lavender, Type.Small)
+                            }
+                        } else {
+                            RestoreBlock(backup) {
+                                scope.launch {
+                                    if (onRestored()) {
+                                        onFinished()
+                                    } else {
+                                        restoredMode = true
+                                        step = OnboardStep.KEYS.ordinal
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 OnboardStep.KEYS -> {
                     Title(R.string.ob_keys_title)
                     Block { KText(stringResource(R.string.ob_keys_text), size = Type.Small) }
-                    InkField(claude, { claude = it; keyError = false }, stringResource(R.string.ob_key_claude), visual = PasswordVisualTransformation(), tag = "key_claude")
-                    InkField(deepseek, { deepseek = it }, stringResource(R.string.ob_key_deepseek), visual = PasswordVisualTransformation(), tag = "key_deepseek")
+                    if (haveKeys && !changeKeys) {
+                        Block(Modifier.testTag("keys_imported"), fill = Pal.Mint) {
+                            KText(stringResource(R.string.ob_keys_imported), bold = true)
+                            KText(stringResource(if (haveSecond) R.string.ob_keys_imported_both else R.string.ob_keys_imported_one), size = Type.Small)
+                            if (!haveSecond) KText(stringResource(R.string.ob_key2_without), size = Type.Small)
+                            PillButton(stringResource(R.string.ob_keys_change), { changeKeys = true }, Modifier.testTag("keys_change"), Pal.White, Type.Small)
+                        }
+                    } else {
+                        Block {
+                            KText(stringResource(R.string.ob_key1_title), bold = true)
+                            KText(stringResource(R.string.ob_key1_text), size = Type.Small)
+                            InkField(claude, { claude = it; keyError = false }, stringResource(R.string.ob_key_claude), visual = PasswordVisualTransformation(), tag = "key_claude")
+                        }
+                        Block {
+                            KText(stringResource(R.string.ob_key2_title), bold = true)
+                            KText(stringResource(R.string.ob_key2_text), size = Type.Small)
+                            KText(stringResource(R.string.ob_key2_without), size = Type.Small, color = Pal.Warn)
+                            InkField(deepseek, { deepseek = it }, stringResource(R.string.ob_key_deepseek), visual = PasswordVisualTransformation(), tag = "key_deepseek")
+                        }
+                    }
                     if (keyError) KText(stringResource(R.string.ob_key_error), color = Pal.Warn)
                 }
                 OnboardStep.PASTE -> {
@@ -195,7 +244,12 @@ fun OnboardingFlow(ob: OnboardingUi, onFinished: () -> Unit, startAt: OnboardSte
                     when (current) {
                         OnboardStep.KEYS -> scope.launch {
                             busy = true
-                            if (ob.saveKeys(claude.trim(), deepseek.trim())) step = OnboardStep.PASTE.ordinal else keyError = true
+                            if (ob.saveKeys(claude.trim(), deepseek.trim())) {
+                                // A restored company already has its rules: the keys were the only thing missing.
+                                if (restoredMode) { ob.finish(); onFinished() } else step = OnboardStep.PASTE.ordinal
+                            } else {
+                                keyError = true
+                            }
                             busy = false
                         }
                         OnboardStep.NAME -> scope.launch {
@@ -210,6 +264,35 @@ fun OnboardingFlow(ob: OnboardingUi, onFinished: () -> Unit, startAt: OnboardSte
                 }, Modifier.testTag("ob_next"), enabled = enabled)
             }
         }
+    }
+}
+
+/** 從備份還原: the passphrase, the file picker with a preview, then the restore asked twice (it replaces what is on the phone). */
+@Composable
+private fun RestoreBlock(backup: BackupUi, onRestored: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var pass by remember { mutableStateOf("") }
+    var preview by remember { mutableStateOf<String?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<String?>(null) }
+    Block(Modifier.testTag("ob_restore_block"), fill = Pal.Lavender) {
+        KText(stringResource(R.string.ob_restore_hint), size = Type.Small)
+        InkField(pass, { pass = it; failed = false }, stringResource(R.string.backup_pass), visual = PasswordVisualTransformation(), tag = "ob_restore_pass")
+        PillButton(stringResource(R.string.import_pick), {
+            scope.launch { val p = backup.preview(pass); preview = p; failed = p == null }
+        }, Modifier.testTag("ob_restore_pick"), Pal.White, Type.Small, enabled = pass.isNotBlank())
+        if (failed) KText(stringResource(R.string.import_failed), color = Pal.Warn, size = Type.Small)
+        preview?.let { p ->
+            KText(stringResource(R.string.import_preview, p), size = Type.Small, bold = true, modifier = Modifier.testTag("ob_restore_preview"))
+            PillButton(stringResource(R.string.import_apply), {
+                scope.launch {
+                    result = backup.apply()
+                    preview = null
+                    onRestored()
+                }
+            }, Modifier.testTag("ob_restore_apply"), Pal.PinkStrong, Type.Small)
+        }
+        result?.let { KText(it, size = Type.Small, bold = true, modifier = Modifier.testTag("ob_restore_result")) }
     }
 }
 

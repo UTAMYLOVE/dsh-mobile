@@ -156,7 +156,23 @@ sealed interface QuizStatus {
     }
 }
 
+/** One item of a meal picked from his own food table (the name and numbers are the table's; code adds them up). */
+data class MealPick(val name: String, val kcal: Int, val proteinG: Double)
+
 interface CompanyAdmin {
+    /**
+     * Records a meal without a model call (the sheet 「記這一餐」): [slot] is a `MealSlot` name, the items come from his food
+     * table, [photoId] is an optional vault photo of the meal. Returns the NOTE line (the meal card goes into the conversation
+     * with it), or null when it could not be recorded.
+     */
+    fun logMeal(slot: String, picks: List<MealPick>, photoId: String? = null, fromGallery: Boolean = false): String? = null
+
+    /** This week's real-person task (text and whether it is done) without a model call; null while that feature is closed. */
+    fun realTaskNow(): app.agency.core.store.RealTask? = null
+
+    /** He did this week's real-person task: recorded at once (no model call). Returns the NOTE line, or null when closed. */
+    fun realTaskDone(): String? = null
+
     /** Reads his pasted document into rules + handbook. Does not save anything. */
     suspend fun importRules(text: String): app.agency.core.rules.ImportResult
 
