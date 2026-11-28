@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="sakura_background">#fedfe1</color>
-    <color name="sakura_primary">#dc9fb4</color>
-    <color name="sakura_icon_background">#f06595</color>
+    <!-- 小卡手帳: the cream paper, the dark-plum ink and the launcher's lavender. -->
+    <color name="paper">#FFF8EC</color>
+    <color name="ink">#3A2E4D</color>
+    <color name="icon_lavender">#D9CCFF</color>
     <!-- Starting windows an older build may have chosen (themes.xml). -->
     <color name="start_night">#0b0b0e</color>
     <color name="start_rose">#5e4445</color>
