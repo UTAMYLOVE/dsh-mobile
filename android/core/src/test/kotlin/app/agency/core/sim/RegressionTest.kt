@@ -34,7 +34,7 @@ class RegressionTest {
         company.direct("check_in", kotlinx.serialization.json.buildJsonObject { put("score", kotlinx.serialization.json.JsonPrimitive(4)) })
         var log = ReminderLog()
         val sent = ArrayList<String>()
-        for (t in listOf("19:31", "20:02", "20:33")) {
+        for (t in listOf("19:51", "20:22", "20:53")) {
             r.at(t)
             val d = company.reminders(log)
             log = d.log

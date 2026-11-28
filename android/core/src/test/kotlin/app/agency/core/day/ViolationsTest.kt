@@ -51,7 +51,7 @@ class ViolationsTest {
 
     @Test fun mealOverCap() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 950)
+        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 980)
         write(s)
         write(s)
         assertEquals(listOf("MEAL_OVER_CAP"), codes(s))
@@ -59,15 +59,15 @@ class ViolationsTest {
 
     @Test fun mealExactlyAtTheCapIsFine() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 900)
+        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 950)
         assertTrue(write(s).isEmpty())
     }
 
     @Test fun overKcalForTheDay() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 800)
-        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 800)
-        Kit.meal(s, monday, "21:00", MealSlot.NIGHT, 500)
+        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 860)
+        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 840)
+        Kit.meal(s, monday, "21:45", MealSlot.NIGHT, 460)
         write(s)
         write(s)
         assertEquals(listOf("OVER_KCAL"), codes(s))
@@ -91,8 +91,8 @@ class ViolationsTest {
 
     @Test fun missedNightMealAfterRiding() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 800)
-        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 800)
+        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 860)
+        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 840)
         Kit.ride(s, monday, "19:30", RidePhase.OUT)
         close(s)
         close(s)
@@ -101,15 +101,15 @@ class ViolationsTest {
 
     @Test fun nightMealPresentOrNoRideMeansNoMissedNightMeal() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 800)
-        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 800)
-        Kit.meal(s, monday, "21:30", MealSlot.NIGHT, 400)
+        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 860)
+        Kit.meal(s, monday, "18:00", MealSlot.DINNER, 840)
+        Kit.meal(s, monday, "21:30", MealSlot.NIGHT, 390)
         Kit.ride(s, monday, "19:30", RidePhase.OUT)
         close(s)
         assertTrue(codes(s).isEmpty())
         val s2 = MemStore()
-        Kit.meal(s2, monday, "12:00", MealSlot.FIRST, 800)
-        Kit.meal(s2, monday, "18:00", MealSlot.DINNER, 800)
+        Kit.meal(s2, monday, "12:00", MealSlot.FIRST, 860)
+        Kit.meal(s2, monday, "18:00", MealSlot.DINNER, 840)
         close(s2)
         assertTrue(codes(s2).none { it == "MISSED_NIGHT_MEAL" })
     }
@@ -156,11 +156,11 @@ class ViolationsTest {
             app.agency.core.stage.StageRound(3, monday.minusDays(16).toString(), monday.minusDays(10).toString(), 95, 0, true),
         )
         val st = app.agency.core.stage.StageState(joinedOn = joined.toString(), stage = 4, startedOn = monday.minusDays(9).toString(), rounds = rounds)
-        // Opened 9 days ago: one full week, so 15 minutes earlier: 00:45 instead of 01:00.
-        assertEquals(java.time.LocalTime.of(0, 45), Bedtime.of(rules, st, monday))
+        // Opened 9 days ago: one full week, so 20 minutes earlier: 00:30 instead of 00:50.
+        assertEquals(java.time.LocalTime.of(0, 30), Bedtime.of(rules, st, monday))
         val s = MemStore()
         Kit.checkIn(s, monday, "07:00")
-        Kit.checkOut(s, monday, "00:50")
+        Kit.checkOut(s, monday, "00:40")
         write(s, st)
         assertEquals(listOf("LATE_CHECK_OUT"), codes(s))
     }
@@ -170,15 +170,15 @@ class ViolationsTest {
             joinedOn = monday.minusDays(200).toString(), stage = 4, startedOn = monday.minusDays(190).toString(),
             rounds = listOf(app.agency.core.stage.StageRound(3, monday.minusDays(197).toString(), monday.minusDays(191).toString(), 95, 0, true)),
         )
-        assertEquals(java.time.LocalTime.of(0, 0), Bedtime.of(rules, st, monday))
+        assertEquals(java.time.LocalTime.of(0, 10), Bedtime.of(rules, st, monday))
     }
 
     @Test fun caffeineAfterTheCutoff() {
         val s = MemStore()
-        Kit.drink(s, monday, "19:59", DrinkType.CAFFEINE)
+        Kit.drink(s, monday, "19:39", DrinkType.CAFFEINE)
         write(s)
         assertTrue(codes(s).isEmpty())
-        Kit.drink(s, monday, "20:30", DrinkType.CAFFEINE)
+        Kit.drink(s, monday, "20:10", DrinkType.CAFFEINE)
         write(s)
         write(s)
         assertEquals(listOf("CAFFEINE_LATE"), codes(s))
@@ -227,7 +227,7 @@ class ViolationsTest {
 
     @Test fun writeReturnsOnlyWhatIsNew() {
         val s = MemStore()
-        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 950)
+        Kit.meal(s, monday, "12:00", MealSlot.FIRST, 980)
         assertEquals(1, write(s).size)
         assertEquals(0, write(s).size)
     }

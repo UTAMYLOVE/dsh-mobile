@@ -38,9 +38,9 @@ class SpotChecksTest {
     private fun minutes(t: Instant, clock: TestClock): Int = t.atZone(clock.zone).toLocalTime().let { it.hour * 60 + it.minute }
 
     /** Plays one day in five-minute steps (check-in at wake, optional ride, check-out) and returns when checks were asked. */
-    private fun play(env: Env, day: LocalDate, ride: Boolean, rideOut: String = "19:30", back: String = "22:00"): List<Instant> {
+    private fun play(env: Env, day: LocalDate, ride: Boolean, rideOut: String = "19:50", back: String = "22:00"): List<Instant> {
         val classDay = day.dayOfWeek.value in Kit.rules.classWeekdays
-        val wake = if (classDay) "07:00" else "10:00"
+        val wake = if (classDay) "06:40" else "09:20"
         val asked = ArrayList<Instant>()
         var t = Days.at(day, LocalTime.of(6, 0), env.clock.zone)
         val end = t.plus(Duration.ofHours(24))
@@ -69,9 +69,9 @@ class SpotChecksTest {
                     assertTrue(s.day >= week.plusWeeks(w) && s.day < week.plusWeeks(w + 1))
                     val m = s.at.hour * 60 + s.at.minute
                     if (s.day.dayOfWeek.value in Kit.rules.classWeekdays) {
-                        assertTrue("class $s", m >= 16 * 60 && m < 19 * 60 + 30)
+                        assertTrue("class $s", m >= 15 * 60 + 30 && m < 19 * 60 + 50)
                     } else {
-                        assertTrue("free $s", m >= 10 * 60 + 30 && m < 19 * 60 + 30)
+                        assertTrue("free $s", m >= 9 * 60 + 50 && m < 19 * 60 + 50)
                     }
                 }
                 // Deterministic: the same seed gives the same plan.
@@ -111,12 +111,12 @@ class SpotChecksTest {
                 asked.forEach { t ->
                     val m = minutes(t, env.clock)
                     val m2 = if (m < 6 * 60) m + 24 * 60 else m
-                    val riding = ride && m2 >= 19 * 60 + 30 && m2 < 22 * 60
+                    val riding = ride && m2 >= 19 * 60 + 50 && m2 < 22 * 60
                     assertFalse("riding $salt $day $m", riding)
-                    val beforeLeave = m2 < 19 * 60 + 30
+                    val beforeLeave = m2 < 19 * 60 + 50
                     val afterBack = ride && m2 >= 22 * 60
-                    if (classDay) assertTrue("class $salt $day $m", (m2 >= 16 * 60 && beforeLeave) || afterBack)
-                    else assertTrue("free $salt $day $m", (m2 >= 10 * 60 && beforeLeave) || afterBack)
+                    if (classDay) assertTrue("class $salt $day $m", (m2 >= 15 * 60 + 30 && beforeLeave) || afterBack)
+                    else assertTrue("free $salt $day $m", (m2 >= 9 * 60 + 20 && beforeLeave) || afterBack)
                     assertTrue("before check-out", m2 < 23 * 60 + 30)
                     // Never before the planned moment.
                     assertTrue(t >= Days.at(day, planned.first { it.day == day }.at, env.clock.zone))
@@ -132,10 +132,10 @@ class SpotChecksTest {
     @Test fun aCheckWaitsForHisReturnAndNeverFiresWhileRiding() {
         val env = Env(7)
         val slot = env.checks.plan(week).first { it.day.dayOfWeek.value in Kit.rules.classWeekdays }
-        // He leaves at 15:55 (before the slot), is back at 21:00: the check comes at the first step after he is back.
-        val asked = play(env, slot.day, ride = true, rideOut = "15:55", back = "21:00")
+        // He leaves at 15:25 (before the slot), is back at 21:10: the check comes at the first step after he is back.
+        val asked = play(env, slot.day, ride = true, rideOut = "15:25", back = "21:10")
         assertEquals(1, asked.size)
-        assertEquals(Days.at(slot.day, LocalTime.of(21, 0), env.clock.zone), asked.single())
+        assertEquals(Days.at(slot.day, LocalTime.of(21, 10), env.clock.zone), asked.single())
         // And one who never checks in is never asked.
         val env2 = Env(7)
         env2.clock.instant = Days.at(slot.day, LocalTime.of(18, 0), env2.clock.zone)

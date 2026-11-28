@@ -41,7 +41,7 @@ class DayPlannerTest {
     }
 
     @Test fun stageTwoOpensTheDailyRoutineButNotLaterThings() {
-        val plan = Scene(stageN = 2).plan("06:30")
+        val plan = Scene(day = wednesday, stageN = 2).plan("06:30")
         val expected = setOf(
             "check_in", "check_out", "meal:FIRST", "meal:DINNER", "meal:NIGHT", "water", "ride:out", "ride:back",
             "task:CORE", "task:STRENGTH", "task:STRETCH", "body",
@@ -128,7 +128,7 @@ class DayPlannerTest {
     }
 
     @Test fun weighInOnlyOnItsWeekday() {
-        assertTrue(Scene(day = monday).plan("09:00").has("body"))
+        assertTrue(Scene(day = wednesday).plan("09:00").has("body"))
         assertFalse(Scene(day = tuesday).plan("09:00").has("body"))
     }
 
@@ -136,7 +136,7 @@ class DayPlannerTest {
         val sc = Scene(day = saturday, stageN = 4)
         val fresh = WeekSoFar(sc.monday, groomed = mapOf("指甲" to saturday.minusDays(2), "修眉" to saturday.minusDays(3)))
         assertFalse(sc.plan("09:00", week = fresh).has("task:GROOMING"))
-        val due = WeekSoFar(sc.monday, groomed = mapOf("指甲" to saturday.minusDays(7), "修眉" to saturday.minusDays(3)))
+        val due = WeekSoFar(sc.monday, groomed = mapOf("指甲" to saturday.minusDays(9), "修眉" to saturday.minusDays(3)))
         assertEquals("指甲", sc.plan("09:00", week = due).item("task:GROOMING").detail)
         assertEquals("指甲、修眉", sc.plan("09:00").item("task:GROOMING").detail)
     }
@@ -161,19 +161,19 @@ class DayPlannerTest {
 
     @Test fun deadlineItemsAreLateOnlyAfterTheirDeadline() {
         val sc = Scene()
-        assertEquals(ItemStatus.PENDING, sc.plan("19:00").item("water").status)
-        assertEquals(ItemStatus.LATE, sc.plan("19:45").item("water").status)
-        assertEquals(ItemStatus.PENDING, sc.plan("19:00").item("ride:out").status)
-        assertEquals(ItemStatus.LATE, sc.plan("19:45").item("ride:out").status)
+        assertEquals(ItemStatus.PENDING, sc.plan("19:40").item("water").status)
+        assertEquals(ItemStatus.LATE, sc.plan("20:00").item("water").status)
+        assertEquals(ItemStatus.PENDING, sc.plan("19:40").item("ride:out").status)
+        assertEquals(ItemStatus.LATE, sc.plan("20:00").item("ride:out").status)
     }
 
     @Test fun checkOutIsDueHalfAnHourBeforeBedtimeAndLateAfterIt() {
         val sc = Scene()
         val p = sc.plan("23:00")
         assertEquals(ItemStatus.PENDING, p.item("check_out").status)
-        assertEquals(java.time.LocalTime.of(0, 30), p.item("check_out").at)
-        assertEquals(java.time.LocalTime.of(1, 0), p.item("check_out").until)
-        assertEquals(ItemStatus.LATE, sc.plan("01:10").item("check_out").status)
+        assertEquals(java.time.LocalTime.of(0, 20), p.item("check_out").at)
+        assertEquals(java.time.LocalTime.of(0, 50), p.item("check_out").until)
+        assertEquals(ItemStatus.LATE, sc.plan("01:05").item("check_out").status)
     }
 
     @Test fun aMealIsDoneOnlyWithAPhoto() {
@@ -190,17 +190,17 @@ class DayPlannerTest {
 
     @Test fun anUnloggedMealShowsItsBudgetAndAfterwardsItsKcal() {
         val sc = Scene()
-        assertEquals("預算 800 大卡", sc.plan("11:00").item("meal:FIRST").detail)
-        Kit.meal(sc.store, monday, "12:00", MealSlot.FIRST, 650)
+        assertEquals("預算 850 大卡", sc.plan("11:00").item("meal:FIRST").detail)
+        Kit.meal(sc.store, monday, "11:45", MealSlot.FIRST, 650)
         assertEquals("650 大卡", sc.plan("12:30").item("meal:FIRST").detail)
-        assertEquals("預算 900 大卡", sc.plan("12:30").item("meal:DINNER").detail)
+        assertEquals("預算 950 大卡", sc.plan("12:30").item("meal:DINNER").detail)
     }
 
     @Test fun waterIsDoneAtTheTarget() {
         val sc = Scene()
-        Kit.water(sc.store, monday, "09:00", 500)
+        Kit.water(sc.store, monday, "09:00", 450)
         assertEquals(ItemStatus.PENDING, sc.plan("10:00").item("water").status)
-        Kit.water(sc.store, monday, "10:00", 500)
+        Kit.water(sc.store, monday, "10:00", 450)
         assertEquals(ItemStatus.DONE, sc.plan("10:30").item("water").status)
     }
 
@@ -231,9 +231,9 @@ class DayPlannerTest {
         assertEquals(PlanDetail.AFTER_RIDE, sc.plan("22:00").item("task:CORE").detail)
         Kit.ride(sc.store, monday, "23:00", RidePhase.BACK, income = 1000)
         val back = sc.plan("23:10")
-        assertEquals("5 分鐘", back.item("task:CORE").detail)
+        assertEquals("6 分鐘", back.item("task:CORE").detail)
         assertFalse(back.item("task:CORE").waiting)
-        assertTrue(back.item("task:STRENGTH").detail.startsWith("3 輪"))
+        assertTrue(back.item("task:STRENGTH").detail.startsWith("4 輪"))
     }
 
     @Test fun waitingTrainingIsNeverLateAfterTheDayEnds() {
@@ -255,32 +255,33 @@ class DayPlannerTest {
 
     @Test fun cardioIsSpreadAcrossTheWeek() {
         fun has(day: LocalDate, done: Int) = Scene(day = day, stageN = 3).let { it.plan("06:30", week = WeekSoFar(it.monday, cardioDone = done)).has("task:CARDIO") }
+        // Twice a week: Monday and Thursday.
         assertTrue(has(monday, 0))
         assertFalse(has(tuesday, 0))
-        assertTrue(has(wednesday, 0))
-        assertFalse(has(monday.plusDays(3), 0))
-        assertTrue(has(monday.plusDays(4), 0))
+        assertFalse(has(wednesday, 0))
+        assertTrue(has(monday.plusDays(3), 0))
+        assertFalse(has(monday.plusDays(4), 0))
     }
 
     @Test fun cardioIsCaughtUpWhenTheWeekRunsShort() {
         fun has(day: LocalDate, done: Int) = Scene(day = day, stageN = 3).let { it.plan("06:30", week = WeekSoFar(it.monday, cardioDone = done)).has("task:CARDIO") }
-        assertTrue(has(saturday, 1))
-        assertFalse(has(saturday, 2))
-        assertTrue(has(sunday, 2))
-        assertFalse(has(sunday, 3))
-        assertFalse(has(monday, 3))
+        assertTrue(has(saturday, 0))
+        assertFalse(has(saturday, 1))
+        assertTrue(has(sunday, 1))
+        assertFalse(has(sunday, 2))
+        assertFalse(has(monday, 2))
     }
 
     @Test fun cardioDoneTodayStaysAsADoneItem() {
         val sc = Scene(day = tuesday, stageN = 3)
         Kit.task(sc.store, tuesday, "20:00", TaskId.CARDIO)
-        assertEquals(ItemStatus.DONE, sc.plan("21:00", week = WeekSoFar(sc.monday, cardioDone = 1)).item("task:CARDIO").status)
+        assertEquals(ItemStatus.DONE, sc.plan("21:10", week = WeekSoFar(sc.monday, cardioDone = 1)).item("task:CARDIO").status)
     }
 
     @Test fun expressionRunsOnFreeDaysTheRightNumberOfTimes() {
         val sat = Scene(day = saturday, stageN = 4)
         assertTrue(sat.plan("09:00").has("task:EXPRESSION"))
-        assertFalse(sat.plan("09:00", week = WeekSoFar(sat.monday, expressionDone = 2)).has("task:EXPRESSION"))
+        assertFalse(sat.plan("09:00", week = WeekSoFar(sat.monday, expressionDone = 3)).has("task:EXPRESSION"))
         assertFalse(Scene(day = monday, stageN = 4).plan("09:00").has("task:EXPRESSION"))
         val one = Kit.rules.copy(training = Kit.rules.training.copy(expressionPerWeek = 1))
         val s1 = Scene(day = sunday, stageN = 4, rules = one)
@@ -291,8 +292,8 @@ class DayPlannerTest {
 
     @Test fun freeDayPracticeComesBeforeTheFirstMeal() {
         val p = Scene(day = saturday, stageN = 4).plan("09:00")
-        assertEquals(java.time.LocalTime.of(12, 30), p.item("task:DANCE").until)
-        assertEquals(java.time.LocalTime.of(15, 0), p.item("task:WALK").at)
+        assertEquals(java.time.LocalTime.of(12, 20), p.item("task:DANCE").until)
+        assertEquals(java.time.LocalTime.of(14, 40), p.item("task:WALK").at)
     }
 
     // ---- illness ---------------------------------------------------------------------------------------------------
@@ -308,7 +309,7 @@ class DayPlannerTest {
         backFromTheRide(sc)
         val p = sc.plan("23:30", week = WeekSoFar(sc.monday, cardioDone = 0))
         assertEquals(ItemStatus.OFF, p.item("task:CARDIO").status)
-        assertTrue(p.item("task:STRENGTH").detail.startsWith("2 輪"))
+        assertTrue(p.item("task:STRENGTH").detail.startsWith("3 輪"))
         assertTrue(p.unwell)
         assertEquals(ItemStatus.PENDING, p.item("task:CORE").status)
     }
@@ -330,7 +331,7 @@ class DayPlannerTest {
         Kit.status(sc.store, monday, "07:00", StatusType.RECOVERED)
         backFromTheRide(sc)
         val p = sc.plan("23:30")
-        assertTrue(p.item("task:STRENGTH").detail.startsWith("2 輪"))
+        assertTrue(p.item("task:STRENGTH").detail.startsWith("3 輪"))
         assertEquals(ItemStatus.PENDING, p.item("task:CARDIO").status)
         assertFalse(p.unwell)
     }
@@ -380,44 +381,44 @@ class DayPlannerTest {
 
     @Test fun lateCheckInOnAFreeDayMovesTheFirstMealLater() {
         val sc = Scene(day = saturday, stageN = 2)
-        Kit.checkIn(sc.store, saturday, "11:30")
-        val p = sc.plan("11:40")
-        assertEquals(java.time.LocalTime.of(14, 0), p.item("meal:FIRST").at)
+        Kit.checkIn(sc.store, saturday, "10:50")
+        val p = sc.plan("11:05")
+        assertEquals(java.time.LocalTime.of(13, 50), p.item("meal:FIRST").at)
         assertEquals(1, p.adjustments.size)
         assertTrue(p.adjustments[0].what.contains("90"))
-        assertTrue(p.adjustments[0].what.contains("14:00"))
+        assertTrue(p.adjustments[0].what.contains("13:50"))
     }
 
     @Test fun theFirstMealIsMovedByAtMostTwoHours() {
         val sc = Scene(day = saturday, stageN = 2)
         Kit.checkIn(sc.store, saturday, "15:00")
-        assertEquals(java.time.LocalTime.of(14, 30), sc.plan("15:10").item("meal:FIRST").at)
+        assertEquals(java.time.LocalTime.of(14, 20), sc.plan("15:10").item("meal:FIRST").at)
     }
 
     @Test fun lateCheckInOnAClassDayMovesNothing() {
         val sc = Scene(stageN = 2)
         Kit.checkIn(sc.store, monday, "09:00")
-        assertEquals(java.time.LocalTime.of(12, 0), sc.plan("09:10").item("meal:FIRST").at)
+        assertEquals(java.time.LocalTime.of(11, 40), sc.plan("09:10").item("meal:FIRST").at)
         assertTrue(sc.plan("09:10").adjustments.isEmpty())
     }
 
     @Test fun anOnTimeCheckInOnAFreeDayChangesNothing() {
         val sc = Scene(day = saturday, stageN = 2)
-        Kit.checkIn(sc.store, saturday, "09:50")
-        assertTrue(sc.plan("10:00").adjustments.isEmpty())
+        Kit.checkIn(sc.store, saturday, "09:15")
+        assertTrue(sc.plan("09:30").adjustments.isEmpty())
     }
 
     @Test fun aBigFirstMealShrinksTheDinnerBudgetAndSaysSo() {
         val sc = Scene()
-        Kit.meal(sc.store, monday, "12:00", MealSlot.FIRST, 900)
+        Kit.meal(sc.store, monday, "11:45", MealSlot.FIRST, 930)
         val p = sc.plan("13:00")
-        assertEquals("預算 700 大卡", p.item("meal:DINNER").detail)
-        assertTrue(whats(p).any { it.contains("700") })
+        assertEquals("預算 770 大卡", p.item("meal:DINNER").detail)
+        assertTrue(whats(p).any { it.contains("770") })
     }
 
     @Test fun aFirstMealWithinPlanChangesNothing() {
         val sc = Scene()
-        Kit.meal(sc.store, monday, "12:00", MealSlot.FIRST, 800)
+        Kit.meal(sc.store, monday, "11:45", MealSlot.FIRST, 840)
         assertTrue(sc.plan("13:00").adjustments.isEmpty())
     }
 
@@ -473,14 +474,14 @@ class DayPlannerTest {
 
     @Test fun aRaisedTrainingLevelIsAnnounced() {
         val sc = Scene()
-        val raised = Kit.rules.training.copy(pushUps = 12, plankSeconds = 50)
+        val raised = Kit.rules.training.copy(pushUps = 14, plankSeconds = 60)
         val p = sc.plan("09:00", training = raised)
         val line = whats(p).single { it.contains("訓練量提高") }
-        assertTrue(line.contains("伏地挺身 12 下"))
-        assertTrue(line.contains("棒式 50 秒"))
+        assertTrue(line.contains("伏地挺身 14 下"))
+        assertTrue(line.contains("棒式 60 秒"))
         assertFalse(line.contains("深蹲"))
         sc.store.let { Kit.ride(it, monday, "19:30", RidePhase.OUT); Kit.ride(it, monday, "23:00", RidePhase.BACK) }
-        assertTrue(sc.plan("23:30", training = raised).item("task:STRENGTH").detail.contains("伏地挺身 12 下"))
+        assertTrue(sc.plan("23:30", training = raised).item("task:STRENGTH").detail.contains("伏地挺身 14 下"))
     }
 
     @Test fun examWeekReducesLessons() {
@@ -506,8 +507,8 @@ class DayPlannerTest {
             rounds = listOf(StageRound(3, monday.minusDays(16).toString(), monday.minusDays(10).toString(), 95, 0, true)),
         )
         val p = Scene(stageN = 4, stageState = st).plan("09:00")
-        assertEquals(java.time.LocalTime.of(0, 45), p.item("check_out").until)
-        assertEquals("0:45 前", p.item("check_out").detail)
+        assertEquals(java.time.LocalTime.of(0, 30), p.item("check_out").until)
+        assertEquals("0:30 前", p.item("check_out").detail)
     }
 
     // ---- next -------------------------------------------------------------------------------------------------------
@@ -523,7 +524,7 @@ class DayPlannerTest {
         val sc = Scene(day = tuesday)
         Kit.checkIn(sc.store, tuesday, "07:00")
         assertEquals("water", sc.plan("09:00").next?.id)
-        assertEquals("meal:FIRST", sc.plan("11:45").next?.id)
+        assertEquals("meal:FIRST", sc.plan("11:15").next?.id)
     }
 
     @Test fun nextTakesTheFirstUntimedActionableItem() {
@@ -542,8 +543,8 @@ class DayPlannerTest {
         Kit.water(sc.store, tuesday, "09:30", 1000)
         Kit.meal(sc.store, tuesday, "12:05", app.agency.core.store.MealSlot.FIRST, 700, photo = true)
         Kit.meal(sc.store, tuesday, "18:05", app.agency.core.store.MealSlot.DINNER, 700, photo = true)
-        // leaveBy is 19:30 in the invented rules: inside the last hour it is the next thing.
-        assertEquals("ride:out", sc.plan("18:40").next?.id)
+        // leaveBy is 19:50 in the invented rules: inside the last hour it is the next thing.
+        assertEquals("ride:out", sc.plan("19:05").next?.id)
     }
 
     @Test fun nextAfterTheRideOutIsTheRideBackThenTraining() {
@@ -606,13 +607,13 @@ class DayPlannerTest {
     @Test fun doneAndTotalCountOnlyCountedItemsThatAreNotOff() {
         val sc = Scene()
         val before = sc.plan("06:30")
-        assertEquals(11, before.total)
+        assertEquals(10, before.total)
         assertEquals(0, before.done)
         assertFalse(before.item("ride:back").counts)
         Kit.checkIn(sc.store, monday, "07:00")
         Kit.ride(sc.store, monday, "19:30", RidePhase.OUT)
         val after = sc.plan("20:00")
-        assertEquals(11, after.total)
+        assertEquals(10, after.total)
         assertEquals(2, after.done)
     }
 
@@ -631,12 +632,12 @@ class DayPlannerTest {
         val free = Scene(day = saturday, stageN = 2).plan("06:00")
         assertEquals(DayType.CLASS, cls.type)
         assertEquals(DayType.FREE, free.type)
-        assertEquals(java.time.LocalTime.of(7, 0), cls.item("check_in").at)
-        assertEquals(java.time.LocalTime.of(10, 0), free.item("check_in").at)
-        assertEquals(java.time.LocalTime.of(12, 0), cls.item("meal:FIRST").at)
-        assertEquals(java.time.LocalTime.of(12, 30), free.item("meal:FIRST").at)
-        assertEquals(java.time.LocalTime.of(1, 0), cls.item("check_out").until)
-        assertEquals(java.time.LocalTime.of(2, 0), free.item("check_out").until)
+        assertEquals(java.time.LocalTime.of(6, 40), cls.item("check_in").at)
+        assertEquals(java.time.LocalTime.of(9, 20), free.item("check_in").at)
+        assertEquals(java.time.LocalTime.of(11, 40), cls.item("meal:FIRST").at)
+        assertEquals(java.time.LocalTime.of(12, 20), free.item("meal:FIRST").at)
+        assertEquals(java.time.LocalTime.of(0, 50), cls.item("check_out").until)
+        assertEquals(java.time.LocalTime.of(1, 40), free.item("check_out").until)
     }
 
     @Test fun itemsAreInTimeOrder() {
@@ -649,7 +650,7 @@ class DayPlannerTest {
     // ---- tap and wording ----------------------------------------------------------------------------------------------
 
     @Test fun tapsMatchTheContract() {
-        val p = Scene(stageN = 3).plan("06:30")
+        val p = Scene(day = wednesday, stageN = 3).plan("06:30")
         assertEquals(Tap.Open(Screen.CHECK_IN), p.item("check_in").tap)
         assertEquals(Tap.Open(Screen.CHECK_OUT), p.item("check_out").tap)
         assertEquals(Tap.Open(Screen.CAMERA, "DINNER"), p.item("meal:DINNER").tap)

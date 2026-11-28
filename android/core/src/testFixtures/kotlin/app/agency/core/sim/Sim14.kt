@@ -76,10 +76,10 @@ class Sim14(private val sim: Sim = Sim()) {
         val first = sim.item("meal:FIRST")?.at?.let { it.plusMinutes(5).toString() } ?: "12:05"
         step(first, "meal:FIRST")
         step("16:30", *(if (hooks.containsKey("skip water")) emptyArray() else arrayOf("water", "task:SUNSCREEN")))
-        step("18:05", "meal:DINNER")
+        step("18:25", "meal:DINNER")
         step("19:25", "ride:out")
         hooks["riding"]?.invoke()
-        step("21:35", "meal:NIGHT")
+        step("21:45", "meal:NIGHT")
         step("22:30", "ride:back")
         val training = sim.plan().items.filter { it.id.startsWith("task:") && it.status != ItemStatus.OFF && it.status != ItemStatus.DONE }
         step("22:40", *training.map { it.id }.toTypedArray())
@@ -135,13 +135,13 @@ class Sim14(private val sim: Sim = Sim()) {
         // Day 9: words for everything; the water is left late while riding to see the chase stay quiet.
         stageTwoDay(9, chat = true, wake = "07:05", hooks = mapOf(
             "skip water" to {},
-            "before 12:05" to {
-                sim.walkTo("11:50")
+            "before 11:45" to {
+                sim.walkTo("11:35")
                 sim.require("我吃完了" in sim.today().chips) { "no meal chip near lunch: ${sim.today().chips}" }
                 sim.say("我吃完了")
             },
             "riding" to {
-                sim.walkTo("20:45")
+                sim.walkTo("20:55")
                 val water = sim.notices.filter { it.second.key == "water" && app.agency.core.base.Days.of(it.first, sim.clock.zone) == sim.day }
                 sim.require(water.size >= 3) { "water was noticed ${water.size} times while late" }
                 sim.require(water.drop(1).none { it.second.loud }) { "a water chase was loud while riding" }
@@ -159,7 +159,7 @@ class Sim14(private val sim: Sim = Sim()) {
             },
             "22:30" to {
                 val s = sim.item("task:STRENGTH")!!
-                sim.require(s.detail.startsWith("2 輪")) { "sick day strength after the ride: ${s.detail}" }
+                sim.require(s.detail.startsWith("3 輪")) { "sick day strength after the ride: ${s.detail}" }
             },
         ))
         stageTwoDay(11, chat = true, wake = "07:05", hooks = mapOf(
@@ -178,7 +178,7 @@ class Sim14(private val sim: Sim = Sim()) {
         sim.dayN = 13
         stageTwoDayLate()
         // Day 14: a rest day.
-        stageTwoDay(14, chat = false, wake = "10:05", hooks = mapOf(
+        stageTwoDay(14, chat = false, wake = "09:25", hooks = mapOf(
             "after check-in" to {
                 sim.say("今天休息")
                 sim.require(sim.item("ride:out")?.status == ItemStatus.OFF) { "rest day still schedules the ride" }
@@ -197,22 +197,22 @@ class Sim14(private val sim: Sim = Sim()) {
     }
 
     private fun stageTwoDayLate() {
-        // Free-day wake is 10:00; he signs in at 11:20. Before that only the wake notice may come, every 30 minutes.
+        // Free-day wake is 09:20; he signs in at 10:40. Before that only the wake notice may come, every 30 minutes.
         val hooks = mapOf(
-            "before 11:20" to {
-                sim.walkTo("11:15")
+            "before 10:40" to {
+                sim.walkTo("10:35")
                 val wake = sim.notices.filter { app.agency.core.base.Days.of(it.first, sim.clock.zone) == sim.day }
                 sim.require(wake.isNotEmpty() && wake.all { it.second.key == "check_in" }) { "before check-in: ${wake.map { it.second.key }}" }
                 sim.require(wake.size >= 3) { "wake notice not chased: ${wake.size}" }
             },
-            "11:20" to {
+            "10:40" to {
                 val adj = sim.plan().adjustments.map { it.what }
-                sim.require(adj.any { it.contains("第一餐延後 80 分鐘") && it.contains("13:50") }) { "late check-in adjustment: $adj" }
-                sim.require(sim.item("meal:FIRST")?.at == LocalTime.of(13, 50)) { "first meal at ${sim.item("meal:FIRST")?.at}" }
+                sim.require(adj.any { it.contains("第一餐延後 80 分鐘") && it.contains("13:40") }) { "late check-in adjustment: $adj" }
+                sim.require(sim.item("meal:FIRST")?.at == LocalTime.of(13, 40)) { "first meal at ${sim.item("meal:FIRST")?.at}" }
             },
         )
         sim.model.checkInScore = null // she asks with the five dots; his tap on the card signs him in
-        stageTwoDay(13, chat = true, wake = "11:20", hooks = hooks)
+        stageTwoDay(13, chat = true, wake = "10:40", hooks = hooks)
         sim.model.checkInScore = 4
     }
 }

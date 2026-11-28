@@ -13,13 +13,18 @@ class LessonDayTest {
     private val monday: LocalDate = TestClock.MONDAY
     private val rotation = listOf("禮儀", "理財", "保養")
 
+    /** The fixture allows two a day; these tests look at the full mix of three. */
+    private fun threeADay() = LessonRig(
+        app.agency.core.rules.Fixtures.rules().let { it.copy(study = it.study.copy(maxPerDay = 3)) },
+    )
+
     private fun rotating(day: LocalDate) = rotation[Math.floorMod(day.toEpochDay(), 3L).toInt()]
 
     private fun slots(rig: LessonRig, day: LocalDate, exam: Boolean = false) =
         LessonDay.of(day, rig.store, rig.rules, exam, rig.levels.levels())
 
     @Test fun aClassWeekHasDailyTwiceWeeklyAndRotation() {
-        val rig = LessonRig()
+        val rig = threeADay()
         val expected = mapOf(
             0 to listOf("語言", "聲樂", rotating(monday)),
             1 to listOf("語言", "舞蹈", rotating(monday.plusDays(1))),
@@ -36,7 +41,7 @@ class LessonDayTest {
     }
 
     @Test fun whatTheWeekStillOwesIsForcedAtTheWeekend() {
-        val rig = LessonRig()
+        val rig = threeADay()
         assertEquals(listOf("語言", "聲樂", "舞蹈"), slots(rig, monday.plusDays(5)).map { it.subject })
         assertEquals(listOf("語言", "聲樂", "舞蹈"), slots(rig, monday.plusDays(6)).map { it.subject })
     }

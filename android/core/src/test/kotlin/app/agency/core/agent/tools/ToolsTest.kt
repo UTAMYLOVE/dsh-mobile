@@ -85,11 +85,11 @@ class ToolsTest {
 
     @Test fun checkInRecordsAndReportsLateness() {
         val r = ToolRig()
-        r.at("07:20")
+        r.at("07:05")
         val out = r.run("check_in", """{"score":4}""")
         assertTrue(out.ok)
-        assertEquals("20", out.facts.s("late_minutes"))
-        assertEquals("7:00", out.facts.s("wake_time"))
+        assertEquals("25", out.facts.s("late_minutes"))
+        assertEquals("6:40", out.facts.s("wake_time"))
         assertEquals(1, r.store.entries(r.monday, Kind.CHECK_IN).size)
         assertTrue(r.run("check_in", """{"score":3}""").facts.s("already") == "true")
         assertEquals(1, r.store.entries(r.monday, Kind.CHECK_IN).size)
@@ -104,7 +104,7 @@ class ToolsTest {
 
     @Test fun logMealResolvesTheTableAttachesThePhotoAndReturnsTodaysNumbers() {
         val r = ToolRig()
-        r.at("12:10")
+        r.at("11:50")
         val out = r.run(
             "log_meal",
             """{"slot":"first","items":[{"name":"雞腿便當","kcal":650,"protein_g":30}],"source":"estimate","attach_photo":true}""",
@@ -115,8 +115,8 @@ class ToolsTest {
         assertEquals(700, card.kcal)
         assertFalse(card.estimated)
         assertFalse(card.needsPhoto)
-        assertEquals("1300", out.facts.o("today").s("kcal_left"))
-        assertEquals("900", out.facts.o("today").o("next_meal_budget_kcal").s("晚餐"))
+        assertEquals("1400", out.facts.o("today").s("kcal_left"))
+        assertEquals("950", out.facts.o("today").o("next_meal_budget_kcal").s("晚餐"))
         val meal = r.store.entries(r.monday, Kind.MEAL).single().read<Meal>()
         assertEquals("p1", meal.photoId)
         assertEquals(ItemStatus.DONE, Today.plan(r.store, r.clock, r.rules).items.first { it.id == "meal:FIRST" }.status)
@@ -124,10 +124,10 @@ class ToolsTest {
 
     @Test fun anEstimateIsRaisedAndAMissingPhotoIsSaid() {
         val r = ToolRig()
-        r.at("12:10")
+        r.at("11:50")
         val out = r.run("log_meal", """{"slot":"first","items":[{"name":"拉麵","kcal":500,"protein_g":20.7}],"source":"estimate","attach_photo":false}""")
         val card = out.cards.single() as Card.MealCard
-        assertEquals(550, card.kcal)
+        assertEquals(560, card.kcal)
         assertTrue(card.estimated && card.needsPhoto)
         assertNotNull(out.facts.s("needs_photo"))
         assertEquals("缺照片", Today.plan(r.store, r.clock, r.rules).items.first { it.id == "meal:FIRST" }.detail)
@@ -135,7 +135,7 @@ class ToolsTest {
 
     @Test fun aBannedItemAndAnOverCapMealWriteViolationsAndWarnings() {
         val r = ToolRig()
-        r.at("12:10")
+        r.at("11:50")
         val out = r.run("log_meal", """{"slot":"first","items":[{"name":"炸雞","kcal":900,"protein_g":40}],"source":"label","attach_photo":false}""")
         assertTrue(out.ok)
         val card = out.cards.single() as Card.MealCard
@@ -148,7 +148,7 @@ class ToolsTest {
 
     @Test fun aClosedFeatureStillRecordsButNeverCountsOrViolates() {
         val r = ToolRig(stage = 1)
-        r.at("12:10")
+        r.at("11:50")
         val meal = r.run("log_meal", """{"slot":"first","items":[{"name":"炸雞","kcal":1500,"protein_g":40}],"source":"label","attach_photo":false}""")
         assertTrue(meal.ok)
         assertEquals("false", meal.facts.s("open"))
@@ -168,7 +168,7 @@ class ToolsTest {
 
     @Test fun fixAndRemoveOnlyTouchTodaysOwnEntries() {
         val r = ToolRig()
-        r.at("12:10")
+        r.at("11:50")
         val id = r.run("log_meal", """{"slot":"first","items":[{"name":"拉麵","kcal":500,"protein_g":20}],"source":"estimate","attach_photo":false}""")
             .facts.s("entry_id")!!
         val fixed = r.run("fix_meal", """{"entry_id":$id,"items":[{"name":"雞胸","kcal":1,"protein_g":1}],"source":"estimate"}""")
@@ -181,7 +181,7 @@ class ToolsTest {
 
     @Test fun aGalleryPhotoForALoggedMealIsMarkedLate() {
         val r = ToolRig()
-        r.at("12:10")
+        r.at("11:50")
         val id = r.run("log_meal", """{"slot":"first","items":[{"name":"雞胸","kcal":1,"protein_g":1}],"source":"estimate","attach_photo":false}""").facts.s("entry_id")!!
         val out = r.run("attach_photo_to_meal", """{"entry_id":$id}""", photos = listOf("g1"), gallery = listOf(true))
         assertTrue(out.ok)
@@ -193,9 +193,9 @@ class ToolsTest {
     @Test fun waterInBottlesOrMillilitres() {
         val r = ToolRig()
         val half = r.run("log_water", """{"bottles":0.5,"ml":null}""")
-        assertEquals("500", half.facts.s("ml"))
-        val more = r.run("log_water", """{"bottles":null,"ml":500}""")
-        assertEquals("1000", more.facts.o("today").s("water_ml"))
+        assertEquals("450", half.facts.s("ml"))
+        val more = r.run("log_water", """{"bottles":null,"ml":450}""")
+        assertEquals("900", more.facts.o("today").s("water_ml"))
         assertEquals("true", more.facts.s("reached"))
         assertEquals("✓ 已記：喝水 0.5 壺", (Tools.direct("log_water") as Noted).noteLine(half))
     }
@@ -206,9 +206,9 @@ class ToolsTest {
         assertTrue(r.run("ride_out", "{}").ok)
         assertFalse(r.run("ride_out", "{}").ok)
         r.at("22:30")
-        val back = r.run("ride_back", """{"income":1200}""")
-        assertEquals("1200", back.facts.o("week_income").s("income"))
-        assertEquals("4800", back.facts.o("week_income").s("left"))
+        val back = r.run("ride_back", """{"income":1150}""")
+        assertEquals("1150", back.facts.o("week_income").s("income"))
+        assertEquals("3350", back.facts.o("week_income").s("left"))
         assertTrue(back.facts["training_now"]!!.jsonArray.isNotEmpty())
     }
 
@@ -267,7 +267,7 @@ class ToolsTest {
 
     @Test fun drinksBodyMoodAndMoney() {
         val r = ToolRig(stage = 3)
-        r.at("21:00")
+        r.at("21:10")
         r.run("log_drink", """{"type":"caffeine"}""")
         assertTrue("CAFFEINE_LATE" in r.violations())
         val body = r.run("log_body", """{"kg":79.5,"waist_cm":80}""")
@@ -323,7 +323,7 @@ class ToolsTest {
     @Test fun lessonsTodayAndAWish() {
         val r = ToolRig(stage = 1)
         val today = r.run("lessons_today", "{}")
-        assertEquals("3", today.facts.s("total"))
+        assertEquals("2", today.facts.s("total"))
         assertTrue(r.run("lesson_wish", """{"topic":"吉他"}""").ok)
     }
 

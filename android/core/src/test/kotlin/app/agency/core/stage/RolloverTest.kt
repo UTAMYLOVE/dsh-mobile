@@ -260,7 +260,7 @@ class RolloverTest {
         fun ride(d: LocalDate, phase: RidePhase, income: Int? = null) =
             r.store.add(d, Days.at(d, LocalTime.of(20, 0), r.clock.zone), Kind.RIDE, Ride(phase, income))
         ride(r.day(2), RidePhase.OUT); ride(r.day(2), RidePhase.BACK, 1000)
-        ride(r.day(3), RidePhase.OUT); ride(r.day(3), RidePhase.BACK, 1200)
+        ride(r.day(3), RidePhase.OUT); ride(r.day(3), RidePhase.BACK, 1150)
         r.store.add(r.day(1).minusDays(3), Days.at(r.day(1), LocalTime.of(8, 0), r.clock.zone), Kind.BODY, Body(kg = 80.0))
         r.store.add(r.day(5), Days.at(r.day(5), LocalTime.of(8, 0), r.clock.zone), Kind.BODY, Body(kg = 79.2))
 
@@ -297,7 +297,7 @@ class RolloverTest {
         assertEquals(listOf("day30"), res.specials)
         val c = r.ceremonies("special").single()
         assertEquals("第 30 天", c.title)
-        r.run(r.day(30), "21:00")
+        r.run(r.day(30), "21:10")
         r.run(r.day(31))
         assertEquals(1, r.ceremonies("special").size)
         assertTrue("day30" in r.stage().celebrated)

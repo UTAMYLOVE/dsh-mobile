@@ -16,7 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IncomeTest {
-    private val rules = Fixtures.rules() // weekly target 6000
+    private val rules = Fixtures.rules() // weekly target 4500
     private val monday: LocalDate = TestClock.MONDAY
     private val wednesday = monday.plusDays(2)
 
@@ -35,10 +35,10 @@ class IncomeTest {
         assertEquals(monday, w.weekStart)
         assertEquals(2500, w.income)
         assertEquals(2, w.daysRidden)
-        assertEquals(6000, w.target)
-        assertEquals(3500, w.left)
+        assertEquals(4500, w.target)
+        assertEquals(2000, w.left)
         assertEquals(5, w.remainingDays) // today still to ride, then Thursday to Sunday
-        assertEquals(700, w.perRemainingDay)
+        assertEquals(400, w.perRemainingDay)
         assertFalse(w.reached)
     }
 
@@ -49,9 +49,9 @@ class IncomeTest {
         val w = Income.week(s, wednesday, rules)
         assertEquals(3000, w.income)
         assertEquals(3, w.daysRidden)
-        assertEquals(3000, w.left)
+        assertEquals(1500, w.left)
         assertEquals(4, w.remainingDays)
-        assertEquals(750, w.perRemainingDay)
+        assertEquals(375, w.perRemainingDay)
     }
 
     @Test fun lastWeekIsNotCounted() {
@@ -62,15 +62,15 @@ class IncomeTest {
 
     @Test fun reachingTheTargetLeavesNothingAndSundayHasNoDaysLeft() {
         val s = MemStore()
-        ride(s, monday, RidePhase.OUT); ride(s, monday, RidePhase.BACK, 6500, 5)
+        ride(s, monday, RidePhase.OUT); ride(s, monday, RidePhase.BACK, 4600, 5)
         val w = Income.week(s, wednesday, rules)
         assertTrue(w.reached)
         assertEquals(0, w.left)
         assertEquals(0, w.perRemainingDay)
         val sunday = monday.plusDays(6)
         val last = MemStore()
-        ride(last, monday, RidePhase.OUT); ride(last, monday, RidePhase.BACK, 5000, 5)
-        ride(last, sunday, RidePhase.OUT); ride(last, sunday, RidePhase.BACK, 100, 5)
+        ride(last, monday, RidePhase.OUT); ride(last, monday, RidePhase.BACK, 3400, 5)
+        ride(last, sunday, RidePhase.OUT); ride(last, sunday, RidePhase.BACK, 200, 5)
         val s2 = Income.week(last, sunday, rules)
         assertEquals(0, s2.remainingDays)
         assertEquals(900, s2.left)
@@ -81,8 +81,8 @@ class IncomeTest {
         val s = MemStore()
         ride(s, monday, RidePhase.OUT); ride(s, monday, RidePhase.BACK, 100, 5)
         val w = Income.week(s, monday.plusDays(3), rules)
-        assertEquals(5900, w.left)
+        assertEquals(4400, w.left)
         assertEquals(4, w.remainingDays)
-        assertEquals(1475, w.perRemainingDay)
+        assertEquals(1100, w.perRemainingDay)
     }
 }

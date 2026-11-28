@@ -68,7 +68,7 @@ class AgentTest {
     private val water = FakeTool("log_water") { _, _ ->
         ToolOut(buildJsonObject { put("water_bottles", 1); put("target_bottles", 2) }, listOf(Card.Summary("喝水", listOf("1／2 壺"))))
     }
-    private val getDay = FakeTool("get_day") { _, _ -> ToolOut(buildJsonObject { put("kcal", 1200); put("left", 800) }) }
+    private val getDay = FakeTool("get_day") { _, _ -> ToolOut(buildJsonObject { put("kcal", 1260); put("left", 740) }) }
     private val boom = FakeTool("boom") { _, _ -> error("disk on fire") }
     private val remember = FakeTool("remember") { a, ctx ->
         Memory.remember(ctx.store, a["text"]!!.jsonPrimitive.content)
@@ -144,13 +144,13 @@ class AgentTest {
     }
 
     @Test fun theGuardAsksForARewriteAndTheRewriteIsKept() = runBlocking {
-        val llm = ScriptedLlm(calls("get_day"), says("今天 1300 大卡了。"), says("今天 1200 大卡了，還剩 800 大卡。"))
+        val llm = ScriptedLlm(calls("get_day"), says("今天 1300 大卡了。"), says("今天 1260 大卡了，還剩 740 大卡。"))
         assertEquals(SayResult.Ok, agent(llm).reply("今天吃多少了", emptyList()))
         assertEquals(3, llm.requests.size)
         val note = (llm.requests[2].turns.last() as Turn.User).text
         assertTrue(note.contains("檢查沒過"))
         assertTrue(note.contains("今天 1300 大卡了。"))
-        assertEquals("今天 1200 大卡了，還剩 800 大卡。", manager().single().text)
+        assertEquals("今天 1260 大卡了，還剩 740 大卡。", manager().single().text)
         assertEquals(1, small.requests.size) // 大卡 → the judge looked once
     }
 

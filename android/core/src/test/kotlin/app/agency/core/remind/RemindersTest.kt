@@ -268,7 +268,7 @@ class RemindersTest {
 
     @Test fun aLogOfAnotherDayStartsFresh() {
         val p = plan(item("meal:FIRST", "12:00"))
-        val old = ReminderLog("2030-01-06", mapOf("meal:FIRST" to listOf(Instant.parse("2030-01-06T04:00:00Z").toString())))
+        val old = ReminderLog("2030-01-06", mapOf("meal:FIRST" to listOf(Instant.parse("2030-01-06T03:50:00Z").toString())))
         val d = decide(at("12:00"), p, old)
         assertEquals(1, d.notices.size)
         assertEquals(day.toString(), d.log.day)

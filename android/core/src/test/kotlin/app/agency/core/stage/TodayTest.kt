@@ -33,10 +33,10 @@ class TodayTest {
         Kit.checkIn(store, Kit.tuesday, "06:50")
         Kit.checkOut(store, Kit.tuesday, "23:30")
         Kit.checkIn(store, wednesday, "06:55")
-        Kit.meal(store, wednesday, "12:10", MealSlot.FIRST, 700)
+        Kit.meal(store, wednesday, "11:50", MealSlot.FIRST, 700)
         Kit.water(store, wednesday, "09:00", 500)
-        Kit.ride(store, wednesday, "19:00", RidePhase.OUT)
-        val clock = TestClock().also { it.set(wednesday, "19:10") }
+        Kit.ride(store, wednesday, "19:40", RidePhase.OUT)
+        val clock = TestClock().also { it.set(wednesday, "19:45") }
 
         val state = DayState.of(
             wednesday, store.entries(wednesday), store.entries(wednesday.minusDays(14), wednesday.minusDays(1)), rules, stage, clock.zone,
@@ -92,10 +92,10 @@ class TodayTest {
         val store = MemStore()
         store.writeDoc(Doc.STAGE, Kit.stage(2, wednesday))
         store.writeDoc(Doc.LEVELS, Levels(trainingOffsets = mapOf("squats" to 2, "plankSeconds" to 10)))
-        Kit.ride(store, wednesday, "19:00", RidePhase.OUT)
-        Kit.ride(store, wednesday, "20:00", RidePhase.BACK, 900)
-        val clock = TestClock().also { it.set(wednesday, "21:00") }
+        Kit.ride(store, wednesday, "19:40", RidePhase.OUT)
+        Kit.ride(store, wednesday, "20:30", RidePhase.BACK, 900)
+        val clock = TestClock().also { it.set(wednesday, "21:10") }
         val strength = Today.plan(store, clock, rules).items.first { it.id == "task:STRENGTH" }
-        assertTrue(strength.detail, strength.detail.contains("深蹲 17 下") && strength.detail.contains("棒式 50 秒"))
+        assertTrue(strength.detail, strength.detail.contains("深蹲 20 下") && strength.detail.contains("棒式 60 秒"))
     }
 }
