@@ -122,6 +122,7 @@ class Company(
             plan = m.plan,
             chips = Chips.of(m.plan, m.state, m.now),
             ready = rules.callName.isNotBlank() && providers.keyReady(),
+            moodOpen = Feature.MOOD.openAt(m.stage.stage) && RulesCheck.ready(rules, Feature.MOOD),
         )
     }
 
@@ -503,6 +504,16 @@ class Company(
     override fun memos(): List<MemoRow> = Memos.open(store, Days.today(clock))
 
     override fun memoDone(id: Long): Boolean = Memos.setDone(store, id).also { if (it) note("✓ 備忘完成 #$id") }
+
+    override fun memoAdd(text: String, dueAt: String?): MemoRow? {
+        rollover()
+        val t = text.trim()
+        if (t.isEmpty() || !Feature.MEMO.openAt(moment().stage.stage)) return null
+        val due = dueAt?.takeIf { it.isNotBlank() }?.let { Memos.parseDue(it, clock) }
+        val e = store.add(Days.today(clock), clock.now(), Kind.MEMO, Memo(t.take(300), due?.toString()))
+        note("✓ 記了備忘 #${e.id}：${t.take(40)}")
+        return MemoRow(e.id, t.take(300), due, false)
+    }
 
     override fun memoRemove(id: Long): Boolean = Memos.remove(store, id)
 

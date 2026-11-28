@@ -174,6 +174,9 @@ interface OnboardingUi {
 
     /** Day 1 starts. */
     fun finish()
+
+    /** True when a Claude key is already saved (an older version's key carried over): the keys step may then be left blank. */
+    fun keysSaved(): Boolean = false
 }
 
 class RuleField(val key: String, val label: String, val value: String, val hint: String = "")

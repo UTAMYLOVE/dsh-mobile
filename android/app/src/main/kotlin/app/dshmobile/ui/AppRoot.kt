@@ -84,7 +84,7 @@ private fun MainContent(graph: UiGraph, startRoutes: List<Route>, context: Conte
     val vm = remember(graph) { HomeViewModel(graph.company, scope, panels, io) }
     val stack = remember { mutableStateListOf<Route>().also { it.addAll(startRoutes) } }
     val today by vm.today.collectAsState()
-    val moodOpen = (today?.stageLabel?.let { StageRegex.find(it)?.groupValues?.get(1)?.toIntOrNull() } ?: 1) >= 3
+    val moodOpen = today?.moodOpen ?: ((today?.stageLabel?.let { StageRegex.find(it)?.groupValues?.get(1)?.toIntOrNull() } ?: 1) >= 3)
 
     fun pop() {
         if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex)

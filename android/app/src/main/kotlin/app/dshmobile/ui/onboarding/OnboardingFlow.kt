@@ -70,6 +70,9 @@ fun OnboardingFlow(ob: OnboardingUi, onFinished: () -> Unit, startAt: OnboardSte
     var busy by remember { mutableStateOf(false) }
     var keyError by remember { mutableStateOf(false) }
     var perms by remember { mutableStateOf(ob.permissions()) }
+    val haveKeys = remember { ob.keysSaved() }
+    // Back from the system's permission question: show what he decided.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { perms = ob.permissions() }
     val current = OnboardStep.entries[step]
 
     // step 4 runs by itself
@@ -183,7 +186,7 @@ fun OnboardingFlow(ob: OnboardingUi, onFinished: () -> Unit, startAt: OnboardSte
             }
             if (current != OnboardStep.READING) {
                 val enabled = when (current) {
-                    OnboardStep.KEYS -> claude.isNotBlank() && !busy
+                    OnboardStep.KEYS -> (claude.isNotBlank() || haveKeys) && !busy
                     OnboardStep.PASTE -> document.isNotBlank()
                     OnboardStep.NAME -> callName.isNotBlank() && !busy
                     else -> !busy

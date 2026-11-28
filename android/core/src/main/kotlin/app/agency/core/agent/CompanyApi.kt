@@ -18,6 +18,11 @@ data class Today(
     val chips: List<String>,
     /** False until the rules are filled in and a key is saved: the app shows onboarding instead of home. */
     val ready: Boolean,
+    /**
+     * Whether the mood dots belong on check-out (the mood feature is open at the current stage). Null = unknown (a fake that
+     * does not say): the screen then falls back to reading the stage from [stageLabel].
+     */
+    val moodOpen: Boolean? = null,
 )
 
 /** Something attached to what he says. Photos are already cleaned (downscaled, metadata stripped) by the app. */
@@ -193,6 +198,12 @@ interface CompanyAdmin {
 
     fun memos(): List<app.agency.core.agent.tools.MemoRow>
     fun memoDone(id: Long): Boolean
+
+    /**
+     * A memo typed on the memo page. [dueAt] is free text (`HH:mm`, a date, or a date and time); blank or unreadable = no
+     * reminder time. Returns the new row, or null when the text is blank or the feature is closed.
+     */
+    fun memoAdd(text: String, dueAt: String? = null): app.agency.core.agent.tools.MemoRow? = null
     fun memoRemove(id: Long): Boolean
 
     /** What 小葵 remembers (settings → 記憶). */

@@ -29,6 +29,7 @@ import app.agency.core.store.Meal
 import app.agency.core.store.MealSlot
 import app.agency.core.store.MemStore
 import app.agency.core.store.Role
+import app.agency.core.store.Store
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
@@ -44,8 +45,7 @@ class SimFailure(message: String) : AssertionError(message)
  * The fourteen-day harness: a store, a moving clock, the company with a [SimModel], a scripted owner, and the invariant checks
  * run at every step ([check]). Every action and every notice goes into [trace]; a failure prints the last part of it.
  */
-class Sim(val rules: Rules = Fixtures.rules()) {
-    val store = MemStore()
+class Sim(val rules: Rules = Fixtures.rules(), val store: Store = MemStore()) {
     val clock = TestClock().also { it.set(TestClock.MONDAY, "06:00") }
     val model = SimModel()
     val search = SimSearch()

@@ -22,7 +22,8 @@ android {
         targetSdk = 37
         versionCode = providers.gradleProperty("dshm.versionCode").map(String::toInt).getOrElse(20)
         versionName = providers.gradleProperty("dshm.versionName").getOrElse("1.0.0")
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Starts the fake model server and points the app at it before the app starts (src/androidTest/.../E2eRunner.kt).
+        testInstrumentationRunner = "app.dshmobile.E2eRunner"
         // The public releases repository (owner/name) the daily update check reads; the same gradle.properties value the release
         // workflow publishes to. Only api.github.com is ever contacted for it.
         val releasesRepo = providers.gradleProperty("dshm.releasesRepo").getOrElse("UTAMYLOVE/dsh-mobile-releases")
@@ -133,6 +134,8 @@ dependencies {
     // The end-to-end suite: an in-process fake model (DeepSeek and Claude shapes) on 127.0.0.1.
     androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.work.testing)
+    // The shared store contract, the invented rules and the fourteen-day simulation driver run on the phone too.
+    androidTestImplementation(testFixtures(project(":core")))
     // The company is driven through Compose's test APIs (test tags); espresso 3.7.0 for the same reason as above.
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

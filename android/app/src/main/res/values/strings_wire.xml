@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Words of the wiring layer (the real doors of the screens, the wake path). Traditional Chinese only, no Latin letters. -->
+<resources>
+    <!-- in-app camera -->
+    <string name="cam_title">拍照</string>
+    <string name="cam_title_for">拍照：%1$s</string>
+    <string name="cam_failed">相機現在開不了，請關掉再試一次。</string>
+    <string name="cam_close">關閉</string>
+    <string name="cam_shutter">拍</string>
+    <string name="cam_switch">換鏡頭</string>
+
+    <!-- onboarding -->
+    <string name="wire_import_failed">讀不懂這份文件，請確認內容和網路後再試一次。</string>
+    <string name="wire_import_problems">要注意的地方</string>
+
+    <!-- body and money -->
+    <string name="body_last_kg">上次 %1$s 公斤</string>
+    <string name="body_last_waist">上次腰圍 %1$s 公分</string>
+    <string name="body_nothing">沒有填任何東西。</string>
+    <string name="money_week">這週：生活 %1$d 元、娛樂 %2$d 元、收入 %3$d 元</string>
+    <string name="money_month">這個月：生活 %1$d 元、娛樂 %2$d 元、收入 %3$d 元</string>
+
+    <!-- evaluation -->
+    <string name="eval_title_week">本週評鑑</string>
+    <string name="eval_title_month">本月評鑑</string>
+    <string name="eval_item_song">唱歌</string>
+    <string name="eval_item_dance">舞蹈</string>
+    <string name="eval_item_body">全身對比照</string>
+    <string name="eval_song_reason">這次的歌，音準有 %1$d%%</string>
+    <string name="eval_self">自評：%1$s</string>
+    <string name="eval_missing">還有東西沒交，歌和舞蹈都要先錄好。</string>
+
+    <!-- settings -->
+    <string name="wire_yuan">%1$d 元</string>
+    <string name="wire_under_one_yuan">不到 1 元</string>
+    <string name="wire_test_title">測試通知</string>
+    <string name="wire_test_text">看到這則，表示提醒可以正常響。</string>
+    <string name="wire_license_font">字體授權</string>
+    <string name="wire_license_db">資料庫加密授權</string>
+    <string name="wire_license_libs">程式庫授權</string>
+
+    <!-- backup -->
+    <string name="wire_backup_cancelled">沒有備份，你取消了。</string>
+    <string name="wire_backup_done">備份好了，共 %1$d 筆紀錄、%2$d 個照片和錄音檔。</string>
+    <string name="wire_backup_preview">共 %1$d 筆紀錄、%2$d 個照片和錄音檔，日期從 %3$s 到 %4$s</string>
+    <string name="wire_backup_nothing">沒有選好要還原的備份，請先選檔案。</string>
+    <string name="wire_backup_restored">已經還原，之前的資料被這份備份換掉了。</string>
+
+    <!-- notifications -->
+    <string name="wire_note_title">小葵有新消息</string>
+    <string name="wire_rate_title">請求太頻繁</string>
+    <string name="wire_rate_text">一分鐘內問得太多次，先停一下，等一會兒再試。</string>
+
+    <!-- singing -->
+    <string name="wire_song_title">唱歌練習</string>
+</resources>
