@@ -11,7 +11,7 @@
     <string name="ob_welcome_title">歡迎來到小雨娛樂</string>
     <string name="ob_welcome_text">我是小葵，你的經紀人。以後吃什麼、練什麼、讀什麼，直接跟我說，我來記、我來算。先花幾分鐘把公司設定好。</string>
     <string name="ob_keys_title">接上小葵的腦袋</string>
-    <string name="ob_keys_text">小葵需要一把金鑰才會思考。金鑰只存在這支手機的安全區，不會寫進檔案，也不會上傳。第二把可以先不填，它是比較省錢的聊天用。</string>
+    <string name="ob_keys_text">小葵需要金鑰才會思考。兩把有一把就能用，兩把都有最好。每一把要貼在自己那一格，貼錯格會被拒絕。金鑰只存在這支手機的安全區，不會寫進檔案，也不會上傳。</string>
     <string name="ob_key_claude">第一把金鑰（必填）</string>
     <string name="ob_key_deepseek">第二把金鑰（可不填）</string>
     <string name="ob_key_error">存不起來，請再試一次。</string>

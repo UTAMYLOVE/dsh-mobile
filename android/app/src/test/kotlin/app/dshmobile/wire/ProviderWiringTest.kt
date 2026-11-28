@@ -111,6 +111,21 @@ class ProviderWiringTest {
         assertNotNull(rig.wire.providers.search())
     }
 
+    @Test fun withOnlyOneKeyTheProviderThatHasItAnswersWhateverTheModeSays() {
+        keys(claude = false) // only the second key, e.g. the one brought over from the older version
+        mode(ProviderMode.ALL_CLAUDE)
+        assertTrue(ask() is ChatResult.Ok)
+        assertTrue(ask(small = true) is ChatResult.Ok)
+        assertTrue(rig.claudeSeen.isEmpty())
+        assertEquals(2, rig.deepseekSeen.size)
+        rig.graph.keys.clear(Provider.DEEPSEEK)
+        keys(deepseek = false) // only the main key
+        mode(ProviderMode.CHAT_DEEPSEEK)
+        assertTrue(ask() is ChatResult.Ok)
+        assertEquals(1, rig.claudeSeen.size)
+        assertEquals(2, rig.deepseekSeen.size)
+    }
+
     @Test fun keysAreReadAtCallTime() {
         mode(ProviderMode.ALL_CLAUDE)
         assertEquals(Fail.NO_KEY, (ask() as ChatResult.Failed).fail)

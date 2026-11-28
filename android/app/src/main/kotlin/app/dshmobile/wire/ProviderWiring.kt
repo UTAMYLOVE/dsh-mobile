@@ -86,15 +86,30 @@ class ProviderWiring(
 
     val small: LlmClient = object : LlmClient {
         override suspend fun chat(request: ChatRequest): ChatResult =
-            (if (mode() == ProviderMode.ALL_CLAUDE) claudeSmall else deepseekSmall).chat(request)
+            (if (effectiveMode() == ProviderMode.ALL_CLAUDE) claudeSmall else deepseekSmall).chat(request)
     }
 
     /** Which client answers [request] (public for tests). */
-    internal fun pick(request: ChatRequest): LlmClient = when (mode()) {
+    internal fun pick(request: ChatRequest): LlmClient = when (effectiveMode()) {
         ProviderMode.ALL_CLAUDE -> claudeChat
         ProviderMode.CHAT_DEEPSEEK ->
             if (hasPhotos(request) && !Models.seesImages(ProviderChoice.DEEPSEEK, dsChatModel()) && keys.has(Provider.ANTHROPIC)) claudeChat
             else deepseekChat
+    }
+
+    /**
+     * The mode that can actually answer: when the chosen provider has no key but the other one does, the other one is used
+     * instead of failing every call with "no key" (he may have only one of the two keys, e.g. the one brought over from 0.9).
+     */
+    internal fun effectiveMode(): ProviderMode {
+        val chosen = mode()
+        val claude = keys.has(Provider.ANTHROPIC)
+        val deepseek = keys.has(Provider.DEEPSEEK)
+        return when {
+            chosen == ProviderMode.ALL_CLAUDE && !claude && deepseek -> ProviderMode.CHAT_DEEPSEEK
+            chosen == ProviderMode.CHAT_DEEPSEEK && !deepseek && claude -> ProviderMode.ALL_CLAUDE
+            else -> chosen
+        }
     }
 
     fun search(): SearchPort? =

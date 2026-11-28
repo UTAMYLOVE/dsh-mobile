@@ -10,6 +10,7 @@
     <string name="ob_keys_imported">已經帶入你之前存的金鑰</string>
     <string name="ob_keys_imported_both">主要金鑰和第二把金鑰都已經存好了。</string>
     <string name="ob_keys_imported_one">主要金鑰已經存好了，第二把還沒有。</string>
+    <string name="ob_keys_imported_second_only">第二把金鑰已經存好了，主要金鑰還沒有。小葵會先用第二把聊天；要她看照片，再補上主要金鑰。</string>
     <string name="ob_keys_change">換成別的金鑰</string>
     <string name="model_cheap_needs_key">要先存好第二把金鑰（DeepSeek），才能選這個。</string>
     <string name="ob_restore">從備份還原</string>

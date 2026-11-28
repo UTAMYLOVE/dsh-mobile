@@ -46,7 +46,7 @@ class RulesImportTest {
         assertTrue(r.ok)
         val req = llm.requests.single()
         assertTrue(req.output is Output.Json)
-        assertEquals(Effort.HIGH, req.effort)
+        assertEquals(Effort.MEDIUM, req.effort)
         assertEquals("小測", r.rules.callName)
         assertEquals(2100, r.rules.diet.kcal)
         assertEquals("07:30", r.rules.classDay.wake)
@@ -85,7 +85,33 @@ class RulesImportTest {
         val r = RulesImport(llm).extract("字".repeat(30_000))
         assertTrue(r.problems.any { it.contains("太長") })
         val sent = (llm.requests.single().turns.single() as Turn.User).text
-        assertTrue(sent.length < 25_000)
+        // The document part is cut to 24 000 characters; the rest of the turn is the instruction and the shape.
+        assertTrue(sent.length < 24_000 + 12_000)
+        assertTrue(sent.contains("字".repeat(24_000)))
+        assertFalse(sent.contains("字".repeat(24_001)))
+    }
+
+    @Test fun aFailureSaysWhySoHeKnowsWhatToFix() = runBlocking {
+        val rejected = RulesImport(ScriptedLlm(fails(Fail.KEY_REJECTED))).extract("文件")
+        assertFalse(rejected.ok)
+        assertTrue(rejected.problems.single().contains("金鑰被拒絕"))
+        val noKey = RulesImport(ScriptedLlm(fails(Fail.NO_KEY))).extract("文件")
+        assertTrue(noKey.problems.single().contains("金鑰"))
+        val offline = RulesImport(ScriptedLlm(fails(Fail.OFFLINE))).extract("文件")
+        assertTrue(offline.problems.single().contains("連不上"))
+    }
+
+    @Test fun aRequestTheProviderWouldNotTakeIsTriedOnceMoreAsPlainText() = runBlocking {
+        val llm = ScriptedLlm(fails(Fail.BAD_RESPONSE), says("""{"rules":{"callName":"小測"},"handbook":""}"""))
+        val r = RulesImport(llm).extract("文件")
+        assertTrue(r.ok)
+        assertEquals("小測", r.rules.callName)
+        assertEquals(2, llm.requests.size)
+        assertTrue(llm.requests[0].output is Output.Json)
+        assertTrue(llm.requests[1].output is Output.Text)
+        // The shape is in the prompt itself, so the plain-text try (and a provider without schemas) still knows the fields.
+        val sent = (llm.requests[1].turns.single() as Turn.User).text
+        listOf("callName", "classWeekdays", "foods", "handbook").forEach { assertTrue(it, sent.contains(it)) }
     }
 
     @Test fun theSchemaIsStrictAllTheWayDown() {

@@ -4,6 +4,7 @@ import app.agency.core.base.J
 import app.agency.core.llm.ChatRequest
 import app.agency.core.llm.ChatResult
 import app.agency.core.llm.Effort
+import app.agency.core.llm.Fail
 import app.agency.core.llm.LlmClient
 import app.agency.core.llm.Output
 import app.agency.core.llm.Purpose
@@ -37,29 +38,49 @@ class RulesImport(private val llm: LlmClient) {
             doc = doc.take(MAX_CHARS)
             problems += "文件太長，只讀了前 $MAX_CHARS 個字；後面的部分請之後到 設定 → 公司規章 補。"
         }
-        val request = ChatRequest(
+        // The shape goes into the prompt as well as into the provider's schema field: one provider enforces the schema, the
+        // other only promises "a JSON object", and a provider may refuse a schema it does not like (then the second try, without
+        // the schema field, still knows the shape).
+        val ask = "下面是他的文件，請照說明抽出來。\n\n輸出的 JSON 結構（每個欄位都要有）：\n$SCHEMA\n\n他的文件：\n```\n$doc\n```"
+        fun request(output: Output) = ChatRequest(
             system = SYSTEM,
-            turns = listOf(Turn.User("下面是他的文件，請照說明抽出來：\n\n```\n$doc\n```")),
+            turns = listOf(Turn.User(ask)),
             purpose = Purpose.INTAKE,
             maxTokens = 8000,
-            output = Output.Json(SCHEMA),
-            effort = Effort.HIGH,
+            output = output,
+            effort = Effort.MEDIUM,
         )
-        val r = try {
-            llm.chat(request)
+        suspend fun call(output: Output): ChatResult? = try {
+            llm.chat(request(output))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             null
         }
+        var r = call(Output.Json(SCHEMA))
+        // A request the provider would not take (for example a schema it rejects) is tried once more as plain text.
+        if (r is ChatResult.Failed && r.fail == Fail.BAD_RESPONSE) r = call(Output.Text)
         val body = (r as? ChatResult.Ok)?.text?.trim()
-            ?: return ImportResult(Rules(), "", problems + "這次沒有讀到結果（連線或模型出了問題），請再試一次。", ok = false)
+            ?: return ImportResult(Rules(), "", listOf(why((r as? ChatResult.Failed)?.fail)), ok = false)
         return parse(body, problems)
     }
 
     companion object {
         const val MAX_CHARS = 24_000
         const val HANDBOOK_MAX = 1500
+
+        /** Why nothing was read, in his language, so he knows what to fix instead of only "try again". */
+        fun why(fail: Fail?): String = "這次沒有讀到。" + when (fail) {
+            Fail.OFFLINE -> "連不上，或等太久沒有回應。確認網路後再試一次。"
+            Fail.NO_KEY -> "還沒有可以用的金鑰，請回上一步貼上金鑰。"
+            Fail.KEY_REJECTED -> "金鑰被拒絕了：可能貼錯、貼到另一家的金鑰，或帳戶沒有餘額。請回上一步檢查。"
+            Fail.CAP -> "已經到花費上限了。"
+            Fail.RATE -> "對方說太頻繁了，等一分鐘再試。"
+            Fail.SERVER -> "模型那邊暫時有問題，等一下再試。"
+            Fail.REFUSED -> "模型拒絕讀這份文件，換個寫法再試。"
+            Fail.BLOCKED_HOST -> "這個連線不在允許的清單裡。"
+            Fail.NO_SETUP, Fail.NO_VISION, Fail.BAD_RESPONSE, null -> "模型的回應讀不懂，請再試一次。"
+        }
 
         /** Reads a model answer leniently; exposed for tests. */
         fun parse(raw: String, problems: MutableList<String> = ArrayList()): ImportResult {

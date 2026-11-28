@@ -138,7 +138,13 @@ fun OnboardingFlow(
                     if (haveKeys && !changeKeys) {
                         Block(Modifier.testTag("keys_imported"), fill = Pal.Mint) {
                             KText(stringResource(R.string.ob_keys_imported), bold = true)
-                            KText(stringResource(if (haveSecond) R.string.ob_keys_imported_both else R.string.ob_keys_imported_one), size = Type.Small)
+                            val haveMain = remember { ob.claudeSaved() }
+                            val note = when {
+                                haveMain && haveSecond -> R.string.ob_keys_imported_both
+                                haveMain -> R.string.ob_keys_imported_one
+                                else -> R.string.ob_keys_imported_second_only
+                            }
+                            KText(stringResource(note), size = Type.Small)
                             if (!haveSecond) KText(stringResource(R.string.ob_key2_without), size = Type.Small)
                             PillButton(stringResource(R.string.ob_keys_change), { changeKeys = true }, Modifier.testTag("keys_change"), Pal.White, Type.Small)
                         }
@@ -238,7 +244,7 @@ fun OnboardingFlow(
             }
             if (current != OnboardStep.READING) {
                 val enabled = when (current) {
-                    OnboardStep.KEYS -> (claude.isNotBlank() || haveKeys) && !busy
+                    OnboardStep.KEYS -> (claude.isNotBlank() || deepseek.isNotBlank() || haveKeys) && !busy
                     OnboardStep.PASTE -> document.isNotBlank()
                     OnboardStep.NAME -> callName.isNotBlank() && !busy
                     else -> !busy

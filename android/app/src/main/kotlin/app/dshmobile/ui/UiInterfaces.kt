@@ -245,6 +245,9 @@ interface OnboardingUi {
 
     /** True when a DeepSeek key is saved too (the second key). */
     fun deepSeekSaved(): Boolean = false
+
+    /** Whether the main (Claude) key itself is saved; [keysSaved] is true when either key is. */
+    fun claudeSaved(): Boolean = keysSaved()
 }
 
 class RuleField(val key: String, val label: String, val value: String, val hint: String = "")

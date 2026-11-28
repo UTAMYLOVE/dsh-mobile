@@ -12,8 +12,8 @@ import okhttp3.Response
  */
 object HttpFactory {
     const val CONNECT_SECONDS = 15L
-    const val READ_SECONDS = 60L
-    const val CALL_SECONDS = 90L
+    const val READ_SECONDS = 240L
+    const val CALL_SECONDS = 300L
 
     fun create(gate: NetworkGate): OkHttpClient = OkHttpClient.Builder()
         .followRedirects(false)

@@ -73,21 +73,22 @@ class OnboardingAdapter(
 
     @Volatile private var pending: Pending? = null
 
-    override fun keysSaved(): Boolean = keys.has(Provider.ANTHROPIC)
+    override fun keysSaved(): Boolean = keys.has(Provider.ANTHROPIC) || keys.has(Provider.DEEPSEEK)
 
     override fun deepSeekSaved(): Boolean = keys.has(Provider.DEEPSEEK)
 
+    override fun claudeSaved(): Boolean = keys.has(Provider.ANTHROPIC)
+
+    /**
+     * One usable key is enough: he may have only one of the two (the app then talks through the provider that has a key).
+     * A blank field keeps what is already saved; a field that is filled in but unusable refuses the step.
+     */
     override suspend fun saveKeys(claude: String, deepseek: String): Boolean = withContext(Dispatchers.IO) {
-        if (claude.isBlank() && keys.has(Provider.ANTHROPIC)) {
-            // The key an older version saved stays; only a new DeepSeek key is taken.
-            CallChecks.usableKey(deepseek)?.let { keys.set(Provider.DEEPSEEK, it) }
-            return@withContext true
-        }
-        val c = CallChecks.usableKey(claude) ?: return@withContext false
-        val d = deepseek.takeIf { it.isNotBlank() }?.let { CallChecks.usableKey(it) ?: return@withContext false }
-        keys.set(Provider.ANTHROPIC, c)
-        if (d != null) keys.set(Provider.DEEPSEEK, d) else keys.clear(Provider.DEEPSEEK)
-        keys.has(Provider.ANTHROPIC)
+        val c = if (claude.isBlank()) null else (CallChecks.usableKey(claude) ?: return@withContext false)
+        val d = if (deepseek.isBlank()) null else (CallChecks.usableKey(deepseek) ?: return@withContext false)
+        if (c != null) keys.set(Provider.ANTHROPIC, c)
+        if (d != null) keys.set(Provider.DEEPSEEK, d)
+        keys.has(Provider.ANTHROPIC) || keys.has(Provider.DEEPSEEK)
     }
 
     override suspend fun readDocument(text: String): ImportOutcome = withContext(Dispatchers.IO) {
