@@ -231,7 +231,7 @@ class Company(
                         CheckInTool().record(ctx(), score)
                     }
                 }
-                if (!out.ok) return SayResult.NotSent(out.facts["error"].toString())
+                if (!out.ok) return SayResult.NotSent(app.agency.core.agent.tools.F.forHim(out.facts["error"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.orEmpty()))
                 card.copy(picked = score) to (if (card.ask == "mood") "✓ 心情 $score 分" else "✓ 已簽到，狀態 $score 分")
             }
             is Card.Proposal -> {

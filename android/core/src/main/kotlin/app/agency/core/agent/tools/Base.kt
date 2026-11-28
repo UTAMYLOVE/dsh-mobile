@@ -58,7 +58,7 @@ internal abstract class BaseTool(
 
     /** The default note: what the facts call `note`, or the tool's own name. */
     override fun noteLine(out: ToolOut): String =
-        if (!out.ok) "沒記到：" + (out.facts["error"]?.jsonPrimitive?.content ?: "")
+        if (!out.ok) "沒記到：" + F.forHim(out.facts["error"]?.jsonPrimitive?.content ?: "")
         else "✓ " + (out.facts["note"]?.jsonPrimitive?.content ?: "已記")
 
     /** Open at his stage (a tool without a feature is always open). */
@@ -67,6 +67,15 @@ internal abstract class BaseTool(
 
 /** Small shared pieces: time words, today's numbers, the closed-feature wording, violation lines. */
 internal object F {
+    /**
+     * An error written for 小葵 made fit for his screen: the argument names in （） go, and a message that still has Latin
+     * letters (an enum list) becomes a plain "try again".
+     */
+    fun forHim(message: String): String {
+        val s = message.replace(Regex("""（[A-Za-z_ ]+）"""), "").trim()
+        return if (s.any { it in 'A'..'Z' || it in 'a'..'z' }) "這一下沒有成功，請再試一次。" else s
+    }
+
     fun hm(t: LocalTime): String = "${t.hour}:${t.minute.toString().padStart(2, '0')}"
 
     fun hm(at: Instant, zone: ZoneId): String = hm(at.atZone(zone).toLocalTime())

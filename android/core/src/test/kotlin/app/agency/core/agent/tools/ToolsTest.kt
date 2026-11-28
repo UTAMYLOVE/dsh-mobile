@@ -387,6 +387,10 @@ class ToolsTest {
         val out = r.run("check_in", """{"score":4}""")
         assertEquals("✓ 已簽到，狀態 4 分", (Tools.direct("check_in") as Noted).noteLine(out))
         val bad = r.run("log_mood", """{"score":9,"note":""}""")
-        assertTrue((Tools.direct("log_mood") as Noted).noteLine(bad).startsWith("沒記到"))
+        val line = (Tools.direct("log_mood") as Noted).noteLine(bad)
+        assertTrue(line.startsWith("沒記到"))
+        assertTrue("no Latin on his screen: $line", line.none { it in 'A'..'Z' || it in 'a'..'z' })
+        val enumBad = r.run("log_task", """{"task":"JUGGLING"}""")
+        assertTrue((Tools.direct("log_task") as Noted).noteLine(enumBad).none { it in 'A'..'Z' || it in 'a'..'z' })
     }
 }
