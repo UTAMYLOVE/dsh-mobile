@@ -108,12 +108,15 @@ class JourneyTest {
 
         // 4. The next-thing button is shown and can be tapped (it sends its own words and 小葵 answers again).
         waitForTag("next_pill")
-        val before = count(reply)
+        // The conversation list is only a few lines tall on the emulator, so it shows just the newest bubble: the second answer
+        // must read differently from the first, or the screen looks unchanged.
+        val second = "好，我來找今天的影片。"
+        model.reply = second
         rule.onNodeWithTag("next_pill").performClick()
         // Its words go to 小葵 (a second reply), or it opens the page that item belongs to (an overlay), or, for a meal, the in-app
         // camera screen. Either way the tap did what the plan item says.
         try {
-            rule.waitUntil(60_000) { count(reply) > before || overlayShown() || cameraShown() }
+            rule.waitUntil(60_000) { count(second) > 0 || overlayShown() || cameraShown() }
         } catch (e: Throwable) {
             throw AssertionError("the next-thing tap did nothing visible ($e):\n" + outline() + " seen=" + model.seen, e)
         }
