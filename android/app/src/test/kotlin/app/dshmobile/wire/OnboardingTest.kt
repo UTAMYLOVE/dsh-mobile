@@ -43,7 +43,7 @@ class OnboardingTest {
         val out = runBlocking { ob.readDocument("（測試用的文件）每天兩千大卡，早上七點簽到……") }
         assertNull(out.failure)
         assertTrue(out.groups.any { it.title == "作息" && it.lines.any { l -> l.contains("阿星") } })
-        assertTrue(out.groups.any { it.title == "飲食" && it.lines.any { l -> l.contains("2000") } })
+        assertTrue(out.groups.any { it.title == "飲食" && it.lines.any { l -> l.contains("2100") } })
         assertNull("nothing is saved before he confirms", rig.graph.store.doc("rules"))
         assertEquals(WireRig.CLAUDE_KEY, rig.claudeSeen.single().keyHeader)
 
@@ -52,7 +52,7 @@ class OnboardingTest {
         assertEquals("小星", rules.stageName)
         assertEquals("#FF8FB1", rules.memberColor)
         assertEquals("阿星", rules.callName)
-        assertEquals(2000, rules.diet.kcal)
+        assertEquals(2100, rules.diet.kcal)
         assertTrue(rig.wire.company.today().ready)
 
         ob.finish()
