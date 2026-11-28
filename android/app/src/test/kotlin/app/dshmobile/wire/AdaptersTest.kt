@@ -1,5 +1,6 @@
 package app.dshmobile.wire
 
+import android.app.Notification
 import android.content.Intent
 import app.agency.core.agent.tools.RulesDoc
 import app.agency.core.base.Days
@@ -176,7 +177,8 @@ class AdaptersTest {
         assertTrue(s.licenses().any { it.text.isNotBlank() })
         assertEquals(BuildConfig.VERSION_NAME, s.update().version)
         s.testNotification()
-        assertEquals(1, rig.notifications.size)
+        // The wake handler may post its own note meanwhile (it runs on another thread), so look for the test one by its title.
+        assertEquals(1, rig.notifications.count { it.extras.getString(Notification.EXTRA_TITLE) == "測試通知" })
     }
 
     @Test fun panelsFollowTheSettingsDocument() {
