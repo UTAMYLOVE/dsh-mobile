@@ -3,6 +3,7 @@ package app.agency.core.singing
 import kotlin.math.roundToInt
 
 /** One note of the reference melody: [startMs], [endMs], its pitch as a MIDI note; [line] the phrase (lyric line) it belongs to. */
+@kotlinx.serialization.Serializable
 data class RefNote(val startMs: Int, val endMs: Int, val midi: Int, val line: Int = 0, val scored: Boolean = true)
 
 /**
