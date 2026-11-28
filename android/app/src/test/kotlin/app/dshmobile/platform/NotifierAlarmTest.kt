@@ -68,6 +68,7 @@ class NotifierAlarmTest {
     }
 
     @Test fun armSetsOneExactAlarmAndReplacesIt() {
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true)
         val s = AlarmScheduler(context)
         val t1 = Instant.parse("2031-01-01T00:00:00Z")
         val t2 = Instant.parse("2031-01-02T00:00:00Z")

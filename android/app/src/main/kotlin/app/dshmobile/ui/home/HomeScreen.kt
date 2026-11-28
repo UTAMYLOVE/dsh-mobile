@@ -244,9 +244,10 @@ private fun StickerRow(today: Today, handbookOpen: Boolean, onToggleHandbook: ()
     val fills = listOf(Pal.Lavender, Pal.Pink, Pal.Mint)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         today.stickers.take(3).forEachIndexed { i, s ->
-            val base = Modifier.weight(1f).testTag("sticker_$i").sticker(fills[i % 3], RoundedCornerShape(12.dp), 2.dp)
+            // one tag per node: a second testTag on the same node is dropped, so the handbook toggle carries its own
+            val base = Modifier.weight(1f).sticker(fills[i % 3], RoundedCornerShape(12.dp), 2.dp)
             Column(
-                (if (i == 2) base.tap(onToggleHandbook).testTag("toggle_handbook") else base).padding(horizontal = 10.dp, vertical = 6.dp),
+                (if (i == 2) base.tap(onToggleHandbook).testTag("toggle_handbook") else base.testTag("sticker_$i")).padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     KText(s.label, size = 12.sp, alpha = 0.85f, maxLines = 1)

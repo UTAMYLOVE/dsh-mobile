@@ -88,7 +88,7 @@ class DemoCompany(
             add(Role.MANAGER, "", listOf(Card.Summary("今天到現在", listOf("吃了 650 大卡", "喝水半壺", "完成 3／8"))))
             add(Role.MANAGER, "", listOf(Card.Ceremony("stage", "第 2 階段開始了", "簽到簽退、三餐、喝水、核心和肌力都開了。")))
             add(Role.OWNER, "", listOf(Card.Photo("demo-1", "晚餐")))
-            add(Role.OWNER, "", listOf(Card.File("菜單.txt", 1280)))
+            add(Role.OWNER, "", listOf(Card.File("菜單", 1280)))
         }
         if (failedMessage) {
             add(Role.OWNER, "我吃完晚餐了", meta = buildJsonObject { put("failed", true) })
@@ -210,7 +210,7 @@ class DemoMedia : MediaUi {
     private fun photo(id: String) = Attachment.Photo(id, ByteArray(0), fromGallery = false)
     override suspend fun takePhoto(purpose: String): Attachment.Photo = photo("demo-cam")
     override suspend fun pickPhotos(): List<Attachment.Photo> = listOf(photo("demo-g1"), photo("demo-g2"))
-    override suspend fun pickFile(): Attachment.File = Attachment.File("菜單.txt", "雞腿便當 650 大卡")
+    override suspend fun pickFile(): Attachment.File = Attachment.File("菜單", "雞腿便當 650 大卡")
     override suspend fun fromUris(uris: List<Uri>): List<Attachment> = uris.map { photo(it.toString()) }
     override suspend fun thumbnail(photoId: String): ImageBitmap? = null
 }

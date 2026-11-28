@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import app.dshmobile.ui.pages.EvalPage
 import app.dshmobile.ui.pages.LessonsPage
@@ -99,11 +100,11 @@ class PagesTest {
         val said = AtomicBoolean()
         rule.show { LessonsPage(lessons, DemoCompany(), {}, { _, _ -> }, { said.set(true) }) }
         rule.until { rule.count("lesson_1") > 0 }
-        rule.onNodeWithTag("lesson_add_1").assertIsDisplayed()
-        rule.onNodeWithTag("lesson_watch_2").assertIsDisplayed()
-        rule.onNodeWithTag("lesson_quiz_3").assertIsDisplayed()
-        rule.onNodeWithTag("lesson_note_4").assertIsDisplayed()
-        rule.onNodeWithTag("lesson_review_6").assertIsDisplayed()
+        rule.onNodeWithTag("lesson_add_1").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("lesson_watch_2").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("lesson_quiz_3").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("lesson_note_4").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("lesson_review_6").performScrollTo().assertIsDisplayed()
         rule.onNodeWithTag("lesson_add_1").performClick()
         rule.until { lessons.log.contains("approve:1:true") }
         rule.onNodeWithTag("lesson_watch_2").performClick()
@@ -177,6 +178,7 @@ class PagesTest {
         rule.mainClock.advanceTimeBy(100)
         rule.until { rule.count("timer_start") > 0 }
         rule.onNodeWithTag("timer_start").performClick()
+        rule.mainClock.advanceTimeBy(50)
         repeat(8) {
             if (rule.count("timer_skip") > 0) {
                 rule.onNodeWithTag("timer_skip").performClick()

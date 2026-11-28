@@ -60,7 +60,7 @@ class SharedPrefsPanelPrefs(context: Context) : PanelPrefs {
     }
 }
 
-private val StageRegex = Regex("第\\s*(\\d+)\\s*階段")
+private val StageRegex = Regex("第[ 　]*([0-9]+)[ 　]*階段")
 
 /** The root: onboarding while `today().ready` is false, else home with pages and sheets on top. */
 @Composable

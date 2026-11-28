@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -39,7 +40,8 @@ class HomeScreenTest {
         home()
         rule.onNodeWithText("小葵姐").assertIsDisplayed()
         rule.onNodeWithText("第 2 階段 · 第 3 天").assertIsDisplayed()
-        rule.onNodeWithText("650 大卡", substring = false, ignoreCase = false).assertExists()
+        // the sticker and the meal card in the conversation both show it
+        rule.onAllNodesWithText("650 大卡")[0].assertExists()
         rule.onNodeWithText("半壺").assertIsDisplayed()
         rule.onNodeWithTag("next_pill").assertIsDisplayed()
         rule.onNodeWithText("晚餐，拍張照").assertIsDisplayed()

@@ -1,13 +1,11 @@
 package app.dshmobile.ui
 
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.captureToImage
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import app.dshmobile.ui.onboarding.OnboardingFlow
@@ -18,6 +16,7 @@ import app.dshmobile.ui.pages.TraineePage
 import app.dshmobile.ui.settings.SettingsPage
 import app.dshmobile.ui.settings.SettingsRoot
 import java.io.File
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
@@ -35,7 +34,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [36], qualifiers = "w400dp-h828dp-xhdpi")
 class ScreenshotTest {
-    @get:Rule val rule = createComposeRule()
+    @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
     @Before fun only() = assumeTrue(shotsDir() != null)
 
@@ -45,8 +44,11 @@ class ScreenshotTest {
     private fun shot(name: String) {
         val dir = shotsDir() ?: return
         rule.waitForIdle()
-        val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
-        File(dir, "$name.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        val bmp = grabWindow(rule.activity)
+        val file = File(dir, "$name.png")
+        file.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        println("screenshot saved: ${file.absolutePath} (${file.length()} bytes, ${bmp.width}x${bmp.height})")
+        assertTrue("empty picture: ${file.name}", file.length() > 0)
     }
 
     @Test fun home() {

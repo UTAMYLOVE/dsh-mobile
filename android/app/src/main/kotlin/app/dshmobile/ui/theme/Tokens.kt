@@ -121,9 +121,9 @@ fun Modifier.sticker(
 
 /** A tap target without the grey ripple (the sticker look carries the feedback). */
 @Composable
-fun Modifier.tap(onClick: () -> Unit, role: Role = Role.Button): Modifier {
+fun Modifier.tap(onClick: () -> Unit, role: Role = Role.Button, enabled: Boolean = true): Modifier {
     val source = remember { MutableInteractionSource() }
-    return this.clickable(interactionSource = source, indication = null, role = role, onClick = onClick)
+    return this.clickable(interactionSource = source, indication = null, enabled = enabled, role = role, onClick = onClick)
 }
 
 /** A pill button: [fill] with the ink outline and a small shadow. */
@@ -139,7 +139,7 @@ fun PillButton(
     Box(
         modifier = modifier
             .sticker(if (enabled) fill else Pal.Paper, PillShape, shadow = if (enabled) 3.dp else 0.dp)
-            .tap({ if (enabled) onClick() })
+            .tap(onClick, enabled = enabled)
             .padding(horizontal = 18.dp, vertical = 9.dp),
     ) { KText(text, size = size, bold = true, alpha = if (enabled) 1f else 0.4f) }
 }

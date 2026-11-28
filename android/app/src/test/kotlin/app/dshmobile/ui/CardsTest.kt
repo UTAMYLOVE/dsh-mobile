@@ -116,8 +116,8 @@ class CardsTest {
     }
 
     @Test fun fileChipRenders() {
-        card(Card.File("菜單.txt", 1280))
-        rule.onNodeWithText("菜單.txt").assertIsDisplayed()
+        card(Card.File("菜單", 1280))
+        rule.onNodeWithText("菜單").assertIsDisplayed()
         rule.onNodeWithText("1280 字").assertIsDisplayed()
     }
 
