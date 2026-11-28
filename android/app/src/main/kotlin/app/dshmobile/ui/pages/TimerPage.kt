@@ -40,6 +40,9 @@ import app.dshmobile.ui.theme.PageFrame
 import app.dshmobile.ui.theme.PillButton
 import app.dshmobile.ui.theme.PillShape
 import app.dshmobile.ui.theme.Type
+import app.dshmobile.ui.theme.sticker
+import app.dshmobile.ui.theme.tap
+import androidx.compose.foundation.layout.size
 import kotlinx.coroutines.delay
 
 /** One stretch of the timer: a move or a rest between rounds. */
@@ -100,13 +103,20 @@ fun TimerPage(
     var awayMs by remember { mutableLongStateOf(0L) }
     val running = startedAt >= 0 && pausedAt < 0
 
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (running) stoppedAt = clock() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (running) {
+            stoppedAt = clock()
+            timer.leftWhileRunning()
+        }
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
         if (stoppedAt >= 0) {
             awayMs += clock() - stoppedAt
             stoppedAt = -1L
         }
+        timer.cameBack()
     }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { timer.cameBack() } }
     LaunchedEffect(running) {
         while (running) {
             now = clock()
@@ -116,6 +126,30 @@ fun TimerPage(
 
     PageFrame(plan?.title ?: stringResource(R.string.timer_title), onBack) {
         if (plan == null) return@PageFrame
+        if (plan.checklist.isNotEmpty()) {
+            // Grooming: what is due, ticked off, instead of a countdown.
+            val ticked = remember(plan) { androidx.compose.runtime.mutableStateListOf<String>() }
+            Block(Modifier.testTag("timer_checklist"), fill = Pal.White) {
+                KText(stringResource(R.string.timer_check_title), bold = true)
+                plan.checklist.forEach { item ->
+                    val on = item in ticked
+                    Row(
+                        Modifier.fillMaxWidth().testTag("check_$item").tap({ if (on) ticked.remove(item) else ticked.add(item) }).padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Box(Modifier.size(24.dp).sticker(if (on) Pal.Mint else Pal.Paper, androidx.compose.foundation.shape.CircleShape, 0.dp, 2.dp), contentAlignment = Alignment.Center) {
+                            if (on) app.dshmobile.ui.theme.GlyphIcon(app.dshmobile.ui.theme.Glyph.Check, size = 14.dp)
+                        }
+                        KText(item)
+                    }
+                }
+            }
+            PillButton(stringResource(R.string.timer_check_done), {
+                run { timer.finish(task, 1, 1, "OK", 0) }
+                onFinished()
+            }, Modifier.testTag("check_done"), Pal.Mint)
+            return@PageFrame
+        }
         val engine = remember(plan) { TimerEngine(plan) }
         val ref = if (pausedAt >= 0) pausedAt else now
         val elapsed = if (startedAt < 0) 0 else (((ref - startedAt - pausedTotal) / 1000).toInt() + skipped).coerceAtLeast(0)
@@ -166,6 +200,14 @@ fun TimerPage(
                     pausedTotal += clock() - pausedAt; pausedAt = -1L
                 }, Modifier.testTag("timer_resume"), Pal.Mint)
                 else -> PillButton(stringResource(R.string.timer_pause), { pausedAt = clock() }, Modifier.testTag("timer_pause"), Pal.Butter)
+            }
+            if (startedAt < 0) {
+                // Not every practice needs a countdown: record it as done at once.
+                PillButton(stringResource(R.string.timer_direct), {
+                    val minutes = ((engine.totalSeconds + 59) / 60).coerceAtLeast(1)
+                    run { timer.finish(task, plan.rounds, minutes, "OK", 0) }
+                    onFinished()
+                }, Modifier.testTag("timer_direct"), Pal.White, Type.Small)
             }
             if (startedAt >= 0) {
                 PillButton(stringResource(R.string.timer_skip), {

@@ -53,7 +53,7 @@ class DemoCompany(
         add(Role.OWNER, "午餐吃了烤雞腿便當")
         add(
             Role.MANAGER, "",
-            listOf(Card.MealCard(11, "午餐　記好了", 650, 40.0, 650, 1700, 40.0, 100, estimated = false, needsPhoto = false)),
+            listOf(Card.MealCard(11, "午餐　記好了", 650, 40.0, 650, 2100, 40.0, 110, estimated = false, needsPhoto = false)),
         )
         add(Role.MANAGER, "晚餐照常吃，不用少。")
         if (allCards) {
@@ -63,7 +63,7 @@ class DemoCompany(
                 Role.MANAGER, "估的數字我抓嚴一點。",
                 listOf(
                     Card.MealCard(
-                        12, "路上那一餐　記好了", 520, 22.5, 1170, 1700, 62.5, 100, estimated = true, needsPhoto = true,
+                        12, "路上那一餐　記好了", 520, 22.5, 1090, 2100, 62.5, 110, estimated = true, needsPhoto = true,
                         warnings = listOf("這一餐比單餐上限多了 40 大卡"),
                     ),
                 ),
@@ -108,21 +108,21 @@ class DemoCompany(
     ) = PlanItem(id, feature, title, at?.let(LocalTime::parse), until?.let(LocalTime::parse), status, counts, tap, detail)
 
     private val dinner = item(
-        "meal:DINNER", Feature.MEALS, "晚餐，拍張照", ItemStatus.PENDING, Tap.Open(Screen.CAMERA, "DINNER"), at = "17:35",
-        detail = "17:35",
+        "meal:DINNER", Feature.MEALS, "晚餐，拍張照", ItemStatus.PENDING, Tap.Open(Screen.CAMERA, "DINNER"), at = "18:20",
+        detail = "18:20",
     )
 
     override fun today(): Today {
         val items = listOf(
-            item("check_in", Feature.CHECK_IN, "簽到", ItemStatus.DONE, Tap.Open(Screen.CHECK_IN), "07:00", detail = "8:31"),
+            item("check_in", Feature.CHECK_IN, "簽到", ItemStatus.DONE, Tap.Open(Screen.CHECK_IN), "06:40", detail = "7:05"),
             item("lesson:1", Feature.LESSONS, "理論課一支", ItemStatus.DONE, Tap.Open(Screen.LESSONS), detail = "考過了"),
-            item("meal:FIRST", Feature.MEALS, "午餐", ItemStatus.DONE, Tap.Open(Screen.CAMERA, "FIRST"), "12:00", detail = "650 大卡"),
+            item("meal:FIRST", Feature.MEALS, "午餐", ItemStatus.DONE, Tap.Open(Screen.CAMERA, "FIRST"), "11:40", detail = "650 大卡"),
             dinner,
             item(
                 "water", Feature.WATER, "喝水一壺", ItemStatus.LATE,
-                Tap.Direct("log_water", buildJsonObject { put("bottles", 1) }), until = "19:00", detail = "半壺",
+                Tap.Direct("log_water", buildJsonObject { put("bottles", 1) }), until = "19:50", detail = "半壺",
             ),
-            item("ride:out", Feature.RIDE, "出門跑單", ItemStatus.PENDING, Tap.Direct("ride_out", JsonObject(emptyMap())), until = "19:00", detail = "19:00 前"),
+            item("ride:out", Feature.RIDE, "出門跑單", ItemStatus.PENDING, Tap.Direct("ride_out", JsonObject(emptyMap())), until = "19:50", detail = "19:50 前"),
             item("task:CORE", Feature.CORE, "收工後訓練", ItemStatus.PENDING, Tap.Open(Screen.TIMER, "CORE"), detail = "收工後"),
             item("task:SUNSCREEN", Feature.SUNSCREEN, "擦防曬", ItemStatus.OFF, Tap.Say("我擦好防曬了"), detail = "今天休息", counts = false),
             item("task:CARDIO", Feature.CARDIO, "體能", ItemStatus.MISSED, Tap.Say("我做完體能了"), detail = "昨天"),
@@ -300,7 +300,10 @@ class DemoMemo : MemoUi {
 
 class DemoBody : BodyUi {
     val log = CopyOnWriteArrayList<String>()
-    override fun last(): List<String> = listOf("上次體重 68.4 公斤", "腰圍 74 公分")
+    override fun last(): List<String> = listOf("上次體重 71.3 公斤", "腰圍 79 公分")
+    override fun timeline(): List<BodyShotRow> = listOf(
+        BodyShotRow("10/05", "demo-b1", "71.9 公斤"), BodyShotRow("11/02", "demo-b2", "71.3 公斤"), BodyShotRow("11/23", "demo-b3", "70.8 公斤"),
+    )
     override suspend fun log(kg: Double?, waistCm: Double?, photo: Attachment.Photo?): String {
         log += "body:$kg:$waistCm:${photo != null}"
         return "✓ 已記體重"
@@ -309,7 +312,7 @@ class DemoBody : BodyUi {
 
 class DemoMoney : MoneyUi {
     val log = CopyOnWriteArrayList<String>()
-    override fun summary(): List<String> = listOf("這個月生活 3200 元", "玩樂 800 元", "收入 9600 元")
+    override fun summary(): List<String> = listOf("這個月生活 3150 元", "玩樂 640 元", "收入 9600 元")
     override fun add(amount: Int, bucket: String, note: String): String {
         log += "money:$amount:$bucket:$note"
         return "✓ 已記 $amount 元"
@@ -327,10 +330,56 @@ class DemoTrainee : TraineeUi {
     )
 }
 
-class DemoSinging : SingingUi {
+class DemoSinging(private val key: Boolean = true) : SingingUi {
+    val log = CopyOnWriteArrayList<String>()
+    private val refs = mutableListOf<SongRefRow>()
+    private var strict = true
     override suspend fun start() = true
-    override suspend fun stop() = SongResult(82, "中音到高音", 9, "適中", "音準穩，長句尾巴有點虛。")
+    override suspend fun stop() = SongResult(
+        82, "中音到高音", 9, "適中", "音準穩，長句尾巴有點虛。",
+        shift = "整首比原調高 2 個半音，可以把調升 2 個半音再唱", chart = null, compare = listOf("比對（${if (strict) "嚴格" else "一般"}）：音準 80%"),
+    )
+
     override fun history(): List<SongResult> = emptyList()
+    override fun references(): List<SongRefRow> = refs.toList()
+    override suspend fun importReference(): RefImport {
+        refs += SongRefRow("ref${refs.size + 1}", "示範歌", "旋律檔")
+        return RefImport("示範歌", null)
+    }
+
+    override fun chooseReference(id: String?) { log += "ref:$id" }
+    override fun setStrict(strict: Boolean) { this.strict = strict; log += "strict:$strict" }
+    override fun lyricsAvailable() = key
+    override suspend fun checkLyrics(lyrics: String, consent: Boolean): LyricsOutcome {
+        log += "lyrics:$consent"
+        return if (!consent) LyricsOutcome(emptyList(), "沒有同意，錄音沒有送出去。") else LyricsOutcome(listOf("咬字：歌詞有 90% 聽得出來"), null)
+    }
+}
+
+class DemoPhotos(private val spotOpen: Boolean = true, private val mealRecorded: Boolean = false) : PhotoUi {
+    val log = CopyOnWriteArrayList<String>()
+    override fun spot(photoId: String): String? = if (spotOpen) "✓ 突擊檢查：晚餐照片準時交了".also { log += "spot:$photoId" } else null
+    override fun mealPhoto(slot: String, photoId: String, fromGallery: Boolean): String? =
+        if (mealRecorded) "✓ 補上照片：$slot".also { log += "meal:$slot:$photoId:$fromGallery" } else null
+    override fun bodyPhoto(photoId: String): String? = "✓ 已存全身對比照".also { log += "body:$photoId" }
+}
+
+class DemoMeals(private val table: List<FoodRow> = listOf(
+    FoodRow("雞腿便當", 650, 40.0), FoodRow("地瓜", 130, 2.0), FoodRow("無糖豆漿", 90, 8.0),
+)) : MealUi {
+    val log = CopyOnWriteArrayList<String>()
+    override fun foods(): List<FoodRow> = table
+    override fun log(slot: String, picks: List<FoodRow>, photo: Attachment.Photo?): String? {
+        log += "meal:$slot:${picks.joinToString(",") { it.name }}:${photo != null}"
+        return "✓ 已記：$slot"
+    }
+}
+
+class DemoPractice : PracticeUi {
+    val log = CopyOnWriteArrayList<String>()
+    private var done = false
+    override fun realTask() = RealTaskView("這週跟一位你已經認識的朋友一起吃一頓飯", done)
+    override fun realTaskDone(): String { done = true; log += "real:done"; return "✓ 真人任務完成" }
 }
 
 class DemoEval : EvalUi {
@@ -360,8 +409,8 @@ class DemoOnboarding : OnboardingUi {
 
     override suspend fun readDocument(text: String) = ImportOutcome(
         listOf(
-            SummaryGroup("作息", listOf("起床 07:00", "睡覺 01:00")),
-            SummaryGroup("飲食", listOf("每天 2000 大卡", "蛋白質 100 克")),
+            SummaryGroup("作息", listOf("起床 06:40", "睡覺 01:00")),
+            SummaryGroup("飲食", listOf("每天 2100 大卡", "蛋白質 110 克")),
         ),
         missing = listOf("跑單收入"), failure = null,
     )
@@ -392,8 +441,8 @@ class DemoSettings : SettingsUi {
     val saved = CopyOnWriteArrayList<Map<String, String>>()
     private val memoryLines = mutableListOf("喜歡吃烤地瓜", "週三晚上有課")
     override fun rulesGroups() = listOf(
-        RuleGroup("作息", listOf(RuleField("wake", "起床時間", "07:00", "例如 07:00"), RuleField("bedtime", "簽退時間", "01:00"))),
-        RuleGroup("飲食", listOf(RuleField("kcal", "每天熱量", "2000"), RuleField("protein", "每天蛋白質", "100"))),
+        RuleGroup("作息", listOf(RuleField("wake", "起床時間", "06:40", "例如 06:40"), RuleField("bedtime", "簽退時間", "01:00"))),
+        RuleGroup("飲食", listOf(RuleField("kcal", "每天熱量", "2100"), RuleField("protein", "每天蛋白質", "110"))),
     )
 
     override fun saveRules(changes: Map<String, String>): String? {
@@ -427,8 +476,8 @@ class DemoBackup : BackupUi {
 class DemoOldData : OldDataUi {
     override fun available() = true
     override fun messages() = listOf(
-        OldMessage("你", "今天吃了便當", "10/02 12:10"),
-        OldMessage("小葵", "好，記下了。", "10/02 12:11"),
+        OldMessage("你", "今天吃了便當", "10/02 11:52"),
+        OldMessage("小葵", "好，記下了。", "10/02 11:53"),
     )
 
     override fun delete() = true
@@ -448,4 +497,5 @@ fun demoGraph(company: DemoCompany = DemoCompany(), panels: PanelPrefs? = null) 
     company = company, media = DemoMedia(), lessons = DemoLessons(), timer = DemoTimer(), memo = DemoMemo(),
     body = DemoBody(), money = DemoMoney(), trainee = DemoTrainee(), singing = DemoSinging(), eval = DemoEval(),
     onboarding = DemoOnboarding(), settings = DemoSettings(), backup = DemoBackup(), oldData = DemoOldData(), panels = panels,
+    photos = DemoPhotos(), meals = DemoMeals(), practice = DemoPractice(),
 )

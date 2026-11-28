@@ -17,6 +17,10 @@ import app.dshmobile.wire.ui.EvalAdapter
 import app.dshmobile.wire.ui.LessonsAdapter
 import app.dshmobile.wire.ui.MemoAdapter
 import app.dshmobile.wire.ui.MoneyAdapter
+import app.dshmobile.wire.ui.MealAdapter
+import app.dshmobile.wire.ui.PhotoAdapter
+import app.dshmobile.wire.ui.PracticeAdapter
+import app.dshmobile.wire.ui.TimerAway
 import app.dshmobile.wire.ui.OldDataAdapter
 import app.dshmobile.wire.ui.OnboardingAdapter
 import app.dshmobile.wire.ui.SettingsAdapter
@@ -116,7 +120,17 @@ class Wire(private val app: DshMobileApp, private val graph: AppGraph) {
     private val media by lazy { ActivityMediaUi(app, host, { graph.attachments }, { graph.vault }) }
     private val lessonsAdapter by lazy { LessonsAdapter(app, company) }
     private val singing by lazy {
-        SingingAdapter(app, host, company, { graph.vault }, { recorderEngine() }, app.getString(R.string.wire_song_title))
+        SingingAdapter(
+            app, host, company, { graph.vault }, { recorderEngine() }, app.getString(R.string.wire_song_title),
+            store = graph.store, clock = { liveClock },
+            asr = { consent -> providers.asr { consent } },
+            lyricsKey = { graph.keys.has(Provider.DEEPSEEK) },
+        )
+    }
+    private val timerAway by lazy {
+        TimerAway(
+            graph.notifier, app.getString(R.string.wire_timer_away_title), app.getString(R.string.wire_timer_away_text),
+        )
     }
 
     val uiGraph: UiGraph by lazy {
@@ -126,7 +140,7 @@ class Wire(private val app: DshMobileApp, private val graph: AppGraph) {
             company = company,
             media = media,
             lessons = lessonsAdapter,
-            timer = TimerAdapter(company, graph.store),
+            timer = TimerAdapter(company, graph.store, company, timerAway),
             memo = MemoAdapter(company) { graph.clock },
             body = BodyAdapter(app, company, company, graph.store) { graph.clock },
             money = MoneyAdapter(app, company, company),
@@ -138,6 +152,9 @@ class Wire(private val app: DshMobileApp, private val graph: AppGraph) {
             backup = BackupAdapter(app, host, { graph.backup }, { graph.clock }, ::planChanged),
             oldData = OldDataAdapter({ graph.oldData }) { graph.clock },
             panels = SettingsPanelPrefs(graph.settings),
+            photos = PhotoAdapter(company),
+            meals = MealAdapter(company),
+            practice = PracticeAdapter(company),
         )
     }
 

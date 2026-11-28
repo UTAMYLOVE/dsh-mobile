@@ -185,6 +185,9 @@ fun OnboardingFlow(
                 }
                 OnboardStep.NAME -> {
                     Title(R.string.ob_name_title)
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        app.dshmobile.ui.theme.TraineeAvatar(88.dp, Color(android.graphics.Color.parseColor(colorHex)))
+                    }
                     InkField(callName, { callName = it }, stringResource(R.string.ob_call_name), tag = "call_name")
                     InkField(stageName, { stageName = it }, stringResource(R.string.ob_stage_name), tag = "stage_name")
                     KText(stringResource(R.string.ob_member_color), bold = true)

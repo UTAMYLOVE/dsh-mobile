@@ -91,6 +91,12 @@ interface TimerUi {
 
     /** [feel] is "EASY", "OK" or "HARD"; [awaySeconds] is how long the app was in the background while it ran. */
     fun finish(task: String, rounds: Int, minutes: Int, feel: String, awaySeconds: Int)
+
+    /** He left the app while the timer was running: after a short while a quiet notice may be posted. */
+    fun leftWhileRunning() {}
+
+    /** He is back (or the page closed): the notice is taken away. */
+    fun cameBack() {}
 }
 
 class MemoRow(val id: Long, val text: String, val due: String?, val done: Boolean)
@@ -106,7 +112,7 @@ interface MemoUi {
 
 /** The weekly weigh-in sheet. */
 interface BodyUi {
-    /** Plain lines about the last weigh-in ("上次 68.4 公斤"), empty when none. */
+    /** Plain lines about the last weigh-in ("上次 71.3 公斤"), empty when none. */
     fun last(): List<String>
     suspend fun log(kg: Double?, waistCm: Double?, photo: Attachment.Photo?): String
 

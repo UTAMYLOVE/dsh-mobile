@@ -108,7 +108,7 @@ fun TraineePage(trainee: TraineeUi, media: MediaUi, onBack: () -> Unit) {
         Column(Modifier.fillMaxWidth().testTag("trainee_card").sticker(Pal.White, RoundedCornerShape(22.dp), 4.dp)) {
             Box(Modifier.fillMaxWidth().background(member, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    XiaokuiAvatar(76.dp)
+                    app.dshmobile.ui.theme.TraineeAvatar(76.dp, member)
                     Column(Modifier.weight(1f)) {
                         KText(stringResource(R.string.trainee_stage_name), size = Type.Tiny, alpha = 0.75f)
                         KText(card.stageName.ifBlank { stringResource(R.string.trainee_no_name) }, size = 28.sp, bold = true, modifier = Modifier.testTag("trainee_name"))
@@ -180,52 +180,12 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.star(fill: Color) {
     drawPath(p, Pal.Ink, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
 }
 
-/** Singing: record, stop, see the numbers code computed. */
-@Composable
-fun SingingPage(singing: SingingUi, onBack: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var recording by remember { mutableStateOf(false) }
-    var denied by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<SongResult?>(null) }
-    var empty by remember { mutableStateOf(false) }
-    PageFrame(stringResource(R.string.singing_title), onBack) {
-        KText(stringResource(R.string.singing_hint), size = Type.Small, alpha = 0.75f)
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            PillButton(
-                stringResource(if (recording) R.string.singing_stop else R.string.singing_start),
-                {
-                    scope.launch {
-                        if (!recording) {
-                            denied = !singing.start(); recording = !denied; result = null; empty = false
-                        } else {
-                            recording = false
-                            val r = singing.stop()
-                            result = r; empty = r == null
-                        }
-                    }
-                },
-                Modifier.testTag("singing_toggle"), if (recording) Pal.Butter else Pal.PinkStrong, size = 20.sp,
-            )
-        }
-        if (recording) KText(stringResource(R.string.singing_recording), align = TextAlign.Center, modifier = Modifier.fillMaxWidth().testTag("singing_recording"))
-        if (denied) KText(stringResource(R.string.singing_denied), color = Pal.Warn)
-        if (empty) KText(stringResource(R.string.singing_empty), color = Pal.Warn)
-        result?.let { r ->
-            Block(Modifier.testTag("singing_result"), fill = Pal.Mint) {
-                KText(stringResource(R.string.singing_in_tune, r.inTunePct), bold = true)
-                KText(stringResource(R.string.singing_range, r.range))
-                KText(stringResource(R.string.singing_phrase, r.longestPhraseSec))
-                KText(stringResource(R.string.singing_loud, r.loudness))
-                if (r.comment.isNotBlank()) KText(r.comment, size = Type.Small, alpha = 0.85f)
-            }
-        }
-    }
-}
-
 /** The weekly and monthly evaluation: record the pieces, confirm the suggested scores. */
 @Composable
-fun EvalPage(eval: EvalUi, onBack: () -> Unit, onConfirmed: () -> Unit) {
-    var monthly by remember { mutableStateOf(false) }
+fun EvalPage(eval: EvalUi, onBack: () -> Unit, onConfirmed: () -> Unit, startMonthly: Boolean = false) {
+    var monthly by remember { mutableStateOf(startMonthly) }
+    var pushUps by remember { mutableStateOf("") }
+    var plank by remember { mutableStateOf("") }
     val view = rememberLoaded(monthly) { eval.view(monthly) }
     val scope = rememberCoroutineScope()
     val run = rememberIoRunner()
@@ -250,6 +210,13 @@ fun EvalPage(eval: EvalUi, onBack: () -> Unit, onConfirmed: () -> Unit) {
                     }
                     if (item.reason.isNotBlank()) KText(item.reason, size = Type.Small, alpha = 0.75f)
                 }
+            }
+        }
+        if (monthly) {
+            Block(Modifier.testTag("eval_fitness")) {
+                KText(stringResource(R.string.eval_fit_title), bold = true)
+                InkField(pushUps, { pushUps = it.filter(Char::isDigit).take(3); run { eval.setFitness(pushUps.toIntOrNull(), plank.toIntOrNull()) } }, stringResource(R.string.eval_fit_push), keyboard = androidx.compose.ui.text.input.KeyboardType.Number, tag = "eval_pushups")
+                InkField(plank, { plank = it.filter(Char::isDigit).take(4); run { eval.setFitness(pushUps.toIntOrNull(), plank.toIntOrNull()) } }, stringResource(R.string.eval_fit_plank), keyboard = androidx.compose.ui.text.input.KeyboardType.Number, tag = "eval_plank")
             }
         }
         PillButton(stringResource(R.string.eval_confirm), {

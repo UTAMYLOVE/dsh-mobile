@@ -101,6 +101,23 @@ class ProviderWiring(
         if (!keys.has(Provider.DEEPSEEK)) null
         else DeepSeekSearchPort(DeepSeekSearchClient(transport, ::deepseekKey, checks, meter, deepseekBase() ?: CompatEndpoint.DEEPSEEK_BASE))
 
+    /**
+     * The speech-to-text client of the lyric check. Its consent lock answers [consented]; with no DeepSeek key there is none.
+     * Through the same network gate, spend cap and meter as every other call.
+     */
+    fun asr(consented: () -> Boolean): app.agency.core.singing.DeepSeekAsr? {
+        if (!keys.has(Provider.DEEPSEEK)) return null
+        val base = deepseekBase()
+        return if (base == null) {
+            app.agency.core.singing.DeepSeekAsr(transport, ::deepseekKey, checks, meter, consented)
+        } else {
+            app.agency.core.singing.DeepSeekAsr(
+                transport, ::deepseekKey, checks, meter, consented,
+                base.newBuilder().encodedPath("/v1/tools/asr").build(),
+            )
+        }
+    }
+
     /** True when some key is saved (the app then has something to talk with; onboarding is over). */
     fun keyReady(): Boolean = keys.has(Provider.ANTHROPIC) || keys.has(Provider.DEEPSEEK)
 

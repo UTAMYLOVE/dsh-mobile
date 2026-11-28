@@ -38,8 +38,8 @@ import kotlinx.coroutines.withContext
  * The scores he picks on the page are his own rating and go to the company as his self-report. A refusal (not a Sunday, already
  * handed in…) is shown in the page title once.
  *
- * Limits of this version: the monthly fitness numbers (push-ups, plank seconds) have no field on the page and go in as 0; the
- * dance and the monthly extra item are recorded with the system's video camera.
+ * The monthly fitness numbers (push-ups in one go, plank seconds) come from the two fields of the monthly tab; the dance and the
+ * monthly extra item are recorded with the system's video camera.
  */
 class EvalAdapter(
     private val context: Context,
@@ -139,6 +139,11 @@ class EvalAdapter(
         }
     }
 
+    override fun setFitness(pushUps: Int?, plankSeconds: Int?) {
+        hand(true, "push", (pushUps ?: 0).toString().let { if (pushUps == null) "" else it })
+        hand(true, "plank", (plankSeconds ?: 0).toString().let { if (plankSeconds == null) "" else it })
+    }
+
     override fun confirm(monthly: Boolean, scores: Map<String, Int>) {
         val song = songId(monthly)
         val dance = handed(monthly, "dance")
@@ -154,7 +159,8 @@ class EvalAdapter(
                 admin.submitMonthlyEval(
                     MonthlyInput(
                         song, dance, handed(true, "rotating").orEmpty(), handed(true, "body").orEmpty(),
-                        bodies.mapNotNull { it.kg }.lastOrNull() ?: 0.0, bodies.mapNotNull { it.waistCm }.lastOrNull() ?: 0.0, 0, 0, self,
+                        bodies.mapNotNull { it.kg }.lastOrNull() ?: 0.0, bodies.mapNotNull { it.waistCm }.lastOrNull() ?: 0.0,
+                        handed(true, "push")?.toIntOrNull() ?: 0, handed(true, "plank")?.toIntOrNull() ?: 0, self,
                     ),
                 )
             }

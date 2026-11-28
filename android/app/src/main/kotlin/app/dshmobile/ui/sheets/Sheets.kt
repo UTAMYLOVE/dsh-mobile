@@ -81,22 +81,27 @@ fun CheckOutSheet(api: CompanyApi, moodOpen: Boolean, onClose: () -> Unit, onDon
 
 /** Weekly weigh-in: weight, waist, an optional photo. */
 @Composable
-fun BodySheet(body: BodyUi, media: MediaUi, onClose: () -> Unit, onDone: () -> Unit) {
+fun BodySheet(body: BodyUi, media: MediaUi, onClose: () -> Unit, onDone: () -> Unit, startOnPhoto: Boolean = false) {
     val scope = rememberCoroutineScope()
     var kg by remember { mutableStateOf("") }
     var waist by remember { mutableStateOf("") }
     var photo by remember { mutableStateOf<Attachment.Photo?>(null) }
     val last = app.dshmobile.ui.rememberLoaded { body.last() }
     SheetFrame(stringResource(R.string.body_title), onClose) {
+        val photoPart: @Composable () -> Unit = {
+            if (startOnPhoto) KText(stringResource(R.string.body_photo_part), bold = true, modifier = Modifier.testTag("body_photo_part"))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ChipPill(
+                    if (photo == null) stringResource(R.string.body_photo) else stringResource(R.string.body_photo_done),
+                    { scope.launch { photo = media.takePhoto("") } }, Modifier.testTag("body_photo"), Pal.Lavender,
+                )
+            }
+        }
+        if (startOnPhoto) photoPart()
         last.value?.forEach { KText(it, size = Type.Small, alpha = 0.7f) }
         InkField(kg, { kg = it }, stringResource(R.string.body_kg), keyboard = KeyboardType.Decimal, tag = "body_kg")
         InkField(waist, { waist = it }, stringResource(R.string.body_waist), keyboard = KeyboardType.Decimal, tag = "body_waist")
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ChipPill(
-                if (photo == null) stringResource(R.string.body_photo) else stringResource(R.string.body_photo_done),
-                { scope.launch { photo = media.takePhoto("") } }, Modifier.testTag("body_photo"), Pal.Lavender,
-            )
-        }
+        if (!startOnPhoto) photoPart()
         PillButton(stringResource(R.string.btn_save), {
             scope.launch {
                 body.log(kg.replace(',', '.').toDoubleOrNull(), waist.replace(',', '.').toDoubleOrNull(), photo)

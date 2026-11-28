@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fix wave: keys, camera, doors, meals by hand, lessons, timers, body photos, singing, imports. Traditional Chinese; only the two key names are Latin. -->
+<resources>
+    <!-- keys -->
+    <string name="ob_key1_title">主要金鑰（Claude）</string>
+    <string name="ob_key1_text">小葵聊天、看照片都靠這一把。到 Claude 的網站申請，貼在下面。</string>
+    <string name="ob_key2_title">第二把金鑰（DeepSeek）</string>
+    <string name="ob_key2_text">用來幫你找影片和地點，也可以拿來聊天，比較省錢。可以先不填。</string>
+    <string name="ob_key2_without">沒有第二把，小葵就不能幫你搜影片和地點；你還是可以把影片連結貼給她。</string>
+    <string name="ob_keys_imported">已經帶入你之前存的金鑰</string>
+    <string name="ob_keys_imported_both">主要金鑰和第二把金鑰都已經存好了。</string>
+    <string name="ob_keys_imported_one">主要金鑰已經存好了，第二把還沒有。</string>
+    <string name="ob_keys_change">換成別的金鑰</string>
+    <string name="model_cheap_needs_key">要先存好第二把金鑰（DeepSeek），才能選這個。</string>
+    <string name="ob_restore">從備份還原</string>
+    <string name="ob_restore_hint">換新手機？選你之前存的備份檔，輸入當時的密碼就可以接著用。</string>
+    <string name="restore_title">還原</string>
+
+    <!-- import -->
+    <string name="import_old_hint">舊的紀錄要搬進來，把檔案交給小葵就好，她會讀。</string>
+    <string name="import_old_kinds">可以搬記帳、吃的、體重、備忘錄。</string>
+    <string name="import_old_safe">她會先列給你看，你說好才會寫進去，寫錯了還能復原。</string>
+    <string name="import_old_pick">選檔案給小葵</string>
+    <string name="import_old_none">沒有選到檔案，或是檔案太大打不開。</string>
+    <string name="import_old_backup_note">換手機要還原備份，請到「備份」。</string>
+    <string name="say_import_file">幫我匯入這個檔案</string>
+
+    <!-- doors -->
+    <string name="door_other">其他</string>
+    <string name="door_lessons">理論課</string>
+    <string name="door_memo">備忘錄</string>
+    <string name="door_money">記帳</string>
+    <string name="door_trainee">練習生小卡</string>
+    <string name="door_singing">唱歌</string>
+    <string name="door_eval">評鑑</string>
+    <string name="door_body_photos">全身照</string>
+
+    <!-- camera -->
+    <string name="photo_no_spot">現在沒有等你交的檢查照片。</string>
+    <string name="photo_no_door">這張照片現在存不起來。</string>
+    <string name="say_meal_first">這是我的第一餐，請幫我記下來</string>
+    <string name="say_meal_dinner">這是我的晚餐，請幫我記下來</string>
+    <string name="say_meal_night">這是我的宵夜（路上那一餐），請幫我記下來</string>
+    <string name="say_meal_any">這是我的一餐，請幫我記下來</string>
+
+    <!-- meal by hand -->
+    <string name="meal_by_hand">手動記</string>
+    <string name="meal_sheet_title">記這一餐</string>
+    <string name="meal_slot_first">第一餐</string>
+    <string name="meal_slot_dinner">晚餐</string>
+    <string name="meal_slot_night">宵夜</string>
+    <string name="meal_slot_extra">點心</string>
+    <string name="meal_search">找食物</string>
+    <string name="meal_total">合計 %1$d 大卡，蛋白質 %2$s 克</string>
+    <string name="meal_food_line">%1$d 大卡 · 蛋白質 %2$s 克</string>
+    <string name="meal_photo_add">加照片</string>
+    <string name="meal_photo_done">照片附好了</string>
+    <string name="meal_no_foods">你的食物表是空的，這裡沒東西可以選。</string>
+    <string name="meal_ask">跟小葵說</string>
+    <string name="meal_failed">記不起來，請再試一次，或跟小葵說。</string>
+    <string name="say_meal_by_words">我要記一餐</string>
+
+    <!-- real task -->
+    <string name="real_title">這週的真人任務</string>
+    <string name="real_done_btn">做完了</string>
+    <string name="real_is_done">這週的做完了。</string>
+    <string name="real_closed">這個還沒開放。</string>
+    <string name="real_ask">跟小葵說</string>
+    <string name="say_real_task">這週的真人任務是什麼？</string>
+    <string name="item_paste_link">貼影片連結給小葵</string>
+
+    <!-- cards -->
+    <string name="card_done_with">已%1$s</string>
+
+    <!-- lessons -->
+    <string name="quiz_back">回去</string>
+
+    <!-- timer -->
+    <string name="timer_check_title">現在要做的</string>
+    <string name="timer_check_done">都做完了</string>
+    <string name="timer_direct">不計時，直接記做完</string>
+    <string name="theme_practice_suffix">小練習</string>
+    <string name="wire_timer_away_title">練習還在計時，回來繼續</string>
+    <string name="wire_timer_away_text">計時還在跑，點一下回來。</string>
+
+    <!-- body photos -->
+    <string name="body_photo_part">週日全身照（同一個角度）</string>
+    <string name="bodyphotos_title">全身照</string>
+    <string name="bodyphotos_empty">還沒有全身照。週日拍一張，同一個角度。</string>
+    <string name="bodyphotos_compare">第一張和最新的</string>
+    <string name="bodyphotos_first">最早</string>
+    <string name="bodyphotos_latest">最新</string>
+    <string name="bodyphotos_all">每一次</string>
+    <string name="bodyphotos_take">現在拍一張</string>
+
+    <!-- eval -->
+    <string name="eval_fit_title">體能測驗</string>
+    <string name="eval_fit_push">伏地挺身（一口氣做幾下）</string>
+    <string name="eval_fit_plank">棒式（撐幾秒）</string>
+
+    <!-- singing -->
+    <string name="sing_ref_title">跟著參考唱</string>
+    <string name="sing_ref_hint">可以匯入示範錄音、旋律檔或卡拉歌詞檔，唱完會跟它比。</string>
+    <string name="sing_ref_import">匯入參考</string>
+    <string name="sing_ref_none">不跟參考</string>
+    <string name="sing_ref_ok">已匯入：%1$s</string>
+    <string name="sing_strict_title">比對要多嚴</string>
+    <string name="sing_normal">一般</string>
+    <string name="sing_strict">嚴格</string>
+    <string name="sing_chart">音高曲線</string>
+    <string name="sing_lyrics_title">檢查咬字</string>
+    <string name="sing_lyrics_hint">貼上這首歌的歌詞</string>
+    <string name="sing_lyrics_consent">這次的錄音會送去轉成文字</string>
+    <string name="sing_lyrics_go">檢查咬字</string>
+    <string name="sing_lyrics_need_key">要有第二把金鑰（DeepSeek）才能檢查咬字。</string>
+    <string name="sing_lyrics_nothing">沒有勾選同意，錄音沒有送出去。</string>
+    <string name="wire_sing_no_consent">沒有同意，錄音沒有送出去。</string>
+    <string name="wire_sing_failed">現在轉不成文字，等一下再試。</string>
+    <string name="wire_sing_no_take">還沒有錄音，先唱一段。</string>
+    <string name="wire_ref_bad">這個檔案讀不出旋律。</string>
+    <string name="wire_ref_demo">示範錄音</string>
+</resources>

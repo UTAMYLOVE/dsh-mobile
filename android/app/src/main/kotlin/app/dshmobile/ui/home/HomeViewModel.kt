@@ -8,6 +8,7 @@ import app.agency.core.plan.Screen
 import app.agency.core.plan.Tap
 import app.agency.core.store.Message
 import app.dshmobile.ui.PanelPrefs
+import app.dshmobile.ui.PhotoUi
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +38,21 @@ class HomeViewModel(
     private val panels: PanelPrefs? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val pageSize: Int = 60,
+    private val photos: PhotoUi? = null,
 ) {
+    /** A quiet line for what just happened that has no message of its own (a photo that found no door, a card that expired). */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    /** Sending a meal to chat failed: the screen offers 「記這一餐」 with this slot and photo. */
+    class MealFallback(val slot: String, val photo: Attachment.Photo?)
+
+    private val _mealFallback = MutableStateFlow<MealFallback?>(null)
+    val mealFallback: StateFlow<MealFallback?> = _mealFallback.asStateFlow()
+    fun mealFallbackHandled() { _mealFallback.value = null }
+
+    fun clearNotice() { _notice.value = null }
+
     private val _today = MutableStateFlow<Today?>(null)
     val today: StateFlow<Today?> = _today.asStateFlow()
 
@@ -120,7 +135,32 @@ class HomeViewModel(
         dispatch(clean, att)
     }
 
-    private fun dispatch(text: String, att: List<Attachment>, reuseId: Long? = null) {
+    /**
+     * A photo from the camera: [arg] says what it is for (see [PhotoRouting]). [sentence] names the meal for chat. When sending to
+     * chat fails the meal sheet is offered instead.
+     */
+    fun photoTaken(arg: String, photo: Attachment.Photo, noSpot: String, noDoor: String, sentence: (String) -> String) {
+        scope.launch {
+            when (val r = withContext(io) { PhotoRouting.decide(arg, photo, photos, noSpot, noDoor) }) {
+                is PhotoRoute.Done -> { _notice.value = r.line; refresh() }
+                is PhotoRoute.Said -> _notice.value = r.text
+                is PhotoRoute.Chat -> {
+                    _attachments.update { it + photo }
+                    val att = _attachments.value
+                    _attachments.value = emptyList()
+                    dispatch(sentence(r.slot), att, mealSlot = r.slot.takeIf { it.isNotEmpty() }, mealPhoto = photo)
+                }
+            }
+        }
+    }
+
+    private fun dispatch(
+        text: String,
+        att: List<Attachment>,
+        reuseId: Long? = null,
+        mealSlot: String? = null,
+        mealPhoto: Attachment.Photo? = null,
+    ) {
         val id = reuseId ?: localId--
         _local.update { list -> if (list.any { it.id == id }) list.map { if (it.id == id) it.copy(failed = false) else it } else list + LocalMessage(id, text, att, false) }
         _thinking.value = true
@@ -134,6 +174,7 @@ class HomeViewModel(
             when (result) {
                 SayResult.Ok -> _local.update { l -> l.filterNot { it.id == id } }
                 is SayResult.NotSent -> {
+                    if (mealSlot != null) _mealFallback.value = MealFallback(mealSlot, mealPhoto)
                     // the store keeps a failed copy when it can; only keep ours when it does not show one
                     val stored = m.any { it.meta["failed"]?.toString() == "true" && it.text == text }
                     _local.update { l -> if (stored) l.filterNot { it.id == id } else l.map { if (it.id == id) it.copy(failed = true) else it } }
@@ -160,7 +201,8 @@ class HomeViewModel(
 
     fun answerCard(messageId: Long, cardIndex: Int, answer: String) {
         scope.launch {
-            withContext(io) { api.answerCard(messageId, cardIndex, answer) }
+            val r = withContext(io) { api.answerCard(messageId, cardIndex, answer) }
+            if (r is SayResult.NotSent) _notice.value = r.reason
             refresh()
         }
     }

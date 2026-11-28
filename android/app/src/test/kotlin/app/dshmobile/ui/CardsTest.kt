@@ -44,11 +44,11 @@ class CardsTest {
     }
 
     @Test fun mealCardShowsComputedNumbersAndMarks() {
-        card(Card.MealCard(1, "午餐　記好了", 650, 40.0, 650, 1700, 40.0, 100, estimated = true, needsPhoto = true, warnings = listOf("比單餐上限多")))
+        card(Card.MealCard(1, "午餐　記好了", 650, 40.0, 650, 2100, 40.0, 110, estimated = true, needsPhoto = true, warnings = listOf("比單餐上限多")))
         rule.onNodeWithText("午餐　記好了").assertIsDisplayed()
         rule.onNodeWithText("650 大卡").assertIsDisplayed()
         rule.onNodeWithText("蛋白質 40 克").assertIsDisplayed()
-        rule.onNodeWithText("今天 650／1700").assertIsDisplayed()
+        rule.onNodeWithText("今天 650／2100").assertIsDisplayed()
         rule.onNodeWithText("估算").assertIsDisplayed()
         rule.onNodeWithText("缺照片").assertIsDisplayed()
         rule.onNodeWithText("比單餐上限多").assertIsDisplayed()

@@ -39,6 +39,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -99,6 +101,11 @@ fun HomeScreen(
     onTrainee: () -> Unit,
     onSettings: () -> Unit,
     micAvailable: Boolean? = null,
+    /** The 「其他」 pages that are not a plan screen. */
+    onBodyPhotos: () -> Unit = {},
+    /** 「記這一餐」: the slot and an optional photo. */
+    onMealLog: (String, app.agency.core.agent.Attachment.Photo?) -> Unit = { _, _ -> },
+    onRealTask: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -111,18 +118,29 @@ fun HomeScreen(
     val handbookOpen by vm.handbookOpen.collectAsState()
     val chipsOpen by vm.chipsOpen.collectAsState()
     val input = remember { TextFieldState() }
+    val io = app.dshmobile.ui.LocalIo.current
 
     LifecycleResumeEffect(Unit) {
         vm.refresh()
         onPauseOrDispose { }
     }
 
-    val camera: (String) -> Unit = { slot ->
+    val mealFallback by vm.mealFallback.collectAsState()
+    val notice by vm.notice.collectAsState()
+    LaunchedEffect(mealFallback) {
+        mealFallback?.let { onMealLog(it.slot, it.photo); vm.mealFallbackHandled() }
+    }
+    val searchOn by produceState(true, graph) {
+        value = withContext(io) { runCatching { graph.settings.model().deepSeekKeySet }.getOrDefault(true) }
+    }
+
+    val camera: (String) -> Unit = { arg ->
         scope.launch {
-            val photo = graph.media.takePhoto(slotWord(context, slot))
+            val photo = graph.media.takePhoto(slotWord(context, arg))
             if (photo != null) {
-                vm.addAttachments(listOf(photo))
-                vm.send(context.getString(R.string.say_photo, slotWord(context, slot)))
+                vm.photoTaken(
+                    arg, photo, context.getString(R.string.photo_no_spot), context.getString(R.string.photo_no_door),
+                ) { slot -> context.getString(mealSentence(slot)) }
             }
         }
     }
@@ -178,22 +196,61 @@ fun HomeScreen(
     Column(Modifier.fillMaxSize().paper().safeDrawingPadding().padding(horizontal = 20.dp)) {
         Header(today, stickersOpen, vm::toggleStickers, onTrainee, onSettings)
         val t = today
+        fun tapItem(item: PlanItem) {
+            when {
+                item.id == "real_task" && graph.practice != null -> onRealTask()
+                item.id == "theme" -> nav.open(Screen.TIMER, ThemePracticeTask)
+                else -> vm.onTap(item.tap, nav)
+            }
+        }
         if (t != null && stickersOpen) {
             StickerRow(t, handbookOpen, vm::toggleHandbook)
-            if (handbookOpen) Handbook(t, { vm.onTap(it.tap, nav) })
+            if (handbookOpen) {
+                Handbook(
+                    t, ::tapItem, searchOn, graph.meals != null,
+                    onMeal = { slot -> onMealLog(slot, null) },
+                    doors = Door.at(stageOf(t.stageLabel)),
+                    onDoor = { d ->
+                        when (d) {
+                            Door.LESSONS -> onOpen(Screen.LESSONS, "")
+                            Door.MEMO -> onOpen(Screen.MEMO, "")
+                            Door.MONEY -> onOpen(Screen.MONEY, "")
+                            Door.TRAINEE -> onTrainee()
+                            Door.SINGING -> onOpen(Screen.SINGING, "")
+                            Door.EVAL -> onOpen(Screen.EVAL, "")
+                            Door.BODY_PHOTOS -> onBodyPhotos()
+                        }
+                    },
+                )
+            }
         }
         Conversation(
             messages = messages, local = local, thinking = thinking, actions = actions, graph = graph, vm = vm,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp),
         )
+        notice?.let { n ->
+            Box(Modifier.fillMaxWidth().tap(vm::clearNotice).testTag("notice").padding(top = 4.dp), contentAlignment = Alignment.Center) {
+                KText(n, size = 13.sp, alpha = 0.7f)
+            }
+        }
         if (t != null) {
-            t.plan.next?.let { next -> NextPill(next, Modifier.padding(top = 8.dp, bottom = 10.dp)) { vm.onTap(next.tap, nav) } }
+            t.plan.next?.let { next -> NextPill(next, Modifier.padding(top = 8.dp, bottom = 10.dp)) { tapItem(next) } }
             if (t.chips.isNotEmpty()) {
                 ChipsRow(t.chips, chipsOpen, vm::toggleChips, { vm.send(it) })
             }
         }
         InputBar(input, attachments, micOk, listening, inputActions, Modifier.padding(bottom = 10.dp))
     }
+}
+
+/** The task name the timer page knows for the weekly theme practice. */
+const val ThemePracticeTask = "THEME_PRACTICE"
+
+private fun mealSentence(slot: String): Int = when (slot) {
+    "FIRST" -> R.string.say_meal_first
+    "DINNER" -> R.string.say_meal_dinner
+    "NIGHT" -> R.string.say_meal_night
+    else -> R.string.say_meal_any
 }
 
 private fun slotWord(context: Context, slot: String): String = context.getString(
@@ -260,7 +317,15 @@ private fun StickerRow(today: Today, handbookOpen: Boolean, onToggleHandbook: ()
 }
 
 @Composable
-private fun Handbook(today: Today, onTapItem: (PlanItem) -> Unit) {
+private fun Handbook(
+    today: Today,
+    onTapItem: (PlanItem) -> Unit,
+    searchOn: Boolean,
+    mealsByHand: Boolean,
+    onMeal: (String) -> Unit,
+    doors: List<Door>,
+    onDoor: (Door) -> Unit,
+) {
     val plan = today.plan
     Column(
         Modifier.padding(top = 10.dp, bottom = 8.dp).testTag("handbook").sticker(Pal.White, RoundedCornerShape(18.dp), 4.dp)
@@ -272,12 +337,29 @@ private fun Handbook(today: Today, onTapItem: (PlanItem) -> Unit) {
         }
         plan.items.forEach { item ->
             val isNext = plan.next?.id == item.id
-            HandbookRow(item, isNext) { onTapItem(item) }
+            val noSearch = !searchOn && item.id.startsWith("lesson:") && item.tap is app.agency.core.plan.Tap.Say
+            val byHand = mealsByHand && item.id.startsWith("meal:") && item.status != ItemStatus.DONE && item.status != ItemStatus.OFF
+            HandbookRow(
+                item, isNext, if (noSearch) stringResource(R.string.item_paste_link) else null,
+                if (byHand) ({ onMeal(item.id.substringAfter(':')) }) else null,
+            ) { onTapItem(item) }
         }
         if (plan.adjustments.isNotEmpty()) {
             Column(Modifier.padding(top = 8.dp).fillMaxWidth().background(Pal.Paper, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 8.dp).testTag("adjustments")) {
                 KText(stringResource(R.string.handbook_adjustments), size = 13.5.sp, bold = true)
                 plan.adjustments.forEach { KText(stringResource(R.string.handbook_adjust_line, it.what, it.why), size = 13.5.sp) }
+            }
+        }
+        Row(
+            Modifier.padding(top = 10.dp).fillMaxWidth().testTag("doors").horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            KText(stringResource(R.string.door_other), size = 13.sp, bold = true, alpha = 0.7f)
+            doors.forEach { d ->
+                val label = stringResource(d.label)
+                Box(Modifier.sticker(Pal.Lavender, PillShape, shadow = 0.dp, outline = 1.5.dp).tap({ onDoor(d) }).testTag("door_${d.name}").padding(horizontal = 11.dp, vertical = 4.dp)) {
+                    KText(label, size = 13.sp)
+                }
             }
         }
     }
@@ -286,7 +368,7 @@ private fun Handbook(today: Today, onTapItem: (PlanItem) -> Unit) {
 private val TimeFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("H:mm")
 
 @Composable
-private fun HandbookRow(item: PlanItem, isNext: Boolean, onClick: () -> Unit) {
+private fun HandbookRow(item: PlanItem, isNext: Boolean, detailOverride: String?, onByHand: (() -> Unit)?, onClick: () -> Unit) {
     val dim = when (item.status) {
         ItemStatus.DONE -> 0.55f
         ItemStatus.OFF -> 0.4f
@@ -300,8 +382,13 @@ private fun HandbookRow(item: PlanItem, isNext: Boolean, onClick: () -> Unit) {
     Row(rowMod, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         StatusMark(item.status)
         KText(item.title, Modifier.weight(1f), size = Type.Body, bold = isNext, alpha = dim)
-        val right = item.detail.ifBlank { item.at?.format(TimeFmt) ?: "" }
+        val right = detailOverride ?: item.detail.ifBlank { item.at?.format(TimeFmt) ?: "" }
         if (right.isNotBlank()) KText(right, size = 13.sp, alpha = dim * 0.9f)
+        if (onByHand != null) {
+            Box(Modifier.sticker(Pal.Mint, PillShape, shadow = 0.dp, outline = 1.5.dp).tap(onByHand).testTag("meal_hand_${item.id}").padding(horizontal = 9.dp, vertical = 2.dp)) {
+                KText(stringResource(R.string.meal_by_hand), size = 12.sp)
+            }
+        }
         if (isNext) GlyphIcon(Glyph.ArrowRight, size = 14.dp)
     }
 }
@@ -358,7 +445,8 @@ private fun Conversation(
     }
     LazyColumn(
         modifier.testTag("conversation"), state = state, reverseLayout = true,
-        verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Top),
+        // reverseLayout does not mirror the arrangement: Bottom keeps a short conversation just above the next-thing pill.
+        verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
     ) {
         if (thinking) item(key = "thinking") { Bubble(stringResource(R.string.home_thinking), mine = false, Modifier.testTag("thinking"), alpha = 0.7f) }
         items(items, key = { it.key }) { ci ->
