@@ -248,7 +248,7 @@ object DayPlanner {
             }
 
             addTraining(rideDay, rideBack, wakeM, leaveM)
-            addOtherTasks(wakeM)
+            addOtherTasks(wakeM, firstShift)
             if (open(Feature.GROOMING)) addGrooming(wakeM)
             if (open(Feature.WEIGHT) && rules.body.weighWeekday == day.dayOfWeek.value) {
                 val kg = state.body?.kg
@@ -338,7 +338,7 @@ object DayPlanner {
             return day in chosen || remaining <= missing
         }
 
-        private fun addOtherTasks(wakeM: Int) {
+        private fun addOtherTasks(wakeM: Int, firstShift: Long) {
             val injured = state.injured
             if (open(Feature.POSTURE)) {
                 val t = TaskId.POSTURE
@@ -358,7 +358,8 @@ object DayPlanner {
                     )
                 }
             }
-            val first = time(times.firstMeal)
+            // The practice before the first meal moves with it when a late sign-in moved the meal.
+            val first = time(times.firstMeal)?.plusMinutes(firstShift)
             listOf(
                 Triple(TaskId.DANCE, Feature.DANCE, training.danceMinutes),
                 Triple(TaskId.VOCAL, Feature.VOCAL, training.vocalMinutes),

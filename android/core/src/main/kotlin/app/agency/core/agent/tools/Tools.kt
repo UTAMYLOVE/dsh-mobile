@@ -16,7 +16,7 @@ object Tools {
         LogBodyTool(), LogMoodTool(), LogMoneyTool(),
         MemoAddTool(), MemoListTool(), MemoDoneTool(), MemoRemoveTool(),
         RememberTool(), ForgetTool(), NoteTodayTool(),
-        FindVideosTool(), FindPlacesTool(), LessonWishTool(), LessonsTodayTool(),
+        FindVideosTool(), AddVideoTool(), FindPlacesTool(), LessonWishTool(), LessonsTodayTool(),
         ProposeTool(), GetDayTool(), GetWeekTool(), ReadRulesTool(),
         RealTaskTool(), EvalStatusTool(), SongSummaryTool(), OpenScreenTool(),
     )

@@ -4,6 +4,7 @@ import app.agency.core.base.Days
 import app.agency.core.lessons.LessonAway
 import app.agency.core.plan.DayPlan
 import app.agency.core.plan.ItemStatus
+import app.agency.core.plan.waiting
 import app.agency.core.store.Memo
 import java.time.Duration
 import java.time.Instant
@@ -25,6 +26,20 @@ data class ReminderLog(val day: String = "", val sent: Map<String, List<String>>
 
 /** One notification. [loud] = sound and heads-up; otherwise a silent update. */
 data class Notice(val key: String, val title: String, val text: String, val loud: Boolean)
+
+/**
+ * When the reminders of an item without a time start (SPEC F, untimed items): a lesson at class end on a class day, the training
+ * block half an hour after the ride back (two hours after sign-in on a day without riding), anything else three hours after
+ * sign-in. [checkInAt] is the sign-in, or the day's wake time when signing in is not open. [quietFrom] is the rest-day
+ * evening (dinner), from which nothing untimed is chased. All null = untimed items are never reminded.
+ */
+data class Anchors(
+    val checkInAt: Instant? = null,
+    val rideBackAt: Instant? = null,
+    val rideDay: Boolean = false,
+    val classEndAt: Instant? = null,
+    val quietFrom: Instant? = null,
+)
 
 /** [log] is the new log to persist; [nextWakeAt] is when to look again (never more than six hours ahead). */
 data class Decision(val notices: List<Notice>, val nextWakeAt: Instant, val log: ReminderLog)
@@ -62,6 +77,7 @@ object Reminders {
         lessonAway: LessonAway?,
         log: ReminderLog,
         extra: List<Notice> = emptyList(),
+        anchors: Anchors = Anchors(),
     ): Decision {
         val day = plan.day
         var log1 = if (log.day == day.toString()) log else ReminderLog(day.toString())
@@ -70,11 +86,25 @@ object Reminders {
         val itemsOpen = !checkedOut && now < cutoff
         val notices = ArrayList<Notice>()
         val wake = ArrayList<Instant>()
+        // Untimed items that want a notice now: only one goes out per wake (the next thing first), so they never flood.
+        val untimedDue = ArrayList<Pair<app.agency.core.plan.PlanItem, Int>>()
 
         if (itemsOpen) {
             for (item in plan.items) {
                 if (!checkedIn && item.id != WAKE_ITEM) continue
                 if (item.status != ItemStatus.PENDING && item.status != ItemStatus.LATE) continue
+                if (item.at == null && item.until == null) {
+                    val start = untimedStart(item, anchors) ?: continue
+                    if (anchors.quietFrom != null && now >= anchors.quietFrom) continue
+                    if (start > now) {
+                        wake += start
+                        continue
+                    }
+                    val sent = log1.times(item.id)
+                    val next = sent.maxOrNull()?.plus(CHASE_EVERY)
+                    if (next == null || next <= now) untimedDue += item to sent.size else wake += next
+                    continue
+                }
                 // A deadline item (water before leaving, leaving itself) turns due at its deadline.
                 val at = item.at ?: item.until ?: continue
                 val due = Days.at(day, at, zone)
@@ -98,6 +128,16 @@ object Reminders {
                     }
                 }
             }
+        }
+
+        if (untimedDue.isNotEmpty()) {
+            val (item, count) = untimedDue.firstOrNull { it.first.id == plan.next?.id } ?: untimedDue.first()
+            val text = if (count == 0) Lines.first(day, item.id, item.title) else Lines.chase(day, item.id, item.title, count)
+            notices += Notice(item.id, item.title, text, loud = count == 0 || !plan.riding)
+            log1 = log1.with(item.id, now)
+            wake += now.plus(CHASE_EVERY)
+            // The others wait for the next wake a few minutes on.
+            if (untimedDue.size > 1) wake += now.plus(UNTIMED_GAP)
         }
 
         if (!checkedOut) {
@@ -138,6 +178,23 @@ object Reminders {
         val limit = now.plus(MAX_SLEEP)
         val next = wake.filter { it > now }.minOrNull()?.let { minOf(it, limit) } ?: limit
         return Decision(notices, next, log1)
+    }
+
+    /** Between two untimed notices in a row. */
+    val UNTIMED_GAP: Duration = Duration.ofMinutes(5)
+
+    private val TRAINING = setOf("task:CORE", "task:STRENGTH", "task:STRETCH", "task:CARDIO")
+
+    /** When an untimed item starts being reminded, or null when it never is (waiting, not counted, not chased). */
+    fun untimedStart(item: app.agency.core.plan.PlanItem, a: Anchors): Instant? {
+        if (!item.chase || !item.counts || item.status != ItemStatus.PENDING) return null
+        if (item.waiting) return null
+        val sign = a.checkInAt ?: return null
+        return when {
+            item.id.startsWith("lesson:") -> a.classEndAt ?: sign.plus(Duration.ofHours(2))
+            item.id in TRAINING -> if (a.rideDay) a.rideBackAt?.plus(Duration.ofMinutes(30)) else sign.plus(Duration.ofHours(2))
+            else -> sign.plus(Duration.ofHours(3))
+        }
     }
 
     /** The logical day a given instant falls on, for callers that need to pick the plan's day. */

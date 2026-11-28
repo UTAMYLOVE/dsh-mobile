@@ -169,6 +169,23 @@ internal object F {
         return written.mapNotNull { e -> runCatching { e.read<Violation>() }.getOrNull() }.map(::violationWord)
     }
 
+    /**
+     * After a correction or a removal on [day]: write-time violations that no longer hold go away, new ones are written.
+     * Returns what was newly found, in his words.
+     */
+    fun resync(ctx: ToolCtx, day: LocalDate = day(ctx)): List<String> {
+        val stage = app.agency.core.day.StageDays.asOf(ctx.stage, day)
+        val written = Violations.resync(ctx.store, ctx.rules, stage, day, ctx.clock.now(), ctx.clock.zone)
+        return written.mapNotNull { e -> runCatching { e.read<Violation>() }.getOrNull() }.map(::violationWord)
+    }
+
+    /** The write-time checks of a logical [day] other than today (a late check-out belongs to the day before). */
+    fun violationsOn(ctx: ToolCtx, day: LocalDate): List<String> {
+        val stage = app.agency.core.day.StageDays.asOf(ctx.stage, day)
+        val written = Violations.onWrite(ctx.store, ctx.rules, stage, day, ctx.clock.now(), ctx.clock.zone)
+        return written.mapNotNull { e -> runCatching { e.read<Violation>() }.getOrNull() }.map(::violationWord)
+    }
+
     fun violationWord(v: Violation): String {
         val label = ViolationCode.values().firstOrNull { it.name == v.code }?.label ?: v.code
         return if (v.note.isBlank()) label else "$label：${v.note}"

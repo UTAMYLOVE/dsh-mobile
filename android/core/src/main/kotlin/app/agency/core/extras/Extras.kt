@@ -27,6 +27,10 @@ import java.time.ZoneId
  */
 object Extras {
 
+    /** The first day of the round [day] belongs to (the real-person task is judged per round). */
+    private fun roundStart(st: StageState, day: LocalDate): LocalDate =
+        runCatching { LocalDate.parse(st.startedOn) }.getOrNull()?.takeIf { !it.isAfter(day) } ?: day
+
     private class At(private val at: Instant, override val zone: ZoneId) : Clock {
         override fun now(): Instant = at
     }
@@ -95,7 +99,8 @@ object Extras {
             val real = RealTasks(store, clock)
             out += PlanItem(
                 id = "real_task", feature = Feature.REAL_TASK, title = "真人任務", at = null, until = null,
-                status = if (real.weekDone(day)) ItemStatus.DONE else ItemStatus.PENDING, counts = false,
+                status = if (real.doneWithin(roundStart(stageState, day), day)) ItemStatus.DONE else ItemStatus.PENDING,
+                counts = false,
                 tap = Tap.Say("這週的真人任務是什麼？"), detail = "每週一次", chase = false,
             )
         }

@@ -174,7 +174,7 @@ class Company(
             clock = clock,
             tools = { Tools.all() },
             toolCtx = { ids -> ctx(ids.ifEmpty { photoIds }, gallery) },
-            context = { Context(store, clock, rules()).also { seen += it } },
+            context = { Context(store, clock, rules(), providers.search != null).also { seen += it } },
             system = { system(rules) },
             loadPhoto = loadPhoto,
         )
@@ -336,6 +336,7 @@ class Company(
             lessonAway = LessonBook(store, clock, m.rules).away(),
             log = log,
             extra = extra,
+            anchors = anchors(m, checkInLive),
         )
         // A memo is announced once ever, not once a day.
         for (n in d.notices) {
@@ -344,6 +345,21 @@ class Company(
             runCatching { e.read<Memo>() }.getOrNull()?.let { store.update(id, it.copy(notified = true)) }
         }
         return d
+    }
+
+    /** Where today's untimed items start being reminded (see [app.agency.core.remind.Anchors]). */
+    private fun anchors(m: Moment, checkInLive: Boolean): app.agency.core.remind.Anchors {
+        val zone = clock.zone
+        val times = app.agency.core.day.DayTypes.times(m.rules, m.plan.type)
+        fun at(s: String) = Days.parse(s)?.let { Days.at(m.day, it, zone) }
+        val sign = if (checkInLive) m.state.checkInAt else at(times.wake) ?: Days.at(m.day, LocalTime.of(9, 0), zone)
+        return app.agency.core.remind.Anchors(
+            checkInAt = sign,
+            rideBackAt = m.state.rideBackAt?.takeIf { !m.state.riding },
+            rideDay = m.plan.items.any { it.id == "ride:out" && it.status != ItemStatus.OFF },
+            classEndAt = if (m.plan.type == app.agency.core.plan.DayType.CLASS) at(times.classEnd) else null,
+            quietFrom = if (m.plan.restDay) at(times.dinner) else null,
+        )
     }
 
     // ---------------------------------------------------------------- onboarding and settings

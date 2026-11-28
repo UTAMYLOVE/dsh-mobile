@@ -139,7 +139,7 @@ class Agent(
         val ownerText = (listOf(said.msg.text) + said.files.map { it.second }).joinToString("\n")
         val turns = buildTurns(said, before).toMutableList()
         val offered = tools()
-        val ctx = toolCtx(said.photoIds)
+        val ctx = toolCtx(said.photoIds).withOwnerText(ownerText)
         val got = Collected()
 
         val first = loop(sys, turns, offered, ctx, got, MAX_ROUNDS)

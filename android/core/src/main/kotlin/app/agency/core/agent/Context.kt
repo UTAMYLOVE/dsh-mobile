@@ -49,7 +49,13 @@ import java.time.LocalTime
  * computed by code and written the way the guard reads numbers (digits right before their unit, times as H:MM), so anything
  * she quotes from here passes. Entry ids appear as `#12` so she can fix or remove an entry.
  */
-class Context(private val store: Store, private val clock: Clock, private val rules: Rules) : ContextSource {
+class Context(
+    private val store: Store,
+    private val clock: Clock,
+    private val rules: Rules,
+    /** Whether a web search is wired; without it she must know the two ways on (a key in settings, or a pasted link). */
+    private val searchAvailable: Boolean = true,
+) : ContextSource {
     private val m: Moment = Moment.of(store, clock, rules)
     private val text: String by lazy { build() }
 
@@ -116,6 +122,9 @@ class Context(private val store: Store, private val clock: Clock, private val ru
                     budgets,
             )
         }
+        if (Feature.MEALS.openAt(stage)) {
+            app.agency.core.day.FreeMeals.line(app.agency.core.day.FreeMeals.status(store, r, m.day))?.let { line(it) }
+        }
         if (Feature.WATER.openAt(stage) && r.water.bottleMl > 0) {
             val target = st.waterTargetMl(st.dayNumber)
             line(
@@ -157,6 +166,10 @@ class Context(private val store: Store, private val clock: Clock, private val ru
         val openMemos = Memos.open(store, m.day).size
         if (openMemos > 0) line("還沒完成的備忘共 $openMemos 則（memo_list 可以看）")
         if (Feature.LESSONS.openAt(stage)) lessonLines().forEach { line(it) }
+        if (!searchAvailable) {
+            line("搜尋現在不能用（還沒有搜尋用的金鑰）：找影片、找地方都不行。請他到 設定 → 小葵的模型 加上搜尋用的金鑰；" +
+                "在那之前，他可以直接把影片連結貼給你，你用 add_video 加進清單。")
+        }
 
         val week = lastDays()
         if (week.isNotEmpty()) {

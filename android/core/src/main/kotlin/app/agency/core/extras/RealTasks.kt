@@ -55,13 +55,23 @@ class RealTasks(private val store: Store, private val clock: Clock) {
         val target = if (text.isBlank()) ofWeek(week) else entries().lastOrNull { it.second.text == text.trim() && !it.second.done }
         val (entry, task) = target ?: return null
         if (task.done) return task
-        val next = task.copy(done = true)
+        val next = task.copy(done = true, doneOn = week.toString())
         store.update(entry.id, next)
         return next
     }
 
-    /** The week's task is done (for the weekly pass check). */
+    /** The week's task is done. */
     fun weekDone(week: LocalDate): Boolean = ofWeek(week)?.second?.done == true
+
+    /**
+     * A task was finished on a logical day inside [from]..[to] (the round judgement and the home item both ask this, so they
+     * agree). A task stored before [RealTask.doneOn] existed counts on the day of its entry.
+     */
+    fun doneWithin(from: LocalDate, to: LocalDate): Boolean = entries().any { (e, t) ->
+        if (!t.done) return@any false
+        val on = t.doneOn?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: e.day
+        !on.isBefore(from) && !on.isAfter(to)
+    }
 
     companion object {
         /** Easiest first. Every rung names people he already knows. */

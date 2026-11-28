@@ -27,16 +27,16 @@ internal class FindVideosTool : BaseTool(
 ) {
     override suspend fun exec(a: Args, ctx: ToolCtx): ToolOut {
         val subject = a.str("subject", "科目")
-        val search = ctx.ports.search ?: return ToolOut.error("搜尋現在不能用（沒有設定搜尋），先不要找影片，也不要自己編影片。")
+        val search = ctx.ports.search ?: return ToolOut.error(NO_SEARCH)
         val q = listOf(subject, SubjectLevels(ctx.store).searchWords(subject), a.text("query")).filter { it.isNotBlank() }.joinToString(" ")
         val hits: List<Hit> = try {
             search.videos(q)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SearchUnavailable) {
-            return ToolOut.error("搜尋現在不能用，等一下再找；不要自己編影片。")
+            return ToolOut.error(SEARCH_DOWN)
         } catch (e: Exception) {
-            return ToolOut.error("搜尋現在不能用，等一下再找；不要自己編影片。")
+            return ToolOut.error(SEARCH_DOWN)
         }
         val book = LessonBook(ctx.store, ctx.clock, ctx.rules)
         val videos = ArrayList<Card.Video>()
@@ -62,6 +62,49 @@ internal class FindVideosTool : BaseTool(
 
     companion object {
         const val MAX = 4
+
+        /** No search port at all: the two ways on, so stage 1 never dead-ends. */
+        const val NO_SEARCH = "搜尋現在不能用（還沒有搜尋用的金鑰）。告訴他兩個辦法：到 設定 → 小葵的模型 加上搜尋用的金鑰；" +
+            "或者現在直接把影片連結貼給你，你用 add_video 加進清單。不要自己編影片，也不要自己寫網址。"
+
+        const val SEARCH_DOWN = "搜尋現在不能用，等一下再找；或請他直接把影片連結貼給你，你用 add_video 加進清單。不要自己編影片。"
+    }
+}
+
+/**
+ * A video link he pasted himself. Only a link that literally appears in his current message is accepted (so a model cannot
+ * slip in one of its own); the lesson starts PROPOSED with no material, so it ends with notes instead of a quiz.
+ */
+internal class AddVideoTool : BaseTool(
+    "add_video",
+    "他自己貼了影片連結時用（搜尋不能用時最常見）。url 必須是他這則訊息裡原樣出現的連結；title 是影片名稱（他沒說就空字串）；" +
+        "subject 是科目。會放進清單等他按「加入清單」或「不要」。這種影片沒有教材文字，看完後寫三行筆記就完成，不考試。",
+    S.obj("url" to S.str("他訊息裡的連結，原樣照抄"), "title" to S.str("影片名稱；沒有就空字串"), "subject" to S.str("科目")),
+    Feature.LESSONS,
+) {
+    override suspend fun exec(a: Args, ctx: ToolCtx): ToolOut {
+        val url = a.str("url", "連結")
+        val subject = a.str("subject", "科目")
+        if (!URL.matches(url)) throw BadArg("這不是一個網址，請照他訊息裡的連結原樣傳。")
+        if (!ctx.ownerText.contains(url)) throw BadArg("這個連結不在他這則訊息裡。只能加他自己貼的連結，不要自己寫網址。")
+        val title = a.text("title").ifBlank { "他貼的影片" }
+        val r = LessonBook(ctx.store, ctx.clock, ctx.rules).propose(Hit(title, url), subject)
+        if (r !is LessonResult.Ok) {
+            val why = (r as LessonResult.Refused).why
+            throw BadArg(if (why == app.agency.core.lessons.Refusal.DUPLICATE) "這支影片已經在清單裡了。" else why.text)
+        }
+        val v = Card.Video(r.id, subject, r.lesson.title, r.lesson.url, r.lesson.minutes)
+        return ToolOut(F.obj {
+            put("lesson_id", r.id)
+            put("subject", subject)
+            put("title", r.lesson.title)
+            put("notes_only", true)
+            put("note", "已放進清單等他決定：${r.lesson.title}（看完寫三行筆記，不考試）")
+        }, listOf(Card.Videos(listOf(v))))
+    }
+
+    companion object {
+        private val URL = Regex("""https?://\S+""")
     }
 }
 

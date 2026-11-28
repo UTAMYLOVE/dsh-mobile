@@ -18,6 +18,7 @@ import app.agency.core.store.Mood
 import app.agency.core.store.Ride
 import app.agency.core.store.RidePhase
 import app.agency.core.store.Water
+import app.agency.core.store.add
 import app.agency.core.week.Income
 import java.time.Duration
 import kotlinx.serialization.json.JsonObject
@@ -33,6 +34,19 @@ internal class CheckInTool : BaseTool(
 ) {
     override suspend fun exec(a: Args, ctx: ToolCtx): ToolOut {
         val score = a.intOrNull("score", "分數", 1..5)
+        val early = earlyDay(ctx)
+        if (early != null) {
+            if (ctx.store.entries(early, Kind.CHECK_IN).isNotEmpty()) {
+                return ToolOut(F.obj { put("already", true); put("note", "今天（早上 6:00 起）已經簽到過了") })
+            }
+            if (score == null) {
+                return ToolOut(F.obj {
+                    put("recorded", false)
+                    put("note", "還沒簽到：畫面上出了五個點，他點一個分數就完成簽到。")
+                }, listOf(Card.Score("check_in")))
+            }
+            return record(ctx, score)
+        }
         val before = F.moment(ctx)
         if (before.state.checkIn != null) {
             return ToolOut(F.obj {
@@ -52,6 +66,20 @@ internal class CheckInTool : BaseTool(
     }
 
     fun record(ctx: ToolCtx, score: Int): ToolOut {
+        val early = earlyDay(ctx)
+        if (early != null) {
+            // Signed in between 03:00 and 06:00: it is the morning of the logical day that starts at 06:00, not the night before.
+            val e = ctx.store.add(early, ctx.clock.now(), Kind.CHECK_IN, CheckIn(score))
+            if (!isOpen(ctx)) return ToolOut(F.closed(Feature.CHECK_IN, e) { put("score", score) })
+            return ToolOut(F.obj {
+                put("entry_id", e.id)
+                put("score", score)
+                put("checked_in_at", F.hm(e.at, ctx.clock.zone))
+                put("for_day", early.toString())
+                put("late_minutes", 0)
+                put("note", "已簽到，狀態 $score 分（算今天早上 6:00 開始的這一天）")
+            })
+        }
         val e = F.write(ctx, Kind.CHECK_IN, CheckIn(score))
         if (!isOpen(ctx)) return ToolOut(F.closed(Feature.CHECK_IN, e) { put("score", score) })
         F.violations(ctx)
@@ -71,6 +99,18 @@ internal class CheckInTool : BaseTool(
             put("today", F.today(m))
         })
     }
+
+    companion object {
+        /** Between 03:00 and 06:00 a check-in opens the logical day starting at 06:00; null at any other time. */
+        fun earlyDay(ctx: ToolCtx): java.time.LocalDate? {
+            val now = ctx.clock.now()
+            val t = now.atZone(ctx.clock.zone).toLocalTime()
+            if (t.hour < EARLY_FROM || t.hour >= Days.START_HOUR) return null
+            return Days.of(now, ctx.clock.zone).plusDays(1)
+        }
+
+        private const val EARLY_FROM = 3
+    }
 }
 
 internal class CheckOutTool : BaseTool(
@@ -86,7 +126,22 @@ internal class CheckOutTool : BaseTool(
 ) {
     override suspend fun exec(a: Args, ctx: ToolCtx): ToolOut {
         val mood = a.intOrNull("mood", "心情", 1..5)
-        val e = F.write(ctx, Kind.CHECK_OUT, CheckOut(a.text("good"), a.text("improve"), mood))
+        val value = CheckOut(a.text("good"), a.text("improve"), mood)
+        val yesterday = lateFor(ctx)
+        if (yesterday != null) {
+            // Past 06:00 but he never went to bed: this is last night's (late) check-out, so today stays open for reminders.
+            val e = ctx.store.add(yesterday, ctx.clock.now(), Kind.CHECK_OUT, value)
+            if (!isOpen(ctx)) return ToolOut(F.closed(Feature.CHECK_IN, e))
+            val fresh = F.violationsOn(ctx, yesterday)
+            return ToolOut(F.obj {
+                put("entry_id", e.id)
+                put("checked_out_at", F.hm(e.at, ctx.clock.zone))
+                put("for_day", yesterday.toString())
+                put("new_violations", F.strs(fresh))
+                put("note", "已簽退（算昨天 ${yesterday.monthValue}/${yesterday.dayOfMonth} 的簽退，已經很晚了）")
+            })
+        }
+        val e = F.write(ctx, Kind.CHECK_OUT, value)
         if (!isOpen(ctx)) return ToolOut(F.closed(Feature.CHECK_IN, e))
         val fresh = F.violations(ctx)
         val m = F.moment(ctx)
@@ -101,6 +156,24 @@ internal class CheckOutTool : BaseTool(
             put("note", "已簽退，今天完成 ${m.plan.done}／${m.plan.total} 項")
             put("today", F.today(m))
         })
+    }
+
+    companion object {
+        /**
+         * The logical day a check-out now belongs to when it is not today: before noon, no check-in today yet, and yesterday
+         * has a check-in without a check-out. Null otherwise.
+         */
+        fun lateFor(ctx: ToolCtx): java.time.LocalDate? {
+            val now = ctx.clock.now()
+            if (now.atZone(ctx.clock.zone).toLocalTime().hour >= LATE_UNTIL) return null
+            val today = Days.of(now, ctx.clock.zone)
+            if (ctx.store.entries(today, Kind.CHECK_IN).isNotEmpty() || ctx.store.entries(today, Kind.CHECK_OUT).isNotEmpty()) return null
+            val y = today.minusDays(1)
+            val ins = ctx.store.entries(y, Kind.CHECK_IN)
+            return if (ins.isNotEmpty() && ctx.store.entries(y, Kind.CHECK_OUT).isEmpty()) y else null
+        }
+
+        private const val LATE_UNTIL = 12
     }
 }
 

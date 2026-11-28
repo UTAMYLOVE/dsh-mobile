@@ -116,8 +116,9 @@ data class DayState(
 
             val checkIns = today.filter { it.kind == Kind.CHECK_IN }
             val checkOuts = today.filter { it.kind == Kind.CHECK_OUT }
+            // An imported meal or weight is history only: it never makes today's item done.
             val meals = today.filter { it.kind == Kind.MEAL }.mapNotNull { e ->
-                e.readOrNull<Meal>()?.let { m ->
+                e.readOrNull<Meal>()?.takeIf { it.batch == null }?.let { m ->
                     MealRecord(e.id, m, m.items.sumOf { it.kcal }, m.items.sumOf { it.proteinG }, e.at)
                 }
             }
@@ -129,7 +130,7 @@ data class DayState(
                 val id = TaskId.values().firstOrNull { it.name == t.task } ?: continue
                 tasks[id] = t
             }
-            val bodies = today.filter { it.kind == Kind.BODY }.mapNotNull { it.readOrNull<Body>() }
+            val bodies = today.filter { it.kind == Kind.BODY }.mapNotNull { it.readOrNull<Body>() }.filter { it.batch == null }
             val body = if (bodies.isEmpty()) null else Body(
                 kg = bodies.mapNotNull { it.kg }.lastOrNull(),
                 waistCm = bodies.mapNotNull { it.waistCm }.lastOrNull(),

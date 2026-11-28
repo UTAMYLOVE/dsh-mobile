@@ -30,7 +30,9 @@ object Today {
     private const val RECENT_DAYS = 14L
 
     /** The stored stage, or (before he has joined) a stage-1 round starting [day], without writing it. */
-    fun stage(store: Store, day: LocalDate): StageState = store.readDoc<StageState>(Doc.STAGE) ?: StageState(joinedOn = day.toString())
+    /** The stage as it stood on [day] (a past day keeps the stage it had, see [StageDays.asOf]). */
+    fun stage(store: Store, day: LocalDate): StageState =
+        store.readDoc<StageState>(Doc.STAGE)?.let { app.agency.core.day.StageDays.asOf(it, day) } ?: StageState(joinedOn = day.toString())
 
     fun levels(store: Store): Levels = store.readDoc<Levels>(Doc.LEVELS) ?: Levels()
 
