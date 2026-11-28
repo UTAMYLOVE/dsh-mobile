@@ -428,16 +428,28 @@ class Company(
         return r
     }
 
-    override suspend fun quizFor(id: Long): Quiz? {
+    override suspend fun quizFor(id: Long): Quiz? = (quizStatus(id) as? QuizStatus.Ready)?.quiz
+
+    override suspend fun quizStatus(id: Long): QuizStatus {
         val b = book()
-        val l = b.get(id) ?: return null
-        if (l.state != LessonState.WATCHED || l.notesOnly) return null
-        l.quiz?.let { return it }
-        val quiz = runCatching { Quizzer(providers.chat).make(l, l.level, rules().study) }.getOrNull()
-        if (quiz != null && b.setQuiz(id, quiz) is LessonResult.Ok) return quiz
+        val l = b.get(id) ?: return QuizStatus.NotesOnly
+        if (l.state != LessonState.WATCHED || l.notesOnly) return QuizStatus.NotesOnly
+        l.quiz?.let { return QuizStatus.Ready(it) }
+        if (l.material.isBlank()) {
+            // A link he pasted himself has no material to ask about: notes from the start, no model call.
+            b.notesOnly(id)
+            note("〔${l.subject}「${l.title}」沒有教材文字，看完直接寫三行筆記〕")
+            return QuizStatus.NotesOnly
+        }
+        when (val made = Quizzer(providers.chat).attempt(l, l.level, rules().study)) {
+            is Quizzer.Made.Ok -> if (b.setQuiz(id, made.quiz) is LessonResult.Ok) return QuizStatus.Ready(made.quiz)
+            // The model could not be asked: the lesson stays as it is and he tries again later.
+            is Quizzer.Made.CallFailed -> return QuizStatus.Unavailable()
+            Quizzer.Made.Invalid -> Unit
+        }
         b.notesOnly(id)
         note("〔${l.subject}「${l.title}」這次出不了合格的題目，改成直接寫三行筆記〕")
-        return null
+        return QuizStatus.NotesOnly
     }
 
     override fun answerQuiz(id: Long, answers: List<Int>): QuizResult {
@@ -593,12 +605,8 @@ class Company(
     override suspend fun submitMonthlyEval(input: MonthlyInput): EvalResult {
         val st = TodayPlan.stage(store, Days.today(clock))
         val r = evals().submitMonthly(input, st)
-        if (r is EvalResult.Ok) {
-            if (input.weightKg > 0 || input.waistCm > 0) {
-                store.add(Days.today(clock), clock.now(), Kind.BODY, Body(input.weightKg.takeIf { it > 0 }, input.waistCm.takeIf { it > 0 }))
-            }
-            note("✓ 月評交了", listOf(r.card))
-        }
+        // The evaluation itself writes the body record (weight, waist, photo) once.
+        if (r is EvalResult.Ok) note("✓ 月評交了", listOf(r.card))
         return r
     }
 

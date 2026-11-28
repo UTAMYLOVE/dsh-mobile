@@ -91,15 +91,21 @@ class Agent(
 
     private suspend fun answer(said: Said): SayResult {
         val msg = said.msg
+        val got = Collected()
         val result = try {
-            converse(said)
+            converse(said, got)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Outcome.Failed(Fail.BAD_RESPONSE)
         }
         return when (result) {
-            is Outcome.Failed -> {
+            is Outcome.Failed -> if (got.recorded.isNotEmpty()) {
+                // Something was already written this turn: sending his message again would record it twice. His message stays
+                // sent, a NOTE says what was saved, and only her words are missing.
+                store.addMessage(clock.now(), Role.NOTE, recordedNote(got.recorded))
+                SayResult.Ok
+            } else {
                 store.updateMessage(msg.copy(meta = JsonObject(msg.meta + (META_FAILED to JsonPrimitive(true)))))
                 SayResult.NotSent(reason(result.fail))
             }
@@ -122,10 +128,30 @@ class Agent(
         data class Failed(val fail: Fail) : Outcome
     }
 
-    /** What the tools of this turn produced. */
+    /** What the tools of this turn produced. [recorded] are the note lines of the calls that wrote something. */
     private class Collected {
         val cards = ArrayList<Card>()
         val facts = StringBuilder()
+        val recorded = ArrayList<String>()
+    }
+
+    /** Counts writes, so the loop knows which tool calls changed something (for [SayResult] after a failed reply). */
+    private class Counting(private val d: Store) : Store by d {
+        var writes = 0
+
+        override fun add(day: java.time.LocalDate, at: java.time.Instant, kind: String, data: JsonObject) =
+            d.add(day, at, kind, data).also { writes++ }
+
+        override fun update(id: Long, data: JsonObject) = d.update(id, data).also { if (it) writes++ }
+
+        override fun remove(id: Long) = d.remove(id).also { if (it) writes++ }
+
+        override fun putDoc(key: String, json: String?) {
+            d.putDoc(key, json)
+            writes++
+        }
+
+        override fun <T> tx(block: () -> T): T = d.tx(block)
     }
 
     private sealed interface Step {
@@ -133,14 +159,14 @@ class Agent(
         data class Failed(val fail: Fail) : Step
     }
 
-    private suspend fun converse(said: Said): Outcome {
+    private suspend fun converse(said: Said, got: Collected): Outcome {
         val before = context()
         val sys = system()
         val ownerText = (listOf(said.msg.text) + said.files.map { it.second }).joinToString("\n")
         val turns = buildTurns(said, before).toMutableList()
         val offered = tools()
-        val ctx = toolCtx(said.photoIds).withOwnerText(ownerText)
-        val got = Collected()
+        val counting = Counting(toolCtx(said.photoIds).store)
+        val ctx = toolCtx(said.photoIds).withOwnerText(ownerText).withStore(counting)
 
         val first = loop(sys, turns, offered, ctx, got, MAX_ROUNDS)
         if (first is Step.Failed) return Outcome.Failed(first.fail)
@@ -238,11 +264,16 @@ class Agent(
                 return if (t.isEmpty()) Step.Failed(Fail.BAD_RESPONSE) else Step.Text(t, again.assistant)
             }
             round++
-            for (ran in ToolRunner.run(r.toolCalls, offered, ctx)) {
+            for (call in r.toolCalls) {
+                val before = (ctx.store as? Counting)?.writes ?: 0
+                val ran = ToolRunner.run(listOf(call), offered, ctx).single()
                 turns += ran.result
                 ran.out?.let { out ->
                     got.cards += out.cards
                     got.facts.append(out.facts.toString()).append('\n')
+                    val wrote = ((ctx.store as? Counting)?.writes ?: 0) > before
+                    val tool = offered.firstOrNull { it.spec.name == call.name }
+                    if (wrote && out.ok && tool != null) got.recorded += app.agency.core.agent.tools.Tools.noteLine(tool, out)
                 }
             }
         }
@@ -340,6 +371,9 @@ class Agent(
 
     private fun findMessage(id: Long): Message? =
         store.messages(1, beforeId = id + 1).firstOrNull { it.id == id }
+
+    private fun recordedNote(lines: List<String>): String =
+        "〔小葵的回覆沒有送出，但這些已經記下來了，不用重送：" + lines.distinct().joinToString("；") + "〕"
 
     private fun fixNote(problems: List<Problem>): String = buildString {
         append("〔檢查沒過：上一版回覆有下面的問題。請重寫整段要給他看的回覆，只改有問題的地方，其他照舊；不要提到檢查，也不要道歉。〕")

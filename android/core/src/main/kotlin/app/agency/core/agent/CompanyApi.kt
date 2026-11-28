@@ -141,6 +141,21 @@ data class EvalView(
  * EVAL → [submitWeeklyEval] / [submitMonthlyEval]; SINGING → [recordSong]; MEMO → [memos], [memoDone], [memoRemove];
  * MONEY → [moneyView] and [CompanyApi.direct] with `log_money`.
  */
+/** What [CompanyAdmin.quizStatus] found for a lesson. */
+sealed interface QuizStatus {
+    data class Ready(val quiz: app.agency.core.lessons.Quiz) : QuizStatus
+
+    /** No quiz for this lesson: notes instead (or the lesson is not at the quiz step). */
+    data object NotesOnly : QuizStatus
+
+    /** The model could not be reached; try again later. [message] is for his screen. */
+    data class Unavailable(val message: String = MESSAGE) : QuizStatus {
+        companion object {
+            const val MESSAGE = "現在出不了題，等一下再試"
+        }
+    }
+}
+
 interface CompanyAdmin {
     /** Reads his pasted document into rules + handbook. Does not save anything. */
     suspend fun importRules(text: String): app.agency.core.rules.ImportResult
@@ -169,8 +184,14 @@ interface CompanyAdmin {
     /** He came back from the video; [watched] = he says he watched it (the quiz becomes available). */
     fun backFromLesson(id: Long, watched: Boolean = true): app.agency.core.lessons.LessonResult
 
-    /** The quiz of a watched lesson, made now when missing; null when the lesson falls back to notes only. */
+    /** The quiz of a watched lesson, made now when missing; null when there is none right now (see [quizStatus]). */
     suspend fun quizFor(id: Long): app.agency.core.lessons.Quiz?
+
+    /**
+     * Like [quizFor], but says why there is no quiz: [QuizStatus.Unavailable] (the model could not be asked; the lesson is
+     * unchanged, show its message) versus [QuizStatus.NotesOnly] (no valid quiz could be made; he writes notes instead).
+     */
+    suspend fun quizStatus(id: Long): QuizStatus = quizFor(id)?.let { QuizStatus.Ready(it) } ?: QuizStatus.NotesOnly
 
     fun answerQuiz(id: Long, answers: List<Int>): app.agency.core.lessons.QuizResult
 

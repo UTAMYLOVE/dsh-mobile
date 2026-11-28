@@ -173,6 +173,12 @@ data class WeekResult(
     val weightChangeKg: Double? = null,
     val lessonsPassed: Int = 0,
     val perfectDays: Int = 0,
+    /** The real-person task finished this week; null when that feature was not open. */
+    val realTaskDone: Boolean? = null,
+    /** The trainee level at the end of the week ("" before stage 4). */
+    val level: String = "",
+    /** Photocards earned this week. */
+    val photocards: Int = 0,
 )
 
 /** A photocard (`Kind.CARD`): [kind] is "7" or "30" (days in a row), [earnedOn] the ISO day the streak reached it. */

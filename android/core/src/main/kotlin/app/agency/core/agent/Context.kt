@@ -278,6 +278,18 @@ class Context(
         Streaks.missed(store, y).forEach { out += "「${it.title}」已經連續 ${it.days} 天沒做" }
         if (Streaks.lowMood(store, m.day) >= Streaks.TALK_AT) out += "他連續 ${Streaks.lowMood(store, m.day)} 天心情低落，主動問他怎麼了"
         if (m.stage.talk) out += "上一輪違規很多，要跟他談一談"
+        if (Feature.MONTHLY_EVAL.openAt(m.stage.stage)) {
+            val stalled = runCatching { app.agency.core.extras.Evaluations(store, clock, rules).stalled() }.getOrDefault(false)
+            if (stalled) out += "月評已經連續兩個月以上沒有進步，主動跟他談怎麼調整"
+        }
+        if (Feature.WEIGHT.openAt(m.stage.stage)) {
+            val body = runCatching { app.agency.core.week.BodyTrend.flags(store, m.day, rules) }.getOrNull()
+            if (body?.floor == true) {
+                out += "體重已經到最低底線 ${num(rules.body.neverBelowKg)} 公斤：絕對不要再鼓勵他減重，先跟他確認吃得夠"
+            } else if (body?.pause == true) {
+                out += "體重低於 ${num(rules.body.pauseBelowKg)} 公斤：先停止推減重，跟他一起檢討再說"
+            }
+        }
         val from = runCatching { LocalDate.parse(m.stage.startedOn) }.getOrNull()
         if (from != null) {
             val v = store.entries(from, m.day, Kind.VIOLATION).size

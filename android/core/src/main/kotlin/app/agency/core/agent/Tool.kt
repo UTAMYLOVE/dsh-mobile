@@ -35,6 +35,9 @@ class ToolCtx(
 ) {
     /** The same context for answering [text]. */
     fun withOwnerText(text: String): ToolCtx = ToolCtx(store, clock, rules, stage, photoIds, ports, photoFromGallery, text)
+
+    /** The same context over [other] (the loop wraps the store to see which calls wrote something). */
+    fun withStore(other: Store): ToolCtx = ToolCtx(other, clock, rules, stage, photoIds, ports, photoFromGallery, ownerText)
 }
 
 /** Outside services a tool may need. Each is optional; a missing one makes its tools answer "not available". */
