@@ -1,12 +1,12 @@
 package app.dshmobile
 
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
@@ -39,6 +39,20 @@ class JourneyTest {
     private fun type(tag: String, text: String) {
         waitForTag(tag)
         rule.onNodeWithTag(tag).performTextInput(text)
+    }
+
+    /** One short line per node that has a tag or a text, for the failure message. */
+    private fun outline(): String {
+        val out = StringBuilder()
+        fun walk(n: androidx.compose.ui.semantics.SemanticsNode, depth: Int) {
+            val cfg = n.config
+            val tag = cfg.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag)
+            val text = cfg.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString("|") { it.text }
+            if (tag != null || text != null) out.append("${n.boundsInRoot} ${tag.orEmpty()} ${text.orEmpty()}\n")
+            n.children.forEach { walk(it, depth + 1) }
+        }
+        walk(rule.onRoot(useUnmergedTree = true).fetchSemanticsNode(), 0)
+        return out.toString()
     }
 
     private fun overlayShown() = rule.onAllNodes(hasTestTag("overlay")).fetchSemanticsNodes().isNotEmpty()
@@ -93,7 +107,7 @@ class JourneyTest {
         try {
             rule.waitUntil(60_000) { count(reply) > before || overlayShown() || cameraShown() }
         } catch (e: Throwable) {
-            throw AssertionError("the next-thing tap did nothing visible:\n" + rule.onRoot(useUnmergedTree = true).printToString(2500), e)
+            throw AssertionError("the next-thing tap did nothing visible ($e):\n" + outline() + " seen=" + model.seen, e)
         }
         runCatching { cameras().forEach { c -> rule.runOnUiThread { c.finish() } } }
     }
