@@ -20,7 +20,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 /**
  * Claude Messages API (`POST /v1/messages`, `x-api-key`, `anthropic-version`). Shapes checked on 2026-11-22 for
  * `claude-sonnet-5-5`, `claude-haiku-5-5` and `claude-opus-5-5`:
- * - structured output through `output_config.format` (`json_schema`), with `output_config.effort: low` on every call;
+ * - structured output through `output_config.format` (`json_schema`), with `output_config.effort` on every call (the
+ *   request's [Effort]: `low` unless the caller asked for more; the model thinks adaptively within it);
+ * - photos of [Turn.User.images] as base64 `image` blocks before that turn's text block (every model in [MODELS] takes them);
+ *   media blocks inside an echoed assistant `content` are dropped;
  * - no `thinking` field (it cannot be turned off on `claude-opus-5-5`; `disabled` is a 400 on `claude-sonnet-5-5`), no
  *   `temperature` / `top_p` (non-default sampling is a 400 on these models);
  * - tools with `strict: true` and `tool_choice: auto` (forced `any` / `tool` is a 400);
@@ -100,7 +103,7 @@ class AnthropicClient(
             (request.output as? Output.Json)?.let { j ->
                 put("format", buildJsonObject { put("type", "json_schema"); put("schema", j.schema) })
             }
-            put("effort", "low")
+            put("effort", request.effort.wire)
         })
         if (request.tools.isNotEmpty()) {
             put("tools", buildJsonArray {
@@ -127,7 +130,7 @@ class AnthropicClient(
         }
         ToolPairing.repair(turns).forEach { t ->
             when (t) {
-                is Turn.User -> append("user", listOf(textBlock(t.text)))
+                is Turn.User -> append("user", t.images.map { Images.claudeBlock(it) } + textBlock(t.text))
                 is Turn.ToolResult -> append("user", listOf(buildJsonObject {
                     put("type", "tool_result")
                     put("tool_use_id", t.callId)
@@ -135,7 +138,10 @@ class AnthropicClient(
                     if (t.isError) put("is_error", true)
                 }))
                 is Turn.AssistantText -> append("assistant", listOf(textBlock(t.text)))
-                is Turn.Assistant -> append("assistant", if (t.wire == Wire.ANTHROPIC && t.raw is JsonArray) t.raw else rebuilt(t))
+                is Turn.Assistant -> append(
+                    "assistant",
+                    if (t.wire == Wire.ANTHROPIC && t.raw is JsonArray) Images.strip(t.raw) as JsonArray else rebuilt(t),
+                )
             }
         }
         // Tool results go before any text in a user message.
