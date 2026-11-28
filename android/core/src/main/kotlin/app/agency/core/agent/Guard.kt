@@ -26,15 +26,55 @@ sealed interface GuardResult {
  *
  * It is deliberately conservative, because a false alarm makes her sound broken:
  * - Numbers: only Arabic digits (half or full width, decimals, thousands commas) directly followed by one of [UNITS], and
- *   `H:MM` times, are checked. A number passes when the same value appears anywhere in the facts or in his own message,
- *   compared numerically (`1,200` = `1200`, `7:00` = `07:00`); for a range like 「300–400 大卡」 both ends must pass. Plain counts
+ *   `H:MM` times, are checked. A number passes when the same value appears in the facts WITH A UNIT OF THE SAME FAMILY
+ *   ([Family]: kcal with kcal, grams with grams, money with money…), read from the text (a number and its unit) and from the
+ *   tool results' JSON (a number and its key: `kcal_left`, `protein_g`, `water_ml`…); an entry id, a date or a bare number
+ *   never vouches for a claim. A number of his own message passes in any unit (he often leaves the unit out). Compared
+ *   numerically (`1,200` = `1200`, `7:00` = `07:00`); for a range like 「300–400 大卡」 both ends must pass. Plain counts
  *   without a unit and numbers written in Chinese numerals are not checked.
  * - Advice: small regex families for skipping a meal, making it up tomorrow, granting a lighter training herself, shaming
  *   words, and pushing his weight under the floor. A match right after a negation (「不要跳餐」) is not a problem.
  * - Links and named videos or places (in 《》, or in 「」 next to a video/place word) must appear in the facts.
- * - A closed feature's word together with an instruction to do it, unless the sentence says it starts later.
+ * - A closed feature's word together with an instruction to do it, unless the sentence says it starts later or is about a
+ *   lesson or a video (a subject called 舞蹈 is not the dance practice).
  */
 object Guard {
+    /** Which numbers can vouch for which: a unit only accepts facts of its own family. */
+    enum class Family { KCAL, GRAM, KG, CM, WATER, MINUTE, SECOND, MONEY, PERCENT, COUNT }
+
+    fun familyOf(unit: String): Family = when (unit) {
+        "大卡", "卡" -> Family.KCAL
+        "公克", "克" -> Family.GRAM
+        "公斤" -> Family.KG
+        "公分" -> Family.CM
+        "毫升", "壺" -> Family.WATER
+        "分鐘" -> Family.MINUTE
+        "秒" -> Family.SECOND
+        "元" -> Family.MONEY
+        "%", "％" -> Family.PERCENT
+        else -> Family.COUNT
+    }
+
+    /** The family a JSON fact belongs to, from its key (or its parent's key); null for ids and other numbers that are not claims. */
+    internal fun familyOfKey(key: String, parent: String?): Family? {
+        val k = key.lowercase()
+        if (k == "id" || k.endsWith("_id") || k.endsWith("id") && k.length <= 3 || k == "removed" || k == "entry") return null
+        fun of(s: String): Family? = when {
+            s.contains("kcal") || s.contains("calorie") -> Family.KCAL
+            s.contains("protein") || s.endsWith("_g") -> Family.GRAM
+            s == "kg" || s.endsWith("_kg") || s.contains("weight") -> Family.KG
+            s.contains("cm") || s.contains("waist") -> Family.CM
+            s.contains("ml") || s.contains("bottle") || s.contains("water") -> Family.WATER
+            s.contains("minute") -> Family.MINUTE
+            s.contains("second") -> Family.SECOND
+            s.contains("income") || s.contains("amount") || s.contains("money") || s.contains("living") || s == "fun" ||
+                s.contains("spent") || s.contains("yuan") -> Family.MONEY
+            s.contains("pct") || s.contains("percent") -> Family.PERCENT
+            else -> null
+        }
+        return of(k) ?: parent?.lowercase()?.let(::of) ?: Family.COUNT
+    }
+
     /** Units after which a number is a claim about him. Longest first so 「分鐘」 is not read as 「分」. */
     val UNITS = listOf(
         "大卡", "公克", "公斤", "公分", "毫升", "分鐘", "卡", "克", "元", "秒", "壺", "%", "％", "輪", "下", "次", "天", "週", "支",
@@ -45,6 +85,11 @@ object Guard {
     private val unitAlt = UNITS.joinToString("|") { Regex.escape(it) }
     private val numberWithUnit = Regex(
         """(?<![0-9０-９A-Za-z.．:：])($NUM)(?:\s*(?:-|–|—|~|～|〜|至|到)\s*($NUM))?\s*($unitAlt)""",
+    )
+
+    /** In the facts: a number with its unit, also 「2／12 項」 and 「1／2 壺」 (both numbers take the unit). Never after 「#」. */
+    private val factWithUnit = Regex(
+        """(?<![0-9０-９A-Za-z.．:：#])($NUM)(?:\s*(?:[／/]|-|–|—|~|～|〜|至|到)\s*($NUM))?\s*($unitAlt)""",
     )
     private val anyNumber = Regex(NUM)
     private val time = Regex("""(?<![0-9０-９])([0-9０-９]{1,2})[:：]([0-5０-５][0-9０-９])(?![0-9０-９])""")
@@ -98,10 +143,12 @@ object Guard {
     private val instruction = Regex(
         """記得|快去|趕快|現在就|現在去|開始|先去|去做|去量|去喝|去拍|去練|來做|來量|來練|應該|該做|該去|請你|你要|要不要|別忘了|順便|試著|可以先""",
     )
+    /** A sentence about a lesson or a video is never a closed feature's instruction (subjects share words with features). */
+    private val lessonWords = Regex("""課|影片|教材|考試|筆記|測驗""")
     private val later = Regex("""之後|以後|後面|下一?個?階段|還沒開|還沒開始|還沒輪到|才開始|才會|開放後|到時候|等.{0,6}開""")
 
     fun check(reply: String, facts: String, ownerText: String, flags: GuardFlags = GuardFlags()): GuardResult {
-        val known = values(facts) + values(ownerText)
+        val known = Known(familyValues(facts), values(ownerText))
         val knownTimes = times(facts) + times(ownerText)
         val problems = ArrayList<Problem>()
         for (s in sentences(reply).map { it.trim() }.filter { it.isNotEmpty() }) {
@@ -132,7 +179,7 @@ object Guard {
         s: String,
         facts: String,
         owner: String,
-        known: Set<Double>,
+        known: Known,
         knownTimes: Set<Int>,
         flags: GuardFlags,
     ): List<String> = buildList {
@@ -140,7 +187,8 @@ object Guard {
             val unit = m.groupValues[3]
             if (notReallyAUnit(unit, s.getOrNull(m.range.last + 1))) continue
             val ends = listOfNotNull(m.groupValues[1], m.groupValues[2].takeIf { it.isNotEmpty() })
-            val missing = ends.firstOrNull { e -> value(e)?.let { v -> known.none { same(it, v) } } == true }
+            val family = familyOf(unit)
+            val missing = ends.firstOrNull { e -> value(e)?.let { v -> !known.has(family, v) } == true }
             if (missing != null) add("「${m.value.trim()}」這個數字不在這次的情境或工具結果裡。關於他的數字只能照工具或情境給的說；需要的話先用工具查，或不要提數字。")
         }
         for (m in time.findAll(s)) {
@@ -166,7 +214,9 @@ object Guard {
         for (n in named) {
             if (!containsLoosely(facts, n) && !containsLoosely(owner, n)) add("「$n」不在這次的搜尋結果裡。地點和影片只能說搜尋工具真的找到的。")
         }
+        val aboutLessons = lessonWords.containsMatchIn(s)
         for (w in flags.closedFeatureWords.filter { it.isNotBlank() }) {
+            if (aboutLessons) break
             if (s.contains(w) && instruction.containsMatchIn(s) && !later.containsMatchIn(s)) {
                 add("「$w」還沒開放，不能叫他做或提醒他做；他自己回報的話就記下來，並說這項之後才開始。")
             }
@@ -229,6 +279,51 @@ object Guard {
     private fun value(raw: String): Double? = normalise(raw).toDoubleOrNull()
 
     private fun values(text: String): Set<Double> = anyNumber.findAll(text).mapNotNull { value(it.value) }.toSet()
+
+    /** What the facts vouch for, by family, plus his own numbers (any family). */
+    private class Known(val byFamily: Map<Family, Set<Double>>, val owner: Set<Double>) {
+        fun has(f: Family, v: Double): Boolean =
+            owner.any { same(it, v) } || byFamily[f].orEmpty().any { same(it, v) }
+    }
+
+    /**
+     * The numbers of [facts] by family: lines that are JSON (tool results) are read key by key (and their text values as text);
+     * every other line is read as text, a number counting only with the unit right after it.
+     */
+    internal fun familyValues(facts: String): Map<Family, Set<Double>> {
+        val out = HashMap<Family, MutableSet<Double>>()
+        fun put(f: Family, v: Double) { out.getOrPut(f) { HashSet() } += v }
+        fun text(t: String) {
+            for (m in factWithUnit.findAll(t)) {
+                val unit = m.groupValues[3]
+                if (notReallyAUnit(unit, t.getOrNull(m.range.last + 1))) continue
+                val f = familyOf(unit)
+                listOf(m.groupValues[1], m.groupValues[2]).filter { it.isNotEmpty() }.forEach { e -> value(e)?.let { put(f, it) } }
+            }
+        }
+        fun walk(e: kotlinx.serialization.json.JsonElement, key: String?, parent: String?) {
+            when (e) {
+                is kotlinx.serialization.json.JsonObject -> e.forEach { (k, v) -> walk(v, k, key) }
+                is kotlinx.serialization.json.JsonArray -> e.forEach { walk(it, key, parent) }
+                is kotlinx.serialization.json.JsonPrimitive -> {
+                    if (e.isString) {
+                        text(e.content)
+                    } else {
+                        val v = e.content.toDoubleOrNull() ?: return
+                        val f = key?.let { familyOfKey(it, parent) } ?: return
+                        put(f, v)
+                    }
+                }
+                else -> Unit
+            }
+        }
+        for (line in facts.lines()) {
+            val t = line.trim()
+            val json = if (t.startsWith("{")) runCatching { kotlinx.serialization.json.Json.parseToJsonElement(t) }.getOrNull() else null
+            if (json != null) walk(json, null, null) else text(line)
+        }
+        return out
+    }
 
     private fun minutes(m: MatchResult): Int? {
         val h = normalise(m.groupValues[1]).toIntOrNull() ?: return null
