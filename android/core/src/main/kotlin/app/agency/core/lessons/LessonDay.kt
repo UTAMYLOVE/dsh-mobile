@@ -52,8 +52,8 @@ object LessonDay {
         }
 
         val slots = ArrayList<LessonSlot>()
-        fun add(subject: String, id: Long?, title: String, done: Boolean, review: Boolean = false) {
-            slots += LessonSlot(slots.size + 1, subject, id, title, done, review)
+        fun add(subject: String, id: Long?, title: String, done: Boolean, review: Boolean = false, proposed: Boolean = false) {
+            slots += LessonSlot(slots.size + 1, subject, id, title, done, review, proposed)
         }
 
         for (s in subjects.take(cap)) {
@@ -64,7 +64,7 @@ object LessonDay {
             when {
                 finishedToday != null -> add(s, finishedToday.id, finishedToday.lesson.title, true)
                 active != null -> add(s, active.id, active.lesson.title, false)
-                proposed != null -> add(s, null, "$s：${proposed.lesson.title}（等你決定）", false)
+                proposed != null -> add(s, null, "$s：${proposed.lesson.title}（等你決定）", false, proposed = true)
                 else -> add(s, null, "$s（${levelName(levels, s)}）：請小葵找影片", false)
             }
         }
@@ -82,6 +82,7 @@ object LessonDay {
 
         // Extras on request: lessons taken as extras, then wishes, at most extraPerDay.
         val extras = ArrayList<Triple<String, Long?, Pair<String, Boolean>>>()
+        val proposedExtras = HashSet<String>()
         val ex = lessons.filter { it.lesson.extra }
         ex.filter { it.lesson.finished && it.lesson.notedOn == dayText }.forEach {
             extras += Triple(it.lesson.subject, it.id, it.lesson.title to true)
@@ -91,11 +92,14 @@ object LessonDay {
         }
         ex.filter { it.lesson.state == LessonState.PROPOSED }.sortedBy { it.id }.forEach {
             extras += Triple(it.lesson.subject, null, "${it.lesson.subject}：${it.lesson.title}（等你決定）" to false)
+            proposedExtras += it.lesson.subject
         }
         ex.filter { it.lesson.state == LessonState.WISH }.sortedBy { it.id }.forEach {
             extras += Triple(it.lesson.subject, null, "${it.lesson.subject}（想學）：請小葵找影片" to false)
         }
-        extras.take(extraMax).forEach { (subject, id, td) -> add(subject, id, td.first, td.second) }
+        extras.take(extraMax).forEach { (subject, id, td) ->
+            add(subject, id, td.first, td.second, proposed = id == null && subject in proposedExtras && td.first.endsWith("（等你決定）"))
+        }
         return slots
     }
 

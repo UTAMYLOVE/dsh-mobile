@@ -75,7 +75,8 @@ object Reminders {
             for (item in plan.items) {
                 if (!checkedIn && item.id != WAKE_ITEM) continue
                 if (item.status != ItemStatus.PENDING && item.status != ItemStatus.LATE) continue
-                val at = item.at ?: continue
+                // A deadline item (water before leaving, leaving itself) turns due at its deadline.
+                val at = item.at ?: item.until ?: continue
                 val due = Days.at(day, at, zone)
                 if (due > now) {
                     wake += due

@@ -25,6 +25,8 @@ class ToolCtx(
     /** Photos attached to the message being answered (vault ids), so a meal tool can attach one. */
     val photoIds: List<String> = emptyList(),
     val ports: Ports = Ports(),
+    /** For each of [photoIds]: picked from the gallery rather than taken now (a later meal photo is then 「補交」). */
+    val photoFromGallery: List<Boolean> = emptyList(),
 )
 
 /** Outside services a tool may need. Each is optional; a missing one makes its tools answer "not available". */

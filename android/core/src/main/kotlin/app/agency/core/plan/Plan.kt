@@ -102,6 +102,8 @@ data class LessonSlot(
     val done: Boolean,
     /** A review quiz that is due today rather than a new lesson. */
     val review: Boolean = false,
+    /** Empty slot whose video was found and waits for his yes or no (on the lessons page or the video card). */
+    val proposed: Boolean = false,
 )
 
 /** One active daily habit (a `habit:<id>` item). */
