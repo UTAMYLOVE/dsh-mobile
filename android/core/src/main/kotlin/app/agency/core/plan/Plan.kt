@@ -91,3 +91,28 @@ data class DayPlan(
     val done: Int,
     val total: Int,
 )
+
+/** One lesson slot of today, made by `lessons.LessonDay` and turned into a `lesson:<n>` item by the planner. */
+data class LessonSlot(
+    val n: Int,
+    val subject: String,
+    /** The lesson entry filling the slot, or null when 小葵 still has to find a video for [subject]. */
+    val lessonId: Long?,
+    val title: String,
+    val done: Boolean,
+    /** A review quiz that is due today rather than a new lesson. */
+    val review: Boolean = false,
+)
+
+/** One active daily habit (a `habit:<id>` item). */
+data class HabitToday(val id: Long, val name: String, val done: Boolean)
+
+/** What the planner needs to know about this calendar week (Monday to Sunday) up to yesterday. */
+data class WeekSoFar(
+    val weekStart: LocalDate,
+    val cardioDone: Int = 0,
+    val expressionDone: Int = 0,
+    val restDayUsed: Boolean = false,
+    val rideIncome: Int = 0,
+    val rideDays: Int = 0,
+)
