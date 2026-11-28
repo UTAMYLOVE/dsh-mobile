@@ -113,7 +113,7 @@ class OpenAiCompatClient(
         val url = base.newBuilder().addPathSegment("chat").addPathSegment("completions").build()
         val headers = mapOf("Authorization" to "Bearer ${CallChecks.usableKey(k)}")
         val outcome = transport.postJson(url, headers, body(ep, request, withTools).toString())
-        Fail.of(outcome)?.let { return ChatResult.Failed(it) }
+        Fail.of(outcome)?.let { return ChatResult.Failed(it, FailDetail.of(outcome)) }
         val text = (outcome as HttpOutcome.Response).body
         val u = UsageParser.fromOpenAiJson(text)
         if (ep.deepseek && u != null) runCatching { usage.record(Provider.DEEPSEEK, ep.model, u) }

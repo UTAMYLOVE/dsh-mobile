@@ -61,7 +61,11 @@ class RulesImport(private val llm: LlmClient) {
         // A request the provider would not take (for example a schema it rejects) is tried once more as plain text.
         if (r is ChatResult.Failed && r.fail == Fail.BAD_RESPONSE) r = call(Output.Text)
         val body = (r as? ChatResult.Ok)?.text?.trim()
-            ?: return ImportResult(Rules(), "", listOf(why((r as? ChatResult.Failed)?.fail)), ok = false)
+            ?: return ImportResult(
+                Rules(), "",
+                listOf(why((r as? ChatResult.Failed)?.fail) + ((r as? ChatResult.Failed)?.detail?.let { "（$it）" } ?: "")),
+                ok = false,
+            )
         return parse(body, problems)
     }
 

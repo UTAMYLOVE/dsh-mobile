@@ -129,5 +129,14 @@ sealed interface ChatResult {
     /** [assistant] is the turn to append before the tool results of the next request. */
     data class Ok(val text: String?, val toolCalls: List<ToolCall>, val assistant: Turn.Assistant, val usage: Usage?) : ChatResult
 
-    data class Failed(val fail: Fail) : ChatResult
+    /**
+     * [detail] is what the provider actually answered (HTTP status and its own error message, cut short), or why nothing came
+     * back. It is shown to him under a message that was not sent, so a failure can be diagnosed from a screenshot. Never a key.
+     */
+    class Failed(val fail: Fail, val detail: String? = null) : ChatResult {
+        /** Two failures are the same when their kind is: [detail] is only for showing. */
+        override fun equals(other: Any?): Boolean = other is Failed && other.fail == fail
+        override fun hashCode(): Int = fail.hashCode()
+        override fun toString(): String = "Failed(fail=$fail)"
+    }
 }

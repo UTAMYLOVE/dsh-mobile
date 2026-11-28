@@ -85,7 +85,7 @@ class Agent(
             val o = f as? JsonObject ?: return@mapNotNull null
             o.str("name").orEmpty() to o.str("text").orEmpty()
         }
-        val cleared = msg.copy(meta = JsonObject(msg.meta - META_FAILED))
+        val cleared = msg.copy(meta = JsonObject(msg.meta - META_FAILED - META_WHY))
         store.updateMessage(cleared)
         return answer(Said(cleared, photoIds, images, files))
     }
@@ -107,8 +107,9 @@ class Agent(
                 store.addMessage(clock.now(), Role.NOTE, recordedNote(got.recorded))
                 SayResult.Ok
             } else {
-                store.updateMessage(msg.copy(meta = JsonObject(msg.meta + (META_FAILED to JsonPrimitive(true)))))
-                SayResult.NotSent(reason(result.fail))
+                val why = reason(result.fail, result.detail)
+                store.updateMessage(msg.copy(meta = JsonObject(msg.meta + (META_FAILED to JsonPrimitive(true)) + (META_WHY to JsonPrimitive(why)))))
+                SayResult.NotSent(why)
             }
             is Outcome.Replied -> {
                 store.addMessage(clock.now(), Role.MANAGER, result.text, result.cards, result.meta)
@@ -126,7 +127,7 @@ class Agent(
 
     private sealed interface Outcome {
         data class Replied(val text: String, val cards: List<Card>, val meta: JsonObject) : Outcome
-        data class Failed(val fail: Fail) : Outcome
+        data class Failed(val fail: Fail, val detail: String? = null) : Outcome
     }
 
     /** What the tools of this turn produced. [recorded] are the note lines of the calls that wrote something. */
@@ -157,7 +158,7 @@ class Agent(
 
     private sealed interface Step {
         data class Text(val text: String, val assistant: Turn.Assistant) : Step
-        data class Failed(val fail: Fail) : Step
+        data class Failed(val fail: Fail, val detail: String? = null) : Step
     }
 
     private suspend fun converse(said: Said, got: Collected): Outcome {
@@ -172,7 +173,7 @@ class Agent(
         val ctx = toolCtx(said.photoIds).withOwnerText(ownerText).withStore(counting)
 
         val first = loop(sys, turns, offered, ctx, got, MAX_ROUNDS, cacheTurns)
-        if (first is Step.Failed) return Outcome.Failed(first.fail)
+        if (first is Step.Failed) return Outcome.Failed(first.fail, first.detail)
         var last = (first as Step.Text).assistant
         var text = first.text
 
@@ -248,7 +249,7 @@ class Agent(
                 tools = offered.map { it.spec }, thinking = Thinking.LOW, effort = effort, cacheTurns = cacheTurns,
             )
             val r = llm.chat(request)
-            if (r is ChatResult.Failed) return Step.Failed(r.fail)
+            if (r is ChatResult.Failed) return Step.Failed(r.fail, r.detail)
             r as ChatResult.Ok
             turns += r.assistant
             if (r.toolCalls.isEmpty()) {
@@ -262,7 +263,7 @@ class Agent(
                 r.toolCalls.forEach { turns += Turn.ToolResult(it.id, TOO_MANY_ROUNDS, isError = true) }
                 turns += Turn.User(NO_MORE_TOOLS)
                 val again = llm.chat(request.copy(turns = turns.toList()))
-                if (again !is ChatResult.Ok) return Step.Failed((again as ChatResult.Failed).fail)
+                if (again !is ChatResult.Ok) return (again as ChatResult.Failed).let { Step.Failed(it.fail, it.detail) }
                 turns += again.assistant
                 val t = again.text?.trim().orEmpty()
                 return if (t.isEmpty()) Step.Failed(Fail.BAD_RESPONSE) else Step.Text(t, again.assistant)
@@ -422,6 +423,9 @@ class Agent(
         const val FILES_TOTAL_MAX = 24_000
 
         const val META_FAILED = "failed"
+
+        /** Why the message was not sent, in his language with the provider's own words after it. */
+        const val META_WHY = "why"
         const val META_FILES = "files"
         const val META_REASONING = "reasoning"
 
@@ -433,6 +437,9 @@ class Agent(
         private fun cap(s: String, max: Int): String = Memory.takeCodePoints(s, maxOf(0, max))
 
         /** Why a message was not sent, in his language. */
+        /** [reason] with what the provider actually said after it, so a screenshot is enough to find the cause. */
+        fun reason(fail: Fail, detail: String?): String = reason(fail) + (detail?.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: "")
+
         fun reason(fail: Fail): String = when (fail) {
             Fail.OFFLINE -> "現在沒有網路，訊息沒送出。連上之後點一下重送。"
             Fail.NO_KEY -> "還沒有可以用的金鑰，請到設定加上。"

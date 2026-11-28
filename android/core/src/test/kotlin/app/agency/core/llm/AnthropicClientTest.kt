@@ -87,6 +87,24 @@ class AnthropicClientTest {
         assertFalse(body.containsKey("temperature"))
     }
 
+    @Test fun aLargeToolSetGoesOutWithoutStrictBecauseStrictSchemasAreLimitedPerRequest() = runBlocking {
+        kit.enqueue(200, message("""[{"type":"text","text":"好"}]"""))
+        val many = (1..AnthropicClient.STRICT_TOOLS_MAX + 1).map { tool.copy(name = "tool_$it") }
+        kit.claude().chat(user.copy(tools = many, purpose = Purpose.CHAT))
+        val tools = json(kit.take())["tools"]!!.jsonArray
+        assertEquals(many.size, tools.size)
+        assertTrue(tools.none { it.jsonObject.containsKey("strict") })
+    }
+
+    @Test fun aRefusedRequestCarriesWhatTheProviderSaid() = runBlocking {
+        kit.enqueue(400, """{"type":"error","error":{"type":"invalid_request_error","message":"tools: too many strict tools"}}""")
+        val r = kit.claude().chat(user) as ChatResult.Failed
+        assertEquals(Fail.BAD_RESPONSE, r.fail)
+        assertEquals("HTTP 400 tools: too many strict tools", r.detail)
+        // A key that somehow appears in an error text is never shown.
+        assertFalse(FailDetail.of(app.agency.core.net.HttpOutcome.Response(401, """{"error":{"message":"bad key sk-abcdef123456"}}"""))!!.contains("abcdef"))
+    }
+
     @Test fun serverSideFallbackOnlyWhereTheModelHasOne() = runBlocking {
         kit.enqueue(200, message("""[{"type":"text","text":"好"}]"""))
         kit.claude("claude-sonnet-5-5").chat(user)

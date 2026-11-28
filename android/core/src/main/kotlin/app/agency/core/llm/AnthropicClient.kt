@@ -64,7 +64,7 @@ class AnthropicClient(
         }
         val url = base.newBuilder().addPathSegment("v1").addPathSegment("messages").build()
         val outcome = transport.postJson(url, headers, body(m, request).toString())
-        Fail.of(outcome)?.let { return ChatResult.Failed(it) }
+        Fail.of(outcome)?.let { return ChatResult.Failed(it, FailDetail.of(outcome)) }
         val text = (outcome as HttpOutcome.Response).body
         val o = UsageParser.parseObject(text) ?: return ChatResult.Failed(Fail.BAD_RESPONSE)
         val u = UsageParser.fromJson(Provider.ANTHROPIC, text)
@@ -109,13 +109,17 @@ class AnthropicClient(
             put("effort", request.effort.wire)
         })
         if (request.tools.isNotEmpty()) {
+            // Strict schemas are limited per request (number of strict tools, optional and union-typed parameters). The chat
+            // loop offers far more tools than that, so a large tool set goes out without `strict`; the tools validate their
+            // own arguments either way. A small set keeps the verified strict shape.
+            val strict = request.tools.size <= STRICT_TOOLS_MAX
             put("tools", buildJsonArray {
                 request.tools.forEach { t ->
                     add(buildJsonObject {
                         put("name", t.name)
                         put("description", t.description)
                         put("input_schema", t.parameters)
-                        put("strict", true)
+                        if (strict) put("strict", true)
                     })
                 }
             })
@@ -209,6 +213,7 @@ class AnthropicClient(
         /** The current API version; nothing this client sends changed between it and 2023-06-01. */
         const val API_VERSION = "2026-10-21"
         const val FALLBACK_BETA = "server-side-fallback-2026-07-01"
+        const val STRICT_TOOLS_MAX = 10
         const val DEFAULT_MODEL = "claude-sonnet-5-5"
         val MODELS = listOf(DEFAULT_MODEL, "claude-haiku-5-5", "claude-opus-5-5")
         val SERVER_FALLBACK_MODELS = setOf("claude-sonnet-5-5", "claude-opus-5-5")

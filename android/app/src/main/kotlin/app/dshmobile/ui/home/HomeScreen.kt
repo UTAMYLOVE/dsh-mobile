@@ -88,6 +88,9 @@ import kotlinx.coroutines.launch
 /** True for a stored message that was not sent. */
 val Message.failed: Boolean get() = meta["failed"]?.toString() == "true"
 
+/** Why a failed message was not sent (with the provider's own words), or null. */
+val Message.why: String? get() = (meta["why"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+
 /**
  * Home: the header, three stickers, the unfolding handbook page, the conversation, the next-thing pill, quick replies and the
  * input. [onOpen] navigates (screens other than the camera); [micAvailable] null = ask the system whether an on-device
@@ -494,6 +497,7 @@ private fun MessageView(m: Message, actions: CardActions, graph: UiGraph, onRese
             CardView(c, m.id, i, actions, graph.media, Modifier.fillMaxWidth(0.88f))
         }
         if (m.failed) KText(stringResource(R.string.msg_resend), Modifier.tap(onResend).testTag("resend_${m.id}"), size = 13.sp, color = Pal.Warn, bold = true)
+        if (m.failed) m.why?.let { KText(it, Modifier.fillMaxWidth(0.88f).testTag("why_${m.id}"), size = 12.sp, color = Pal.Warn) }
     }
 }
 

@@ -30,3 +30,22 @@ enum class Fail {
         }
     }
 }
+
+/** What went wrong on the wire, short enough to show under a message. Bodies of successful calls are never passed here. */
+object FailDetail {
+    private val key = Regex("""sk-[A-Za-z0-9_\-]{6,}""")
+    private val message = Regex(""""message"\s*:\s*"((?:[^"\\]|\\.){0,400})""")
+
+    fun of(outcome: app.agency.core.net.HttpOutcome): String? = when (outcome) {
+        is app.agency.core.net.HttpOutcome.Blocked -> "blocked host ${outcome.host}"
+        app.agency.core.net.HttpOutcome.Offline -> "no answer (offline or timed out)"
+        app.agency.core.net.HttpOutcome.TooLarge -> "answer too large"
+        is app.agency.core.net.HttpOutcome.Response ->
+            if (outcome.code in 200..299) null
+            else {
+                val said = message.find(outcome.body)?.groupValues?.get(1)?.replace("\\n", " ")?.replace("\\\"", "\"")
+                    ?: outcome.body.take(200)
+                ("HTTP ${outcome.code} " + said.replace(key, "sk-…")).trim().take(300)
+            }
+    }
+}
