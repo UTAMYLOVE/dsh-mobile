@@ -69,6 +69,16 @@ android {
                 "--add-opens=java.base/java.io=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
             )
+            it.testLogging {
+                events("failed")
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                showStackTraces = true
+                showCauses = true
+                stackTraceFilters(
+                    org.gradle.api.tasks.testing.logging.TestStackTraceFilter.ENTRY_POINT,
+                    org.gradle.api.tasks.testing.logging.TestStackTraceFilter.GROOVY,
+                )
+            }
             // -Pdshm.shots=<dir>: the tests that draw a screen also save a picture of it there (for the owner to look at).
             (project.findProperty("dshm.shots") as String?)?.let { dir -> it.systemProperty("dshm.shots", dir) }
         }
