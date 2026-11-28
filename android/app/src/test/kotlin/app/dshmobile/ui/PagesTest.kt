@@ -175,19 +175,13 @@ class PagesTest {
         val timer = DemoTimer()
         val finished = AtomicBoolean()
         val clock = AtomicLong(1_000)
-        rule.mainClock.autoAdvance = false
-        rule.show { TimerPage(timer, "CORE", {}, { finished.set(true) }, tickMs = 100_000, clock = { clock.get() }) }
-        rule.mainClock.advanceTimeBy(100)
+        rule.show { TimerPage(timer, "CORE", {}, { finished.set(true) }, tickMs = 250, clock = { clock.get() }) }
         rule.until { rule.count("timer_start") > 0 }
         rule.onNodeWithTag("timer_start").performClick()
-        rule.mainClock.advanceTimeBy(100)
         repeat(10) {
-            if (rule.count("timer_skip") > 0) {
-                rule.onNodeWithTag("timer_skip").performClick()
-                rule.mainClock.advanceTimeBy(100)
-            }
+            rule.waitForIdle()
+            if (rule.count("timer_skip") > 0) rule.onNodeWithTag("timer_skip").performClick()
         }
-        rule.mainClock.autoAdvance = true
         rule.waitForIdle()
         assertTrue("the timer never finished:\n" + rule.onRoot(useUnmergedTree = true).printToString(), rule.count("timer_done") > 0)
         rule.onNodeWithTag("feel_HARD").performClick()
