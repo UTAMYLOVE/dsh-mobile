@@ -460,9 +460,11 @@ object DayPlanner {
             }
         }
 
-        /** LATE first (oldest), then what is due within 30 minutes, then an untimed one, then the next timed one. */
+        /** Sign-in first; then LATE (oldest), then what is due within 30 minutes, then an untimed one, then the next timed one. */
         private fun pickNext(sorted: List<PlanItem>): PlanItem? {
             val cand = sorted.filter { (it.status == ItemStatus.PENDING || it.status == ItemStatus.LATE) && !it.waiting }
+            // The day starts with signing in: until he has, nothing else is the next thing (reminders stay quiet the same way).
+            cand.firstOrNull { it.id == "check_in" }?.let { return it }
             val refInst = { i: PlanItem -> (i.at ?: i.until)?.let(::inst) ?: Instant.MAX }
             cand.filter { it.status == ItemStatus.LATE }.minByOrNull(refInst)?.let { return it }
             val pending = cand.filter { it.status == ItemStatus.PENDING }

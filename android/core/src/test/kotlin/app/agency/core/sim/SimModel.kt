@@ -160,6 +160,11 @@ class SimModel : LlmClient {
             "開始訓練" -> training(context, timer = true).take(1)
             "我吃完了" -> emptyList()
             "這週的真人任務是什麼？" -> listOf("real_task" to args { put("text", ""); put("done", false) })
+            "這週的真人任務做完了" -> listOf("real_task" to args { put("text", ""); put("done", true) })
+            "我擦好防曬了" -> listOf("log_task" to args {
+                put("task", "SUNSCREEN"); put("rounds", null as Int?); put("minutes", null as Int?); put("feel", null as String?); put("note", "")
+            })
+            "我要做這週主題的小練習" -> listOf("open_timer" to args { put("task", "THEME_PRACTICE") })
             else -> null
         }
     }

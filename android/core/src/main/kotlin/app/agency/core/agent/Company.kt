@@ -322,7 +322,8 @@ class Company(
         val checkInLive = Feature.CHECK_IN.openAt(m.stage.stage) && RulesCheck.ready(m.rules, Feature.CHECK_IN)
         val memos = Memos.forReminders(store, m.day)
         val extra = runCatching { Extras.notices(m.now, store, m.rules, m.stage, m.state) }.getOrDefault(emptyList())
-        val plan = if (extra.isEmpty()) m.plan else moment().plan
+        // The spot check announces itself through [extra]; its plan item must not ring a second time.
+        val plan = (if (extra.isEmpty()) m.plan else moment().plan).let { p -> p.copy(items = p.items.filter { it.id != "spot" }) }
         val d = Reminders.decide(
             now = m.now,
             zone = clock.zone,
@@ -465,7 +466,9 @@ class Company(
         rollover()
         val name = Tasks.parse(task) ?: return "沒有這一項。"
         val tool = Tools.named("log_task")!!
-        val out = LogTaskTool.record(ctx(), name, rounds, minutes, feel, "", awaySeconds)
+        // Grooming is due per item: the record names what was done, so each item waits its own interval again.
+        val note = if (name == app.agency.core.plan.TaskId.GROOMING.name) item("task:GROOMING")?.detail.orEmpty() else ""
+        val out = LogTaskTool.record(ctx(), name, rounds, minutes, feel, note, awaySeconds)
         val line = Tools.noteLine(tool, out)
         if (out.ok) note(line)
         return line

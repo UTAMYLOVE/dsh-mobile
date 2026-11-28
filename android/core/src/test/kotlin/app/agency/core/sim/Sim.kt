@@ -134,6 +134,10 @@ class Sim(val rules: Rules = Fixtures.rules()) {
             is Tap.Say -> {
                 require(model.handles(tap.text)) { "plan item ${i.id} says 「${tap.text}」, which the manager cannot act on" }
                 say(tap.text)
+                // A timer button in her answer is what he taps next.
+                store.messages(1).lastOrNull()?.cards?.filterIsInstance<Card.Open>()?.firstOrNull { it.screen == "TIMER" }
+                    ?.let { timer(it.arg, null) }
+                if (tap.text.contains("真人任務")) say("這週的真人任務做完了")
                 if (tap.text.startsWith("幫我找")) {
                     val v = answer<Card.Videos>("approve:" + lastVideos().items.first().lessonId)
                     if (v.items.size > 1) answer<Card.Videos>("decline:" + v.items.last().lessonId)
@@ -155,6 +159,7 @@ class Sim(val rules: Rules = Fixtures.rules()) {
         "water" -> "喝完一壺了"
         "ride:out" -> "我出門跑單了"
         "ride:back" -> "收工了，今天賺了 1000 元"
+        "task:SUNSCREEN" -> "我擦好防曬了"
         else -> fail("no words for ${i.id}")
     }
 
@@ -167,14 +172,19 @@ class Sim(val rules: Rules = Fixtures.rules()) {
             Screen.CHECK_OUT -> if (chat) say("我要睡了") else direct("check_out", buildJsonObject { put("good", "都做完了"); put("improve", "早點睡"); put("mood", null as Int?) })
             Screen.TIMER -> {
                 val rounds = Regex("""(\d+) 輪""").find(i.detail)?.groupValues?.get(1)?.toInt()
-                if (chat && i.id.startsWith("task:")) {
+                if (chat && i.feature in TRAINING) {
                     say("開始訓練")
                     val open = store.messages(5).flatMap { it.cards }.filterIsInstance<Card.Open>().lastOrNull()
                     require(open != null && open.screen == "TIMER") { "開始訓練 gave no timer button" }
                     timer(open!!.arg, rounds)
                 } else timer(tap.arg, rounds)
             }
-            Screen.CAMERA -> {
+            Screen.CAMERA -> if (tap.arg == "spot") {
+                val line = company.spotAnswer(photoId())
+                t("突擊檢查照片 → $line")
+                require(line != null) { "spot check photo had nothing to answer" }
+                check("after spot photo")
+            } else {
                 val slot = MealSlot.valueOf(tap.arg)
                 val logged = store.entries(day, Kind.MEAL).any { e -> e.read<Meal>().let { it.slot == slot && it.photoId == null } }
                 if (logged) {
@@ -187,7 +197,11 @@ class Sim(val rules: Rules = Fixtures.rules()) {
                     say(mealWords(slot), photo = chat)
                 }
             }
-            Screen.BODY -> direct("log_body", buildJsonObject { put("kg", 79.5); put("waist_cm", null as Double?) })
+            Screen.BODY -> if (tap.arg == "photo") {
+                t("全身照 → " + company.bodyPhoto(photoId()))
+                check("after body photo")
+            } else direct("log_body", buildJsonObject { put("kg", 79.5); put("waist_cm", null as Double?) })
+            Screen.EVAL -> evaluation(tap.arg)
             Screen.LESSONS -> lesson(i)
             Screen.QUIZ -> review(tap.arg.toLong())
             else -> fail("plan item ${i.id} opens ${tap.screen}, which the simulation has no page for")
@@ -195,6 +209,27 @@ class Sim(val rules: Rules = Fixtures.rules()) {
     }
 
     var foods: Map<MealSlot, String> = emptyMap()
+
+    private val TRAINING = setOf(Feature.CORE, Feature.STRENGTH, Feature.STRETCH, Feature.CARDIO)
+
+    /** Three seconds of a steady 220 Hz tone: a take the analysis can read. */
+    private fun tone(): ShortArray = ShortArray(16_000 * 3) { i -> (Math.sin(2 * Math.PI * 220 * i / 16_000.0) * 8000).toInt().toShort() }
+
+    private fun evaluation(arg: String) {
+        val song = company.recordSong(tone(), 16_000, "評鑑曲")
+        val r = if (arg == "monthly") {
+            val body = photoId()
+            company.bodyPhoto(body)
+            runBlocking {
+                company.submitMonthlyEval(app.agency.core.extras.MonthlyInput(song.entryId, "dance-${photoId()}", "rot-${photoId()}", body, 78.0, 80.0, 20, 60))
+            }
+        } else {
+            runBlocking { company.submitWeeklyEval(song.entryId, "dance-${photoId()}", "盡力了") }
+        }
+        t("評鑑 $arg → ${r::class.simpleName} ${(r as? app.agency.core.extras.EvalResult.Refused)?.reason ?: ""}")
+        require(r is app.agency.core.extras.EvalResult.Ok) { "evaluation $arg refused: $r" }
+        check("after evaluation")
+    }
 
     fun mealWords(slot: MealSlot): String = when (slot) {
         MealSlot.FIRST -> "第一餐吃了" + (foods[slot] ?: "測試雞腿便當")
@@ -274,10 +309,16 @@ class Sim(val rules: Rules = Fixtures.rules()) {
         Feature.CHECK_IN, Feature.MEALS, Feature.WATER, Feature.CORE, Feature.STRENGTH, Feature.STRETCH, Feature.RIDE,
         Feature.LESSONS -> true
         Feature.WEIGHT -> d.dayOfWeek.value == rules.body.weighWeekday
+        Feature.MORNING_STRETCH, Feature.VOCAL_BASICS, Feature.POSTURE, Feature.SUNSCREEN, Feature.THEME_WEEK, Feature.REAL_TASK -> true
+        Feature.WALK, Feature.DANCE, Feature.VOCAL -> d.dayOfWeek.value !in rules.classWeekdays
+        Feature.WEEKLY_EVAL, Feature.BODY_PHOTO -> d.dayOfWeek == java.time.DayOfWeek.SUNDAY
+        Feature.MONTHLY_EVAL -> d.dayOfWeek == java.time.DayOfWeek.SUNDAY && d.plusDays(7).month != d.month
         else -> false
     }
 
-    private val doable = setOf(Screen.CHECK_IN, Screen.CHECK_OUT, Screen.TIMER, Screen.CAMERA, Screen.BODY, Screen.LESSONS, Screen.QUIZ)
+    private val doable = setOf(
+        Screen.CHECK_IN, Screen.CHECK_OUT, Screen.TIMER, Screen.CAMERA, Screen.BODY, Screen.LESSONS, Screen.QUIZ, Screen.EVAL,
+    )
 
     /** Invariants 1–4 at this moment (6 is checked by the test each morning, 5 by [say]). */
     fun check(where: String) {
