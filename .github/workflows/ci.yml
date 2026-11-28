@@ -27,8 +27,27 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      # Unit tests, and no analytics, crash-report or tracking library anywhere (arch 1.11).
-      - run: ./gradlew :core:test :app:testDebugUnitTest :app:verifyNoTelemetry --no-daemon
+      # Unit tests, and no analytics, crash-report or tracking library anywhere. The screen tests also save pictures of the
+      # main screens (invented demo data only) so the look can be checked without a phone.
+      - run: ./gradlew :core:test :app:testDebugUnitTest :app:verifyNoTelemetry --no-daemon "-Pdshm.shots=$GITHUB_WORKSPACE/shots"
+      - name: Upload screen pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens
+          path: shots
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Upload unit test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            android/app/build/reports/tests
+            android/app/build/test-results
+            android/core/build/reports/tests
+          retention-days: 7
 
   # 小雨娛樂 end to end on a real Android (x86_64 emulator): AgencyE2eTest on the real encrypted database and Keystore.
   # The model is an in-process fake (src/androidTest/.../FakeModel.kt) with a fake key: no real key, no cost. The APK carries no
