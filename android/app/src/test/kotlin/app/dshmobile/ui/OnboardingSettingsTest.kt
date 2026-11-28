@@ -120,7 +120,7 @@ class OnboardingSettingsTest {
             SettingsPage.MEMORY to "喜歡吃烤地瓜",
             SettingsPage.REMIND to "試一則",
             SettingsPage.BACKUP to "備份",
-            SettingsPage.IMPORT to "選檔案",
+            SettingsPage.IMPORT to "選檔案給小葵",
             SettingsPage.OLD to "今天吃了便當",
             SettingsPage.VERSION to "有新版本 1.0.1",
             SettingsPage.LICENSES to "字體 · 霞鶩文楷",
@@ -141,8 +141,8 @@ class OnboardingSettingsTest {
         rule.until { rule.has("備份好了，檔案在下載資料夾。") }
     }
 
-    @Test fun importPreviewsThenRestoresAfterTwoConfirmations() {
-        rule.show { SettingsRoot(DemoSettings(), DemoBackup(), DemoOldData(), {}, startAt = SettingsPage.IMPORT) }
+    @Test fun backupPageRestoresAfterAPreviewAndTwoConfirmations() {
+        rule.show { SettingsRoot(DemoSettings(), DemoBackup(), DemoOldData(), {}, startAt = SettingsPage.BACKUP) }
         rule.onNodeWithTag("import_pass").performTextInput("secret1")
         rule.onNodeWithTag("import_pick").performClick()
         rule.until { rule.count("import_preview") > 0 }

@@ -102,7 +102,7 @@ class HomeScreenTest {
         home(company)
         // the next item opens the camera; the demo camera returns a photo that is sent with the meal's name
         rule.onNodeWithTag("next_pill").performClick()
-        rule.until { company.calls.any { it.startsWith("say:這是我的晚餐:1") } }
+        rule.until { company.calls.any { it.startsWith("say:這是我的晚餐，請幫我記下來:1") } }
     }
 
     @Test fun handbookRowsRouteTheirTaps() {

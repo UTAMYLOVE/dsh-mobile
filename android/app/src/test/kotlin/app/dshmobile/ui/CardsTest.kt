@@ -74,8 +74,9 @@ class CardsTest {
         rule.onNodeWithText("聲樂 · 12 分鐘").assertIsDisplayed()
         rule.onNodeWithTag("video_add_31").performClick()
         rule.onNodeWithTag("video_no_31").performClick()
-        rule.onNodeWithTag("video_watch_31").performClick()
-        assertEquals(listOf("answer:7:2:approve:31", "answer:7:2:decline:31", "url:https://example.org/a"), log.toList())
+        // 去看 only appears after 加入清單
+        assertEquals(0, rule.onAllNodesWithTagCount("video_watch_31"))
+        assertEquals(listOf("answer:7:2:approve:31", "answer:7:2:decline:31"), log.toList())
     }
 
     @Test fun approvedVideoOffersWatchThroughTheLessons() {
