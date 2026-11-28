@@ -5,9 +5,14 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import app.dshmobile.ui.MainActivity
+import app.dshmobile.wire.CameraActivity
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -35,6 +40,14 @@ class JourneyTest {
         waitForTag(tag)
         rule.onNodeWithTag(tag).performTextInput(text)
     }
+
+    private fun overlayShown() = rule.onAllNodes(hasTestTag("overlay")).fetchSemanticsNodes().isNotEmpty()
+
+    private fun cameras() = listOf(Stage.CREATED, Stage.STARTED, Stage.RESUMED).flatMap {
+        ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(it).filterIsInstance<CameraActivity>()
+    }
+
+    private fun cameraShown() = cameras().isNotEmpty()
 
     private fun count(text: String) = rule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().size
 
@@ -75,7 +88,13 @@ class JourneyTest {
         waitForTag("next_pill")
         val before = count(reply)
         rule.onNodeWithTag("next_pill").performClick()
-        // Its words go to 小葵 (a second reply), or it opens the page that item belongs to; either way something answered.
-        rule.waitUntil(60_000) { count(reply) > before || rule.onAllNodes(hasTestTag("overlay")).fetchSemanticsNodes().isNotEmpty() }
+        // Its words go to 小葵 (a second reply), or it opens the page that item belongs to (an overlay), or, for a meal, the in-app
+        // camera screen. Either way the tap did what the plan item says.
+        try {
+            rule.waitUntil(60_000) { count(reply) > before || overlayShown() || cameraShown() }
+        } catch (e: Throwable) {
+            throw AssertionError("the next-thing tap did nothing visible:\n" + rule.onRoot(useUnmergedTree = true).printToString(2500), e)
+        }
+        runCatching { cameras().forEach { c -> rule.runOnUiThread { c.finish() } } }
     }
 }
