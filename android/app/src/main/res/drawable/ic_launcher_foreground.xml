@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- White rounded "D" inside the 66dp adaptive-icon safe zone. -->
+<!-- A yellow sunflower sticker with a pink raindrop in its white centre, dark-plum outlines (inside the 66 dp safe zone). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:fillType="evenOdd"
-        android:pathData="M39,30 L54,30 C67.8,30 79,41.2 79,55 C79,68.8 67.8,80 54,80 L39,80 Z M49,40 L49,70 L54,70 C62.3,70 69,63.3 69,55 C69,46.7 62.3,40 54,40 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M54.00,44.00 C62.10,40.00 63.00,29.00 54.00,23.00 C45.00,29.00 45.90,40.00 54.00,44.00 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M59.00,45.34 C68.01,45.93 74.29,36.85 69.50,27.15 C58.71,27.85 53.99,37.83 59.00,45.34 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M62.66,49.00 C70.17,54.01 80.15,49.29 80.85,38.50 C71.15,33.71 62.07,39.99 62.66,49.00 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M64.00,54.00 C68.00,62.10 79.00,63.00 85.00,54.00 C79.00,45.00 68.00,45.90 64.00,54.00 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M62.66,59.00 C62.07,68.01 71.15,74.29 80.85,69.50 C80.15,58.71 70.17,53.99 62.66,59.00 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M59.00,62.66 C53.99,70.17 58.71,80.15 69.50,80.85 C74.29,71.15 68.01,62.07 59.00,62.66 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M54.00,64.00 C45.90,68.00 45.00,79.00 54.00,85.00 C63.00,79.00 62.10,68.00 54.00,64.00 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M49.00,62.66 C39.99,62.07 33.71,71.15 38.50,80.85 C49.29,80.15 54.01,70.17 49.00,62.66 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M45.34,59.00 C37.83,53.99 27.85,58.71 27.15,69.50 C36.85,74.29 45.93,68.01 45.34,59.00 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M44.00,54.00 C40.00,45.90 29.00,45.00 23.00,54.00 C29.00,63.00 40.00,62.10 44.00,54.00 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M45.34,49.00 C45.93,39.99 36.85,33.71 27.15,38.50 C27.85,49.29 37.83,54.01 45.34,49.00 Z" />
+    <path android:fillColor="#FFE08A" android:strokeColor="#3A2E4D" android:strokeWidth="2" android:strokeLineJoin="round" android:pathData="M49.00,45.34 C54.01,37.83 49.29,27.85 38.50,27.15 C33.71,36.85 39.99,45.93 49.00,45.34 Z" />
+    <path android:fillColor="#FFFFFF" android:strokeColor="#3A2E4D" android:strokeWidth="2.4" android:pathData="M54,54 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0" />
+    <path android:fillColor="#FF8FB1" android:strokeColor="#3A2E4D" android:strokeWidth="1.8" android:strokeLineJoin="round" android:pathData="M54,44.5 C54,44.5 46.6,52.2 46.6,57.4 A7.4,7.4 0 0 0 61.4,57.4 C61.4,52.2 54,44.5 54,44.5 Z" />
 </vector>

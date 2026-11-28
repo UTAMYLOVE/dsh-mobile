@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Onboarding and settings. Traditional Chinese, no Latin letters. -->
+<resources>
+    <string name="ob_back">上一步</string>
+    <string name="ob_next">下一步</string>
+    <string name="ob_start">開始</string>
+    <string name="ob_read">請小葵姐讀</string>
+    <string name="ob_confirm_ok">都對，繼續</string>
+    <string name="ob_name_ok">就這樣</string>
+    <string name="ob_day_one">開始第一天</string>
+    <string name="ob_welcome_title">歡迎來到小雨娛樂</string>
+    <string name="ob_welcome_text">我是小葵，你的經紀人。以後吃什麼、練什麼、讀什麼，直接跟我說，我來記、我來算。先花幾分鐘把公司設定好。</string>
+    <string name="ob_keys_title">接上小葵的腦袋</string>
+    <string name="ob_keys_text">小葵需要一把金鑰才會思考。金鑰只存在這支手機的安全區，不會寫進檔案，也不會上傳。第二把可以先不填，它是比較省錢的聊天用。</string>
+    <string name="ob_key_claude">第一把金鑰（必填）</string>
+    <string name="ob_key_deepseek">第二把金鑰（可不填）</string>
+    <string name="ob_key_error">存不起來，請再試一次。</string>
+    <string name="ob_paste_title">貼上你的要求文件</string>
+    <string name="ob_paste_text">把你自己寫的作息、飲食、訓練要求整份貼進來。小葵姐會讀懂，整理成公司規章給你確認。</string>
+    <string name="ob_paste_hint">在這裡貼上文件</string>
+    <string name="ob_reading_title">小葵姐在讀</string>
+    <string name="ob_reading_text">正在整理你的文件，大概要一兩分鐘…</string>
+    <string name="ob_confirm_title">我整理成這樣，對嗎？</string>
+    <string name="ob_missing">還缺：%1$s</string>
+    <string name="ob_confirm_later">之後都可以到設定裡慢慢改。</string>
+    <string name="ob_name_title">取個藝名</string>
+    <string name="ob_call_name">小葵姐怎麼叫你？</string>
+    <string name="ob_stage_name">藝名</string>
+    <string name="ob_member_color">選你的應援色</string>
+    <string name="ob_perm_title">最後，讓小葵姐能提醒你</string>
+    <string name="ob_perm_notify">通知：時間到了，小葵姐才叫得到你。</string>
+    <string name="ob_perm_notify_btn">允許通知</string>
+    <string name="ob_perm_alarm">準時提醒：讓提醒在整點響，不會晚。</string>
+    <string name="ob_perm_alarm_btn">打開準時提醒</string>
+    <string name="ob_perm_ok">已經允許了</string>
+    <string name="ob_battery_title">三星手機要多做一步</string>
+    <string name="ob_battery_text">到「設定 → 電池 → 背景使用限制」，把小雨娛樂設成「不受限制」，也不要放進「休眠中的應用程式」，不然提醒會被手機吃掉。</string>
+    <string name="ob_battery_btn">打開設定</string>
+
+    <string name="set_title">設定</string>
+    <string name="set_rules">公司規章</string>
+    <string name="set_model">小葵的模型</string>
+    <string name="set_spend">花費</string>
+    <string name="set_memory">記憶</string>
+    <string name="set_remind">提醒</string>
+    <string name="set_backup">備份</string>
+    <string name="set_import">匯入</string>
+    <string name="set_old">舊版資料</string>
+    <string name="set_version">版本與更新</string>
+    <string name="set_licenses">授權</string>
+    <string name="set_confirm_yes">我要改</string>
+    <string name="set_confirm_yes_again">真的要改</string>
+
+    <string name="rules_hint">這些是公司規章。聊天改不了，只有在這裡改，而且要確認兩次。</string>
+    <string name="rules_confirm_1">要改公司規章嗎？</string>
+    <string name="rules_confirm_2">再確認一次：改了就從現在開始算。</string>
+
+    <string name="model_chat">聊天用哪個</string>
+    <string name="model_all_claude">全部用最好的</string>
+    <string name="model_chat_cheap">聊天用省錢的</string>
+    <string name="model_tier">模型等級</string>
+    <string name="tier_smart">聰明</string>
+    <string name="tier_balanced">均衡</string>
+    <string name="tier_cheap">省錢</string>
+    <string name="model_keys">金鑰</string>
+    <string name="key_set">已經設定好了</string>
+    <string name="key_not_set">還沒設定</string>
+
+    <string name="spend_today">今天花了 %1$s</string>
+    <string name="spend_month">這個月花了 %1$s</string>
+    <string name="spend_cap">每月上限（元）</string>
+    <string name="spend_cap_hint">不填就是不設上限</string>
+
+    <string name="memory_hint">這些是小葵姐記住的事。不對的可以刪掉。</string>
+    <string name="memory_empty">她還沒有記住什麼。</string>
+
+    <string name="remind_test_text">試一則通知，看手機有沒有叫你。</string>
+    <string name="remind_test">試一則</string>
+    <string name="remind_sent">送出去了。</string>
+
+    <string name="backup_hint">把所有紀錄和照片包成一個檔案，用你設的密碼鎖起來。密碼忘了就打不開，請記好。</string>
+    <string name="backup_pass">密碼（至少六個字）</string>
+    <string name="backup_pass_short">密碼太短了。</string>
+    <string name="backup_export">備份</string>
+    <string name="import_hint">選一個備份檔，輸入當時的密碼，先看內容再決定要不要還原。</string>
+    <string name="import_pick">選檔案</string>
+    <string name="import_failed">打不開，密碼或檔案不對。</string>
+    <string name="import_preview">備份裡有：%1$s</string>
+    <string name="import_apply">還原</string>
+    <string name="import_confirm_1">還原會蓋掉手機上現在的全部資料，要繼續嗎？</string>
+    <string name="import_confirm_2">真的確定？蓋掉就回不來了。</string>
+
+    <string name="old_hint">這是舊版的對話，只能看，不能改。</string>
+    <string name="old_none">沒有舊版資料。</string>
+    <string name="old_deleted">舊版資料已經刪掉了。</string>
+    <string name="old_delete">刪掉舊版資料</string>
+    <string name="old_confirm_1">要刪掉舊版的對話和照片嗎？</string>
+    <string name="old_confirm_2">真的確定？刪了就找不回來。</string>
+
+    <string name="version_now">目前的版本 %1$s</string>
+    <string name="version_newer">有新版本 %1$s</string>
+    <string name="version_open">去下載</string>
+    <string name="version_latest">這已經是最新的版本。</string>
+</resources>

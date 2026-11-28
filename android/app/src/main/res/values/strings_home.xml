@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home, the input row and the cards. Traditional Chinese, no Latin letters. -->
+<resources>
+    <string name="home_name">小葵姐</string>
+    <string name="home_next">下一件事</string>
+    <string name="home_next_at">下一件事　%1$s</string>
+    <string name="home_input_hint">用講的或打字都可以</string>
+    <string name="home_thinking">小葵姐正在想…</string>
+    <string name="msg_resend">沒送出 · 重送</string>
+    <string name="chips_label">快速回覆</string>
+    <string name="plus_camera">拍照</string>
+    <string name="plus_gallery">相簿</string>
+    <string name="plus_file">檔案</string>
+    <string name="attach_photo">照片</string>
+    <string name="attach_count">附了 %1$d 個東西</string>
+    <string name="say_photo">這是我的%1$s</string>
+    <string name="slot_first">第一餐</string>
+    <string name="slot_dinner">晚餐</string>
+    <string name="slot_night">路上那一餐</string>
+    <string name="slot_other">這一餐</string>
+
+    <string name="cd_plus">更多</string>
+    <string name="cd_send">送出</string>
+    <string name="cd_mic">用講的</string>
+    <string name="cd_remove">拿掉</string>
+    <string name="cd_settings">設定</string>
+    <string name="cd_trainee">練習生小卡</string>
+    <string name="cd_back">返回</string>
+
+    <string name="handbook_title">今天的手帳</string>
+    <string name="handbook_progress">%1$d／%2$d</string>
+    <string name="handbook_adjustments">今天改了什麼</string>
+    <string name="handbook_adjust_line">%1$s（%2$s）</string>
+
+    <string name="card_kcal">%1$d 大卡</string>
+    <string name="card_protein">蛋白質 %1$s 克</string>
+    <string name="card_today_total">今天 %1$d／%2$d</string>
+    <string name="card_today_protein">蛋白質 %1$s／%2$d 克</string>
+    <string name="card_estimate">估算</string>
+    <string name="card_no_photo">缺照片</string>
+    <string name="card_proposal">要你點頭</string>
+    <string name="card_yes">好</string>
+    <string name="card_no">不要</string>
+    <string name="card_yes_done">已答應</string>
+    <string name="card_no_done">已婉拒</string>
+    <string name="card_videos">影片</string>
+    <string name="card_places">地點</string>
+    <string name="card_add">加入清單</string>
+    <string name="card_watch">去看</string>
+    <string name="card_added">已加入</string>
+    <string name="card_declined">已略過</string>
+    <string name="card_minutes">%1$d 分鐘</string>
+    <string name="card_file_chars">%1$d 字</string>
+</resources>

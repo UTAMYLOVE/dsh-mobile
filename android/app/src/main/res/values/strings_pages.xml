@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sheets and pages. Traditional Chinese, no Latin letters (level letters excepted). -->
+<resources>
+    <string name="btn_save">記下來</string>
+    <string name="btn_cancel">取消</string>
+    <string name="btn_checkout">簽退</string>
+
+    <string name="checkin_title">今天精神幾分？</string>
+    <string name="checkin_hint">點一個數字就簽到好了。</string>
+    <string name="checkout_title">簽退</string>
+    <string name="checkout_good">今天做得好的</string>
+    <string name="checkout_improve">明天想改進的</string>
+    <string name="checkout_mood">今天心情</string>
+    <string name="body_title">量體重</string>
+    <string name="body_kg">體重（公斤）</string>
+    <string name="body_waist">腰圍（公分）</string>
+    <string name="body_photo">拍一張照片</string>
+    <string name="body_photo_done">已附照片</string>
+    <string name="money_title">記一筆</string>
+    <string name="money_amount">金額（元）</string>
+    <string name="money_note">備註</string>
+    <string name="money_living">生活</string>
+    <string name="money_fun">玩樂</string>
+    <string name="money_income">收入</string>
+
+    <string name="lessons_title">理論課</string>
+    <string name="lessons_wish_hint">我想學…</string>
+    <string name="lessons_wish_send">請小葵找</string>
+    <string name="lessons_empty">還沒有影片，跟小葵姐說你想學什麼。</string>
+    <string name="say_wish">我想學%1$s</string>
+    <string name="lesson_do_quiz">做測驗</string>
+    <string name="lesson_do_note">寫心得</string>
+    <string name="lesson_do_review">複習測驗</string>
+    <string name="lesson_done">已完成</string>
+    <string name="quiz_title">小測驗</string>
+    <string name="quiz_submit">交卷</string>
+    <string name="quiz_result">答對 %1$d／%2$d</string>
+    <string name="quiz_pass">通過了！</string>
+    <string name="quiz_retry">再來一次</string>
+    <string name="quiz_note_title">寫幾句心得</string>
+    <string name="quiz_note_none">這支沒有測驗，寫三行心得就好。</string>
+    <string name="quiz_note_hint">今天學到什麼？（至少十個字）</string>
+    <string name="quiz_note_short">再多寫一點，至少十個字。</string>
+
+    <string name="timer_title">訓練</string>
+    <string name="timer_ready">準備好了就開始</string>
+    <string name="timer_rest">休息一下</string>
+    <string name="timer_start">開始</string>
+    <string name="timer_pause">暫停</string>
+    <string name="timer_resume">繼續</string>
+    <string name="timer_skip">跳過</string>
+    <string name="timer_round">第 %1$d／%2$d 輪</string>
+    <string name="timer_rounds_note">共 %1$d 輪，輪與輪之間休息 %2$d 秒</string>
+    <string name="timer_done">做完了，辛苦了！</string>
+    <string name="timer_feel">這次感覺怎麼樣？</string>
+    <string name="feel_easy">輕鬆</string>
+    <string name="feel_ok">剛好</string>
+    <string name="feel_hard">吃力</string>
+
+    <string name="memo_title">備忘錄</string>
+    <string name="memo_hint">想記什麼？</string>
+    <string name="memo_add">加上去</string>
+    <string name="memo_empty">現在沒有要記的事。</string>
+
+    <string name="trainee_title">練習生小卡</string>
+    <string name="trainee_stage_name">藝名</string>
+    <string name="trainee_no_name">還沒取名</string>
+    <string name="trainee_days">入社第 %1$d 天</string>
+    <string name="trainee_member_color">應援色</string>
+    <string name="trainee_wall">小卡牆</string>
+    <string name="trainee_wall_empty">連續七天滿分，就會得到第一張小卡。</string>
+    <string name="trainee_diary">貼紙日記</string>
+    <string name="trainee_diary_note">星星是全部做完、沒有犯規的日子。</string>
+
+    <string name="singing_title">唱歌</string>
+    <string name="singing_hint">按開始，唱一段。錄音只留在手機裡。</string>
+    <string name="singing_start">開始唱</string>
+    <string name="singing_stop">唱完了</string>
+    <string name="singing_recording">錄音中…</string>
+    <string name="singing_denied">麥克風沒有打開，請到設定允許。</string>
+    <string name="singing_empty">沒有錄到可以分析的聲音，再唱一次。</string>
+    <string name="singing_in_tune">音準 %1$d%%</string>
+    <string name="singing_range">音域 %1$s</string>
+    <string name="singing_phrase">最長的一句 %1$d 秒</string>
+    <string name="singing_loud">音量 %1$s</string>
+
+    <string name="eval_title">評鑑</string>
+    <string name="eval_weekly">每週</string>
+    <string name="eval_monthly">每月</string>
+    <string name="eval_record">錄這一項</string>
+    <string name="eval_confirm">就用這些分數</string>
+</resources>
