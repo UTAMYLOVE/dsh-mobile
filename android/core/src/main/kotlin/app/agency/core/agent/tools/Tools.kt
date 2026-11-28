@@ -31,5 +31,7 @@ object Tools {
 
     /** The NOTE line a tap leaves in the conversation. */
     fun noteLine(tool: Tool, out: ToolOut): String =
-        (tool as? Noted)?.noteLine(out) ?: if (out.ok) "✓ 已記" else "沒記到"
+        (tool as? Noted)?.noteLine(out) ?: if (out.ok) {
+            "✓ " + ((out.facts["note"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "已記")
+        } else "沒記到"
 }
